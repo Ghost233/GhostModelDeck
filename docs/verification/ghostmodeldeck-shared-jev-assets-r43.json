@@ -1,0 +1,102 @@
+{
+  "scope": "Read-only production scan and independent physical hash recheck of shared JEV models; no inferred upstream provenance, registration, receipt copying, engine execution, inference, capability or Ready",
+  "curated_at": "2026-10-05T20:08:08.756237+00:00",
+  "raw_path": ".tooling/gmd-shared-jev-structural-r43.json",
+  "raw_sha256": "c764e528522c7f87d72774d9a6c098dd838aa96483b500a0166563ceaa256fbb",
+  "production_scan": {
+    "scope": "Read-only production ModelLibrary.scan(full-content verification) of explicitly selected shared JEV files; no receipt/config copying, registration, engine, inference or Ready evidence",
+    "observed_at": "2026-10-05T20:05:59.007607Z",
+    "assets": [
+      {
+        "path": "/Users/ghost233/.lmstudio/models/ggml-org/Kev-0.8B-GGUF/Kev-0.8B-Q8_0.gguf",
+        "before": {
+          "bytes": 812406304,
+          "modified_at": "2026-10-04T08:47:22.262556Z",
+          "changed_at": "2026-10-04T08:47:26.956407Z",
+          "mode": 33188,
+          "type": "file"
+        },
+        "after": {
+          "bytes": 812406304,
+          "modified_at": "2026-10-04T08:47:22.262556Z",
+          "changed_at": "2026-10-04T08:47:26.956407Z",
+          "mode": 33188,
+          "type": "file"
+        },
+        "id": "716b7180cc1f3edee55fc48795aa6371ff89cf654a17ac0aa47857742940c1a4",
+        "kind": "decision",
+        "format": "GGUF",
+        "architecture": "qwen35",
+        "decision_type": "kev",
+        "integrity": "complete",
+        "engine_capability": "awaitingVerification",
+        "source_verified": false,
+        "fingerprints_verified": true,
+        "bytes": 812406304,
+        "sha256": "27278f34eb3273bceea4c053dc50dd61a5161da21a718c4aacdf8fd5830771d0",
+        "diagnostics": [],
+        "unchanged": true
+      },
+      {
+        "path": "/Users/ghost233/.lmstudio/models/ggml-org/Laya-GGUF/Laya-Q8_0.gguf",
+        "before": {
+          "bytes": 449397600,
+          "modified_at": "2026-10-04T08:55:39.967681Z",
+          "changed_at": "2026-10-04T08:55:42.712991Z",
+          "mode": 33188,
+          "type": "file"
+        },
+        "after": {
+          "bytes": 449397600,
+          "modified_at": "2026-10-04T08:55:39.967681Z",
+          "changed_at": "2026-10-04T08:55:42.712991Z",
+          "mode": 33188,
+          "type": "file"
+        },
+        "id": "dfbd29e122e9a78d3c66996972e9ebef163b91970cb60970174ab39413f07903",
+        "kind": "decision",
+        "format": "GGUF",
+        "architecture": "modern-bert",
+        "decision_type": "laya",
+        "integrity": "complete",
+        "engine_capability": "awaitingVerification",
+        "source_verified": false,
+        "fingerprints_verified": true,
+        "bytes": 449397600,
+        "sha256": "c06528c5746d3bb8baa72a27938be95abbfd0b226f8471e8a9e365ed0bb066d2",
+        "diagnostics": [],
+        "unchanged": true
+      }
+    ],
+    "success": true
+  },
+  "independent_recheck": [
+    {
+      "path": "/Users/ghost233/.lmstudio/models/ggml-org/Kev-0.8B-GGUF/Kev-0.8B-Q8_0.gguf",
+      "bytes": 812406304,
+      "sha256": "27278f34eb3273bceea4c053dc50dd61a5161da21a718c4aacdf8fd5830771d0",
+      "device": 16777230,
+      "inode": 13672562,
+      "mtime_ns": 1791103642262556737,
+      "ctime_ns": 1791103646956407750,
+      "mode": 33188,
+      "unchanged_during_independent_rehash": true
+    },
+    {
+      "path": "/Users/ghost233/.lmstudio/models/ggml-org/Laya-GGUF/Laya-Q8_0.gguf",
+      "bytes": 449397600,
+      "sha256": "c06528c5746d3bb8baa72a27938be95abbfd0b226f8471e8a9e365ed0bb066d2",
+      "device": 16777230,
+      "inode": 13721988,
+      "mtime_ns": 1791104139967681116,
+      "ctime_ns": 1791104142712991146,
+      "mode": 33188,
+      "unchanged_during_independent_rehash": true
+    }
+  ],
+  "stage_verdict": {
+    "structure_and_fingerprints": "passed",
+    "upstream_receipt_provenance": "not established",
+    "native_model_and_three_primitives": "not tested"
+  }
+}
