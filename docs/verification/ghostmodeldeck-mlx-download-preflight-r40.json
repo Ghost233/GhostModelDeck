@@ -1,0 +1,153 @@
+{
+  "production_download": {
+    "observed_at": "2026-10-05T19:17:58.101738Z",
+    "repository": "mlx-community/Qwen2.5-0.5B-Instruct-4bit",
+    "revision": "a5339a4131f135d0fdc6a5c8b5bbed2753bbe0f3",
+    "library": "/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-mlx-r40-BobJGc",
+    "scope": "LIVE production HF package downloader and full ModelLibrary scan in fresh owned temporary library; no engine installation/load/Ready/GUI or Release acceptance",
+    "metadata_origin": "online",
+    "selection_files_before_index_expansion": [
+      {
+        "path": "added_tokens.json",
+        "bytes": 605,
+        "sha256": null
+      },
+      {
+        "path": "config.json",
+        "bytes": 783,
+        "sha256": null
+      },
+      {
+        "path": "merges.txt",
+        "bytes": 1671853,
+        "sha256": null
+      },
+      {
+        "path": "model.safetensors.index.json",
+        "bytes": 44209,
+        "sha256": null
+      },
+      {
+        "path": "special_tokens_map.json",
+        "bytes": 613,
+        "sha256": null
+      },
+      {
+        "path": "tokenizer.json",
+        "bytes": 7031673,
+        "sha256": null
+      },
+      {
+        "path": "tokenizer_config.json",
+        "bytes": 7308,
+        "sha256": null
+      },
+      {
+        "path": "vocab.json",
+        "bytes": 2776833,
+        "sha256": null
+      }
+    ],
+    "download_status": "failed",
+    "download_error": "来源返回了压缩内容，无法验证文件字节",
+    "installation_id": null,
+    "success": false,
+    "failure": "Bad state: Production MLX package did not install successfully",
+    "stack": "#0      main (file:///Users/ghost233/Ghost233Code/GhostModelDeck/.tooling/gmd-live-mlx-assets-r40.dart:116:7)\n<asynchronous suspension>\n",
+    "elapsed_seconds": 2.429,
+    "budget_cancelled": false
+  },
+  "encoding_diagnosis": {
+    "observed_at": "2026-10-05T19:21:12.763206Z",
+    "scope": "READ-ONLY wire/content encoding diagnosis of fixed merges.txt; does not bypass downloader or install asset; no product/settings changes",
+    "requests": [
+      {
+        "mode": "same_as_production_auto_redirect",
+        "request_accept_encoding": "identity",
+        "hops": [
+          {
+            "host": "huggingface.co",
+            "path": "/mlx-community/Qwen2.5-0.5B-Instruct-4bit/resolve/a5339a4131f135d0fdc6a5c8b5bbed2753bbe0f3/merges.txt",
+            "status": 200,
+            "encoding": "gzip",
+            "content_length": -1,
+            "vary": "Origin,Accept-Encoding",
+            "cache": "Hit from cloudfront"
+          }
+        ],
+        "wire_bytes": 716838,
+        "decoded_bytes": 1671853,
+        "decoded_sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5",
+        "decoded_git_blob": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7",
+        "matches_fixed_blob": true
+      },
+      {
+        "mode": "manual_identity_each_hop",
+        "request_accept_encoding": "identity",
+        "hops": [
+          {
+            "host": "huggingface.co",
+            "path": "/mlx-community/Qwen2.5-0.5B-Instruct-4bit/resolve/a5339a4131f135d0fdc6a5c8b5bbed2753bbe0f3/merges.txt",
+            "status": 307,
+            "encoding": null,
+            "content_length": 318,
+            "vary": "Origin, Accept",
+            "cache": "Miss from cloudfront"
+          },
+          {
+            "host": "huggingface.co",
+            "path": "/api/resolve-cache/models/mlx-community/Qwen2.5-0.5B-Instruct-4bit/a5339a4131f135d0fdc6a5c8b5bbed2753bbe0f3/merges.txt",
+            "status": 200,
+            "encoding": null,
+            "content_length": 1671853,
+            "vary": "Origin",
+            "cache": "Hit from cloudfront"
+          }
+        ],
+        "wire_bytes": 1671853,
+        "decoded_bytes": 1671853,
+        "decoded_sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5",
+        "decoded_git_blob": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7",
+        "matches_fixed_blob": true
+      }
+    ]
+  },
+  "legal_assets": {
+    "observed_at": "2026-10-05T19:19:35.096471+00:00",
+    "directory": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-fixture-legal-r40-soq__qpo",
+    "scope": "Fixed model cards/licenses only; MLX upstream license revision is not proven conversion-input revision; no model readiness or distribution permission assertion",
+    "files": [
+      {
+        "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-fixture-legal-r40-soq__qpo/mlx-README.md",
+        "url": "https://huggingface.co/mlx-community/Qwen2.5-0.5B-Instruct-4bit/resolve/a5339a4131f135d0fdc6a5c8b5bbed2753bbe0f3/README.md",
+        "bytes": 748,
+        "sha256": "8cd48183a9d10279e02291f12f03a2db5585c222a0cf77f97dca3c87f79bd5e1"
+      },
+      {
+        "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-fixture-legal-r40-soq__qpo/mlx-upstream-LICENSE",
+        "url": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/7ae557604adf67be50417f59c2c2f167def9a775/LICENSE",
+        "bytes": 11343,
+        "sha256": "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e"
+      },
+      {
+        "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-fixture-legal-r40-soq__qpo/gguf-README.md",
+        "url": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/9217f5db79a29953eb74d5343926648285ec7e67/README.md",
+        "bytes": 4856,
+        "sha256": "fa1fede7f775a20f111cc098c00900092020572ce78976970a5b0ad9ca211999"
+      },
+      {
+        "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-fixture-legal-r40-soq__qpo/gguf-LICENSE",
+        "url": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/9217f5db79a29953eb74d5343926648285ec7e67/LICENSE",
+        "bytes": 11343,
+        "sha256": "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e"
+      }
+    ],
+    "success": true
+  },
+  "scope": "FAILED actual indexed MLX production download; read-only redirect diagnosis and separately successful model-card/license acquisition; no scan/load/Ready. No product/network/settings changes.",
+  "raw_sha256": {
+    ".tooling/gmd-live-mlx-assets-r40.json": "d02feb346aaa80fdac2e9d8ae2b70d16ccb76b19b41fa8bf24171de399f9bd20",
+    ".tooling/gmd-mlx-encoding-diagnostic-r40.json": "c79a3711a33962f4dc0a4d4f5ec02a73853da46bfda99c20f044dc1359aa53ee",
+    ".tooling/gmd-fixture-legal-r40.json": "6218189fe9e8b2cffe2d8a6476f74d294bfb68a597b348b37f83282cbd2516b8"
+  }
+}
