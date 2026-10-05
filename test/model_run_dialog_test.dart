@@ -172,6 +172,14 @@ void main() {
           await _settleFilesystemFrames(tester);
         });
         expect(find.text('Bad state: provider refused stop'), findsOneWidget);
+        expect(fresh.state.instances.single.status, LlamaInstanceStatus.failed);
+        expect(fresh.state.instances.single.hasLiveProcess, isTrue);
+        expect(fresh.state.instances.single.acceptingRequests, isFalse);
+        expect(fresh.state.instances.single.capabilities, isEmpty);
+        await expectLater(
+          library.prepareDeletion([library.state.artifacts.single.id]),
+          throwsA(isA<LibraryException>()),
+        );
         expect(
           tester
               .widget<TextButton>(find.widgetWithText(TextButton, '停止'))
@@ -216,6 +224,7 @@ void main() {
         });
         await tester.runAsync(() => _settleFilesystemFrames(tester));
         expect(find.text('已停止'), findsOneWidget);
+        expect(fresh.state.instances.single.hasLiveProcess, isFalse);
         expect(find.text('运行中'), findsNothing);
         expect(tester.takeException(), isNull);
       },

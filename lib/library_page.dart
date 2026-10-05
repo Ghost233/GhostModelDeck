@@ -590,10 +590,15 @@ class _LibraryPageState extends State<LibraryPage> {
   Widget _runRow(EngineRun run, bool busy) {
     final instance = run.instance;
     final stopKey = '${run.engine.id}:${instance.id}';
-    final stopping = _stopping.contains(stopKey);
+    final stopping =
+        _stopping.contains(stopKey) ||
+        instance.status == LlamaInstanceStatus.stopping;
     final active =
         instance.status == LlamaInstanceStatus.ready ||
-        instance.status == LlamaInstanceStatus.starting;
+        instance.status == LlamaInstanceStatus.starting ||
+        instance.status == LlamaInstanceStatus.stopping ||
+        (instance.status == LlamaInstanceStatus.failed &&
+            instance.hasLiveProcess);
     final theme = Theme.of(context);
     final failure = instance.status == LlamaInstanceStatus.failed;
     return Padding(
@@ -611,6 +616,7 @@ class _LibraryPageState extends State<LibraryPage> {
                     : switch (instance.status) {
                         LlamaInstanceStatus.starting => '启动中',
                         LlamaInstanceStatus.ready => '运行中',
+                        LlamaInstanceStatus.stopping => '停止中',
                         LlamaInstanceStatus.stopped => '已停止',
                         LlamaInstanceStatus.failed => '失败',
                       },

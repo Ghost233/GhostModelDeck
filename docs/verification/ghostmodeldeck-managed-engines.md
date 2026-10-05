@@ -56,3 +56,17 @@ JEV official release 仍为 `b11381 / 836d57176dc699a726c55418e4f96b8ca628e1bf`�
 5. 固定普通 Qwen2.5-0.5B GGUF、现有 Kev/Laya 的公开扫描/完整来源重建、真实生产入口安装/加载/调用、Mac 构建，以及 PID/端口/权重完整收尾。现阶段不宣称 Ready 的完整 installation-version/run-generation 证据链。
 
 工单由主线程继续处理和最终审查；本切片不自行关闭 #15。
+
+## M2 — 请求归属与可再次启动的受管回收（增量）
+
+接续保留 M1 与原有未提交切片；仍使用公开 `LlamaEngine`，替身仅在 `EngineProcessIO` / `EngineChild`，真实 loopback HTTP 与 Completer 控制晚 spawn / 请求。这里不是 native 模型证明，也不是 #17 的公开网关。
+
+- 单实例 `stop` 同步撤销请求入场与能力，取消该实例许可并排空后才 kill；另一实例保持 Ready、可调用及模型在用保护。RED `run-QC8SYs` exit1 → GREEN `run-ZWDQ68` exit0（接续前取得，原有改动保留）。
+- `stopManaged` 同步封口新 start 与已接受 start，撤销全部已有实例准入；accepted start 在晚 spawn 返回后必须清理 owned child，不能继续能力探测/恢复 Ready。排队清理等待已接受工作，逐一尝试全部 owned child，失败收集后报告；完成后仍能显式再启动。RED `run-3RqJIO` exit1：`Expected LlamaEngineException / Actual LlamaInstance`，`test/llama_engine_test.dart:29:5` → 接续 GREEN `run-OYD5B7` exit0。原联网脚本与 `ghostmodeldeck-checks-r33b`，无 offline/no-pub。
+- 状态新增 `stopping`、实际 `activeRequests`、`acceptingRequests` 与 `hasLiveProcess`。停止失败公开 failed，保留尚未确认退出进程的保护；真实模型运行 UI 用 `failed && hasLiveProcess` 提供 owned 残留重试，不恢复假 Ready。全量首次 `run-Wsa4zS` exit1：167 通过 / 2 失败，decision 与 ordinary 的公开 widget 在停止失败后找不到旧“停止”重试按钮，`Bad state: No element` at `test/model_run_dialog_test.dart:177`。此红灯说明旧 UI 只接受 Ready/starting；最小生产修复接入实际 live 快照，公开 widget 追加 failed/live/不准入/无能力及重试后 stopped/no-live 断言。继续 RED `run-aVbrmS` exit1：重试期间 disabled“停止中”按钮因 stopping 不在 active 条件而被隐藏；补保留该 disabled 控件后 GREEN `run-HnRyhB` exit0，两个公开生产路径均通过，包括残留 failed/live/不准入/无能力与成功重试 stopped/no-live。专门 peer 残留/重试验证仍待后续切片。
+
+- 实例封口也取消 readiness HTTP：持有真实 text probe 响应时执行回收，启动必须报取消、不能等待响应/超时后才退出，child 确认停止且能力为空。RED `run-oLWSNu` exit1（10s 后报 `决策已超时`，不含 `取消`）→ GREEN 引擎回归 `run-blR5dE` exit0，15 个公开用例通过。每个 owned run 的启动取消 token 同时接入 health、identity、text 与 typed probe，health 轮询检查 sealed 状态。
+
+最终在线原脚本检查（唯一串行 slot `ghostmodeldeck-checks-r33b`）：format `run-zeUgb3` exit0，56 files / 0 changed；analyze `run-pP5zvD` exit0，No issues found；full test `run-KXhzLr` exit0，169 tests passed。包含停止失败后删除仍受保护的生产 widget 断言。这些是 `EngineProcessIO`/`EngineChild` 接缝 + 真实 loopback HTTP/Completer 的确定性生命周期证据，不是原生模型推理证据。
+
+本增量尚未完成 M2：明确每实例代次/晚 spawn 单实例 stop、异常退出请求、peer 失败残留与重试、真实内部 SSE 仍需逐个公共切片。M3 两版本、M4 native 模型与 score/noul 均未由本增量完成。终态 `ManagerLifecycle.shutdown` 未作为业务 recycle 使用，#15 保持开放。

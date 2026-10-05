@@ -244,7 +244,7 @@ class _NativeChild implements EngineChild {
 /// Choice does not imply score/noul support.
 enum LlamaCapability { choiceProbability, textGeneration }
 
-enum LlamaInstanceStatus { starting, ready, stopped, failed }
+enum LlamaInstanceStatus { starting, ready, stopping, stopped, failed }
 
 class LlamaInstance {
   const LlamaInstance({
@@ -253,6 +253,9 @@ class LlamaInstance {
     required this.endpoint,
     required this.status,
     this.pid,
+    this.activeRequests = 0,
+    this.acceptingRequests = false,
+    this.hasLiveProcess = false,
     this.properties = const {},
     this.lastResult,
     this.lastTextResult,
@@ -263,6 +266,9 @@ class LlamaInstance {
   final LibraryArtifact asset;
   final Uri endpoint;
   final int? pid;
+  final int activeRequests;
+  final bool acceptingRequests;
+  final bool hasLiveProcess;
   final LlamaInstanceStatus status;
   final Map<String, dynamic> properties;
   final DecisionResult? lastResult;
@@ -278,6 +284,17 @@ class _Running {
   int? exitCode;
   bool stopping = false;
   String log = '';
+  final active = <_RequestPermit>{};
+  final startupCancellation = DecisionCancellation();
+}
+
+class _RequestPermit {
+  _RequestPermit(DecisionCancellation? external) {
+    removeExternal = external?.listen(cancellation.cancel);
+  }
+  final cancellation = DecisionCancellation();
+  final drained = Completer<void>();
+  void Function()? removeExternal;
 }
 
 enum LlamaInstallationStatus { absent, installing, installed, failed }
@@ -384,207 +401,236 @@ class LlamaEngine {
   final _shutdownCancellation = DecisionCancellation();
   Future<void>? _shutdown;
 
-  Future<LlamaInstance> start(String artifactId) => _serial(() async {
-    if (_detached) throw const LlamaEngineException('该引擎关联已解除');
-    if (state.installation != LlamaInstallationStatus.installed ||
-        executablePath == null ||
-        !(linkedInstallation != null
-            ? await _checkLinked()
-            : await _checkInstallation(File(executablePath!).parent))) {
-      throw const LlamaEngineException('请先安装或关联并核验引擎');
+  int _generation = 0;
+  bool _recycling = false;
+  Future<void>? _recycle;
+
+  Future<LlamaInstance> start(String artifactId) {
+    if (_recycling) {
+      return Future.error(const LlamaEngineException('受管引擎正在回收'));
     }
-    _checkStartup();
-    final assets = library.state.artifacts
-        .where((value) => value.id == artifactId)
-        .toList();
-    if (assets.length != 1 ||
-        assets.single.format != 'GGUF' ||
-        ![AssetKind.decision, AssetKind.chat].contains(assets.single.kind) ||
-        assets.single.integrity != AssetIntegrity.complete ||
-        !assets.single.fingerprintsVerified ||
-        (assets.single.kind == AssetKind.decision &&
-            !['kev', 'laya'].contains(assets.single.decisionType))) {
-      throw const LlamaEngineException('请选择完整且已核验的普通文本或 Kev/Laya GGUF 模型变体');
-    }
-    final asset = assets.single;
-    final alias =
-        'jev-${List.generate(24, (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0')).join()}';
-    _reserved[alias] = asset.files.map((value) => value.path).toSet();
-    _Running? running;
-    try {
-      await _protect();
-      final verified = (await library.verify([asset.id])).single;
-      if (verified.integrity != AssetIntegrity.complete ||
-          verified.kind != asset.kind ||
-          verified.files.length != asset.files.length ||
-          verified.files.any(
-            (file) => !asset.files.any(
-              (old) =>
-                  old.path == file.path &&
-                  old.sha256 == file.sha256 &&
-                  old.sizeBytes == file.sizeBytes,
-            ),
-          ) ||
-          asset.sourceVerified && !verified.sourceVerified) {
-        throw const LlamaEngineException('模型在启动前变化，请重新核验');
+    final generation = _generation;
+    void checkStartup() {
+      _checkStartup();
+      if (generation != _generation) {
+        throw const LlamaEngineException('受管引擎回收，已取消引擎启动');
       }
-      _checkStartup();
-      final files = asset.files.toList()
-        ..sort((a, b) => a.path.compareTo(b.path));
-      final path = await File(files.first.path).resolveSymbolicLinks();
-      final socket = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-      final port = socket.port;
-      await socket.close();
-      final endpoint = Uri.parse('http://127.0.0.1:$port');
-      var instance = LlamaInstance(
-        id: alias,
-        asset: asset,
-        endpoint: endpoint,
-        status: LlamaInstanceStatus.starting,
-      );
-      _instances[alias] = instance;
-      _publishInstances();
-      _checkStartup();
-      final child = await io.start(executablePath!, [
-        '--model',
-        path,
-        '--alias',
-        alias,
-        '--host',
-        '127.0.0.1',
-        '--port',
-        '$port',
-        '--ctx-size',
-        '4096',
-        '--batch-size',
-        '4096',
-        '--ubatch-size',
-        '4096',
-        '--parallel',
-        '1',
-        '--n-gpu-layers',
-        '99',
-        '--device',
-        'MTL0',
-      ]);
-      instance = _copy(instance, pid: child.pid);
-      running = _Running(instance, child);
-      _running[alias] = running;
-      _instances[alias] = instance;
-      _publishInstances();
-      child.stdout.listen((_) {});
-      final owned = running;
-      child.stderr.listen((bytes) {
-        final next = owned.log + utf8.decode(bytes, allowMalformed: true);
-        owned.log = next.length > 4096
-            ? next.substring(next.length - 4096)
-            : next;
-      });
-      child.exitCode.then((code) async {
-        owned.exitCode = code;
-        if (!owned.stopping) {
-          owned.instance = _copy(
-            owned.instance,
-            status: LlamaInstanceStatus.failed,
-            error: '受管引擎已退出 ($code)',
+    }
+
+    return _serial(() async {
+      checkStartup();
+      if (_detached) throw const LlamaEngineException('该引擎关联已解除');
+      if (state.installation != LlamaInstallationStatus.installed ||
+          executablePath == null ||
+          !(linkedInstallation != null
+              ? await _checkLinked()
+              : await _checkInstallation(File(executablePath!).parent))) {
+        throw const LlamaEngineException('请先安装或关联并核验引擎');
+      }
+      checkStartup();
+      final assets = library.state.artifacts
+          .where((value) => value.id == artifactId)
+          .toList();
+      if (assets.length != 1 ||
+          assets.single.format != 'GGUF' ||
+          ![AssetKind.decision, AssetKind.chat].contains(assets.single.kind) ||
+          assets.single.integrity != AssetIntegrity.complete ||
+          !assets.single.fingerprintsVerified ||
+          (assets.single.kind == AssetKind.decision &&
+              !['kev', 'laya'].contains(assets.single.decisionType))) {
+        throw const LlamaEngineException('请选择完整且已核验的普通文本或 Kev/Laya GGUF 模型变体');
+      }
+      final asset = assets.single;
+      final alias =
+          'jev-${List.generate(24, (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0')).join()}';
+      _reserved[alias] = asset.files.map((value) => value.path).toSet();
+      _Running? running;
+      try {
+        await _protect();
+        final verified = (await library.verify([asset.id])).single;
+        if (verified.integrity != AssetIntegrity.complete ||
+            verified.kind != asset.kind ||
+            verified.files.length != asset.files.length ||
+            verified.files.any(
+              (file) => !asset.files.any(
+                (old) =>
+                    old.path == file.path &&
+                    old.sha256 == file.sha256 &&
+                    old.sizeBytes == file.sizeBytes,
+              ),
+            ) ||
+            asset.sourceVerified && !verified.sourceVerified) {
+          throw const LlamaEngineException('模型在启动前变化，请重新核验');
+        }
+        checkStartup();
+        final files = asset.files.toList()
+          ..sort((a, b) => a.path.compareTo(b.path));
+        final path = await File(files.first.path).resolveSymbolicLinks();
+        final socket = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+        final port = socket.port;
+        await socket.close();
+        final endpoint = Uri.parse('http://127.0.0.1:$port');
+        var instance = LlamaInstance(
+          id: alias,
+          asset: asset,
+          endpoint: endpoint,
+          status: LlamaInstanceStatus.starting,
+        );
+        _instances[alias] = instance;
+        _publishInstances();
+        checkStartup();
+        final child = await io.start(executablePath!, [
+          '--model',
+          path,
+          '--alias',
+          alias,
+          '--host',
+          '127.0.0.1',
+          '--port',
+          '$port',
+          '--ctx-size',
+          '4096',
+          '--batch-size',
+          '4096',
+          '--ubatch-size',
+          '4096',
+          '--parallel',
+          '1',
+          '--n-gpu-layers',
+          '99',
+          '--device',
+          'MTL0',
+        ]);
+        instance = _copy(instance, pid: child.pid, hasLiveProcess: true);
+        running = _Running(instance, child);
+        _running[alias] = running;
+        _instances[alias] = instance;
+        _publishInstances();
+        child.stdout.listen((_) {});
+        final owned = running;
+        child.stderr.listen((bytes) {
+          final next = owned.log + utf8.decode(bytes, allowMalformed: true);
+          owned.log = next.length > 4096
+              ? next.substring(next.length - 4096)
+              : next;
+        });
+        child.exitCode.then((code) async {
+          owned.exitCode = code;
+          if (!owned.stopping) {
+            owned.instance = _copy(
+              owned.instance,
+              status: LlamaInstanceStatus.failed,
+              hasLiveProcess: false,
+              acceptingRequests: false,
+              error: '受管引擎已退出 ($code)',
+            );
+            _instances[alias] = owned.instance;
+            _publishInstances();
+            _reserved.remove(alias);
+            await _protect();
+          }
+        });
+        checkStartup();
+        final watch = Stopwatch()..start();
+        var healthy = false;
+        while (watch.elapsed < loadTimeout &&
+            owned.exitCode == null &&
+            !_shuttingDown &&
+            !owned.stopping) {
+          try {
+            final health = jsonDecode(
+              await _request(
+                endpoint.resolve('/health'),
+                timeout: const Duration(seconds: 1),
+                cancellation: owned.startupCancellation,
+              ),
+            );
+            if (health is Map && health['status'] == 'ok') {
+              healthy = true;
+              break;
+            }
+          } catch (_) {
+            /* Cold loading may return 503 or refuse the socket. */
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
+        checkStartup();
+        if (!healthy || owned.exitCode != null) {
+          throw LlamaEngineException(
+            '引擎未完成冷加载${owned.log.isEmpty ? '' : ': ${_failureReason(owned.log)}'}',
           );
-          _instances[alias] = owned.instance;
-          _publishInstances();
+        }
+        final properties = await _identity(
+          owned,
+          const Duration(seconds: 5),
+          cancellation: owned.startupCancellation,
+        );
+        owned.instance = _copy(owned.instance, properties: properties);
+        DecisionResult? result;
+        TextResult? text;
+        if (asset.kind == AssetKind.chat) {
+          text = await _text(
+            owned,
+            TextRequest(prompt: 'Say hello.', maxTokens: 8),
+            const Duration(seconds: 10),
+            cancellation: owned.startupCancellation,
+          );
+        } else {
+          result = await _decision(
+            owned,
+            DecisionRequest(
+              state: 'A change has been requested.',
+              instructions: 'Choose an action.',
+              options: {
+                'keep': 'Keep the current state.',
+                'change': 'Apply the requested change.',
+              },
+            ),
+            const Duration(seconds: 10),
+            cancellation: owned.startupCancellation,
+          );
+        }
+        checkStartup();
+        owned.instance = _copy(
+          owned.instance,
+          status: LlamaInstanceStatus.ready,
+          acceptingRequests: true,
+          lastResult: result,
+          lastTextResult: text,
+          capabilities: Set.unmodifiable({
+            asset.kind == AssetKind.chat
+                ? LlamaCapability.textGeneration
+                : LlamaCapability.choiceProbability,
+          }),
+        );
+        _instances[alias] = owned.instance;
+        _publishInstances();
+        return owned.instance;
+      } catch (error) {
+        final reason = error is LlamaEngineException
+            ? error.message
+            : error is DecisionProtocolException
+            ? error.message
+            : '引擎启动失败：${error.runtimeType}';
+        if (running != null) {
+          await _fail(running, reason);
+        } else {
           _reserved.remove(alias);
           await _protect();
-        }
-      });
-      _checkStartup();
-      final watch = Stopwatch()..start();
-      var healthy = false;
-      while (watch.elapsed < loadTimeout &&
-          owned.exitCode == null &&
-          !_shuttingDown) {
-        try {
-          final health = jsonDecode(
-            await _request(
-              endpoint.resolve('/health'),
-              timeout: const Duration(seconds: 1),
-            ),
-          );
-          if (health is Map && health['status'] == 'ok') {
-            healthy = true;
-            break;
+          final instance = _instances[alias];
+          if (instance != null) {
+            _instances[alias] = _copy(
+              instance,
+              status: LlamaInstanceStatus.failed,
+              error: reason,
+            );
+            _publishInstances();
           }
-        } catch (_) {
-          /* Cold loading may return 503 or refuse the socket. */
         }
-        await Future<void>.delayed(const Duration(milliseconds: 100));
+        throw LlamaEngineException(reason);
       }
-      _checkStartup();
-      if (!healthy || owned.exitCode != null) {
-        throw LlamaEngineException(
-          '引擎未完成冷加载${owned.log.isEmpty ? '' : ': ${_failureReason(owned.log)}'}',
-        );
-      }
-      final properties = await _identity(owned, const Duration(seconds: 5));
-      owned.instance = _copy(owned.instance, properties: properties);
-      DecisionResult? result;
-      TextResult? text;
-      if (asset.kind == AssetKind.chat) {
-        text = await _text(
-          owned,
-          TextRequest(prompt: 'Say hello.', maxTokens: 8),
-          const Duration(seconds: 10),
-        );
-      } else {
-        result = await _decision(
-          owned,
-          DecisionRequest(
-            state: 'A change has been requested.',
-            instructions: 'Choose an action.',
-            options: {
-              'keep': 'Keep the current state.',
-              'change': 'Apply the requested change.',
-            },
-          ),
-          const Duration(seconds: 10),
-        );
-      }
-      _checkStartup();
-      owned.instance = _copy(
-        owned.instance,
-        status: LlamaInstanceStatus.ready,
-        lastResult: result,
-        lastTextResult: text,
-        capabilities: Set.unmodifiable({
-          asset.kind == AssetKind.chat
-              ? LlamaCapability.textGeneration
-              : LlamaCapability.choiceProbability,
-        }),
-      );
-      _instances[alias] = owned.instance;
-      _publishInstances();
-      return owned.instance;
-    } catch (error) {
-      final reason = error is LlamaEngineException
-          ? error.message
-          : error is DecisionProtocolException
-          ? error.message
-          : '引擎启动失败：${error.runtimeType}';
-      if (running != null) {
-        await _fail(running, reason);
-      } else {
-        _reserved.remove(alias);
-        await _protect();
-        final instance = _instances[alias];
-        if (instance != null) {
-          _instances[alias] = _copy(
-            instance,
-            status: LlamaInstanceStatus.failed,
-            error: reason,
-          );
-          _publishInstances();
-        }
-      }
-      throw LlamaEngineException(reason);
-    }
-  });
+    });
+  }
 
   void _checkStartup() {
     if (_shuttingDown) throw const LlamaEngineException('应用退出，已取消引擎启动');
@@ -615,14 +661,15 @@ class LlamaEngine {
         kind: DecisionFailureKind.notReady,
       );
     }
+    final permit = _admit(running, cancellation);
     try {
       final watch = Stopwatch()..start();
-      await _identity(running, timeout, cancellation: cancellation);
+      await _identity(running, timeout, cancellation: permit.cancellation);
       final result = await _decision(
         running,
         request,
         timeout - watch.elapsed,
-        cancellation: cancellation,
+        cancellation: permit.cancellation,
       );
       running.instance = _copy(running.instance, lastResult: result);
       _instances[instanceId] = running.instance;
@@ -636,6 +683,7 @@ class LlamaEngine {
           : error is TimeoutException
           ? '决策已超时'
           : '决策失败：${error.runtimeType}';
+      _release(running, permit);
       if (error is _InstanceIdentityException) {
         await _fail(running, reason);
       }
@@ -648,6 +696,8 @@ class LlamaEngine {
             ? DecisionFailureKind.invalidResponse
             : DecisionFailureKind.failed,
       );
+    } finally {
+      _release(running, permit);
     }
   }
 
@@ -774,22 +824,26 @@ class LlamaEngine {
         kind: DecisionFailureKind.notReady,
       );
     }
+    final permit = _admit(running, cancellation);
     try {
       final watch = Stopwatch()..start();
-      await _identity(running, timeout, cancellation: cancellation);
+      await _identity(running, timeout, cancellation: permit.cancellation);
       final result = await _text(
         running,
         request,
         timeout - watch.elapsed,
-        cancellation: cancellation,
+        cancellation: permit.cancellation,
       );
       running.instance = _copy(running.instance, lastTextResult: result);
       _instances[instanceId] = running.instance;
       _publishInstances();
       return result;
     } on _InstanceIdentityException catch (error) {
+      _release(running, permit);
       await _fail(running, error.message);
       rethrow;
+    } finally {
+      _release(running, permit);
     }
   }
 
@@ -893,19 +947,73 @@ class LlamaEngine {
     }
   }
 
-  Future<void> _stopChild(_Running running) async {
+  _RequestPermit _admit(_Running running, DecisionCancellation? external) {
+    final permit = _RequestPermit(external);
+    running.active.add(permit);
+    _publishRun(running);
+    return permit;
+  }
+
+  void _release(_Running running, _RequestPermit permit) {
+    if (!running.active.remove(permit)) return;
+    permit.removeExternal?.call();
+    permit.drained.complete();
+    _publishRun(running);
+  }
+
+  void _publishRun(_Running running) {
+    running.instance = _copy(
+      running.instance,
+      activeRequests: running.active.length,
+      hasLiveProcess: running.exitCode == null,
+      acceptingRequests:
+          !running.stopping &&
+          running.exitCode == null &&
+          running.instance.status == LlamaInstanceStatus.ready,
+      error: running.instance.error,
+    );
+    _instances[running.instance.id] = running.instance;
+    _publishInstances();
+  }
+
+  void _seal(_Running running) {
     running.stopping = true;
-    if (running.exitCode == null) {
-      running.child.kill(ProcessSignal.sigterm);
-      try {
-        await running.child.exitCode.timeout(const Duration(seconds: 5));
-      } on TimeoutException {
-        running.child.kill(ProcessSignal.sigkill);
-        await running.child.exitCode.timeout(const Duration(seconds: 5));
-      }
+    running.startupCancellation.cancel();
+    running.instance = _copy(
+      running.instance,
+      status: LlamaInstanceStatus.stopping,
+      capabilities: const {},
+    );
+    for (final permit in running.active.toList()) {
+      permit.cancellation.cancel();
     }
-    _reserved.remove(running.instance.id);
-    await _protect();
+    _publishRun(running);
+  }
+
+  Future<void> _stopChild(_Running running) async {
+    _seal(running);
+    await Future.wait(running.active.map((p) => p.drained.future).toList());
+    try {
+      if (running.exitCode == null) {
+        running.child.kill(ProcessSignal.sigterm);
+        try {
+          await running.child.exitCode.timeout(const Duration(seconds: 5));
+        } on TimeoutException {
+          running.child.kill(ProcessSignal.sigkill);
+          await running.child.exitCode.timeout(const Duration(seconds: 5));
+        }
+      }
+      _reserved.remove(running.instance.id);
+      await _protect();
+    } catch (error) {
+      running.instance = _copy(
+        running.instance,
+        status: LlamaInstanceStatus.failed,
+        error: '受管进程停止未完成：$error',
+      );
+      _publishRun(running);
+      rethrow;
+    }
   }
 
   Future<void> _fail(_Running running, String reason) async {
@@ -915,25 +1023,58 @@ class LlamaEngine {
       status: LlamaInstanceStatus.failed,
       error: reason,
     );
-    _instances[running.instance.id] = running.instance;
-    _publishInstances();
+    _publishRun(running);
   }
 
-  Future<void> stop(String instanceId) => _serial(() async {
+  Future<void> stop(String instanceId) {
     final running = _running[instanceId];
-    if (running == null) throw const LlamaEngineException('仅可停止本应用创建的引擎进程');
-    await _stopChild(running);
-    running.instance = _copy(
-      running.instance,
-      status: LlamaInstanceStatus.stopped,
-    );
-    _instances[instanceId] = running.instance;
-    _publishInstances();
-  }, cleanup: true);
-  Future<void> stopManaged() async {
-    for (final running in _running.values.toList()) {
-      if (running.exitCode == null) await stop(running.instance.id);
+    if (running == null) {
+      return Future.error(const LlamaEngineException('仅可停止本应用创建的引擎进程'));
     }
+    if (running.instance.status == LlamaInstanceStatus.stopped) {
+      return Future.value();
+    }
+    _seal(running);
+    return _serial(() async {
+      await _stopChild(running);
+      running.instance = _copy(
+        running.instance,
+        status: LlamaInstanceStatus.stopped,
+      );
+      _publishRun(running);
+    }, cleanup: true);
+  }
+
+  Future<void> stopManaged() {
+    if (_recycle != null) return _recycle!;
+    _recycling = true;
+    _generation++;
+    for (final running in _running.values.toList()) {
+      _seal(running);
+    }
+    final operation = _serial(() async {
+      final failures = <Object>[];
+      for (final running in _running.values.toList()) {
+        try {
+          await _stopChild(running);
+          running.instance = _copy(
+            running.instance,
+            status: LlamaInstanceStatus.stopped,
+          );
+          _publishRun(running);
+        } catch (error) {
+          failures.add(error);
+        }
+      }
+      if (failures.isNotEmpty) {
+        throw LlamaEngineException('受管引擎回收未完成：$failures');
+      }
+    }, cleanup: true);
+    _recycle = operation.whenComplete(() {
+      _recycling = false;
+      _recycle = null;
+    });
+    return _recycle!;
   }
 
   Future<void> _protect() =>
@@ -950,6 +1091,9 @@ class LlamaEngine {
     LlamaInstance value, {
     LlamaInstanceStatus? status,
     int? pid,
+    int? activeRequests,
+    bool? acceptingRequests,
+    bool? hasLiveProcess,
     Map<String, dynamic>? properties,
     DecisionResult? lastResult,
     TextResult? lastTextResult,
@@ -961,6 +1105,9 @@ class LlamaEngine {
     endpoint: value.endpoint,
     status: status ?? value.status,
     pid: pid ?? value.pid,
+    activeRequests: activeRequests ?? value.activeRequests,
+    acceptingRequests: acceptingRequests ?? value.acceptingRequests,
+    hasLiveProcess: hasLiveProcess ?? value.hasLiveProcess,
     properties: properties ?? value.properties,
     lastResult: lastResult ?? value.lastResult,
     lastTextResult: lastTextResult ?? value.lastTextResult,

@@ -15,6 +15,145 @@ import 'package:ghost_model_deck/model_library.dart';
 import 'fixtures/decision_gguf.dart';
 
 void main() {
+  test('stopManaged cancels an active readiness probe without waiting for its response', () async {
+    final fixture = await _Fixture.create(ordinaryChat: true);
+    addTearDown(fixture.close);
+    final arrived = Completer<void>();
+    final release = Completer<void>();
+    addTearDown(() {
+      if (!release.isCompleted) release.complete();
+    });
+    fixture.io.holdText = (_) async {
+      arrived.complete();
+      await release.future;
+    };
+    final starting = fixture.engine
+        .start(fixture.asset.id)
+        .then<Object>((value) => value, onError: (Object error) => error);
+    await arrived.future;
+    final stopping = fixture.engine.stopManaged();
+    final result = await starting;
+    expect(
+      result,
+      isA<LlamaEngineException>().having(
+        (e) => e.message,
+        'message',
+        contains('取消'),
+      ),
+    );
+    await stopping;
+    expect(fixture.io.children.single.exited.isCompleted, isTrue);
+    release.complete();
+    expect(fixture.engine.state.instances.single.capabilities, isEmpty);
+  });
+  test(
+    'stopManaged seals accepted starts and cleans a late spawn before restart',
+    () async {
+      final fixture = await _Fixture.create(ordinaryChat: true);
+      addTearDown(fixture.close);
+      final spawned = Completer<void>();
+      final release = Completer<void>();
+      fixture.io.holdSpawn = () async {
+        spawned.complete();
+        await release.future;
+      };
+      final starting = fixture.engine
+          .start(fixture.asset.id)
+          .then<Object>((value) => value, onError: (Object error) => error);
+      await spawned.future;
+      final stopping = fixture.engine.stopManaged();
+      final refused = fixture.engine
+          .start(fixture.asset.id)
+          .then<Object>((value) => value, onError: (Object error) => error);
+      release.complete();
+      expect(await starting, isA<LlamaEngineException>());
+      await stopping;
+      expect(await refused, isA<LlamaEngineException>());
+      expect(
+        fixture.engine.state.instances.every(
+          (i) => i.status != LlamaInstanceStatus.ready,
+        ),
+        isTrue,
+      );
+      expect(fixture.io.children.single.exited.isCompleted, isTrue);
+      expect(fixture.io.textRequests, 0);
+      fixture.io.holdSpawn = null;
+      final restarted = await fixture.engine.start(fixture.asset.id);
+      expect(restarted.status, LlamaInstanceStatus.ready);
+      expect(fixture.io.children.last.exited.isCompleted, isFalse);
+    },
+  );
+  test('stopping one instance drains its request before kill and preserves its peer', () async {
+    final fixture = await _Fixture.create(ordinaryChat: true);
+    addTearDown(fixture.close);
+    final first = await fixture.engine.start(fixture.asset.id);
+    final peer = await fixture.engine.start(fixture.asset.id);
+    final arrived = Completer<void>();
+    final release = Completer<void>();
+    addTearDown(() {
+      if (!release.isCompleted) release.complete();
+    });
+    fixture.io.holdText = (body) async {
+      if ((body['messages'] as List).single['content'] == 'held') {
+        arrived.complete();
+        await release.future;
+      }
+    };
+    var settled = false;
+    var drainedAtKill = false;
+    fixture.io.children.first.onKill = () {
+      drainedAtKill = settled;
+    };
+    final pending = fixture.engine.generateText(
+      first.id,
+      TextRequest(prompt: 'held'),
+    );
+    final outcome = pending.then<Object>(
+      (value) {
+        settled = true;
+        return value;
+      },
+      onError: (Object error) {
+        settled = true;
+        return error;
+      },
+    );
+    await arrived.future;
+    await fixture.engine.stop(first.id);
+    release.complete();
+    final result = await outcome;
+    expect(
+      result,
+      isA<LlamaRequestException>().having(
+        (e) => e.kind,
+        'kind',
+        DecisionFailureKind.cancelled,
+      ),
+    );
+    expect(drainedAtKill, isTrue);
+    await expectLater(
+      fixture.engine.generateText(first.id, TextRequest(prompt: 'rejected')),
+      throwsA(isA<LlamaRequestException>()),
+    );
+    expect(
+      (await fixture.engine.generateText(
+        peer.id,
+        TextRequest(prompt: 'peer'),
+      )).text,
+      'Hello.',
+    );
+    expect(fixture.engine.state.instances.last.pid, peer.pid);
+    expect(
+      fixture.engine.state.instances.last.status,
+      LlamaInstanceStatus.ready,
+    );
+    expect(fixture.io.children.last.exited.isCompleted, isFalse);
+    expect(fixture.io.textRequests, 4);
+    await expectLater(
+      fixture.library.prepareDeletion([fixture.asset.id]),
+      throwsA(isA<LibraryException>()),
+    );
+  });
   test('a healthy text endpoint with an unbound or non-generation response never earns readiness', () async {
     for (final raw in [
       '{"model":"foreign","choices":[{"index":0,"message":{"role":"assistant","content":"Hello."},"finish_reason":"stop"}],"usage":{"completion_tokens":2}}',
@@ -463,6 +602,9 @@ class _InstallIO implements EngineProcessIO {
   String? textResponseOverride;
   int decisionRequests = 0;
   _Child? child;
+  final children = <_Child>[];
+  Future<void> Function(Map body)? holdText;
+  Future<void> Function()? holdSpawn;
   bool failSpawn = false;
   bool invalidProbabilities = false;
   bool foreignEndpoint = false;
@@ -471,12 +613,14 @@ class _InstallIO implements EngineProcessIO {
     if (failSpawn) {
       throw const ProcessException('llama-server', [], 'native spawn refused');
     }
+    await holdSpawn?.call();
     String arg(String name) => arguments[arguments.indexOf(name) + 1];
     final server = await HttpServer.bind(
       InternetAddress.loopbackIPv4,
       int.parse(arg('--port')),
     );
     child = _Child(server, stopServer: !foreignEndpoint);
+    children.add(child!);
     server.listen((request) async {
       if (request.uri.path == '/health') {
         request.response.write('{"status":"ok"}');
@@ -492,6 +636,7 @@ class _InstallIO implements EngineProcessIO {
         final body = jsonDecode(await utf8.decoder.bind(request).join()) as Map;
         expect(body['model'], arg('--alias'));
         expect(body['stream'], false);
+        await holdText?.call(body);
         request.response.write(
           textResponseOverride?.replaceAll('ALIAS', arg('--alias')) ??
               jsonEncode({
@@ -565,6 +710,7 @@ class _Child implements EngineChild {
   final HttpServer server;
   final bool stopServer;
   final exited = Completer<int>();
+  void Function()? onKill;
   @override
   int get pid => 12345;
   @override
@@ -575,6 +721,7 @@ class _Child implements EngineChild {
   Stream<List<int>> get stderr => const Stream.empty();
   @override
   bool kill(ProcessSignal signal) {
+    onKill?.call();
     final finished = stopServer
         ? server.close(force: true)
         : Future<void>.value();
