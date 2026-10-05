@@ -1,0 +1,648 @@
+{
+  "schema_version": 1,
+  "scope": "Real production private installer; both archive hashes independently rechecked, entire actual JEV inventory rehashed and symlink closure checked. Standard candidate failed unchanged 10s gate. No model load, Ready, inference, GUI, signing/notarization or Release acceptance.",
+  "source_revision": "e1cb11b4325a8c526641711a02f7fcc9eae010ba",
+  "stage_verdicts": {
+    "standard_install": "failed_native_version_timeout",
+    "jev_install_and_reopen": "passed",
+    "all_observed_children_exited": true,
+    "model_or_release_acceptance": "not_tested"
+  },
+  "raw_sha256": "7903f2aa4445a398d2f457028d6a456ecb8d5f3c97851a3eeebde8a9c5ea90db",
+  "raw": {
+    "scope": "REAL production installer and native I/O using complete previously downloaded fixed archives; private fresh root; actual native command/version/install inventory evidence only; signature assessment only if explicitly present in recorded commands, NO model load, Ready, inference, GUI or Release acceptance",
+    "source_revision": "e1cb11b4325a8c526641711a02f7fcc9eae010ba",
+    "observed_at": "2026-10-05T20:48:01.016366Z",
+    "root": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r45-5BKF80",
+    "cache_condition": "Fresh install directory, not a fresh GPU/compiler cache; prior standalone version attempts occurred and remain recorded separately",
+    "installations": [
+      {
+        "release_label": "v0.5.0",
+        "archive_path": ".tooling/engine-artifacts/llama-b11146-bin-macos-arm64.tar.gz",
+        "expected_archive_sha256": "1ad3f9eff80edb9dbef4259ad564d1720612ef7eea48fa4afed0e54f5f3d5711",
+        "expected_archive_bytes": 11189714,
+        "expected_commit": "7fe450e19305b828c199d602c23a8337aaa1f03b",
+        "success": false,
+        "status": "failed",
+        "state_error": "引擎安装失败：TimeoutException",
+        "error": "引擎安装失败：TimeoutException",
+        "stack": "#0      LlamaEngine.install.<anonymous closure> (package:ghost_model_deck/llama_engine.dart:1736:7)\n<asynchronous suspension>\n#1      main (file:///Users/ghost233/Ghost233Code/GhostModelDeck/.tooling/gmd_native_dual_install_r45.dart:124:9)\n<asynchronous suspension>\n"
+      },
+      {
+        "release_label": "b11381",
+        "archive_path": ".tooling/engine-artifacts/llama-b11381-bin-macos-arm64.tar.gz",
+        "expected_archive_sha256": "ea92f83904a1a1d76752581acbb87c7099ae1a3ac37cc6a634b1648d707dc341",
+        "expected_archive_bytes": 11925693,
+        "expected_commit": "836d57176dc699a726c55418e4f96b8ca628e1bf",
+        "status": "installed",
+        "installation_id": "official-llama-b11381",
+        "executable": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r45-5BKF80/engines/b11381/llama-server",
+        "binary_sha256": "6a072f8bf308ea28144476441d25760ee01b84ed102f86be4662d21ace8d72a6",
+        "observed_version": "version: 0.5.0-dev (build 11381, commit 836d57176)\nbuilt with AppleClang 21.0.0.21000101 for Darwin arm64",
+        "binary_version": {
+          "semantic_version": "0.5.0-dev",
+          "build": 11381,
+          "commit": "836d57176",
+          "platform": "Darwin arm64"
+        },
+        "model_instances": 0,
+        "success": true
+      }
+    ],
+    "commands": [
+      {
+        "executable": "/usr/bin/tar",
+        "arguments": [
+          "-tzf",
+          "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r45-5BKF80/engines/.install-XZMS8u/release.tar.gz"
+        ],
+        "timeout_ms": 30000,
+        "exit_code": 0,
+        "stdout": "llama-b11146/\nllama-b11146/llama-mtmd-debug\nllama-b11146/llama-tokenize\nllama-b11146/llama-cli\nllama-b11146/llama-batched-bench\nllama-b11146/libggml-rpc.0.dylib\nllama-b11146/llama-minicpmv-cli\nllama-b11146/libllama.0.dylib\nllama-b11146/libmtmd.0.dylib\nllama-b11146/LICENSE\nllama-b11146/libggml.dylib\nllama-b11146/libggml.0.dylib\nllama-b11146/libggml-blas.0.25.1.dylib\nllama-b11146/libggml-rpc.0.25.1.dylib\nllama-b11146/llama-results\nllama-b11146/libmtmd.dylib\nllama-b11146/libllama-server-impl.dylib\nllama-b11146/llama-gguf-split\nllama-b11146/libggml-base.dylib\nllama-b11146/llama-perplexity\nllama-b11146/llama-imatrix\nllama-b11146/llama-fit-params\nllama-b11146/ggml-rpc-server\nllama-b11146/libggml-metal.0.25.1.dylib\nllama-b11146/llama-qwen2vl-cli\nllama-b11146/libggml-blas.dylib\nllama-b11146/llama-gemma3-cli\nllama-b11146/libggml-metal.0.dylib\nllama-b11146/libggml-cpu.0.25.1.dylib\nllama-b11146/libmtmd.0.5.0.dylib\nllama-b11146/libllama.0.5.0.dylib\nllama-b11146/libllama-common.0.5.0.dylib\nllama-b11146/libggml.0.25.1.dylib\nllama-b11146/libllama-completion-impl.dylib\nllama-b11146/libllama-bench-impl.dylib\nllama-b11146/libllama-common.0.dylib\nllama-b11146/libllama.dylib\nllama-b11146/libllama-perplexity-impl.dylib\nllama-b11146/libggml-cpu.dylib\nllama-b11146/llama-mtmd-cli\nllama-b11146/ggml-metal-tuning\nllama-b11146/libggml-metal.dylib\nllama-b11146/llama-cvector-generator\nllama-b11146/libllama-quantize-impl.dylib\nllama-b11146/llama-completion\nllama-b11146/llama-bench\nllama-b11146/libggml-base.0.25.1.dylib\nllama-b11146/libllama-cli-impl.dylib\nllama-b11146/llama-server\nllama-b11146/libllama-batched-bench-impl.dylib\nllama-b11146/llama-llava-cli\nllama-b11146/libllama-common.dylib\nllama-b11146/llama-tts\nllama-b11146/llama-quantize\nllama-b11146/llama-export-lora\nllama-b11146/libggml-base.0.dylib\nllama-b11146/libllama-fit-params-impl.dylib\nllama-b11146/libggml-blas.0.dylib\nllama-b11146/libggml-rpc.dylib\nllama-b11146/libggml-cpu.0.dylib\nllama-b11146/llama\n",
+        "stderr": "",
+        "elapsed_ms": 51
+      },
+      {
+        "executable": "/usr/bin/tar",
+        "arguments": [
+          "-xzf",
+          "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r45-5BKF80/engines/.install-XZMS8u/release.tar.gz",
+          "-C",
+          "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r45-5BKF80/engines/.install-XZMS8u/unpack"
+        ],
+        "timeout_ms": 30000,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "elapsed_ms": 63
+      },
+      {
+        "executable": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r45-5BKF80/engines/.install-XZMS8u/unpack/llama-b11146/llama-server",
+        "arguments": [
+          "--version"
+        ],
+        "timeout_ms": 10000,
+        "error": "TimeoutException after 0:00:10.000000: Future not completed",
+        "elapsed_ms": 10022
+      },
+      {
+        "executable": "/usr/bin/tar",
+        "arguments": [
+          "-tzf",
+          "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r45-5BKF80/engines/.install-eLTbSV/release.tar.gz"
+        ],
+        "timeout_ms": 30000,
+        "exit_code": 0,
+        "stdout": "llama-b11381/\nllama-b11381/llama-mtmd-debug\nllama-b11381/llama-tokenize\nllama-b11381/llama-cli\nllama-b11381/llama-batched-bench\nllama-b11381/libggml-rpc.0.dylib\nllama-b11381/llama-minicpmv-cli\nllama-b11381/libllama.0.dylib\nllama-b11381/libmtmd.0.dylib\nllama-b11381/LICENSE\nllama-b11381/libggml.dylib\nllama-b11381/libggml.0.dylib\nllama-b11381/llama-results\nllama-b11381/libmtmd.dylib\nllama-b11381/libllama-server-impl.dylib\nllama-b11381/llama-gguf-split\nllama-b11381/libggml-base.dylib\nllama-b11381/llama-perplexity\nllama-b11381/llama-imatrix\nllama-b11381/libggml-blas.0.25.3.dylib\nllama-b11381/libggml-rpc.0.25.3.dylib\nllama-b11381/llama-fit-params\nllama-b11381/libggml.0.25.3.dylib\nllama-b11381/ggml-rpc-server\nllama-b11381/libggml-cpu.0.25.3.dylib\nllama-b11381/llama-qwen2vl-cli\nllama-b11381/libggml-blas.dylib\nllama-b11381/llama-gemma3-cli\nllama-b11381/libggml-metal.0.dylib\nllama-b11381/libmtmd.0.5.0.dylib\nllama-b11381/libllama.0.5.0.dylib\nllama-b11381/libggml-metal.0.25.3.dylib\nllama-b11381/libllama-common.0.5.0.dylib\nllama-b11381/libllama-completion-impl.dylib\nllama-b11381/libllama-bench-impl.dylib\nllama-b11381/libllama-common.0.dylib\nllama-b11381/libllama.dylib\nllama-b11381/libllama-perplexity-impl.dylib\nllama-b11381/libggml-cpu.dylib\nllama-b11381/llama-mtmd-cli\nllama-b11381/ggml-metal-tuning\nllama-b11381/libggml-metal.dylib\nllama-b11381/llama-cvector-generator\nllama-b11381/libllama-quantize-impl.dylib\nllama-b11381/llama-completion\nllama-b11381/llama-bench\nllama-b11381/libggml-base.0.25.3.dylib\nllama-b11381/libllama-cli-impl.dylib\nllama-b11381/llama-server\nllama-b11381/libllama-batched-bench-impl.dylib\nllama-b11381/llama-llava-cli\nllama-b11381/libllama-common.dylib\nllama-b11381/llama-tts\nllama-b11381/llama-quantize\nllama-b11381/llama-export-lora\nllama-b11381/libggml-base.0.dylib\nllama-b11381/libllama-fit-params-impl.dylib\nllama-b11381/libggml-blas.0.dylib\nllama-b11381/libggml-rpc.dylib\nllama-b11381/libggml-cpu.0.dylib\nllama-b11381/llama\n",
+        "stderr": "",
+        "elapsed_ms": 59
+      },
+      {
+        "executable": "/usr/bin/tar",
+        "arguments": [
+          "-xzf",
+          "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r45-5BKF80/engines/.install-eLTbSV/release.tar.gz",
+          "-C",
+          "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r45-5BKF80/engines/.install-eLTbSV/unpack"
+        ],
+        "timeout_ms": 30000,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "elapsed_ms": 72
+      },
+      {
+        "executable": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r45-5BKF80/engines/.install-eLTbSV/unpack/llama-b11381/llama-server",
+        "arguments": [
+          "--version"
+        ],
+        "timeout_ms": 10000,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "version: 0.5.0-dev (build 11381, commit 836d57176)\nbuilt with AppleClang 21.0.0.21000101 for Darwin arm64\n",
+        "elapsed_ms": 4253
+      },
+      {
+        "executable": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r45-5BKF80/engines/b11381/llama-server",
+        "arguments": [
+          "--version"
+        ],
+        "timeout_ms": 10000,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "version: 0.5.0-dev (build 11381, commit 836d57176)\nbuilt with AppleClang 21.0.0.21000101 for Darwin arm64\n",
+        "elapsed_ms": 27
+      }
+    ],
+    "children": [
+      {
+        "pid": 59052,
+        "executable": "/usr/bin/tar",
+        "arguments": [
+          "-tzf",
+          "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r45-5BKF80/engines/.install-XZMS8u/release.tar.gz"
+        ],
+        "started_at": "2026-10-05T20:48:01.176077Z",
+        "exit_code": 0,
+        "exited_at": "2026-10-05T20:48:01.214766Z"
+      },
+      {
+        "pid": 59053,
+        "executable": "/usr/bin/tar",
+        "arguments": [
+          "-xzf",
+          "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r45-5BKF80/engines/.install-XZMS8u/release.tar.gz",
+          "-C",
+          "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r45-5BKF80/engines/.install-XZMS8u/unpack"
+        ],
+        "started_at": "2026-10-05T20:48:01.222448Z",
+        "exit_code": 0,
+        "exited_at": "2026-10-05T20:48:01.279843Z"
+      },
+      {
+        "pid": 59054,
+        "executable": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r45-5BKF80/engines/.install-XZMS8u/unpack/llama-b11146/llama-server",
+        "arguments": [
+          "--version"
+        ],
+        "started_at": "2026-10-05T20:48:01.509208Z",
+        "exit_code": -15,
+        "exited_at": "2026-10-05T20:48:11.515888Z"
+      },
+      {
+        "pid": 59088,
+        "executable": "/usr/bin/tar",
+        "arguments": [
+          "-tzf",
+          "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r45-5BKF80/engines/.install-eLTbSV/release.tar.gz"
+        ],
+        "started_at": "2026-10-05T20:48:11.626088Z",
+        "exit_code": 0,
+        "exited_at": "2026-10-05T20:48:11.675253Z"
+      },
+      {
+        "pid": 59089,
+        "executable": "/usr/bin/tar",
+        "arguments": [
+          "-xzf",
+          "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r45-5BKF80/engines/.install-eLTbSV/release.tar.gz",
+          "-C",
+          "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r45-5BKF80/engines/.install-eLTbSV/unpack"
+        ],
+        "started_at": "2026-10-05T20:48:11.684367Z",
+        "exit_code": 0,
+        "exited_at": "2026-10-05T20:48:11.747981Z"
+      },
+      {
+        "pid": 59090,
+        "executable": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r45-5BKF80/engines/.install-eLTbSV/unpack/llama-b11381/llama-server",
+        "arguments": [
+          "--version"
+        ],
+        "started_at": "2026-10-05T20:48:11.983301Z",
+        "exit_code": 0,
+        "exited_at": "2026-10-05T20:48:16.225676Z"
+      },
+      {
+        "pid": 59100,
+        "executable": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r45-5BKF80/engines/b11381/llama-server",
+        "arguments": [
+          "--version"
+        ],
+        "started_at": "2026-10-05T20:48:16.486157Z",
+        "exit_code": 0,
+        "exited_at": "2026-10-05T20:48:16.500170Z"
+      }
+    ],
+    "success": false
+  },
+  "verified_archives": [
+    {
+      "path": ".tooling/engine-artifacts/llama-b11146-bin-macos-arm64.tar.gz",
+      "size_bytes": 11189714,
+      "sha256": "1ad3f9eff80edb9dbef4259ad564d1720612ef7eea48fa4afed0e54f5f3d5711"
+    },
+    {
+      "path": ".tooling/engine-artifacts/llama-b11381-bin-macos-arm64.tar.gz",
+      "size_bytes": 11925693,
+      "sha256": "ea92f83904a1a1d76752581acbb87c7099ae1a3ac37cc6a634b1648d707dc341"
+    }
+  ],
+  "actual_jev_manifest_sha256": "2e36ac3ff3858bc91f1e1c86ffd01ca52ab2f218069eccb4f8eb8b6725f26128",
+  "actual_jev_manifest": {
+    "tag": "b11381",
+    "artifactRoot": "llama-b11381",
+    "expectedBuild": 11381,
+    "commit": "836d57176dc699a726c55418e4f96b8ca628e1bf",
+    "source": "https://github.com/ggml-org/llama.cpp/releases/download/b11381/llama-b11381-bin-macos-arm64.tar.gz",
+    "archiveSha256": "ea92f83904a1a1d76752581acbb87c7099ae1a3ac37cc6a634b1648d707dc341",
+    "platform": "Darwin arm64",
+    "version": "version: 0.5.0-dev (build 11381, commit 836d57176)\nbuilt with AppleClang 21.0.0.21000101 for Darwin arm64",
+    "files": {
+      "LICENSE": {
+        "sha256": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d"
+      },
+      "ggml-metal-tuning": {
+        "sha256": "845212cd7c3c6889a3f487ea54a86f38c0e63fab688853e2dbe3cf1e6bfa5e78"
+      },
+      "ggml-rpc-server": {
+        "sha256": "d3b77e2d3e4f31194a4fb92414403c13fd7465ff6d6f1699e311cbd3578ae2da"
+      },
+      "libggml-base.0.25.3.dylib": {
+        "sha256": "78c2838eabfe501e5f5e7c00f4813b9b0167c0b1161f95fe3f1cf1d64e70a207"
+      },
+      "libggml-base.0.dylib": {
+        "link": "libggml-base.0.25.3.dylib"
+      },
+      "libggml-base.dylib": {
+        "link": "libggml-base.0.dylib"
+      },
+      "libggml-blas.0.25.3.dylib": {
+        "sha256": "0ebd85672738258463cd43b0473d9894ee6bb2f4745160b4bdbe1bf770d4232e"
+      },
+      "libggml-blas.0.dylib": {
+        "link": "libggml-blas.0.25.3.dylib"
+      },
+      "libggml-blas.dylib": {
+        "link": "libggml-blas.0.dylib"
+      },
+      "libggml-cpu.0.25.3.dylib": {
+        "sha256": "eb87e110c68ba8d82814409b61e009b4c1d2583aad551ac059d583d332a10c19"
+      },
+      "libggml-cpu.0.dylib": {
+        "link": "libggml-cpu.0.25.3.dylib"
+      },
+      "libggml-cpu.dylib": {
+        "link": "libggml-cpu.0.dylib"
+      },
+      "libggml-metal.0.25.3.dylib": {
+        "sha256": "90744987bb2bb423c94b6f4beedead43c9f13c364a1504ccbdba25e9e7f86981"
+      },
+      "libggml-metal.0.dylib": {
+        "link": "libggml-metal.0.25.3.dylib"
+      },
+      "libggml-metal.dylib": {
+        "link": "libggml-metal.0.dylib"
+      },
+      "libggml-rpc.0.25.3.dylib": {
+        "sha256": "6959ae504d43d69b08e9a4801f8368d04a27dc85b0e79a4ed61c14672698215a"
+      },
+      "libggml-rpc.0.dylib": {
+        "link": "libggml-rpc.0.25.3.dylib"
+      },
+      "libggml-rpc.dylib": {
+        "link": "libggml-rpc.0.dylib"
+      },
+      "libggml.0.25.3.dylib": {
+        "sha256": "8b369b1dcc974e4a233c45e7259b37250556d25586e266c96546f17ce00ab1d9"
+      },
+      "libggml.0.dylib": {
+        "link": "libggml.0.25.3.dylib"
+      },
+      "libggml.dylib": {
+        "link": "libggml.0.dylib"
+      },
+      "libllama-batched-bench-impl.dylib": {
+        "sha256": "ca7de5b573ad3419281a9882e39b1a2e52c5a51a252cd78b23e970dc764d2812"
+      },
+      "libllama-bench-impl.dylib": {
+        "sha256": "68b034ba1be04a53cf9fdbc2ecbeba248721a78f2d73030979cb8310ff27d6fe"
+      },
+      "libllama-cli-impl.dylib": {
+        "sha256": "99ba81426f61b4e9f14662767bf2ad530ec66969d3a71762baa9a5e347fd5a9c"
+      },
+      "libllama-common.0.5.0.dylib": {
+        "sha256": "f85649f4394442ac9d4d82d90b288d6ea1f54caee21885785cda203fe8914602"
+      },
+      "libllama-common.0.dylib": {
+        "link": "libllama-common.0.5.0.dylib"
+      },
+      "libllama-common.dylib": {
+        "link": "libllama-common.0.dylib"
+      },
+      "libllama-completion-impl.dylib": {
+        "sha256": "daaf5b422b1a7e293d4153afd2301c1a0f47cbbae514f377fe048f827b4e1b5c"
+      },
+      "libllama-fit-params-impl.dylib": {
+        "sha256": "ee4b0c4b11f82b8c1dc6a7f28dcf812bf8a7d10369db8b607ccca9b98a4c6c53"
+      },
+      "libllama-perplexity-impl.dylib": {
+        "sha256": "357b554ff4ecfb97e15bf8600aab2414445e93f10bbd99ec6d702757cb5ee0b8"
+      },
+      "libllama-quantize-impl.dylib": {
+        "sha256": "09f37e9cc02cf1e7990bae3825261517f47e8ecbf31cb7abe1867f5a81d48a26"
+      },
+      "libllama-server-impl.dylib": {
+        "sha256": "5286f2891817d97ca463fcb6ea66362a2e642b146fb76ffa4e492ced4390f63b"
+      },
+      "libllama.0.5.0.dylib": {
+        "sha256": "8054a3792616d2aabb5cea69de9529efaadf3f056f28889553224290c2e3882f"
+      },
+      "libllama.0.dylib": {
+        "link": "libllama.0.5.0.dylib"
+      },
+      "libllama.dylib": {
+        "link": "libllama.0.dylib"
+      },
+      "libmtmd.0.5.0.dylib": {
+        "sha256": "57b27409c1a6ac66833100c6db2c4d24839058af30869d91a912c348c61e5933"
+      },
+      "libmtmd.0.dylib": {
+        "link": "libmtmd.0.5.0.dylib"
+      },
+      "libmtmd.dylib": {
+        "link": "libmtmd.0.dylib"
+      },
+      "llama": {
+        "sha256": "7b2773583b495b5cf7231d9a18f75c01c75aedb384a7493d04db3122d4b82dbb"
+      },
+      "llama-batched-bench": {
+        "sha256": "a126dbaf44036bdffc276c059546f4c3086e6c401de0a3e0b7a39a9d28bd7a7a"
+      },
+      "llama-bench": {
+        "sha256": "36a1b9da9c8ce1aea7843ac0a12a624f4ff304aef114330e73363b16ee6ed6d6"
+      },
+      "llama-cli": {
+        "sha256": "cf4f088f32507af619a1d65516d235ef7644db8c81ff1d3e175ff640dab75ab7"
+      },
+      "llama-completion": {
+        "sha256": "fa1e729425b5b8cf23377d4ade0baa5f9152ccf53dace5dec9900aecdebea494"
+      },
+      "llama-cvector-generator": {
+        "sha256": "1f3ba9501ae3c66939623f076313653842b7cf513dd0155cea11d7bb9fed855c"
+      },
+      "llama-export-lora": {
+        "sha256": "c14d5988deb5b935ac558a6d8d55d426bd7b27818af4a87fe22931d95a1ef2a8"
+      },
+      "llama-fit-params": {
+        "sha256": "30e74ed6284bda1a311b0f18bc6c0e3126d9f5f61f6f5c0c0eea30884c7b59b9"
+      },
+      "llama-gemma3-cli": {
+        "sha256": "f7f9126b0881654bdb4c9ceab6de40f42e31998fa0c775505b5979ef7e8e567e"
+      },
+      "llama-gguf-split": {
+        "sha256": "2bc631da4a4787ed4f258ca7f2fd161f9c28afcfaa8d0454341ece5711747fdc"
+      },
+      "llama-imatrix": {
+        "sha256": "a281903ab1033a7c42cbc914bc5ad83eeace800c4517778480f9ce59f6f93101"
+      },
+      "llama-llava-cli": {
+        "sha256": "9a77293c34faa94ae6955f9b1da3dca9fa55cf09fcd0fff87c96f5ec44b9d547"
+      },
+      "llama-minicpmv-cli": {
+        "sha256": "4baffe08bb410686ee032b1b2ff9a948bbde3fdc014dddf750f36978e3b40589"
+      },
+      "llama-mtmd-cli": {
+        "sha256": "24d272ee09cae7c5cb02d2292a9db21b2ffcb3e61bba9942a2c848ac841dc70a"
+      },
+      "llama-mtmd-debug": {
+        "sha256": "f62fe2dda3b90c27e63a6b121fe8f265dcb210eaab96fe574ea03b2fe5ab7449"
+      },
+      "llama-perplexity": {
+        "sha256": "8bd72371979a5152f1d0f059ab36589fd01ec4a03f8c0879606987d6d3975ec7"
+      },
+      "llama-quantize": {
+        "sha256": "7ef6927b8299b422bff1cab5ee29ccd8bc960f54a4f82deff7ec04729bccc882"
+      },
+      "llama-qwen2vl-cli": {
+        "sha256": "9be4a36b2587c0216009b1ed59ac79b1e4dd2e885f326e8aeffac8aa37761d31"
+      },
+      "llama-results": {
+        "sha256": "6776e9938289adebac90920d943838c82b3c364c7bf5721ff460ba82e7846e96"
+      },
+      "llama-server": {
+        "sha256": "6a072f8bf308ea28144476441d25760ee01b84ed102f86be4662d21ace8d72a6"
+      },
+      "llama-tokenize": {
+        "sha256": "88be7366debf19582404efed5df959c0687a52547546bea189f6472649bbce96"
+      },
+      "llama-tts": {
+        "sha256": "3de48d559404bcc3e554f08d9e2fe33991d3d7993488c352a67da080a7469092"
+      }
+    }
+  },
+  "independently_verified_inventory": {
+    "LICENSE": {
+      "sha256": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d",
+      "size_bytes": 1078
+    },
+    "ggml-metal-tuning": {
+      "sha256": "845212cd7c3c6889a3f487ea54a86f38c0e63fab688853e2dbe3cf1e6bfa5e78",
+      "size_bytes": 87696
+    },
+    "ggml-rpc-server": {
+      "sha256": "d3b77e2d3e4f31194a4fb92414403c13fd7465ff6d6f1699e311cbd3578ae2da",
+      "size_bytes": 133136
+    },
+    "libggml-base.0.25.3.dylib": {
+      "sha256": "78c2838eabfe501e5f5e7c00f4813b9b0167c0b1161f95fe3f1cf1d64e70a207",
+      "size_bytes": 751096
+    },
+    "libggml-base.0.dylib": {
+      "link": "libggml-base.0.25.3.dylib"
+    },
+    "libggml-base.dylib": {
+      "link": "libggml-base.0.dylib"
+    },
+    "libggml-blas.0.25.3.dylib": {
+      "sha256": "0ebd85672738258463cd43b0473d9894ee6bb2f4745160b4bdbe1bf770d4232e",
+      "size_bytes": 58776
+    },
+    "libggml-blas.0.dylib": {
+      "link": "libggml-blas.0.25.3.dylib"
+    },
+    "libggml-blas.dylib": {
+      "link": "libggml-blas.0.dylib"
+    },
+    "libggml-cpu.0.25.3.dylib": {
+      "sha256": "eb87e110c68ba8d82814409b61e009b4c1d2583aad551ac059d583d332a10c19",
+      "size_bytes": 957408
+    },
+    "libggml-cpu.0.dylib": {
+      "link": "libggml-cpu.0.25.3.dylib"
+    },
+    "libggml-cpu.dylib": {
+      "link": "libggml-cpu.0.dylib"
+    },
+    "libggml-metal.0.25.3.dylib": {
+      "sha256": "90744987bb2bb423c94b6f4beedead43c9f13c364a1504ccbdba25e9e7f86981",
+      "size_bytes": 5305960
+    },
+    "libggml-metal.0.dylib": {
+      "link": "libggml-metal.0.25.3.dylib"
+    },
+    "libggml-metal.dylib": {
+      "link": "libggml-metal.0.dylib"
+    },
+    "libggml-rpc.0.25.3.dylib": {
+      "sha256": "6959ae504d43d69b08e9a4801f8368d04a27dc85b0e79a4ed61c14672698215a",
+      "size_bytes": 191920
+    },
+    "libggml-rpc.0.dylib": {
+      "link": "libggml-rpc.0.25.3.dylib"
+    },
+    "libggml-rpc.dylib": {
+      "link": "libggml-rpc.0.dylib"
+    },
+    "libggml.0.25.3.dylib": {
+      "sha256": "8b369b1dcc974e4a233c45e7259b37250556d25586e266c96546f17ce00ab1d9",
+      "size_bytes": 60128
+    },
+    "libggml.0.dylib": {
+      "link": "libggml.0.25.3.dylib"
+    },
+    "libggml.dylib": {
+      "link": "libggml.0.dylib"
+    },
+    "libllama-batched-bench-impl.dylib": {
+      "sha256": "ca7de5b573ad3419281a9882e39b1a2e52c5a51a252cd78b23e970dc764d2812",
+      "size_bytes": 56576
+    },
+    "libllama-bench-impl.dylib": {
+      "sha256": "68b034ba1be04a53cf9fdbc2ecbeba248721a78f2d73030979cb8310ff27d6fe",
+      "size_bytes": 323016
+    },
+    "libllama-cli-impl.dylib": {
+      "sha256": "99ba81426f61b4e9f14662767bf2ad530ec66969d3a71762baa9a5e347fd5a9c",
+      "size_bytes": 237864
+    },
+    "libllama-common.0.5.0.dylib": {
+      "sha256": "f85649f4394442ac9d4d82d90b288d6ea1f54caee21885785cda203fe8914602",
+      "size_bytes": 7719592
+    },
+    "libllama-common.0.dylib": {
+      "link": "libllama-common.0.5.0.dylib"
+    },
+    "libllama-common.dylib": {
+      "link": "libllama-common.0.dylib"
+    },
+    "libllama-completion-impl.dylib": {
+      "sha256": "daaf5b422b1a7e293d4153afd2301c1a0f47cbbae514f377fe048f827b4e1b5c",
+      "size_bytes": 104208
+    },
+    "libllama-fit-params-impl.dylib": {
+      "sha256": "ee4b0c4b11f82b8c1dc6a7f28dcf812bf8a7d10369db8b607ccca9b98a4c6c53",
+      "size_bytes": 55264
+    },
+    "libllama-perplexity-impl.dylib": {
+      "sha256": "357b554ff4ecfb97e15bf8600aab2414445e93f10bbd99ec6d702757cb5ee0b8",
+      "size_bytes": 156384
+    },
+    "libllama-quantize-impl.dylib": {
+      "sha256": "09f37e9cc02cf1e7990bae3825261517f47e8ecbf31cb7abe1867f5a81d48a26",
+      "size_bytes": 96496
+    },
+    "libllama-server-impl.dylib": {
+      "sha256": "5286f2891817d97ca463fcb6ea66362a2e642b146fb76ffa4e492ced4390f63b",
+      "size_bytes": 9170136
+    },
+    "libllama.0.5.0.dylib": {
+      "sha256": "8054a3792616d2aabb5cea69de9529efaadf3f056f28889553224290c2e3882f",
+      "size_bytes": 3271136
+    },
+    "libllama.0.dylib": {
+      "link": "libllama.0.5.0.dylib"
+    },
+    "libllama.dylib": {
+      "link": "libllama.0.dylib"
+    },
+    "libmtmd.0.5.0.dylib": {
+      "sha256": "57b27409c1a6ac66833100c6db2c4d24839058af30869d91a912c348c61e5933",
+      "size_bytes": 1398944
+    },
+    "libmtmd.0.dylib": {
+      "link": "libmtmd.0.5.0.dylib"
+    },
+    "libmtmd.dylib": {
+      "link": "libmtmd.0.dylib"
+    },
+    "llama": {
+      "sha256": "7b2773583b495b5cf7231d9a18f75c01c75aedb384a7493d04db3122d4b82dbb",
+      "size_bytes": 107320
+    },
+    "llama-batched-bench": {
+      "sha256": "a126dbaf44036bdffc276c059546f4c3086e6c401de0a3e0b7a39a9d28bd7a7a",
+      "size_bytes": 33488
+    },
+    "llama-bench": {
+      "sha256": "36a1b9da9c8ce1aea7843ac0a12a624f4ff304aef114330e73363b16ee6ed6d6",
+      "size_bytes": 33464
+    },
+    "llama-cli": {
+      "sha256": "cf4f088f32507af619a1d65516d235ef7644db8c81ff1d3e175ff640dab75ab7",
+      "size_bytes": 49960
+    },
+    "llama-completion": {
+      "sha256": "fa1e729425b5b8cf23377d4ade0baa5f9152ccf53dace5dec9900aecdebea494",
+      "size_bytes": 33472
+    },
+    "llama-cvector-generator": {
+      "sha256": "1f3ba9501ae3c66939623f076313653842b7cf513dd0155cea11d7bb9fed855c",
+      "size_bytes": 102296
+    },
+    "llama-export-lora": {
+      "sha256": "c14d5988deb5b935ac558a6d8d55d426bd7b27818af4a87fe22931d95a1ef2a8",
+      "size_bytes": 99856
+    },
+    "llama-fit-params": {
+      "sha256": "30e74ed6284bda1a311b0f18bc6c0e3126d9f5f61f6f5c0c0eea30884c7b59b9",
+      "size_bytes": 33472
+    },
+    "llama-gemma3-cli": {
+      "sha256": "f7f9126b0881654bdb4c9ceab6de40f42e31998fa0c775505b5979ef7e8e567e",
+      "size_bytes": 35344
+    },
+    "llama-gguf-split": {
+      "sha256": "2bc631da4a4787ed4f258ca7f2fd161f9c28afcfaa8d0454341ece5711747fdc",
+      "size_bytes": 59952
+    },
+    "llama-imatrix": {
+      "sha256": "a281903ab1033a7c42cbc914bc5ad83eeace800c4517778480f9ce59f6f93101",
+      "size_bytes": 239824
+    },
+    "llama-llava-cli": {
+      "sha256": "9a77293c34faa94ae6955f9b1da3dca9fa55cf09fcd0fff87c96f5ec44b9d547",
+      "size_bytes": 35344
+    },
+    "llama-minicpmv-cli": {
+      "sha256": "4baffe08bb410686ee032b1b2ff9a948bbde3fdc014dddf750f36978e3b40589",
+      "size_bytes": 35344
+    },
+    "llama-mtmd-cli": {
+      "sha256": "24d272ee09cae7c5cb02d2292a9db21b2ffcb3e61bba9942a2c848ac841dc70a",
+      "size_bytes": 85616
+    },
+    "llama-mtmd-debug": {
+      "sha256": "f62fe2dda3b90c27e63a6b121fe8f265dcb210eaab96fe574ea03b2fe5ab7449",
+      "size_bytes": 75824
+    },
+    "llama-perplexity": {
+      "sha256": "8bd72371979a5152f1d0f059ab36589fd01ec4a03f8c0879606987d6d3975ec7",
+      "size_bytes": 33472
+    },
+    "llama-quantize": {
+      "sha256": "7ef6927b8299b422bff1cab5ee29ccd8bc960f54a4f82deff7ec04729bccc882",
+      "size_bytes": 33472
+    },
+    "llama-qwen2vl-cli": {
+      "sha256": "9be4a36b2587c0216009b1ed59ac79b1e4dd2e885f326e8aeffac8aa37761d31",
+      "size_bytes": 35344
+    },
+    "llama-results": {
+      "sha256": "6776e9938289adebac90920d943838c82b3c364c7bf5721ff460ba82e7846e96",
+      "size_bytes": 58912
+    },
+    "llama-server": {
+      "sha256": "6a072f8bf308ea28144476441d25760ee01b84ed102f86be4662d21ace8d72a6",
+      "size_bytes": 49984
+    },
+    "llama-tokenize": {
+      "sha256": "88be7366debf19582404efed5df959c0687a52547546bea189f6472649bbce96",
+      "size_bytes": 58736
+    },
+    "llama-tts": {
+      "sha256": "3de48d559404bcc3e554f08d9e2fe33991d3d7993488c352a67da080a7469092",
+      "size_bytes": 57384
+    }
+  }
+}
