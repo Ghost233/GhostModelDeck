@@ -10,6 +10,7 @@ import 'package:ghost_model_deck/model_use_registry.dart';
 
 import 'decision_gguf.dart';
 import 'engine_archive.dart';
+import 'typed_answers.dart';
 
 /// Only the native process and its external HTTP interface are substituted.
 class CouncilRuntime {
@@ -145,7 +146,26 @@ class CouncilRuntimeIO implements EngineProcessIO {
         final body = jsonDecode(
           await utf8.decoder.bind(request).join(),
         ) as Map<String, dynamic>;
-        final options = body['questions']['council_choice']['criteria'] as Map;
+        final questions = body['questions'] as Map;
+        if (!questions.containsKey('council_choice')) {
+          final consultation = !questions.containsKey('capability_probe');
+          if (consultation) {
+            requests.add(body);
+            if (requests.length == 2) bothArrived?.completeIfPending();
+            await release?.future;
+          }
+          var raw = jsonEncode({
+            'model': arg('--alias'),
+            'answers': typedAnswers(questions),
+            'usage': {'input_tokens': 10, 'output_tokens': 0},
+          });
+          if (consultation && respond != null) raw = await respond!(body, raw);
+          if (consultation) request.response.statusCode = consultationStatus;
+          request.response.write(raw);
+          await request.response.close();
+          return;
+        }
+        final options = questions['council_choice']['criteria'] as Map;
         final consultation = options.containsKey('accept');
         if (consultation) {
           requests.add(body);

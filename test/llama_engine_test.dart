@@ -13,8 +13,173 @@ import 'package:ghost_model_deck/llama_engine.dart';
 import 'package:ghost_model_deck/model_library.dart';
 
 import 'fixtures/decision_gguf.dart';
+import 'fixtures/typed_answers.dart';
 
 void main() {
+  test(
+    'choice readiness never implies a failed score or noul capability',
+    () async {
+      final fixture = await _Fixture.create();
+      addTearDown(fixture.close);
+      fixture.io.failScore = true;
+      final instance = await fixture.engine.start(fixture.asset.id);
+      expect(instance.status, LlamaInstanceStatus.ready);
+      expect(
+        instance.capabilities,
+        contains(LlamaCapability.choiceProbability),
+      );
+      expect(
+        instance.capabilities,
+        isNot(contains(LlamaCapability.scoreProbability)),
+      );
+      expect(instance.capabilities, contains(LlamaCapability.noulScalar));
+      expect(instance.typedEvidence.keys, [DecisionPrimitive.noul]);
+      final before = fixture.io.typedRequests.length;
+      await expectLater(
+        fixture.engine.decideBatch(
+          instance.id,
+          DecisionBatchRequest(
+            state: '',
+            questions: {
+              'q': ScoreQuestion(instructions: 'Rank', levels: ['Low', 'High']),
+            },
+          ),
+        ),
+        throwsA(
+          isA<LlamaRequestException>().having(
+            (e) => e.kind,
+            'kind',
+            DecisionFailureKind.notReady,
+          ),
+        ),
+      );
+      expect(fixture.io.typedRequests.length, before);
+    },
+  );
+
+  test(
+    'typed cancellation drains owned permit and a late response cannot publish',
+    () async {
+      final fixture = await _Fixture.create();
+      addTearDown(fixture.close);
+      final instance = await fixture.engine.start(fixture.asset.id);
+      final arrived = Completer<void>();
+      final release = Completer<void>();
+      addTearDown(() {
+        if (!release.isCompleted) release.complete();
+      });
+      fixture.io.holdDecision = (_) async {
+        arrived.complete();
+        await release.future;
+      };
+      final cancel = DecisionCancellation();
+      final pending = fixture.engine
+          .decideBatch(
+            instance.id,
+            DecisionBatchRequest(
+              state: 'held',
+              questions: {
+                'n': NoulQuestion(
+                  instructions: 'Valid',
+                  falseText: 'False',
+                  trueText: 'True',
+                ),
+              },
+            ),
+            cancellation: cancel,
+          )
+          .then<Object>((v) => v, onError: (Object e) => e);
+      await arrived.future;
+      expect(fixture.engine.state.instances.single.activeRequests, 1);
+      cancel.cancel();
+      expect(
+        await pending,
+        isA<LlamaRequestException>().having(
+          (e) => e.kind,
+          'kind',
+          DecisionFailureKind.cancelled,
+        ),
+      );
+      expect(fixture.engine.state.instances.single.activeRequests, 0);
+      expect(fixture.engine.state.instances.single.lastBatchResult, isNull);
+      release.complete();
+      await fixture.engine.stop(instance.id);
+      expect(
+        fixture.engine.state.instances.single.status,
+        LlamaInstanceStatus.stopped,
+      );
+      expect(fixture.engine.state.instances.single.lastBatchResult, isNull);
+    },
+  );
+
+  test('typed response bytes are bounded before JSON decoding and invalid bodies preserve resident readiness', () async {
+    final fixture = await _Fixture.create();
+    addTearDown(fixture.close);
+    final instance = await fixture.engine.start(fixture.asset.id);
+    fixture.io.decisionResponseOverride = ' ' * (decisionMaxResponseBytes + 1);
+    await expectLater(
+      fixture.engine.decideBatch(
+        instance.id,
+        DecisionBatchRequest(
+          state: '',
+          questions: {
+            'n': NoulQuestion(
+              instructions: 'Valid',
+              falseText: 'False',
+              trueText: 'True',
+            ),
+          },
+        ),
+      ),
+      throwsA(
+        isA<LlamaRequestException>().having(
+          (e) => e.kind,
+          'kind',
+          DecisionFailureKind.invalidResponse,
+        ),
+      ),
+    );
+    expect(
+      fixture.engine.state.instances.single.status,
+      LlamaInstanceStatus.ready,
+    );
+    expect(fixture.engine.state.instances.single.activeRequests, 0);
+    expect(fixture.engine.state.instances.single.lastBatchResult, isNull);
+  });
+
+  test('owned typed responses separately earn capabilities and batch uses the resident permit', () async {
+    final fixture = await _Fixture.create();
+    addTearDown(fixture.close);
+    final instance = await fixture.engine.start(fixture.asset.id);
+    expect(
+      instance.capabilities,
+      containsAll([
+        LlamaCapability.choiceProbability,
+        LlamaCapability.scoreProbability,
+        LlamaCapability.noulScalar,
+      ]),
+    );
+    final result = await fixture.engine.decideBatch(
+      instance.id,
+      DecisionBatchRequest(
+        state: 'mixed',
+        questions: {
+          'rank': ScoreQuestion(instructions: 'Rank', levels: ['Low', 'High']),
+          'valid': NoulQuestion(
+            instructions: 'Valid',
+            falseText: 'False',
+            trueText: 'True',
+          ),
+        },
+      ),
+    );
+    expect((result.answers['rank'] as ScoreAnswer).score, 0.75);
+    expect((result.answers['valid'] as NoulAnswer).noul, 0.8);
+    expect(result.model, instance.id);
+    expect(fixture.engine.state.instances.single.activeRequests, 0);
+    expect(fixture.io.children, hasLength(1));
+  });
+
   test('managed recycle attempts every owned child after a stop failure and exposes a retryable residual', () async {
     final fixture = await _Fixture.create(ordinaryChat: true);
     addTearDown(fixture.close);
@@ -1420,6 +1585,11 @@ class _InstallIO implements EngineProcessIO {
   int textRequests = 0;
   String? textResponseOverride;
   int decisionRequests = 0;
+  final typedRequests = <Map>[];
+  String? decisionResponseOverride;
+  bool failScore = false;
+  bool failNoul = false;
+  Future<void> Function(Map body)? holdDecision;
   _Child? child;
   final children = <_Child>[];
   Future<void> Function(Map body)? holdText;
@@ -1496,10 +1666,32 @@ class _InstallIO implements EngineProcessIO {
               }),
         );
       } else {
-        decisionRequests++;
         final body = jsonDecode(await utf8.decoder.bind(request).join()) as Map;
-        final options =
-            (body['questions'] as Map)['council_choice']['criteria'] as Map;
+        final questions = body['questions'] as Map;
+        if (!questions.containsKey('council_choice')) {
+          typedRequests.add(body);
+          await holdDecision?.call(body);
+          request.response.write(
+            decisionResponseOverride?.replaceAll('ALIAS', arg('--alias')) ??
+                jsonEncode({
+                  'model': arg('--alias'),
+                  'answers':
+                      (failScore &&
+                              questions.values.any(
+                                (q) => q['type'] == 'score',
+                              ) ||
+                          failNoul &&
+                              questions.values.any((q) => q['type'] == 'noul'))
+                      ? {}
+                      : typedAnswers(questions),
+                  'usage': {'input_tokens': 10, 'output_tokens': 0},
+                }),
+          );
+          await request.response.close();
+          return;
+        }
+        decisionRequests++;
+        final options = questions['council_choice']['criteria'] as Map;
         request.response.write(
           jsonEncode({
             'model': arg('--alias'),

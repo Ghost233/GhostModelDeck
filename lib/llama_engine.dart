@@ -319,7 +319,19 @@ class _NativeChild implements EngineChild {
 
 /// Each capability is earned by a request, never by asset metadata or health.
 /// Choice does not imply score/noul support.
-enum LlamaCapability { choiceProbability, textGeneration }
+enum LlamaCapability {
+  choiceProbability,
+  scoreProbability,
+  noulScalar,
+  textGeneration,
+}
+
+LlamaCapability capabilityForPrimitive(DecisionPrimitive type) =>
+    switch (type) {
+      DecisionPrimitive.choice => LlamaCapability.choiceProbability,
+      DecisionPrimitive.score => LlamaCapability.scoreProbability,
+      DecisionPrimitive.noul => LlamaCapability.noulScalar,
+    };
 
 enum LlamaInstanceStatus { starting, ready, stopping, stopped, failed }
 
@@ -342,6 +354,8 @@ class LlamaInstance {
     this.properties = const {},
     this.lastResult,
     this.lastTextResult,
+    this.lastBatchResult,
+    this.typedEvidence = const {},
     this.capabilities = const {},
     this.error,
   });
@@ -375,6 +389,8 @@ class LlamaInstance {
   final Map<String, dynamic> properties;
   final DecisionResult? lastResult;
   final TextResult? lastTextResult;
+  final DecisionBatchResult? lastBatchResult;
+  final Map<DecisionPrimitive, DecisionBatchResult> typedEvidence;
   final Set<LlamaCapability> capabilities;
   final String? error;
 }
@@ -722,6 +738,8 @@ class LlamaEngine {
         owned.instance = _copy(owned.instance, properties: properties);
         DecisionResult? result;
         TextResult? text;
+        final evidence = <DecisionPrimitive, DecisionBatchResult>{};
+        final capabilities = <LlamaCapability>{};
         if (asset.kind == AssetKind.chat) {
           text = await _text(
             owned,
@@ -744,6 +762,47 @@ class LlamaEngine {
             cancellation: owned.startupCancellation,
           );
         }
+        if (text != null) capabilities.add(LlamaCapability.textGeneration);
+        if (result != null) {
+          capabilities.add(LlamaCapability.choiceProbability);
+          // Independent real owned calls: metadata or choice never earns these.
+          for (final question in <DecisionQuestion>[
+            ScoreQuestion(
+              instructions: 'Rate the requested change.',
+              levels: ['Not applicable', 'Applicable'],
+            ),
+            NoulQuestion(
+              instructions: 'Is a change requested?',
+              falseText: 'No change requested.',
+              trueText: 'A change requested.',
+            ),
+          ]) {
+            checkStartup();
+            try {
+              await _identity(
+                owned,
+                const Duration(seconds: 5),
+                cancellation: owned.startupCancellation,
+              );
+              final proof = await _batchDecision(
+                owned,
+                DecisionBatchRequest(
+                  state: 'A change has been requested.',
+                  questions: {'capability_probe': question},
+                ),
+                const Duration(seconds: 10),
+                cancellation: owned.startupCancellation,
+              );
+              evidence[question.type] = proof;
+              capabilities.add(capabilityForPrimitive(question.type));
+            } on _InstanceIdentityException {
+              rethrow;
+            } on LlamaRequestException catch (error) {
+              if (error.kind == DecisionFailureKind.cancelled) rethrow;
+              // Failed probe does not imply support or revoke proven choice.
+            }
+          }
+        }
         checkStartup();
         owned.instance = _copy(
           owned.instance,
@@ -751,11 +810,8 @@ class LlamaEngine {
           acceptingRequests: true,
           lastResult: result,
           lastTextResult: text,
-          capabilities: Set.unmodifiable({
-            asset.kind == AssetKind.chat
-                ? LlamaCapability.textGeneration
-                : LlamaCapability.choiceProbability,
-          }),
+          typedEvidence: Map.unmodifiable(evidence),
+          capabilities: Set.unmodifiable(capabilities),
         );
         _instances[alias] = owned.instance;
         _publishInstances();
@@ -827,6 +883,7 @@ class LlamaEngine {
         timeout - watch.elapsed,
         cancellation: permit.cancellation,
       );
+      _checkTerminal(running, permit.cancellation);
       running.instance = _copy(running.instance, lastResult: result);
       _instances[instanceId] = running.instance;
       _publishInstances();
@@ -854,6 +911,97 @@ class LlamaEngine {
       );
     } finally {
       _release(running, permit);
+    }
+  }
+
+  Future<DecisionBatchResult> decideBatch(
+    String instanceId,
+    DecisionBatchRequest request, {
+    Duration timeout = const Duration(seconds: 10),
+    DecisionCancellation? cancellation,
+  }) async {
+    final running = _running[instanceId];
+    if (_shuttingDown ||
+        running == null ||
+        !_isCurrent(running) ||
+        running.instance.status != LlamaInstanceStatus.ready ||
+        running.stopping ||
+        running.exitCode != null ||
+        request.questions.values.any(
+          (q) => !running.instance.capabilities.contains(
+            capabilityForPrimitive(q.type),
+          ),
+        )) {
+      throw const LlamaRequestException(
+        '所选受管实例没有已验证的 typed 能力',
+        kind: DecisionFailureKind.notReady,
+      );
+    }
+    final permit = _admit(running, cancellation);
+    try {
+      final watch = Stopwatch()..start();
+      await _identity(running, timeout, cancellation: permit.cancellation);
+      final result = await _batchDecision(
+        running,
+        request,
+        timeout - watch.elapsed,
+        cancellation: permit.cancellation,
+      );
+      _checkTerminal(running, permit.cancellation);
+      running.instance = _copy(running.instance, lastBatchResult: result);
+      _publishRun(running);
+      return result;
+    } on _InstanceIdentityException catch (error) {
+      _release(running, permit);
+      await _fail(running, error.message);
+      rethrow;
+    } finally {
+      _release(running, permit);
+    }
+  }
+
+  void _checkTerminal(_Running running, DecisionCancellation? cancellation) {
+    if (cancellation?.isCancelled == true ||
+        _shutdownCancellation.isCancelled ||
+        running.exitCode != null ||
+        running.stopping ||
+        !_isCurrent(running)) {
+      throw const LlamaRequestException(
+        '决策已取消或运行代次失效',
+        kind: DecisionFailureKind.cancelled,
+      );
+    }
+  }
+
+  Future<DecisionBatchResult> _batchDecision(
+    _Running running,
+    DecisionBatchRequest request,
+    Duration timeout, {
+    DecisionCancellation? cancellation,
+  }) async {
+    final watch = Stopwatch()..start();
+    final raw = await _request(
+      running.instance.endpoint.resolve('/v1/systemone'),
+      timeout: timeout,
+      body: request.toSystemone(model: running.instance.id),
+      cancellation: cancellation,
+      maxResponseBytes: decisionMaxResponseBytes,
+    );
+    try {
+      final result = DecisionBatchResult.parse(
+        raw,
+        request,
+        expectedModel: running.instance.id,
+        elapsed: watch.elapsed,
+      );
+      _checkTerminal(running, cancellation);
+      return result;
+    } on DecisionProtocolException catch (error) {
+      throw LlamaRequestException(
+        error.message,
+        kind: DecisionFailureKind.invalidResponse,
+        rawResponse: raw,
+      );
     }
   }
 
@@ -939,6 +1087,7 @@ class LlamaEngine {
       timeout: timeout,
       body: request.toSystemone(model: running.instance.id),
       cancellation: cancellation,
+      maxResponseBytes: decisionMaxResponseBytes,
     );
     final DecisionResult result;
     try {
@@ -1272,6 +1421,7 @@ class LlamaEngine {
     required Duration timeout,
     Map<String, Object>? body,
     DecisionCancellation? cancellation,
+    int? maxResponseBytes,
   }) async {
     if (timeout <= Duration.zero) {
       throw const LlamaRequestException(
@@ -1312,7 +1462,26 @@ class LlamaEngine {
               request.write(jsonEncode(body));
             }
             final response = await request.close();
-            final raw = await utf8.decoder.bind(response).join();
+            final bytes = <int>[];
+            await for (final chunk in response) {
+              if (maxResponseBytes != null &&
+                  bytes.length + chunk.length > maxResponseBytes) {
+                throw const LlamaRequestException(
+                  'typed 响应超出字节上限',
+                  kind: DecisionFailureKind.invalidResponse,
+                );
+              }
+              bytes.addAll(chunk);
+            }
+            final String raw;
+            try {
+              raw = utf8.decode(bytes);
+            } on FormatException {
+              throw const LlamaRequestException(
+                '引擎响应不是有效 UTF8',
+                kind: DecisionFailureKind.invalidResponse,
+              );
+            }
             if (response.statusCode != 200) {
               throw LlamaRequestException(
                 '引擎 HTTP ${response.statusCode}: ${raw.length > 1024 ? raw.substring(0, 1024) : raw}',
@@ -1533,6 +1702,8 @@ class LlamaEngine {
     Map<String, dynamic>? properties,
     DecisionResult? lastResult,
     TextResult? lastTextResult,
+    DecisionBatchResult? lastBatchResult,
+    Map<DecisionPrimitive, DecisionBatchResult>? typedEvidence,
     Set<LlamaCapability>? capabilities,
     String? error,
   }) => LlamaInstance(
@@ -1553,6 +1724,8 @@ class LlamaEngine {
     properties: properties ?? value.properties,
     lastResult: lastResult ?? value.lastResult,
     lastTextResult: lastTextResult ?? value.lastTextResult,
+    lastBatchResult: lastBatchResult ?? value.lastBatchResult,
+    typedEvidence: typedEvidence ?? value.typedEvidence,
     capabilities: capabilities ?? value.capabilities,
     error: error,
   );

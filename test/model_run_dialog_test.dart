@@ -555,6 +555,12 @@ class _RuntimeIO implements EngineProcessIO {
         );
       } else {
         final body = jsonDecode(await utf8.decoder.bind(request).join()) as Map;
+        if (!(body['questions'] as Map).containsKey('council_choice')) {
+          request.response.statusCode = HttpStatus.notImplemented;
+          request.response.write('{"error":"fixture has no typed head"}');
+          await request.response.close();
+          return;
+        }
         final options =
             (body['questions'] as Map)['council_choice']['criteria'] as Map;
         request.response.write(
