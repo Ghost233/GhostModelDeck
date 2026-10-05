@@ -1,0 +1,53 @@
+{
+  "scope": "Live production HF/package/download and full-content library scan only; no engine install, inference, Ready, GUI or complete Release acceptance",
+  "download_observed_at": "2026-10-05T18:46:53.405904Z",
+  "download_elapsed_seconds": 490.492,
+  "repository": "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+  "revision": "9217f5db79a29953eb74d5343926648285ec7e67",
+  "metadata_origin": "online",
+  "source": "hf",
+  "selected_files": ["qwen2.5-0.5b-instruct-q4_k_m.gguf"],
+  "weight_bytes": 491400032,
+  "weight_sha256": "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db",
+  "download_status": "installed",
+  "download_error": null,
+  "budget_cancelled": false,
+  "library": "/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-gguf-r38-jqOH7U",
+  "canonical_library": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-gguf-r38-jqOH7U",
+  "actual_weight": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-gguf-r38-jqOH7U/Qwen/Qwen2.5-0.5B-Instruct-GGUF/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+  "installation_id": "beb7669ae15902824b83251f4126017efd30d5f402ebe2388523556f5d3417fb",
+  "receipt_bytes": 622,
+  "receipt_sha256": "bfb52d5da870f8b4bfd325a3f8b1efe7c285bc563e27b86819a69f2871399ce5",
+  "scan_observed_at": "2026-10-05T18:57:00.193077Z",
+  "scan": {
+    "library_error": null,
+    "artifact_id": "de64aa502edd375d325432921be633947b8f7cf626b9217e43d9b93877f4e67a",
+    "format": "GGUF",
+    "kind": "chat",
+    "integrity": "complete",
+    "architecture": "qwen2",
+    "quantization": null,
+    "engine_capability": "awaitingVerification",
+    "source_verified": true,
+    "fingerprints_verified": true,
+    "diagnostics": [],
+    "success": true
+  },
+  "original_probe_failure": {
+    "observed_at": "2026-10-05T18:55:45.286056Z",
+    "exit": 1,
+    "failure": "Bad state: Expected one actual downloaded artifact",
+    "stack": "#0      main (file:///Users/ghost233/Ghost233Code/GhostModelDeck/.tooling/gmd-live-gguf-scan-r38.dart:36:60)\n<asynchronous suspension>\n",
+    "cause": "Probe matched /var path literally against scanner canonical /private/var path; scanner already returned complete chat artifact with full fingerprints. Canonicalized expected existing file path and reran probe; no product code changed."
+  },
+  "local_raw_artifacts": [
+    ".tooling/gmd-live-gguf-download-r38.dart",
+    ".tooling/gmd-live-gguf-download-r38.log",
+    ".tooling/gmd-live-gguf-download-r38.json",
+    ".tooling/gmd-live-gguf-scan-r38.dart",
+    ".tooling/gmd-live-gguf-scan-r38.log",
+    ".tooling/gmd-live-gguf-scan-r38.json",
+    ".tooling/gmd-live-gguf-scan-r38-canonical.log",
+    ".tooling/gmd-live-gguf-scan-r38-canonical.json"
+  ]
+}
