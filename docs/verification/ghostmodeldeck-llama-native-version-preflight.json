@@ -1,0 +1,101 @@
+{
+  "scope": "Frozen curated evidence from round 36 native archive/version preflight; not application install, Ready, model inference or final acceptance",
+  "date_local": "2026-10-06",
+  "time_zone": "Asia/Shanghai",
+  "os_from_owned_process_sample": "macOS 27.0.1 (26A434)",
+  "scratch": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-llama-version-preflight-xnzc1b7o",
+  "archives": [
+    {
+      "semantic_tag": "v0.5.0",
+      "artifact_tag": "b11146",
+      "commit": "7fe450e19305b828c199d602c23a8337aaa1f03b",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11146/llama-b11146-bin-macos-arm64.tar.gz",
+      "bytes": 11189714,
+      "sha256": "1ad3f9eff80edb9dbef4259ad564d1720612ef7eea48fa4afed0e54f5f3d5711",
+      "server_member": "llama-b11146/llama-server",
+      "server_bytes": 49984,
+      "server_sha256": "41df13c126456f8e5fab2057c86a790067a85ea1dfd8fbc0071cc45fbba56262"
+    },
+    {
+      "artifact_tag": "b11381",
+      "commit": "836d57176dc699a726c55418e4f96b8ca628e1bf",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11381/llama-b11381-bin-macos-arm64.tar.gz",
+      "bytes": 11925693,
+      "sha256": "ea92f83904a1a1d76752581acbb87c7099ae1a3ac37cc6a634b1648d707dc341",
+      "server_member": "llama-b11381/llama-server",
+      "server_bytes": 49984,
+      "server_sha256": "6a072f8bf308ea28144476441d25760ee01b84ed102f86be4662d21ace8d72a6"
+    }
+  ],
+  "version_gate": {
+    "deadline_seconds": 10,
+    "expected": "exit 0; build number and commit first 9 characters; Darwin arm64",
+    "changed": false
+  },
+  "native_attempts": [
+    {
+      "job": "bash-16",
+      "tag": "b11146",
+      "result": "TimeoutExpired after 10 seconds; subprocess.run killed and waited its own child",
+      "b11381_attempted": false
+    },
+    {
+      "job": "bash-17",
+      "observed_at": "2026-10-05T17:59:24.726610+00:00",
+      "tag": "b11146",
+      "pid": 52578,
+      "exit": -9,
+      "timeout_10s": true,
+      "stdout": "",
+      "stderr": "0.00.000.454 I srv  llama_server: initializing ...\n",
+      "version_gate_matches": false
+    },
+    {
+      "job": "bash-17",
+      "observed_at": "2026-10-05T17:59:27.857096+00:00",
+      "tag": "b11381",
+      "pid": 52654,
+      "exit": 0,
+      "timeout_10s": false,
+      "stdout": "",
+      "stderr": "version: 0.5.0-dev (build 11381, commit 836d57176)\nbuilt with AppleClang 21.0.0.21000101 for Darwin arm64\n",
+      "version_gate_matches": true
+    },
+    {
+      "job": "bash-18",
+      "observed_at": "2026-10-05T18:03:05.368462+00:00",
+      "tag": "b11146",
+      "pid": 54261,
+      "exit": -9,
+      "elapsed_seconds": 10.003801209008088,
+      "timeout_10s": true,
+      "stdout": "",
+      "stderr": "0.00.000.508 I srv  llama_server: initializing ...\n",
+      "sample_exit": 0,
+      "sample_duration_seconds": 1,
+      "sample_interval_ms": 1
+    },
+    {
+      "job": "bash-19",
+      "observed_at": "2026-10-05T18:07:50.209218+00:00",
+      "tag": "b11146",
+      "pid": 57538,
+      "exit": 0,
+      "elapsed_seconds": 14.364464084006613,
+      "diagnostic_timeout_seconds": 120,
+      "diagnostic_timed_out": false,
+      "stdout": "",
+      "stderr": "0.00.000.078 I srv  llama_server: initializing ...\nversion: 0.5.0-dev (build 11146, commit 7fe450e19)\nbuilt with AppleClang 21.0.0.21000101 for Darwin arm64\n",
+      "version_identity_matches": true,
+      "satisfies_original_10s_gate": false,
+      "cold_cache_measurement": false
+    }
+  ],
+  "sample_findings": {
+    "source_log": ".tooling/engine-artifacts/llama-b11146-version-sample.txt:24-95",
+    "main_thread": ["llama_server(int, char**)", "common_params_parse", "common_params_parser_init", "llama_supports_rpc", "ggml_backend_reg_count", "ggml_backend_registry::ggml_backend_registry()", "ggml_backend_metal_reg", "ggml_metal_device_get", "ggml_metal_device_init", "ggml_metal_library_init", "_dispatch_group_wait_slow", "__ulock_wait"],
+    "compiler_thread": ["__ggml_metal_library_compile_all_block_invoke", "newLibraryWithSource:options:error:", "MTLCompilerScheduler::buildRequest", "xpc_connection_send_message_with_reply_sync"],
+    "interpretation": "Sampled wait was Metal library initialization/compilation before version argument handling; neither permanent deadlock nor network fault was established"
+  },
+  "limitations": ["No app installation or uninstall", "No two-version running acceptance", "No model load, text/typed request, probability/quality claim", "No native Ready or Release acceptance", "No modification of M2 owned container or its lib/tests", "No acceptance gate relaxation or offline mode"]
+}
