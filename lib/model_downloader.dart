@@ -758,6 +758,65 @@ class ModelDownloader {
     return true;
   }
 
+  /// Dart's automatic redirects can replace identity with the default gzip.
+  /// Rebuild only our byte-transfer headers, never credentials, on each hop.
+  Future<HttpClientResponse> _getResponse(
+    Uri uri, {
+    required int offset,
+    required String? validator,
+  }) async {
+    const timeout = Duration(seconds: 30);
+    const maxRedirects = 5; // Match HttpClientRequest's original default bound.
+    final visited = <Uri>{};
+    for (var redirects = 0; ; redirects++) {
+      _checkCancelled();
+      if (!['http', 'https'].contains(uri.scheme) || uri.host.isEmpty) {
+        throw const _DownloadFailure(DownloadStatus.failed, '无效的下载协议或地址');
+      }
+      if (!visited.add(uri)) {
+        throw const _DownloadFailure(DownloadStatus.failed, '下载重定向循环');
+      }
+      _request = await _client!.getUrl(uri).timeout(timeout);
+      _checkCancelled();
+      _request!.followRedirects = false;
+      _request!.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
+      if (offset > 0) {
+        _request!.headers.set(HttpHeaders.rangeHeader, 'bytes=$offset-');
+        _request!.headers.set(HttpHeaders.ifRangeHeader, validator!);
+      }
+      final response = await _request!.close().timeout(timeout);
+      _checkCancelled();
+      if (!response.isRedirect) return response;
+      // Cancel (rather than drain) an arbitrary intermediate body. The same
+      // owned iterator lets cancel/close interrupt this stage as well.
+      _body = StreamIterator(response.timeout(timeout));
+      await _body!.cancel().timeout(timeout);
+      _body = null;
+      _checkCancelled();
+      if (redirects >= maxRedirects) {
+        throw const _DownloadFailure(DownloadStatus.failed, '下载重定向超过 5 次');
+      }
+      final location = response.headers.value(HttpHeaders.locationHeader);
+      final target = location == null || location.trim().isEmpty
+          ? null
+          : Uri.tryParse(location);
+      if (target == null) {
+        throw const _DownloadFailure(
+          DownloadStatus.failed,
+          '下载重定向缺少有效 Location',
+        );
+      }
+      final next = uri.resolveUri(target);
+      if (!['http', 'https'].contains(next.scheme) ||
+          next.host.isEmpty ||
+          next.userInfo.isNotEmpty ||
+          (uri.scheme == 'https' && next.scheme != 'https')) {
+        throw const _DownloadFailure(DownloadStatus.failed, '下载重定向地址不安全');
+      }
+      uri = next;
+    }
+  }
+
   Future<void> _receive(
     HfModelFile file,
     File partial,
@@ -780,15 +839,10 @@ class ModelDownloader {
         '此来源没有可验证的续传能力；需要重新下载',
       );
     }
-    _request = await _client!.getUrl(uri);
-    _checkCancelled();
-    _request!.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
-    if (offset > 0) {
-      _request!.headers.set(HttpHeaders.rangeHeader, 'bytes=$offset-');
-      _request!.headers.set(HttpHeaders.ifRangeHeader, validator);
-    }
-    final response = await _request!.close().timeout(
-      const Duration(seconds: 30),
+    final response = await _getResponse(
+      uri,
+      offset: offset,
+      validator: validator is String ? validator : null,
     );
     _checkCancelled();
     if (response.statusCode >= HttpStatus.badRequest &&

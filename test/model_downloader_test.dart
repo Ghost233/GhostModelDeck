@@ -11,7 +11,252 @@ const _revision = '0123456789012345678901234567890123456789';
 const _abcSha256 =
     'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
 
+HfRepositoryFiles _redirectRepository(Uri endpoint) => HfRepositoryFiles(
+  summary: const HfRepositorySummary(id: 'publisher/model'),
+  revision: _revision,
+  requestedRevision: 'main',
+  source: endpoint,
+  files: const [
+    HfModelFile(path: 'model.gguf', sizeBytes: 3, sha256: _abcSha256),
+  ],
+);
+
 void main() {
+  test('package redirects preserve identity and verified raw bytes', () async {
+    final directory = await Directory.systemTemp.createTemp('gmd-redirect-');
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    server.autoCompress = true;
+    final encodings = <String?>[];
+    server.listen((request) async {
+      encodings.add(request.headers.value(HttpHeaders.acceptEncodingHeader));
+      if (request.uri.path != '/payload') {
+        request.response.statusCode = HttpStatus.temporaryRedirect;
+        request.response.headers.set(HttpHeaders.locationHeader, '/payload');
+      } else {
+        request.response.headers.chunkedTransferEncoding = true;
+        request.response.add(utf8.encode('abc'));
+      }
+      await request.response.close();
+    });
+    final endpoint = Uri.parse('http://127.0.0.1:${server.port}');
+    final downloader = ModelDownloader(hfEndpoint: endpoint);
+    addTearDown(() async {
+      await downloader.close();
+      await server.close(force: true);
+      await directory.delete(recursive: true);
+    });
+    final repository = HfRepositoryFiles(
+      summary: const HfRepositorySummary(id: 'publisher/model'),
+      revision: _revision,
+      requestedRevision: 'main',
+      source: endpoint,
+      files: const [
+        HfModelFile(
+          path: 'model.gguf',
+          sizeBytes: 3,
+          sha256: _abcSha256,
+          isLfs: false,
+          blobId: 'f2ba8f84ab5c1bce84a7b441cb1959cfc7093b7f',
+        ),
+      ],
+    );
+    await downloader.downloadPackage(
+      selection: ModelPackage.discover(repository).single
+          .selectVariant('GGUF:model'),
+      currentRepository: repository,
+      libraryDirectory: directory,
+    );
+    expect(
+      downloader.state.status,
+      DownloadStatus.installed,
+      reason: downloader.state.error,
+    );
+    expect(encodings, ['identity', 'identity']);
+    expect(
+      await File('${directory.path}/publisher/model/model.gguf').readAsString(),
+      'abc',
+    );
+  });
+
+  test(
+    'package follows five redirect statuses and discards intermediate bodies',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'gmd-redirect-five-',
+      );
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final payloadServer = await HttpServer.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
+      final statuses = [301, 302, 303, 307, 308];
+      final encodings = <String?>[];
+      final payloadEndpoint = Uri.parse(
+        'http://127.0.0.1:${payloadServer.port}/payload',
+      );
+      var redirects = 0;
+      server.listen((request) async {
+        encodings.add(request.headers.value(HttpHeaders.acceptEncodingHeader));
+        request.response.statusCode = statuses[redirects];
+        redirects++;
+        request.response.headers.set(
+          HttpHeaders.locationHeader,
+          redirects == 5 ? payloadEndpoint.toString() : '/hop/$redirects',
+        );
+        request.response.add(utf8.encode('not model bytes'));
+        await request.response.close();
+      });
+      payloadServer.autoCompress = true;
+      payloadServer.listen((request) async {
+        encodings.add(request.headers.value(HttpHeaders.acceptEncodingHeader));
+        expect(request.headers.value(HttpHeaders.authorizationHeader), isNull);
+        expect(request.headers.value(HttpHeaders.cookieHeader), isNull);
+        request.response.headers.chunkedTransferEncoding = true;
+        request.response.add(utf8.encode('abc'));
+        await request.response.close();
+      });
+      final endpoint = Uri.parse('http://127.0.0.1:${server.port}');
+      final downloader = ModelDownloader(hfEndpoint: endpoint);
+      addTearDown(() async {
+        await downloader.close();
+        await server.close(force: true);
+        await payloadServer.close(force: true);
+        await directory.delete(recursive: true);
+      });
+      final repository = _redirectRepository(endpoint);
+      await downloader
+          .downloadPackage(
+            selection: ModelPackage.discover(repository).single
+                .selectVariant('GGUF:model'),
+            currentRepository: repository,
+            libraryDirectory: directory,
+          )
+          .timeout(const Duration(seconds: 3));
+      expect(
+        downloader.state.status,
+        DownloadStatus.installed,
+        reason: downloader.state.error,
+      );
+      expect(redirects, 5);
+      expect(encodings, List.filled(6, 'identity'));
+      expect(
+        await File('${directory.path}/publisher/model/model.gguf')
+            .readAsString(),
+        'abc',
+      );
+    },
+  );
+
+  for (final scenario in [
+    'missing',
+    'invalid',
+    'cycle',
+    'bound',
+    'protocol',
+    'credentials',
+  ]) {
+    test('package redirects fail bounded for $scenario Location', () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'gmd-redirect-bad-',
+      );
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      var requests = 0;
+      server.listen((request) async {
+        requests++;
+        request.response.statusCode = HttpStatus.temporaryRedirect;
+        final location = switch (scenario) {
+          'missing' => null,
+          'invalid' => 'http://[',
+          'cycle' => request.uri.path,
+          'bound' => '/hop/$requests',
+          'protocol' => 'file:///tmp/model.gguf',
+          _ => 'http://secret:password@127.0.0.1:${server.port}/payload',
+        };
+        if (location != null) {
+          request.response.headers.set(HttpHeaders.locationHeader, location);
+        }
+        await request.response.close();
+      });
+      final endpoint = Uri.parse('http://127.0.0.1:${server.port}');
+      final downloader = ModelDownloader(hfEndpoint: endpoint);
+      addTearDown(() async {
+        await downloader.close();
+        await server.close(force: true);
+        await directory.delete(recursive: true);
+      });
+      final repository = _redirectRepository(endpoint);
+      await downloader
+          .downloadPackage(
+            selection: ModelPackage.discover(repository).single
+                .selectVariant('GGUF:model'),
+            currentRepository: repository,
+            libraryDirectory: directory,
+          )
+          .timeout(const Duration(seconds: 3));
+      expect(downloader.state.status, DownloadStatus.failed);
+      expect(requests, scenario == 'bound' ? 6 : 1);
+      expect(
+        await File('${directory.path}/publisher/model/model.gguf').exists(),
+        isFalse,
+      );
+      expect(
+        await Directory('${directory.path}/.ghostmodeldeck/installations')
+            .exists(),
+        isFalse,
+      );
+    });
+  }
+
+  test('package cancellation aborts the active redirected request', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'gmd-redirect-cancel-',
+    );
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final redirected = Completer<void>();
+    final release = Completer<void>();
+    final encodings = <String?>[];
+    server.listen((request) async {
+      encodings.add(request.headers.value(HttpHeaders.acceptEncodingHeader));
+      if (request.uri.path != '/payload') {
+        request.response.statusCode = HttpStatus.temporaryRedirect;
+        request.response.headers.set(HttpHeaders.locationHeader, '/payload');
+      } else {
+        redirected.complete();
+        await release.future;
+      }
+      await request.response.close();
+    });
+    final endpoint = Uri.parse('http://127.0.0.1:${server.port}');
+    final downloader = ModelDownloader(hfEndpoint: endpoint);
+    addTearDown(() async {
+      if (!release.isCompleted) release.complete();
+      await downloader.close();
+      await server.close(force: true);
+      await directory.delete(recursive: true);
+    });
+    final repository = _redirectRepository(endpoint);
+    final transfer = downloader.downloadPackage(
+      selection: ModelPackage.discover(repository).single
+          .selectVariant('GGUF:model'),
+      currentRepository: repository,
+      libraryDirectory: directory,
+    );
+    await redirected.future.timeout(const Duration(seconds: 3));
+    downloader.cancel();
+    await transfer.timeout(const Duration(seconds: 3));
+    expect(downloader.state.status, DownloadStatus.cancelled);
+    expect(encodings, ['identity', 'identity']);
+    expect(
+      await File('${directory.path}/publisher/model/model.gguf').exists(),
+      isFalse,
+    );
+    expect(
+      await Directory('${directory.path}/.ghostmodeldeck/installations')
+          .exists(),
+      isFalse,
+    );
+  });
+
   test('closing an active package drains cancellation before returning and seals new downloads', () async {
     final directory = await Directory.systemTemp.createTemp(
       'jev-download-close-',
@@ -232,16 +477,29 @@ void main() {
     },
   );
 
-  test('cancelled fragments resume after reopening only with matching Range', () async {
+  test('cancelled package fragments resume through identity redirects only with matching Range', () async {
     final directory = await Directory.systemTemp.createTemp('jev-download-');
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final releaseFirstResponse = Completer<void>();
     final firstResponseFlushed = Completer<void>();
     final fragmentReceived = Completer<void>();
     var requestNumber = 0;
+    final hopHeaders = <List<String?>>[];
+    server.autoCompress = true;
     String? requestedRange;
     String? requestedValidator;
     server.listen((request) async {
+      hopHeaders.add([
+        request.headers.value(HttpHeaders.acceptEncodingHeader),
+        request.headers.value(HttpHeaders.rangeHeader),
+        request.headers.value(HttpHeaders.ifRangeHeader),
+      ]);
+      if (request.uri.path != '/payload') {
+        request.response.statusCode = HttpStatus.temporaryRedirect;
+        request.response.headers.set(HttpHeaders.locationHeader, '/payload');
+        await request.response.close();
+        return;
+      }
       requestNumber++;
       request.response.headers.set(HttpHeaders.etagHeader, '"asset-v1"');
       request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
@@ -299,9 +557,10 @@ void main() {
         fragmentReceived.complete();
       }
     });
-    final transfer = downloader.download(
-      repository: repository,
-      selectedFilePaths: {'model.gguf'},
+    final transfer = downloader.downloadPackage(
+      selection: ModelPackage.discover(repository).single
+          .selectVariant('GGUF:model'),
+      currentRepository: repository,
       libraryDirectory: directory,
     );
     await firstResponseFlushed.future.timeout(
@@ -332,14 +591,21 @@ void main() {
             .where((entry) => entry.path.endsWith('.part'))
             .toList();
     expect(await (fragments.single as File).readAsString(), 'abc');
-    downloader.close();
+    await downloader.close();
     downloader = ModelDownloader(hfEndpoint: endpoint);
-    await downloader.download(
-      repository: repository,
-      selectedFilePaths: {'model.gguf'},
+    await downloader.downloadPackage(
+      selection: ModelPackage.discover(repository).single
+          .selectVariant('GGUF:model'),
+      currentRepository: repository,
       libraryDirectory: directory,
     );
     expect(downloader.state.status, DownloadStatus.installed);
+    expect(hopHeaders, [
+      ['identity', null, null],
+      ['identity', null, null],
+      ['identity', 'bytes=3-', '"asset-v1"'],
+      ['identity', 'bytes=3-', '"asset-v1"'],
+    ]);
     expect(requestedRange, 'bytes=3-');
     expect(requestedValidator, '"asset-v1"');
     expect(
