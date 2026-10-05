@@ -1,0 +1,1358 @@
+{
+  "schema_version": 1,
+  "copied_at": "2026-10-05T15:47:12+08:00",
+  "source_root": "/Users/ghost233/Ghost233Code/JevManager",
+  "target_root": "/Users/ghost233/Ghost233Code/GhostModelDeck",
+  "stage": "documentation_first_copy_only",
+  "source_retained": true,
+  "files": [
+    {
+      "source_path": ".gitignore",
+      "target_path": ".gitignore",
+      "bytes": 268,
+      "source_sha256": "1a24da9703b83d8cdb8fd794b83d7f80259a3d08a2958a97e626991c788f16b7",
+      "target_sha256": "1a24da9703b83d8cdb8fd794b83d7f80259a3d08a2958a97e626991c788f16b7",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/index.md",
+      "target_path": ".scratch/github-migration/index.md",
+      "bytes": 6729,
+      "source_sha256": "bc1de65851b55efc22d4fd676128d12ba9de73c63196084a9527e5efa2435e4d",
+      "target_sha256": "bc1de65851b55efc22d4fd676128d12ba9de73c63196084a9527e5efa2435e4d",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/manifest.json",
+      "target_path": ".scratch/github-migration/manifest.json",
+      "bytes": 14528,
+      "source_sha256": "6a53a00851bf80ccbb13d671b0d0be121998cd2874e94867e6a41058f027db7d",
+      "target_sha256": "6a53a00851bf80ccbb13d671b0d0be121998cd2874e94867e6a41058f027db7d",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/source-plan.json",
+      "target_path": ".scratch/github-migration/source-plan.json",
+      "bytes": 5076,
+      "source_sha256": "14c1ebcbd8b755064285adca81c5b9465a341130c5642ea8125d4c51e40c72f5",
+      "target_sha256": "14c1ebcbd8b755064285adca81c5b9465a341130c5642ea8125d4c51e40c72f5",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/.scratch/jevmanager-build/issues/01-hf-search-files.md",
+      "target_path": ".scratch/github-migration/sources/.scratch/jevmanager-build/issues/01-hf-search-files.md",
+      "bytes": 1305,
+      "source_sha256": "58430e2bc98a2eb4c711d22ca7f522057e1ff029050dbf5e57d467887733bdd1",
+      "target_sha256": "58430e2bc98a2eb4c711d22ca7f522057e1ff029050dbf5e57d467887733bdd1",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/.scratch/jevmanager-build/issues/02-download-install.md",
+      "target_path": ".scratch/github-migration/sources/.scratch/jevmanager-build/issues/02-download-install.md",
+      "bytes": 1342,
+      "source_sha256": "6f9e45f24aaf623ee8256e1078aee4b14514253d0adead8300989b4324198c37",
+      "target_sha256": "6f9e45f24aaf623ee8256e1078aee4b14514253d0adead8300989b4324198c37",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/.scratch/jevmanager-build/issues/03-shared-library.md",
+      "target_path": ".scratch/github-migration/sources/.scratch/jevmanager-build/issues/03-shared-library.md",
+      "bytes": 1461,
+      "source_sha256": "80c072b7a916d32b15a649bc47e0744fe8eceaf304e54b4a2f32bcf52cc7fc3f",
+      "target_sha256": "80c072b7a916d32b15a649bc47e0744fe8eceaf304e54b4a2f32bcf52cc7fc3f",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/.scratch/jevmanager-build/issues/04-lmstudio-provider.md",
+      "target_path": ".scratch/github-migration/sources/.scratch/jevmanager-build/issues/04-lmstudio-provider.md",
+      "bytes": 1362,
+      "source_sha256": "e45e34e25aa26eb290a49ef3d691c228205286b273a2291e9c437e1fd96a9b8c",
+      "target_sha256": "e45e34e25aa26eb290a49ef3d691c228205286b273a2291e9c437e1fd96a9b8c",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/.scratch/jevmanager-build/issues/05-compatible-engine.md",
+      "target_path": ".scratch/github-migration/sources/.scratch/jevmanager-build/issues/05-compatible-engine.md",
+      "bytes": 1432,
+      "source_sha256": "c84d48238706a56cf32f98bf66848e007e330ffa7dd010b07597cfb68742c1f9",
+      "target_sha256": "c84d48238706a56cf32f98bf66848e007e330ffa7dd010b07597cfb68742c1f9",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/.scratch/jevmanager-build/issues/06-concurrent-council.md",
+      "target_path": ".scratch/github-migration/sources/.scratch/jevmanager-build/issues/06-concurrent-council.md",
+      "bytes": 1400,
+      "source_sha256": "e9bd4e0549a04361782387e3f6517cbd9d6b7c38e2b3d77f427cb73f5ac8c4b7",
+      "target_sha256": "e9bd4e0549a04361782387e3f6517cbd9d6b7c38e2b3d77f427cb73f5ac8c4b7",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/.scratch/jevmanager-build/issues/07-partial-failures.md",
+      "target_path": ".scratch/github-migration/sources/.scratch/jevmanager-build/issues/07-partial-failures.md",
+      "bytes": 1353,
+      "source_sha256": "36fff2e5c4b1ea48cc9634a7f978136d8f7ea9a1200fae09c7d9161cfa65ca94",
+      "target_sha256": "36fff2e5c4b1ea48cc9634a7f978136d8f7ea9a1200fae09c7d9161cfa65ca94",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/.scratch/jevmanager-build/issues/08-codex-mcp.md",
+      "target_path": ".scratch/github-migration/sources/.scratch/jevmanager-build/issues/08-codex-mcp.md",
+      "bytes": 1322,
+      "source_sha256": "11055464ed744818f09e2a01d972b509fbc67331ba4b7d15772d2f206483515b",
+      "target_sha256": "11055464ed744818f09e2a01d972b509fbc67331ba4b7d15772d2f206483515b",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/.scratch/jevmanager-build/issues/09-background-lifecycle.md",
+      "target_path": ".scratch/github-migration/sources/.scratch/jevmanager-build/issues/09-background-lifecycle.md",
+      "bytes": 1181,
+      "source_sha256": "eec6f641df0c664883e05d8632f45dd2c96c4cd09c98a16e9fc70665767f940a",
+      "target_sha256": "eec6f641df0c664883e05d8632f45dd2c96c4cd09c98a16e9fc70665767f940a",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/.scratch/jevmanager-build/issues/10-delivery-evidence.md",
+      "target_path": ".scratch/github-migration/sources/.scratch/jevmanager-build/issues/10-delivery-evidence.md",
+      "bytes": 1769,
+      "source_sha256": "ba71837a621216644e4301a1b648801f22a9ea0dd939e1bc3507a5adc420fe01",
+      "target_sha256": "ba71837a621216644e4301a1b648801f22a9ea0dd939e1bc3507a5adc420fe01",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/.scratch/jevmanager/issues/01-model-runtime-evidence.md",
+      "target_path": ".scratch/github-migration/sources/.scratch/jevmanager/issues/01-model-runtime-evidence.md",
+      "bytes": 2207,
+      "source_sha256": "a382bde4fd463a0625941d940dc927094a798394234b939f90c43bc9543af96c",
+      "target_sha256": "a382bde4fd463a0625941d940dc927094a798394234b939f90c43bc9543af96c",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/.scratch/jevmanager/issues/02-mcp-contract-evidence.md",
+      "target_path": ".scratch/github-migration/sources/.scratch/jevmanager/issues/02-mcp-contract-evidence.md",
+      "bytes": 1900,
+      "source_sha256": "5df33a76149c942a3225fc2f3000fc9c558babea3467947935a9402b1ba5382a",
+      "target_sha256": "5df33a76149c942a3225fc2f3000fc9c558babea3467947935a9402b1ba5382a",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/.scratch/jevmanager/issues/03-desktop-packaging-evidence.md",
+      "target_path": ".scratch/github-migration/sources/.scratch/jevmanager/issues/03-desktop-packaging-evidence.md",
+      "bytes": 2468,
+      "source_sha256": "b6764c93e5791252c9ace7e5064026ce0f788f1cd298f891327474c693924f48",
+      "target_sha256": "b6764c93e5791252c9ace7e5064026ce0f788f1cd298f891327474c693924f48",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/.scratch/jevmanager/issues/04-download-install-policy.md",
+      "target_path": ".scratch/github-migration/sources/.scratch/jevmanager/issues/04-download-install-policy.md",
+      "bytes": 5133,
+      "source_sha256": "c2f64b6c12e7ee30f0b458df0f301bcf0e2459298d56779a238036a61f7fce41",
+      "target_sha256": "c2f64b6c12e7ee30f0b458df0f301bcf0e2459298d56779a238036a61f7fce41",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/.scratch/jevmanager/issues/05-desktop-lifecycle.md",
+      "target_path": ".scratch/github-migration/sources/.scratch/jevmanager/issues/05-desktop-lifecycle.md",
+      "bytes": 7965,
+      "source_sha256": "d3dc80945d1dfa3b4d6052da45e8318eab8f923211e1240e3960201d87c04834",
+      "target_sha256": "d3dc80945d1dfa3b4d6052da45e8318eab8f923211e1240e3960201d87c04834",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/.scratch/jevmanager/issues/06-council-acceptance.md",
+      "target_path": ".scratch/github-migration/sources/.scratch/jevmanager/issues/06-council-acceptance.md",
+      "bytes": 9040,
+      "source_sha256": "f3d0d348a4cf148a7a2c8b5e72f05bb5c1345203e98de505a613cfa20834ff53",
+      "target_sha256": "f3d0d348a4cf148a7a2c8b5e72f05bb5c1345203e98de505a613cfa20834ff53",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/.scratch/jevmanager/issues/07-desktop-flow-prototype.md",
+      "target_path": ".scratch/github-migration/sources/.scratch/jevmanager/issues/07-desktop-flow-prototype.md",
+      "bytes": 4672,
+      "source_sha256": "c2c4684d4c57e6d0594c1030830ec5d1ee18717e482f6eb0bcac6274b58b50e2",
+      "target_sha256": "c2c4684d4c57e6d0594c1030830ec5d1ee18717e482f6eb0bcac6274b58b50e2",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/.scratch/jevmanager/issues/08-lmstudio-integration-evidence.md",
+      "target_path": ".scratch/github-migration/sources/.scratch/jevmanager/issues/08-lmstudio-integration-evidence.md",
+      "bytes": 3072,
+      "source_sha256": "12668403f9964c8b92f10e34286375e8498761c5cb5d8d96e3b964abe261728d",
+      "target_sha256": "12668403f9964c8b92f10e34286375e8498761c5cb5d8d96e3b964abe261728d",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/.scratch/jevmanager/map.md",
+      "target_path": ".scratch/github-migration/sources/.scratch/jevmanager/map.md",
+      "bytes": 5776,
+      "source_sha256": "b23e1279e014d2a5fb5c70d18d8f337a3e1cb1a76d1035c6091ae45753535d0b",
+      "target_sha256": "b23e1279e014d2a5fb5c70d18d8f337a3e1cb1a76d1035c6091ae45753535d0b",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/.scratch/jevmanager/spec.md",
+      "target_path": ".scratch/github-migration/sources/.scratch/jevmanager/spec.md",
+      "bytes": 16219,
+      "source_sha256": "a336e84f9757748153d5b076c3e26a4284cd6e9f0d423a5e4e359357b23bd9df",
+      "target_sha256": "a336e84f9757748153d5b076c3e26a4284cd6e9f0d423a5e4e359357b23bd9df",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/AGENTS.md",
+      "target_path": ".scratch/github-migration/sources/AGENTS.md",
+      "bytes": 1511,
+      "source_sha256": "d11a579402ec0d061f5a5adaffd3d7b5118f05fbe061a6d083a2a775fe894984",
+      "target_sha256": "d11a579402ec0d061f5a5adaffd3d7b5118f05fbe061a6d083a2a775fe894984",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/CONTEXT.md",
+      "target_path": ".scratch/github-migration/sources/CONTEXT.md",
+      "bytes": 2890,
+      "source_sha256": "21508f123abba48d24bb14235c261a95ca45bc1d7a6f0d6ec2bfba48f03372c3",
+      "target_sha256": "21508f123abba48d24bb14235c261a95ca45bc1d7a6f0d6ec2bfba48f03372c3",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/benchmarks/fixtures/zh-decision-smoke.json",
+      "target_path": ".scratch/github-migration/sources/benchmarks/fixtures/zh-decision-smoke.json",
+      "bytes": 6547,
+      "source_sha256": "c0e3c7ac17becdee2944a7a8daf8d2eb16538dd9e32ddf61dc14d1162a4e7971",
+      "target_sha256": "c0e3c7ac17becdee2944a7a8daf8d2eb16538dd9e32ddf61dc14d1162a4e7971",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/docs/agents/domain.md",
+      "target_path": ".scratch/github-migration/sources/docs/agents/domain.md",
+      "bytes": 696,
+      "source_sha256": "44f198e325b2d9727d7c5377b857f278e10cc8f0e3c5480b647da0c9540ec089",
+      "target_sha256": "44f198e325b2d9727d7c5377b857f278e10cc8f0e3c5480b647da0c9540ec089",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/docs/agents/issue-tracker.md",
+      "target_path": ".scratch/github-migration/sources/docs/agents/issue-tracker.md",
+      "bytes": 3322,
+      "source_sha256": "65543551037bd1eb84a9c2e63d9478f49634865e47e07633a920cf2a6b1bbb22",
+      "target_sha256": "65543551037bd1eb84a9c2e63d9478f49634865e47e07633a920cf2a6b1bbb22",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/docs/agents/triage-labels.md",
+      "target_path": ".scratch/github-migration/sources/docs/agents/triage-labels.md",
+      "bytes": 673,
+      "source_sha256": "49e3fd34e13efb1a476f249454d3a758ed1631380418930a086def7b8c705bb4",
+      "target_sha256": "49e3fd34e13efb1a476f249454d3a758ed1631380418930a086def7b8c705bb4",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/docs/prototype-toolchain.json",
+      "target_path": ".scratch/github-migration/sources/docs/prototype-toolchain.json",
+      "bytes": 638,
+      "source_sha256": "f66f57c66150ef475673e9c9a23070db536fff24d431980b858e2183768304bd",
+      "target_sha256": "f66f57c66150ef475673e9c9a23070db536fff24d431980b858e2183768304bd",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/docs/research/desktop-packaging-evidence.md",
+      "target_path": ".scratch/github-migration/sources/docs/research/desktop-packaging-evidence.md",
+      "bytes": 14293,
+      "source_sha256": "b68510f8a634d70d535b0833ea350e8b673baf4ccae9b831298a3bed4b1c9998",
+      "target_sha256": "b68510f8a634d70d535b0833ea350e8b673baf4ccae9b831298a3bed4b1c9998",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/docs/research/lmstudio-integration-evidence.md",
+      "target_path": ".scratch/github-migration/sources/docs/research/lmstudio-integration-evidence.md",
+      "bytes": 9332,
+      "source_sha256": "cfd9a7cc230347c1703adc3950536076877e0c54e0a22631c602d2ad74855536",
+      "target_sha256": "cfd9a7cc230347c1703adc3950536076877e0c54e0a22631c602d2ad74855536",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/docs/research/mcp-contract-evidence.md",
+      "target_path": ".scratch/github-migration/sources/docs/research/mcp-contract-evidence.md",
+      "bytes": 17702,
+      "source_sha256": "c2d8e208a94db28b09ae825f08dc704596f185c55c7f1e73429a736677ca7abf",
+      "target_sha256": "c2d8e208a94db28b09ae825f08dc704596f185c55c7f1e73429a736677ca7abf",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/github-migration/sources/docs/research/model-runtime-evidence.md",
+      "target_path": ".scratch/github-migration/sources/docs/research/model-runtime-evidence.md",
+      "bytes": 11974,
+      "source_sha256": "8c1d639270ccb5b3a1cf703ee247a8afd70ee95a7db2493715e6feb557e8e71c",
+      "target_sha256": "8c1d639270ccb5b3a1cf703ee247a8afd70ee95a7db2493715e6feb557e8e71c",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/jevmanager-build/index.md",
+      "target_path": ".scratch/jevmanager-build/index.md",
+      "bytes": 3851,
+      "source_sha256": "2483932305e42d6b5e23425058d77af6431f1d7a11a01e40abee0d7a73bcd6e0",
+      "target_sha256": "2483932305e42d6b5e23425058d77af6431f1d7a11a01e40abee0d7a73bcd6e0",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/jevmanager-build/issues/01-hf-search-files.md",
+      "target_path": ".scratch/jevmanager-build/issues/01-hf-search-files.md",
+      "bytes": 1305,
+      "source_sha256": "58430e2bc98a2eb4c711d22ca7f522057e1ff029050dbf5e57d467887733bdd1",
+      "target_sha256": "58430e2bc98a2eb4c711d22ca7f522057e1ff029050dbf5e57d467887733bdd1",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/jevmanager-build/issues/02-download-install.md",
+      "target_path": ".scratch/jevmanager-build/issues/02-download-install.md",
+      "bytes": 1342,
+      "source_sha256": "6f9e45f24aaf623ee8256e1078aee4b14514253d0adead8300989b4324198c37",
+      "target_sha256": "6f9e45f24aaf623ee8256e1078aee4b14514253d0adead8300989b4324198c37",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/jevmanager-build/issues/03-shared-library.md",
+      "target_path": ".scratch/jevmanager-build/issues/03-shared-library.md",
+      "bytes": 1461,
+      "source_sha256": "80c072b7a916d32b15a649bc47e0744fe8eceaf304e54b4a2f32bcf52cc7fc3f",
+      "target_sha256": "80c072b7a916d32b15a649bc47e0744fe8eceaf304e54b4a2f32bcf52cc7fc3f",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/jevmanager-build/issues/04-lmstudio-provider.md",
+      "target_path": ".scratch/jevmanager-build/issues/04-lmstudio-provider.md",
+      "bytes": 1362,
+      "source_sha256": "e45e34e25aa26eb290a49ef3d691c228205286b273a2291e9c437e1fd96a9b8c",
+      "target_sha256": "e45e34e25aa26eb290a49ef3d691c228205286b273a2291e9c437e1fd96a9b8c",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/jevmanager-build/issues/05-compatible-engine.md",
+      "target_path": ".scratch/jevmanager-build/issues/05-compatible-engine.md",
+      "bytes": 1432,
+      "source_sha256": "c84d48238706a56cf32f98bf66848e007e330ffa7dd010b07597cfb68742c1f9",
+      "target_sha256": "c84d48238706a56cf32f98bf66848e007e330ffa7dd010b07597cfb68742c1f9",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/jevmanager-build/issues/06-concurrent-council.md",
+      "target_path": ".scratch/jevmanager-build/issues/06-concurrent-council.md",
+      "bytes": 1400,
+      "source_sha256": "e9bd4e0549a04361782387e3f6517cbd9d6b7c38e2b3d77f427cb73f5ac8c4b7",
+      "target_sha256": "e9bd4e0549a04361782387e3f6517cbd9d6b7c38e2b3d77f427cb73f5ac8c4b7",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/jevmanager-build/issues/07-partial-failures.md",
+      "target_path": ".scratch/jevmanager-build/issues/07-partial-failures.md",
+      "bytes": 1353,
+      "source_sha256": "36fff2e5c4b1ea48cc9634a7f978136d8f7ea9a1200fae09c7d9161cfa65ca94",
+      "target_sha256": "36fff2e5c4b1ea48cc9634a7f978136d8f7ea9a1200fae09c7d9161cfa65ca94",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/jevmanager-build/issues/08-codex-mcp.md",
+      "target_path": ".scratch/jevmanager-build/issues/08-codex-mcp.md",
+      "bytes": 1322,
+      "source_sha256": "11055464ed744818f09e2a01d972b509fbc67331ba4b7d15772d2f206483515b",
+      "target_sha256": "11055464ed744818f09e2a01d972b509fbc67331ba4b7d15772d2f206483515b",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/jevmanager-build/issues/09-background-lifecycle.md",
+      "target_path": ".scratch/jevmanager-build/issues/09-background-lifecycle.md",
+      "bytes": 1181,
+      "source_sha256": "eec6f641df0c664883e05d8632f45dd2c96c4cd09c98a16e9fc70665767f940a",
+      "target_sha256": "eec6f641df0c664883e05d8632f45dd2c96c4cd09c98a16e9fc70665767f940a",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/jevmanager-build/issues/10-delivery-evidence.md",
+      "target_path": ".scratch/jevmanager-build/issues/10-delivery-evidence.md",
+      "bytes": 1769,
+      "source_sha256": "ba71837a621216644e4301a1b648801f22a9ea0dd939e1bc3507a5adc420fe01",
+      "target_sha256": "ba71837a621216644e4301a1b648801f22a9ea0dd939e1bc3507a5adc420fe01",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/jevmanager/issues/01-model-runtime-evidence.md",
+      "target_path": ".scratch/jevmanager/issues/01-model-runtime-evidence.md",
+      "bytes": 2207,
+      "source_sha256": "a382bde4fd463a0625941d940dc927094a798394234b939f90c43bc9543af96c",
+      "target_sha256": "a382bde4fd463a0625941d940dc927094a798394234b939f90c43bc9543af96c",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/jevmanager/issues/02-mcp-contract-evidence.md",
+      "target_path": ".scratch/jevmanager/issues/02-mcp-contract-evidence.md",
+      "bytes": 1900,
+      "source_sha256": "5df33a76149c942a3225fc2f3000fc9c558babea3467947935a9402b1ba5382a",
+      "target_sha256": "5df33a76149c942a3225fc2f3000fc9c558babea3467947935a9402b1ba5382a",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/jevmanager/issues/03-desktop-packaging-evidence.md",
+      "target_path": ".scratch/jevmanager/issues/03-desktop-packaging-evidence.md",
+      "bytes": 2468,
+      "source_sha256": "b6764c93e5791252c9ace7e5064026ce0f788f1cd298f891327474c693924f48",
+      "target_sha256": "b6764c93e5791252c9ace7e5064026ce0f788f1cd298f891327474c693924f48",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/jevmanager/issues/04-download-install-policy.md",
+      "target_path": ".scratch/jevmanager/issues/04-download-install-policy.md",
+      "bytes": 5133,
+      "source_sha256": "c2f64b6c12e7ee30f0b458df0f301bcf0e2459298d56779a238036a61f7fce41",
+      "target_sha256": "c2f64b6c12e7ee30f0b458df0f301bcf0e2459298d56779a238036a61f7fce41",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/jevmanager/issues/05-desktop-lifecycle.md",
+      "target_path": ".scratch/jevmanager/issues/05-desktop-lifecycle.md",
+      "bytes": 7965,
+      "source_sha256": "d3dc80945d1dfa3b4d6052da45e8318eab8f923211e1240e3960201d87c04834",
+      "target_sha256": "d3dc80945d1dfa3b4d6052da45e8318eab8f923211e1240e3960201d87c04834",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/jevmanager/issues/06-council-acceptance.md",
+      "target_path": ".scratch/jevmanager/issues/06-council-acceptance.md",
+      "bytes": 9040,
+      "source_sha256": "f3d0d348a4cf148a7a2c8b5e72f05bb5c1345203e98de505a613cfa20834ff53",
+      "target_sha256": "f3d0d348a4cf148a7a2c8b5e72f05bb5c1345203e98de505a613cfa20834ff53",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/jevmanager/issues/07-desktop-flow-prototype.md",
+      "target_path": ".scratch/jevmanager/issues/07-desktop-flow-prototype.md",
+      "bytes": 4672,
+      "source_sha256": "c2c4684d4c57e6d0594c1030830ec5d1ee18717e482f6eb0bcac6274b58b50e2",
+      "target_sha256": "c2c4684d4c57e6d0594c1030830ec5d1ee18717e482f6eb0bcac6274b58b50e2",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/jevmanager/issues/08-lmstudio-integration-evidence.md",
+      "target_path": ".scratch/jevmanager/issues/08-lmstudio-integration-evidence.md",
+      "bytes": 3072,
+      "source_sha256": "12668403f9964c8b92f10e34286375e8498761c5cb5d8d96e3b964abe261728d",
+      "target_sha256": "12668403f9964c8b92f10e34286375e8498761c5cb5d8d96e3b964abe261728d",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/jevmanager/map.md",
+      "target_path": ".scratch/jevmanager/map.md",
+      "bytes": 5776,
+      "source_sha256": "b23e1279e014d2a5fb5c70d18d8f337a3e1cb1a76d1035c6091ae45753535d0b",
+      "target_sha256": "b23e1279e014d2a5fb5c70d18d8f337a3e1cb1a76d1035c6091ae45753535d0b",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/jevmanager/spec.md",
+      "target_path": ".scratch/jevmanager/spec.md",
+      "bytes": 16219,
+      "source_sha256": "a336e84f9757748153d5b076c3e26a4284cd6e9f0d423a5e4e359357b23bd9df",
+      "target_sha256": "a336e84f9757748153d5b076c3e26a4284cd6e9f0d423a5e4e359357b23bd9df",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/jevmanager/ticket-plan.md",
+      "target_path": ".scratch/jevmanager/ticket-plan.md",
+      "bytes": 6129,
+      "source_sha256": "d5e5689db402e8c0a0fa74a0f8f175b4bdf7760ff02c20d01f37b0f4ed96891e",
+      "target_sha256": "d5e5689db402e8c0a0fa74a0f8f175b4bdf7760ff02c20d01f37b0f4ed96891e",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/matt-setup/previous-issue-tracker.md",
+      "target_path": ".scratch/matt-setup/previous-issue-tracker.md",
+      "bytes": 2207,
+      "source_sha256": "1704d0fae80a6f51e5ee9ef7fa542e5dbd913e729edf4825fa7183125c7167bd",
+      "target_sha256": "1704d0fae80a6f51e5ee9ef7fa542e5dbd913e729edf4825fa7183125c7167bd",
+      "mode": "copied"
+    },
+    {
+      "source_path": ".scratch/matt-setup/proposal.md",
+      "target_path": ".scratch/matt-setup/proposal.md",
+      "bytes": 6258,
+      "source_sha256": "a574a62fa18f79e4a436a61593cb5be1db00e02f034f75e308c1c19464e8a0ac",
+      "target_sha256": "a574a62fa18f79e4a436a61593cb5be1db00e02f034f75e308c1c19464e8a0ac",
+      "mode": "copied"
+    },
+    {
+      "source_path": "AGENTS.md",
+      "target_path": "AGENTS.md",
+      "bytes": 2513,
+      "source_sha256": "cb149f928fa2f36ebab124264b7287eb5976389fe0fc9b334feb412015f3ea03",
+      "target_sha256": "ff6da5caace9b8d81032a3c35ffefc7f6a274ca3a104c3480fdc3ed909144e2c",
+      "mode": "copied_with_migration_scope_note",
+      "original_copy_path": "docs/migration/jevmanager-source/AGENTS.md"
+    },
+    {
+      "source_path": "CONTEXT.md",
+      "target_path": "CONTEXT.md",
+      "bytes": 3604,
+      "source_sha256": "b42f50f18819dc2949ad647ae09786e89cf73f56c49b6960fb738ac0949e107e",
+      "target_sha256": "3b12e516c7c5a455a881de47d9f22ce771b205378004e71a5d3a8b51eca268b5",
+      "mode": "copied_with_migration_scope_note",
+      "original_copy_path": "docs/migration/jevmanager-source/CONTEXT.md"
+    },
+    {
+      "source_path": "analysis_options.yaml",
+      "target_path": "analysis_options.yaml",
+      "bytes": 95,
+      "source_sha256": "fa6b57f2914294448d9656235603da32d5808c1b8373a3d9c281436bfc0c3f98",
+      "target_sha256": "fa6b57f2914294448d9656235603da32d5808c1b8373a3d9c281436bfc0c3f98",
+      "mode": "copied"
+    },
+    {
+      "source_path": "benchmarks/fixtures/zh-decision-smoke.json",
+      "target_path": "benchmarks/fixtures/zh-decision-smoke.json",
+      "bytes": 6547,
+      "source_sha256": "c0e3c7ac17becdee2944a7a8daf8d2eb16538dd9e32ddf61dc14d1162a4e7971",
+      "target_sha256": "c0e3c7ac17becdee2944a7a8daf8d2eb16538dd9e32ddf61dc14d1162a4e7971",
+      "mode": "copied"
+    },
+    {
+      "source_path": "benchmarks/results/2026-10-05/chinese.jsonl",
+      "target_path": "benchmarks/results/2026-10-05/chinese.jsonl",
+      "bytes": 63482,
+      "source_sha256": "30337c189288c450ed0a7bd8925ce954dd1ec64bcc3f1fa7c3a905272999a40d",
+      "target_sha256": "30337c189288c450ed0a7bd8925ce954dd1ec64bcc3f1fa7c3a905272999a40d",
+      "mode": "copied"
+    },
+    {
+      "source_path": "benchmarks/results/2026-10-05/summary.json",
+      "target_path": "benchmarks/results/2026-10-05/summary.json",
+      "bytes": 4708,
+      "source_sha256": "9ea0b8fc035bfe3573805a884f871fc4d91635120337662170ddb9a1ffcc35b3",
+      "target_sha256": "9ea0b8fc035bfe3573805a884f871fc4d91635120337662170ddb9a1ffcc35b3",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/agents/domain.md",
+      "target_path": "docs/agents/domain.md",
+      "bytes": 696,
+      "source_sha256": "44f198e325b2d9727d7c5377b857f278e10cc8f0e3c5480b647da0c9540ec089",
+      "target_sha256": "44f198e325b2d9727d7c5377b857f278e10cc8f0e3c5480b647da0c9540ec089",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/agents/issue-tracker.md",
+      "target_path": "docs/agents/issue-tracker.md",
+      "bytes": 1363,
+      "source_sha256": "ca0a60618067a74cd6fdd97efc0dfaa9b1af9e5f7e30fa7e80cca1be235d1d94",
+      "target_sha256": "ff6a6b91d3cc6edfb5cd8ade343bb915fc6121b8944e4f31c42fd7ed9976ab3f",
+      "mode": "copied_with_migration_scope_note",
+      "original_copy_path": "docs/migration/jevmanager-source/docs/agents/issue-tracker.md"
+    },
+    {
+      "source_path": "docs/agents/triage-labels.md",
+      "target_path": "docs/agents/triage-labels.md",
+      "bytes": 652,
+      "source_sha256": "45297b821ce918114515ff2090ee7d8d5f2be1bc79ade9ce15c33f57465fbec6",
+      "target_sha256": "45297b821ce918114515ff2090ee7d8d5f2be1bc79ade9ce15c33f57465fbec6",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design.md",
+      "target_path": "docs/design.md",
+      "bytes": 2184,
+      "source_sha256": "b274d1f40b81c89e1781ae0eda534275208f3b2646482594515b58f7ab3e6c0e",
+      "target_sha256": "b38bbc539aaa151aa4dbd0e2cc1359ccf0345aee1dfb1b5a77b4f183ced61f7f",
+      "mode": "copied_with_migration_scope_note",
+      "original_copy_path": "docs/migration/jevmanager-source/docs/design.md"
+    },
+    {
+      "source_path": "docs/design/apple-macos/README.md",
+      "target_path": "docs/design/apple-macos/README.md",
+      "bytes": 585,
+      "source_sha256": "b220430de1fe4de84cbf1c3868764d720832f6cd2040547c8a3d5c8e2e8835bf",
+      "target_sha256": "b220430de1fe4de84cbf1c3868764d720832f6cd2040547c8a3d5c8e2e8835bf",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/macos-typography.json",
+      "target_path": "docs/design/apple-macos/macos-typography.json",
+      "bytes": 921,
+      "source_sha256": "1f07d51e9ec2e537f924f3d3e79d05aeb2de155a9cfafd78d2d3bebd6ba88a5f",
+      "target_sha256": "1f07d51e9ec2e537f924f3d3e79d05aeb2de155a9cfafd78d2d3bebd6ba88a5f",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/manifest.json",
+      "target_path": "docs/design/apple-macos/manifest.json",
+      "bytes": 19624,
+      "source_sha256": "a0c7dd70978c7b961013823ac0de041e5ec41d78d35c465c66faf16c59079b80",
+      "target_sha256": "a0c7dd70978c7b961013823ac0de041e5ec41d78d35c465c66faf16c59079b80",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/parameters.json",
+      "target_path": "docs/design/apple-macos/parameters.json",
+      "bytes": 3014,
+      "source_sha256": "d65e8e17e15556df5daf0d169c836aefd1c6291718d72f70def115a5dfa5afc6",
+      "target_sha256": "d65e8e17e15556df5daf0d169c836aefd1c6291718d72f70def115a5dfa5afc6",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/accessibility.json",
+      "target_path": "docs/design/apple-macos/snapshots/accessibility.json",
+      "bytes": 85010,
+      "source_sha256": "be49ec0b34397f356a1e3fd8c7ad323713198515523947097913cb9c57da699b",
+      "target_sha256": "be49ec0b34397f356a1e3fd8c7ad323713198515523947097913cb9c57da699b",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/accessibility.md",
+      "target_path": "docs/design/apple-macos/snapshots/accessibility.md",
+      "bytes": 21860,
+      "source_sha256": "a13444969ffbcbe950176580c53ead6dbf7e0a4178cce060539be6feb03bb5c9",
+      "target_sha256": "a13444969ffbcbe950176580c53ead6dbf7e0a4178cce060539be6feb03bb5c9",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/adopting-liquid-glass.json",
+      "target_path": "docs/design/apple-macos/snapshots/adopting-liquid-glass.json",
+      "bytes": 151866,
+      "source_sha256": "30dcd1ca1011f1626aea5f5f1c4d2ed6581258aba8afed8226a3eed9b2fba846",
+      "target_sha256": "30dcd1ca1011f1626aea5f5f1c4d2ed6581258aba8afed8226a3eed9b2fba846",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/alerts.json",
+      "target_path": "docs/design/apple-macos/snapshots/alerts.json",
+      "bytes": 36589,
+      "source_sha256": "ca60f14c249290f1dcebe8bbaedde16183e3759f5a53238085915795e2e4dbdc",
+      "target_sha256": "ca60f14c249290f1dcebe8bbaedde16183e3759f5a53238085915795e2e4dbdc",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/alerts.md",
+      "target_path": "docs/design/apple-macos/snapshots/alerts.md",
+      "bytes": 11785,
+      "source_sha256": "d6761b3c7c5a3824010121eb4d6e1d1a667afd0b028660b64fd22f388e5db20c",
+      "target_sha256": "d6761b3c7c5a3824010121eb4d6e1d1a667afd0b028660b64fd22f388e5db20c",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/apple-design-resources-license.pdf",
+      "target_path": "docs/design/apple-macos/snapshots/apple-design-resources-license.pdf",
+      "bytes": 37069,
+      "source_sha256": "105d51d6e97e59dec5e8b133163c9b4555f2f4f284fcd8edad0bc1feed9a9fa4",
+      "target_sha256": "105d51d6e97e59dec5e8b133163c9b4555f2f4f284fcd8edad0bc1feed9a9fa4",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/buttons.json",
+      "target_path": "docs/design/apple-macos/snapshots/buttons.json",
+      "bytes": 70324,
+      "source_sha256": "fb450f96dd7a201a0203852782252942ee6d72978e0baaec1cb4c400568fed91",
+      "target_sha256": "fb450f96dd7a201a0203852782252942ee6d72978e0baaec1cb4c400568fed91",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/buttons.md",
+      "target_path": "docs/design/apple-macos/snapshots/buttons.md",
+      "bytes": 22471,
+      "source_sha256": "37772b582dcc58d894de7866702f891a7ed110cd8dd2e06a58ac645d92343526",
+      "target_sha256": "37772b582dcc58d894de7866702f891a7ed110cd8dd2e06a58ac645d92343526",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/color.json",
+      "target_path": "docs/design/apple-macos/snapshots/color.json",
+      "bytes": 182037,
+      "source_sha256": "262ce33cb88d41ac0238bf1e3f59b7957e8ddb030379c41b35a6cbdb9ab11a39",
+      "target_sha256": "262ce33cb88d41ac0238bf1e3f59b7957e8ddb030379c41b35a6cbdb9ab11a39",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/color.md",
+      "target_path": "docs/design/apple-macos/snapshots/color.md",
+      "bytes": 37004,
+      "source_sha256": "efc0c7a44512a48cbecb61c6bd62f8d777c63ad3f3cdc12b501568b19b9ed696",
+      "target_sha256": "efc0c7a44512a48cbecb61c6bd62f8d777c63ad3f3cdc12b501568b19b9ed696",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/design-updates.html",
+      "target_path": "docs/design/apple-macos/snapshots/design-updates.html",
+      "bytes": 395652,
+      "source_sha256": "8cd0af6924be61930b44e2b1a305bc5862586f93369b9a2721b4b5aa1a21a878",
+      "target_sha256": "8cd0af6924be61930b44e2b1a305bc5862586f93369b9a2721b4b5aa1a21a878",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/designing-for-macos.json",
+      "target_path": "docs/design/apple-macos/snapshots/designing-for-macos.json",
+      "bytes": 25477,
+      "source_sha256": "0df69cf12d79dd46a6ecb28c01207dbd9137958decec405870cf0008730bb88e",
+      "target_sha256": "0df69cf12d79dd46a6ecb28c01207dbd9137958decec405870cf0008730bb88e",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/designing-for-macos.md",
+      "target_path": "docs/design/apple-macos/snapshots/designing-for-macos.md",
+      "bytes": 4340,
+      "source_sha256": "baf32a8788ebc46891334022dcb5de7bb14356423b7f6036e9757c881136cecf",
+      "target_sha256": "baf32a8788ebc46891334022dcb5de7bb14356423b7f6036e9757c881136cecf",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/labels.json",
+      "target_path": "docs/design/apple-macos/snapshots/labels.json",
+      "bytes": 36245,
+      "source_sha256": "808feaa4c07688eba4f91f8711695ef5869694ffc8b15e9dc2167a76be041738",
+      "target_sha256": "808feaa4c07688eba4f91f8711695ef5869694ffc8b15e9dc2167a76be041738",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/labels.md",
+      "target_path": "docs/design/apple-macos/snapshots/labels.md",
+      "bytes": 6340,
+      "source_sha256": "784ddea488992725de96ffa1f581458c4ede21b10429b37ec8732cbc9f12c11c",
+      "target_sha256": "784ddea488992725de96ffa1f581458c4ede21b10429b37ec8732cbc9f12c11c",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/layout.json",
+      "target_path": "docs/design/apple-macos/snapshots/layout.json",
+      "bytes": 84939,
+      "source_sha256": "d41f32ddf76c597f0edd54eac361fa294a8736cfc4ccc627d1709fe092ed7267",
+      "target_sha256": "d41f32ddf76c597f0edd54eac361fa294a8736cfc4ccc627d1709fe092ed7267",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/layout.md",
+      "target_path": "docs/design/apple-macos/snapshots/layout.md",
+      "bytes": 22539,
+      "source_sha256": "eb31b62312dff2d078bee70bbc6336f985388bf15fcbbb1013fcfd5ebc9c3ede",
+      "target_sha256": "eb31b62312dff2d078bee70bbc6336f985388bf15fcbbb1013fcfd5ebc9c3ede",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/lists-and-tables.json",
+      "target_path": "docs/design/apple-macos/snapshots/lists-and-tables.json",
+      "bytes": 33074,
+      "source_sha256": "7abfc703aad0db86267b53942594c48f9ffde84a8d76646220524193a47e19db",
+      "target_sha256": "7abfc703aad0db86267b53942594c48f9ffde84a8d76646220524193a47e19db",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/lists-and-tables.md",
+      "target_path": "docs/design/apple-macos/snapshots/lists-and-tables.md",
+      "bytes": 9514,
+      "source_sha256": "5acbb4f7ef650aa154e83dfc0b8e83e2be5312674d0225ab28ba1e7dd7592bd2",
+      "target_sha256": "5acbb4f7ef650aa154e83dfc0b8e83e2be5312674d0225ab28ba1e7dd7592bd2",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/materials.json",
+      "target_path": "docs/design/apple-macos/snapshots/materials.json",
+      "bytes": 76600,
+      "source_sha256": "597da170985715de4bd8446df12e3604595e634a790b5da0ce6673d2b2327ed5",
+      "target_sha256": "597da170985715de4bd8446df12e3604595e634a790b5da0ce6673d2b2327ed5",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/materials.md",
+      "target_path": "docs/design/apple-macos/snapshots/materials.md",
+      "bytes": 18008,
+      "source_sha256": "6b8ff6842a0e903eeaaa4104bb15140b93b4678057c33a6f3f87127f54dbfa94",
+      "target_sha256": "6b8ff6842a0e903eeaaa4104bb15140b93b4678057c33a6f3f87127f54dbfa94",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/menus.json",
+      "target_path": "docs/design/apple-macos/snapshots/menus.json",
+      "bytes": 48890,
+      "source_sha256": "dff423968b85e717c175a1999897224e6157cd7ce2f5907d64bf93088532dcf1",
+      "target_sha256": "dff423968b85e717c175a1999897224e6157cd7ce2f5907d64bf93088532dcf1",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/menus.md",
+      "target_path": "docs/design/apple-macos/snapshots/menus.md",
+      "bytes": 17941,
+      "source_sha256": "e57e793c0cb3e1cc2ab95b4b3bd9f4b485337e5916ac898cc900330467280bb6",
+      "target_sha256": "e57e793c0cb3e1cc2ab95b4b3bd9f4b485337e5916ac898cc900330467280bb6",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/outline-views.json",
+      "target_path": "docs/design/apple-macos/snapshots/outline-views.json",
+      "bytes": 22180,
+      "source_sha256": "bc250fe2b268d1e4835539e19b484f39c4643ccb1646c847fc367032da1abce0",
+      "target_sha256": "bc250fe2b268d1e4835539e19b484f39c4643ccb1646c847fc367032da1abce0",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/outline-views.md",
+      "target_path": "docs/design/apple-macos/snapshots/outline-views.md",
+      "bytes": 5656,
+      "source_sha256": "5c5dad64334ab2337df9dc3d9055fbb8a31eb2abb7384acfcb9168be00b4a9e8",
+      "target_sha256": "5c5dad64334ab2337df9dc3d9055fbb8a31eb2abb7384acfcb9168be00b4a9e8",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/resources.html",
+      "target_path": "docs/design/apple-macos/snapshots/resources.html",
+      "bytes": 152321,
+      "source_sha256": "3f5299422d07770cc1d09e7c9fc6ffca163a37a22302ce4756eebcabe593055e",
+      "target_sha256": "3f5299422d07770cc1d09e7c9fc6ffca163a37a22302ce4756eebcabe593055e",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/scroll-views.json",
+      "target_path": "docs/design/apple-macos/snapshots/scroll-views.json",
+      "bytes": 43377,
+      "source_sha256": "fa99110bf671741536de552c96154c6b6fb447bdce754b9b55c3536b4deae8e8",
+      "target_sha256": "fa99110bf671741536de552c96154c6b6fb447bdce754b9b55c3536b4deae8e8",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/scroll-views.md",
+      "target_path": "docs/design/apple-macos/snapshots/scroll-views.md",
+      "bytes": 14344,
+      "source_sha256": "f59b779a48ad9a5bfde47696f61f5c93e6ba5711c110342d9bdc87d6873e5722",
+      "target_sha256": "f59b779a48ad9a5bfde47696f61f5c93e6ba5711c110342d9bdc87d6873e5722",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/search-fields.json",
+      "target_path": "docs/design/apple-macos/snapshots/search-fields.json",
+      "bytes": 46952,
+      "source_sha256": "57ad53c788667b8676c585a5c6ef7f6bdaa297dd0a206f9e6606351265045bbb",
+      "target_sha256": "57ad53c788667b8676c585a5c6ef7f6bdaa297dd0a206f9e6606351265045bbb",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/search-fields.md",
+      "target_path": "docs/design/apple-macos/snapshots/search-fields.md",
+      "bytes": 15233,
+      "source_sha256": "d1b20ee8cd1432be03a852dd9de1e041d054b5c3002ee3f67bb2bd5037931c31",
+      "target_sha256": "d1b20ee8cd1432be03a852dd9de1e041d054b5c3002ee3f67bb2bd5037931c31",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/sheets.json",
+      "target_path": "docs/design/apple-macos/snapshots/sheets.json",
+      "bytes": 56812,
+      "source_sha256": "3e1a1accb148d23db5a74907b56438de35cdafdb1aafcc12722c7097d7829459",
+      "target_sha256": "3e1a1accb148d23db5a74907b56438de35cdafdb1aafcc12722c7097d7829459",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/sheets.md",
+      "target_path": "docs/design/apple-macos/snapshots/sheets.md",
+      "bytes": 13367,
+      "source_sha256": "c93d6f9fe3e323c7ed35b0db0f6a5d054331ae948603b161045bd8a137c1ecea",
+      "target_sha256": "c93d6f9fe3e323c7ed35b0db0f6a5d054331ae948603b161045bd8a137c1ecea",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/sidebars.json",
+      "target_path": "docs/design/apple-macos/snapshots/sidebars.json",
+      "bytes": 38566,
+      "source_sha256": "5aff188db0d343d4286e15a8ed6a7baadef4cfa60565ce374be0c51aae64859d",
+      "target_sha256": "5aff188db0d343d4286e15a8ed6a7baadef4cfa60565ce374be0c51aae64859d",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/sidebars.md",
+      "target_path": "docs/design/apple-macos/snapshots/sidebars.md",
+      "bytes": 9626,
+      "source_sha256": "64a2b9ec12c33f79a7932fcda215d63d0e293bc8650879a944366919fbc8b533",
+      "target_sha256": "64a2b9ec12c33f79a7932fcda215d63d0e293bc8650879a944366919fbc8b533",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/text-fields.json",
+      "target_path": "docs/design/apple-macos/snapshots/text-fields.json",
+      "bytes": 25637,
+      "source_sha256": "18324cc7181a498b9324a1980231260785ee427eb9ae48f775bfa06a96153d40",
+      "target_sha256": "18324cc7181a498b9324a1980231260785ee427eb9ae48f775bfa06a96153d40",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/text-fields.md",
+      "target_path": "docs/design/apple-macos/snapshots/text-fields.md",
+      "bytes": 7017,
+      "source_sha256": "77e88b1f00968e5f06c58d5bdb9c64a0944276829aa3a440da42d15b67a40b63",
+      "target_sha256": "77e88b1f00968e5f06c58d5bdb9c64a0944276829aa3a440da42d15b67a40b63",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/the-menu-bar.json",
+      "target_path": "docs/design/apple-macos/snapshots/the-menu-bar.json",
+      "bytes": 84251,
+      "source_sha256": "49021cdabc50e3cd7a0d0daedfc7fe3175a1b3331ce5b836cdf759183d5c7f46",
+      "target_sha256": "49021cdabc50e3cd7a0d0daedfc7fe3175a1b3331ce5b836cdf759183d5c7f46",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/the-menu-bar.md",
+      "target_path": "docs/design/apple-macos/snapshots/the-menu-bar.md",
+      "bytes": 30791,
+      "source_sha256": "e6c29df1950f380701dd4e99214f10b055865bd272c22ea8aab6980439b2940b",
+      "target_sha256": "e6c29df1950f380701dd4e99214f10b055865bd272c22ea8aab6980439b2940b",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/toolbars.json",
+      "target_path": "docs/design/apple-macos/snapshots/toolbars.json",
+      "bytes": 72799,
+      "source_sha256": "4f1147642ab0561dcb2d4b074be970a537e2072be41e061314d1e234b4cdc6f7",
+      "target_sha256": "4f1147642ab0561dcb2d4b074be970a537e2072be41e061314d1e234b4cdc6f7",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/toolbars.md",
+      "target_path": "docs/design/apple-macos/snapshots/toolbars.md",
+      "bytes": 19714,
+      "source_sha256": "08d0099fd4c12269f1c1b9d720ca014c6d538f923fc9596be50eb3058ad9ad86",
+      "target_sha256": "08d0099fd4c12269f1c1b9d720ca014c6d538f923fc9596be50eb3058ad9ad86",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/typography.json",
+      "target_path": "docs/design/apple-macos/snapshots/typography.json",
+      "bytes": 281141,
+      "source_sha256": "85bf7dc78d41a6e5e16d4055f3bdadf7bac4f7d5cb2206514c8b82d5d24631ed",
+      "target_sha256": "85bf7dc78d41a6e5e16d4055f3bdadf7bac4f7d5cb2206514c8b82d5d24631ed",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/typography.md",
+      "target_path": "docs/design/apple-macos/snapshots/typography.md",
+      "bytes": 26649,
+      "source_sha256": "c15eb6a0e8fd06207949dbbede6a74f752a8b198dd731c23eeab0b43aa0ffbf1",
+      "target_sha256": "c15eb6a0e8fd06207949dbbede6a74f752a8b198dd731c23eeab0b43aa0ffbf1",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/windows.json",
+      "target_path": "docs/design/apple-macos/snapshots/windows.json",
+      "bytes": 67050,
+      "source_sha256": "1da7914a4b33b20b55cc7558d004f5017300f4121c2d7fdf05ba79517073a220",
+      "target_sha256": "1da7914a4b33b20b55cc7558d004f5017300f4121c2d7fdf05ba79517073a220",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/snapshots/windows.md",
+      "target_path": "docs/design/apple-macos/snapshots/windows.md",
+      "bytes": 19792,
+      "source_sha256": "3b1769c81f2fc5ecec3c1ed198a5de9456d1e4dc70c782b103197bd500939203",
+      "target_sha256": "3b1769c81f2fc5ecec3c1ed198a5de9456d1e4dc70c782b103197bd500939203",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/design/apple-macos/standard.md",
+      "target_path": "docs/design/apple-macos/standard.md",
+      "bytes": 585,
+      "source_sha256": "b220430de1fe4de84cbf1c3868764d720832f6cd2040547c8a3d5c8e2e8835bf",
+      "target_sha256": "b220430de1fe4de84cbf1c3868764d720832f6cd2040547c8a3d5c8e2e8835bf",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/engineering.md",
+      "target_path": "docs/engineering.md",
+      "bytes": 6196,
+      "source_sha256": "74e3da6e9350c36983eb217c2c91d90ef745f56e471174dc60602f78cbc144e8",
+      "target_sha256": "c3c5fce439e2b8b425d113fa003ef73e34f8871b95045c21e8ae6b789061ac17",
+      "mode": "copied_with_migration_scope_note",
+      "original_copy_path": "docs/migration/jevmanager-source/docs/engineering.md"
+    },
+    {
+      "source_path": "docs/prototype-toolchain.json",
+      "target_path": "docs/prototype-toolchain.json",
+      "bytes": 638,
+      "source_sha256": "f66f57c66150ef475673e9c9a23070db536fff24d431980b858e2183768304bd",
+      "target_sha256": "f66f57c66150ef475673e9c9a23070db536fff24d431980b858e2183768304bd",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/research/desktop-packaging-evidence.md",
+      "target_path": "docs/research/desktop-packaging-evidence.md",
+      "bytes": 14293,
+      "source_sha256": "b68510f8a634d70d535b0833ea350e8b673baf4ccae9b831298a3bed4b1c9998",
+      "target_sha256": "b68510f8a634d70d535b0833ea350e8b673baf4ccae9b831298a3bed4b1c9998",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/research/lmstudio-integration-evidence.md",
+      "target_path": "docs/research/lmstudio-integration-evidence.md",
+      "bytes": 9332,
+      "source_sha256": "cfd9a7cc230347c1703adc3950536076877e0c54e0a22631c602d2ad74855536",
+      "target_sha256": "cfd9a7cc230347c1703adc3950536076877e0c54e0a22631c602d2ad74855536",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/research/mcp-contract-evidence.md",
+      "target_path": "docs/research/mcp-contract-evidence.md",
+      "bytes": 17702,
+      "source_sha256": "c2d8e208a94db28b09ae825f08dc704596f185c55c7f1e73429a736677ca7abf",
+      "target_sha256": "c2d8e208a94db28b09ae825f08dc704596f185c55c7f1e73429a736677ca7abf",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/research/model-package-selection.md",
+      "target_path": "docs/research/model-package-selection.md",
+      "bytes": 2365,
+      "source_sha256": "3f4f26be7d38c6dec9718fc5f8321c98224b85be489c936ff7f842b0645ed81a",
+      "target_sha256": "3f4f26be7d38c6dec9718fc5f8321c98224b85be489c936ff7f842b0645ed81a",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/research/model-runtime-evidence.md",
+      "target_path": "docs/research/model-runtime-evidence.md",
+      "bytes": 11974,
+      "source_sha256": "8c1d639270ccb5b3a1cf703ee247a8afd70ee95a7db2493715e6feb557e8e71c",
+      "target_sha256": "8c1d639270ccb5b3a1cf703ee247a8afd70ee95a7db2493715e6feb557e8e71c",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/spec.md",
+      "target_path": "docs/spec.md",
+      "bytes": 18983,
+      "source_sha256": "ca276281a2a6e3e2e44b2f398c5b95493a5009f64f0fa8150f299fd35a973e79",
+      "target_sha256": "04ce43f7d367d40ab64af35fbea34c6217ece2016253809c3a9906f612e98253",
+      "mode": "copied_with_migration_scope_note",
+      "original_copy_path": "docs/migration/jevmanager-source/docs/spec.md"
+    },
+    {
+      "source_path": "docs/verification/chinese-benchmark.md",
+      "target_path": "docs/verification/chinese-benchmark.md",
+      "bytes": 3107,
+      "source_sha256": "f21c02b290e767460d7c710e4692780624d03cbaf3ebb6aa940e8aad6364aac6",
+      "target_sha256": "f21c02b290e767460d7c710e4692780624d03cbaf3ebb6aa940e8aad6364aac6",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/codex-mcp-live.md",
+      "target_path": "docs/verification/codex-mcp-live.md",
+      "bytes": 4035,
+      "source_sha256": "eece11d18b56389fd46ad658fc883d81b4eeaec147066b24c0767dc5819f546a",
+      "target_sha256": "eece11d18b56389fd46ad658fc883d81b4eeaec147066b24c0767dc5819f546a",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/council-failures-live.md",
+      "target_path": "docs/verification/council-failures-live.md",
+      "bytes": 2020,
+      "source_sha256": "a128d20caf732da49bbf116d6cfe2dc2d49ba8bb2b70115bf7621fef01274702",
+      "target_sha256": "a128d20caf732da49bbf116d6cfe2dc2d49ba8bb2b70115bf7621fef01274702",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/council-live.md",
+      "target_path": "docs/verification/council-live.md",
+      "bytes": 2450,
+      "source_sha256": "e4b3c61e8e2622893d9daa15c60354d5edc8753a00f944884d077c9e72d36f5f",
+      "target_sha256": "e4b3c61e8e2622893d9daa15c60354d5edc8753a00f944884d077c9e72d36f5f",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/delivery-audit.md",
+      "target_path": "docs/verification/delivery-audit.md",
+      "bytes": 6463,
+      "source_sha256": "c4de5331612511c014e7cd981ff43771e7b21f8d310cd958c030adb62659cc79",
+      "target_sha256": "c4de5331612511c014e7cd981ff43771e7b21f8d310cd958c030adb62659cc79",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/desktop-layout.md",
+      "target_path": "docs/verification/desktop-layout.md",
+      "bytes": 9514,
+      "source_sha256": "404a4b63bf03a66a78c8e256b6d1264e7299986944c69e6f20cb77b92f0c6956",
+      "target_sha256": "404a4b63bf03a66a78c8e256b6d1264e7299986944c69e6f20cb77b92f0c6956",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/desktop-ui-revision.md",
+      "target_path": "docs/verification/desktop-ui-revision.md",
+      "bytes": 3757,
+      "source_sha256": "71b95e867e67fd042434919922a3edd61af3bce96140bc76834fcc657b421d2b",
+      "target_sha256": "71b95e867e67fd042434919922a3edd61af3bce96140bc76834fcc657b421d2b",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/download-desktop-live.md",
+      "target_path": "docs/verification/download-desktop-live.md",
+      "bytes": 1274,
+      "source_sha256": "eda14808b604f3bb778c275f11c1a0ba142f5903b035e4baf585f12e98dd75ef",
+      "target_sha256": "eda14808b604f3bb778c275f11c1a0ba142f5903b035e4baf585f12e98dd75ef",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/flutter-standards-baseline.md",
+      "target_path": "docs/verification/flutter-standards-baseline.md",
+      "bytes": 2302,
+      "source_sha256": "dbda5982916781fc5bfc6bd644da2eb273de4ef934afbbe32427401d41f066d6",
+      "target_sha256": "dbda5982916781fc5bfc6bd644da2eb273de4ef934afbbe32427401d41f066d6",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/hf-search.md",
+      "target_path": "docs/verification/hf-search.md",
+      "bytes": 3493,
+      "source_sha256": "0f689d92e9dfd127b1dd6373503822b48a107283dd7b4c2dc05fa17ad99ef575",
+      "target_sha256": "0f689d92e9dfd127b1dd6373503822b48a107283dd7b4c2dc05fa17ad99ef575",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/lmstudio-provider-live.md",
+      "target_path": "docs/verification/lmstudio-provider-live.md",
+      "bytes": 4550,
+      "source_sha256": "fcbe92fcb1b785d9e49da092d6113d2729fee404bd547fa97ff193f3bac3baea",
+      "target_sha256": "fcbe92fcb1b785d9e49da092d6113d2729fee404bd547fa97ff193f3bac3baea",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/lmstudio-provider-tests.md",
+      "target_path": "docs/verification/lmstudio-provider-tests.md",
+      "bytes": 5669,
+      "source_sha256": "b0d970ef4fdb178ba9c6778d7ba0de9cefd570a5c126f7acead214fe79a05c5b",
+      "target_sha256": "b0d970ef4fdb178ba9c6778d7ba0de9cefd570a5c126f7acead214fe79a05c5b",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/manager-lifecycle-live.md",
+      "target_path": "docs/verification/manager-lifecycle-live.md",
+      "bytes": 3720,
+      "source_sha256": "755f112b279d0dffcee03fad1d66f8ccfccc643120845da3c9ae8ff7764df575",
+      "target_sha256": "755f112b279d0dffcee03fad1d66f8ccfccc643120845da3c9ae8ff7764df575",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/model-download-live.md",
+      "target_path": "docs/verification/model-download-live.md",
+      "bytes": 7689,
+      "source_sha256": "cab104188c1bc6a5e78efdc2ef52b6bccd3d2bafd335da575a17ce9ee5b3be9b",
+      "target_sha256": "cab104188c1bc6a5e78efdc2ef52b6bccd3d2bafd335da575a17ce9ee5b3be9b",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/model-library-live.md",
+      "target_path": "docs/verification/model-library-live.md",
+      "bytes": 13910,
+      "source_sha256": "3ba2c4cbfb81422382035857581fe6b1e0667213a222435cb40d85e291048110",
+      "target_sha256": "3ba2c4cbfb81422382035857581fe6b1e0667213a222435cb40d85e291048110",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/model-package-live.md",
+      "target_path": "docs/verification/model-package-live.md",
+      "bytes": 4714,
+      "source_sha256": "fdfcd9827fc301ae0a22458da74ccaa4161dbee779a8d4898152e0bc33d08b4e",
+      "target_sha256": "fdfcd9827fc301ae0a22458da74ccaa4161dbee779a8d4898152e0bc33d08b4e",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/native-navigation-diagnostic.md",
+      "target_path": "docs/verification/native-navigation-diagnostic.md",
+      "bytes": 1817,
+      "source_sha256": "d735514ad6b854df67f29b3b040730a341af3b5aa0529b83865cd610958ec128",
+      "target_sha256": "d735514ad6b854df67f29b3b040730a341af3b5aa0529b83865cd610958ec128",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/official-engine-probe.md",
+      "target_path": "docs/verification/official-engine-probe.md",
+      "bytes": 3350,
+      "source_sha256": "02b1b9db8dfb53aa75d5c5e686b573e2174a816de6c62b5ce76b1cd3e93dbc8b",
+      "target_sha256": "02b1b9db8dfb53aa75d5c5e686b573e2174a816de6c62b5ce76b1cd3e93dbc8b",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/official-provider-live.md",
+      "target_path": "docs/verification/official-provider-live.md",
+      "bytes": 2963,
+      "source_sha256": "45144f90a53fd1d9cea10fbd3d36369e2f7f581e06b2f75226ad8f4e47bbdb7c",
+      "target_sha256": "45144f90a53fd1d9cea10fbd3d36369e2f7f581e06b2f75226ad8f4e47bbdb7c",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/proxy-package-live.md",
+      "target_path": "docs/verification/proxy-package-live.md",
+      "bytes": 5153,
+      "source_sha256": "2c1c9fe6fe8522dd9f4e5ef9475873ce453623dd44ae43d2bae4bab3945f8e51",
+      "target_sha256": "2c1c9fe6fe8522dd9f4e5ef9475873ce453623dd44ae43d2bae4bab3945f8e51",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/results/gui-lifecycle.json",
+      "target_path": "docs/verification/results/gui-lifecycle.json",
+      "bytes": 3162,
+      "source_sha256": "52e794d9884e7afb5ebc3ea1ddd1feae2b2522e6da649b5c2354e7bd8a58ec7c",
+      "target_sha256": "52e794d9884e7afb5ebc3ea1ddd1feae2b2522e6da649b5c2354e7bd8a58ec7c",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/review-v1.md",
+      "target_path": "docs/verification/review-v1.md",
+      "bytes": 6688,
+      "source_sha256": "0c6c682c9aae6353664a15c96f58df6594cc5c94c21df1faae74efaee1885a25",
+      "target_sha256": "0c6c682c9aae6353664a15c96f58df6594cc5c94c21df1faae74efaee1885a25",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/screenshots/desktop-engines-dark-1.5x.png",
+      "target_path": "docs/verification/screenshots/desktop-engines-dark-1.5x.png",
+      "bytes": 60250,
+      "source_sha256": "47684d1bc81a3dc8339953418cce206a3d996224cea8f99c2d03d3d003343c7c",
+      "target_sha256": "47684d1bc81a3dc8339953418cce206a3d996224cea8f99c2d03d3d003343c7c",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/screenshots/desktop-engines-light-1.5x.png",
+      "target_path": "docs/verification/screenshots/desktop-engines-light-1.5x.png",
+      "bytes": 60800,
+      "source_sha256": "3366dbe6a36ab8fc97f922583e470a474d7d31f18b73148c6d8cf176240c5b09",
+      "target_sha256": "3366dbe6a36ab8fc97f922583e470a474d7d31f18b73148c6d8cf176240c5b09",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/screenshots/desktop-layout-sha256.txt",
+      "target_path": "docs/verification/screenshots/desktop-layout-sha256.txt",
+      "bytes": 1801,
+      "source_sha256": "888aa92335ec6fcb12c0ec3143aebd14145ee0d743d1a71184ea1acc19abde95",
+      "target_sha256": "888aa92335ec6fcb12c0ec3143aebd14145ee0d743d1a71184ea1acc19abde95",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/screenshots/desktop-run-dialog-dark-1.5x.png",
+      "target_path": "docs/verification/screenshots/desktop-run-dialog-dark-1.5x.png",
+      "bytes": 74978,
+      "source_sha256": "0a7d8bd6a2b3d1fda47e8c4a04d09255d03da9316089c370154de05f6bd0adbc",
+      "target_sha256": "0a7d8bd6a2b3d1fda47e8c4a04d09255d03da9316089c370154de05f6bd0adbc",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/screenshots/desktop-run-dialog-light-1.5x.png",
+      "target_path": "docs/verification/screenshots/desktop-run-dialog-light-1.5x.png",
+      "bytes": 75161,
+      "source_sha256": "12530b1213d874ff8ed2259d234d54d89b14226b6548346f0f571a5597a90614",
+      "target_sha256": "12530b1213d874ff8ed2259d234d54d89b14226b6548346f0f571a5597a90614",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/screenshots/desktop-run-dialog-menu-dark-1.5x.png",
+      "target_path": "docs/verification/screenshots/desktop-run-dialog-menu-dark-1.5x.png",
+      "bytes": 78794,
+      "source_sha256": "9c84d3fe827ee36034ef94f0880174c1878838766d01369a3944ae0d41a4e8ab",
+      "target_sha256": "9c84d3fe827ee36034ef94f0880174c1878838766d01369a3944ae0d41a4e8ab",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/screenshots/desktop-run-dialog-menu-light-1.5x.png",
+      "target_path": "docs/verification/screenshots/desktop-run-dialog-menu-light-1.5x.png",
+      "bytes": 79238,
+      "source_sha256": "4a029806fa939b7169c5eaadc2dd6f9bce100ba2d1846da6808427b09647e576",
+      "target_sha256": "4a029806fa939b7169c5eaadc2dd6f9bce100ba2d1846da6808427b09647e576",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/screenshots/desktop-search-dark-1.5x.png",
+      "target_path": "docs/verification/screenshots/desktop-search-dark-1.5x.png",
+      "bytes": 81787,
+      "source_sha256": "fbefe655aaf1fd776689a0dff116ee3c07bb844889665dc93937dbf62321b4ac",
+      "target_sha256": "fbefe655aaf1fd776689a0dff116ee3c07bb844889665dc93937dbf62321b4ac",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/screenshots/desktop-search-light-1.5x.png",
+      "target_path": "docs/verification/screenshots/desktop-search-light-1.5x.png",
+      "bytes": 81864,
+      "source_sha256": "7f299c05fd68eb949d733c68d5e87b9c99b9fdcd9b05400d9d7997f86596bc6e",
+      "target_sha256": "7f299c05fd68eb949d733c68d5e87b9c99b9fdcd9b05400d9d7997f86596bc6e",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/screenshots/desktop-settings-dark-1.5x.png",
+      "target_path": "docs/verification/screenshots/desktop-settings-dark-1.5x.png",
+      "bytes": 59318,
+      "source_sha256": "e160bb565f6f469fb835bd77e015b7b7200d15b5ba0013c41875d8af4e669305",
+      "target_sha256": "e160bb565f6f469fb835bd77e015b7b7200d15b5ba0013c41875d8af4e669305",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/screenshots/desktop-settings-light-1.5x.png",
+      "target_path": "docs/verification/screenshots/desktop-settings-light-1.5x.png",
+      "bytes": 59423,
+      "source_sha256": "070883a7dee636a9bbd66114503fcff2c520b597c2c28582c15d8d1318b2d245",
+      "target_sha256": "070883a7dee636a9bbd66114503fcff2c520b597c2c28582c15d8d1318b2d245",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/screenshots/desktop-settings-menu-dark-1.5x.png",
+      "target_path": "docs/verification/screenshots/desktop-settings-menu-dark-1.5x.png",
+      "bytes": 63004,
+      "source_sha256": "2e1ba6751a5bea510f34e153901783e32e69874306ddf3b3b15135c5e243b9ba",
+      "target_sha256": "2e1ba6751a5bea510f34e153901783e32e69874306ddf3b3b15135c5e243b9ba",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/screenshots/desktop-settings-menu-light-1.5x.png",
+      "target_path": "docs/verification/screenshots/desktop-settings-menu-light-1.5x.png",
+      "bytes": 63286,
+      "source_sha256": "21e7386d3ac966fb885d8e71e282cf6213bd83969a0c6cc87c0986bf1c795922",
+      "target_sha256": "21e7386d3ac966fb885d8e71e282cf6213bd83969a0c6cc87c0986bf1c795922",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/screenshots/desktop-shell-dark-1.5x.png",
+      "target_path": "docs/verification/screenshots/desktop-shell-dark-1.5x.png",
+      "bytes": 48879,
+      "source_sha256": "8f5fcdcc408ed8e1fc37f780c7065d887a1f93f5aa6479a2148b13c228ed42c5",
+      "target_sha256": "8f5fcdcc408ed8e1fc37f780c7065d887a1f93f5aa6479a2148b13c228ed42c5",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/screenshots/desktop-shell-light-1.5x.png",
+      "target_path": "docs/verification/screenshots/desktop-shell-light-1.5x.png",
+      "bytes": 48835,
+      "source_sha256": "f9b3659ae50d111bec2a59645588ec439b9e998999567c04322bd32904c170fe",
+      "target_sha256": "f9b3659ae50d111bec2a59645588ec439b9e998999567c04322bd32904c170fe",
+      "mode": "copied"
+    },
+    {
+      "source_path": "docs/verification/ui-flow-redesign.md",
+      "target_path": "docs/verification/ui-flow-redesign.md",
+      "bytes": 4510,
+      "source_sha256": "ca7d288983d43e29a8d3c164f1870702a0a394a78e9a2b569a1b9f201144cfee",
+      "target_sha256": "ca7d288983d43e29a8d3c164f1870702a0a394a78e9a2b569a1b9f201144cfee",
+      "mode": "copied"
+    },
+    {
+      "source_path": "README.md",
+      "target_path": "docs/migration/jevmanager-source/README.md",
+      "bytes": 4431,
+      "source_sha256": "ccdea2ab45887ee2d592fd50633e8a20f98660ccbcbb4f7b3504bc6f89f8c3bb",
+      "target_sha256": "ccdea2ab45887ee2d592fd50633e8a20f98660ccbcbb4f7b3504bc6f89f8c3bb",
+      "mode": "copied_source_readme"
+    }
+  ],
+  "target_readme_original_sha256": "253830377b4e39ba0ac64e028892bb6f55f27c72631fbd6de1d66efb64d7f042",
+  "target_readme_sha256": "d24fe9f289b2c781690400cfc07a9641b195963b334819d59ca61cdb92e243d6",
+  "source_changes_during_copy": [],
+  "refreshed_at": "2026-10-05T15:53:49+08:00",
+  "refresh_log": [
+    {
+      "source_path": "docs/verification/delivery-audit.md",
+      "previous_source_sha256": "1dc85f426099ef1f2284168686aa5c78728d9fe29c5f6a8c487a03a9ebd8167d",
+      "refreshed_source_sha256": "c4de5331612511c014e7cd981ff43771e7b21f8d310cd958c030adb62659cc79"
+    },
+    {
+      "source_path": "docs/verification/review-v1.md",
+      "previous_source_sha256": "d1449ac12660c5ced733c1888f2410ada5642545325e63776a12fac225df1d3b",
+      "refreshed_source_sha256": "0c6c682c9aae6353664a15c96f58df6594cc5c94c21df1faae74efaee1885a25"
+    },
+    {
+      "source_path": "README.md",
+      "previous_source_sha256": "1729c6ab31dd21adaf34fd7fec267a09e41fce6cb6bd74ed048f7a92f1677404",
+      "refreshed_source_sha256": "ccdea2ab45887ee2d592fd50633e8a20f98660ccbcbb4f7b3504bc6f89f8c3bb"
+    }
+  ],
+  "pending_source_updates": []
+}

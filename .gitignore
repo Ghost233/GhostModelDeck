@@ -1,0 +1,14 @@
+.DS_Store
+.tooling/
+tmp/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+macos/Flutter/ephemeral/
+macos/Pods/
+macos/**/xcuserdata/
+
+# Apple original downloads: local reference only
+/docs/design/apple-macos/snapshots/
+/docs/design/apple-macos/assets/

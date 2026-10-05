@@ -1,0 +1,14 @@
+47684d1bc81a3dc8339953418cce206a3d996224cea8f99c2d03d3d003343c7c  docs/verification/screenshots/desktop-engines-dark-1.5x.png
+3366dbe6a36ab8fc97f922583e470a474d7d31f18b73148c6d8cf176240c5b09  docs/verification/screenshots/desktop-engines-light-1.5x.png
+0a7d8bd6a2b3d1fda47e8c4a04d09255d03da9316089c370154de05f6bd0adbc  docs/verification/screenshots/desktop-run-dialog-dark-1.5x.png
+12530b1213d874ff8ed2259d234d54d89b14226b6548346f0f571a5597a90614  docs/verification/screenshots/desktop-run-dialog-light-1.5x.png
+9c84d3fe827ee36034ef94f0880174c1878838766d01369a3944ae0d41a4e8ab  docs/verification/screenshots/desktop-run-dialog-menu-dark-1.5x.png
+4a029806fa939b7169c5eaadc2dd6f9bce100ba2d1846da6808427b09647e576  docs/verification/screenshots/desktop-run-dialog-menu-light-1.5x.png
+fbefe655aaf1fd776689a0dff116ee3c07bb844889665dc93937dbf62321b4ac  docs/verification/screenshots/desktop-search-dark-1.5x.png
+7f299c05fd68eb949d733c68d5e87b9c99b9fdcd9b05400d9d7997f86596bc6e  docs/verification/screenshots/desktop-search-light-1.5x.png
+e160bb565f6f469fb835bd77e015b7b7200d15b5ba0013c41875d8af4e669305  docs/verification/screenshots/desktop-settings-dark-1.5x.png
+070883a7dee636a9bbd66114503fcff2c520b597c2c28582c15d8d1318b2d245  docs/verification/screenshots/desktop-settings-light-1.5x.png
+2e1ba6751a5bea510f34e153901783e32e69874306ddf3b3b15135c5e243b9ba  docs/verification/screenshots/desktop-settings-menu-dark-1.5x.png
+21e7386d3ac966fb885d8e71e282cf6213bd83969a0c6cc87c0986bf1c795922  docs/verification/screenshots/desktop-settings-menu-light-1.5x.png
+8f5fcdcc408ed8e1fc37f780c7065d887a1f93f5aa6479a2148b13c228ed42c5  docs/verification/screenshots/desktop-shell-dark-1.5x.png
+f9b3659ae50d111bec2a59645588ec439b9e998999567c04322bd32904c170fe  docs/verification/screenshots/desktop-shell-light-1.5x.png

@@ -1,0 +1,141 @@
+{
+  "version": 1,
+  "synthetic": true,
+  "language": "zh-CN",
+  "purpose": "中文规则遵循与候选 ID 映射的冒烟验收；不是训练数据或真实业务效果证据。",
+  "cases": [
+    {
+      "id": "billing-routing",
+      "category": "explicit_rule",
+      "orderGroup": "billing-order",
+      "state": "规则：重复扣款由账单团队处理，配送查询由物流团队处理，商品退换由售后团队处理。用户请求：同一订单被扣款两次，请处理重复扣款。请选择处理团队。",
+      "options": [
+        {"id": "billing", "text": "账单团队"},
+        {"id": "shipping", "text": "物流团队"},
+        {"id": "returns", "text": "售后团队"}
+      ],
+      "expectedChoice": "billing"
+    },
+    {
+      "id": "billing-routing-reordered",
+      "category": "option_reordering",
+      "orderGroup": "billing-order",
+      "state": "规则：重复扣款由账单团队处理，配送查询由物流团队处理，商品退换由售后团队处理。用户请求：同一订单被扣款两次，请处理重复扣款。请选择处理团队。",
+      "options": [
+        {"id": "returns", "text": "售后团队"},
+        {"id": "billing", "text": "账单团队"},
+        {"id": "shipping", "text": "物流团队"}
+      ],
+      "expectedChoice": "billing"
+    },
+    {
+      "id": "negated-refund",
+      "category": "negation",
+      "state": "规则：退款请求交给售后团队，查询包裹位置交给物流团队。用户明确表示：我不需要退款，只想知道包裹现在到哪里了。请选择处理团队。",
+      "options": [
+        {"id": "returns", "text": "售后团队"},
+        {"id": "shipping", "text": "物流团队"},
+        {"id": "billing", "text": "账单团队"}
+      ],
+      "expectedChoice": "shipping"
+    },
+    {
+      "id": "explicit-rule-priority",
+      "category": "rule_priority",
+      "state": "规则：有数据丢失风险时先备份；只有没有数据丢失风险时才先优化速度。当前系统运行缓慢，且明确存在数据丢失风险。请选择第一步。",
+      "options": [
+        {"id": "optimize", "text": "先优化运行速度"},
+        {"id": "backup", "text": "先备份数据"},
+        {"id": "ignore", "text": "暂时忽略问题"}
+      ],
+      "expectedChoice": "backup"
+    },
+    {
+      "id": "missing-permission",
+      "category": "missing_information",
+      "state": "规则：只有得到明确授权才允许重启服务；授权状态未知时先询问。用户要求重启，但当前没有授权记录。请选择下一步。",
+      "options": [
+        {"id": "restart", "text": "立即重启服务"},
+        {"id": "ask", "text": "先确认是否授权重启"},
+        {"id": "delete", "text": "删除服务配置"}
+      ],
+      "expectedChoice": "ask"
+    },
+    {
+      "id": "local-only-rule",
+      "category": "constraint",
+      "state": "规则：本任务的输入只能在本机处理，不允许发送到外部服务器。本机已有可用模型，云端也有可用模型。请选择符合规则的方案。",
+      "options": [
+        {"id": "cloud", "text": "把输入发送给云端模型"},
+        {"id": "local", "text": "调用本机已有模型"},
+        {"id": "both", "text": "同时调用本机和云端模型"}
+      ],
+      "expectedChoice": "local"
+    },
+    {
+      "id": "threshold-boundary",
+      "category": "boundary",
+      "state": "规则：剩余时间小于或等于 2 小时的工单标为紧急；超过 2 小时标为普通。当前工单剩余时间恰好是 2 小时。请选择标记。",
+      "options": [
+        {"id": "normal", "text": "普通"},
+        {"id": "urgent", "text": "紧急"}
+      ],
+      "expectedChoice": "urgent"
+    },
+    {
+      "id": "missing-decision-head",
+      "category": "required_asset",
+      "state": "本例模型的清单明确要求三个文件：权重、分词器和单独的决策头。权重和分词器已经下载，决策头尚未下载。规则：文件全部齐全后才能启动。请选择下一步。",
+      "options": [
+        {"id": "start", "text": "立刻启动模型"},
+        {"id": "download_head", "text": "先下载缺少的决策头"},
+        {"id": "rename", "text": "只修改权重文件名"}
+      ],
+      "expectedChoice": "download_head"
+    },
+    {
+      "id": "offline-existing-model",
+      "category": "constraint",
+      "state": "规则：离线时使用已安装且兼容的本地模型，不尝试新的网络下载。当前网络不可用，模型 A 已安装且兼容，模型 B 尚未下载。请选择下一步。",
+      "options": [
+        {"id": "download_b", "text": "联网下载模型 B"},
+        {"id": "use_a", "text": "使用已安装的模型 A"},
+        {"id": "delete_a", "text": "先删除模型 A"}
+      ],
+      "expectedChoice": "use_a"
+    },
+    {
+      "id": "conflicting-rules",
+      "category": "rule_conflict",
+      "state": "规则：若指令互相冲突且没有指定优先级，先请求澄清。当前指令一要求立即发送报告，指令二要求绝不能发送该报告，二者没有优先级。请选择下一步。",
+      "options": [
+        {"id": "send", "text": "立即发送报告"},
+        {"id": "clarify", "text": "请求澄清冲突指令"},
+        {"id": "discard", "text": "直接删除报告"}
+      ],
+      "expectedChoice": "clarify"
+    },
+    {
+      "id": "insufficient-selection-data",
+      "category": "missing_information",
+      "state": "规则：选择运输方案必须知道预算；预算未知时先询问。用户要求选择运输方案，但尚未提供预算。请选择下一步。",
+      "options": [
+        {"id": "fast", "text": "直接选择最快运输方案"},
+        {"id": "cheap", "text": "直接选择最便宜运输方案"},
+        {"id": "ask_budget", "text": "先询问预算"}
+      ],
+      "expectedChoice": "ask_budget"
+    },
+    {
+      "id": "partial-result-deadline",
+      "category": "explicit_rule",
+      "state": "规则：委员会整轮截止后返回已完成结果，并明确未完成的席位。当前已经到达截止时间，三个席位中两个已成功，一个未完成。请选择下一步。",
+      "options": [
+        {"id": "wait_forever", "text": "不设期限地继续等待"},
+        {"id": "discard_all", "text": "丢弃全部成功结果"},
+        {"id": "return_partial", "text": "返回两个成功结果并标记未完成席位"}
+      ],
+      "expectedChoice": "return_partial"
+    }
+  ]
+}

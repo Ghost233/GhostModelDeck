@@ -1,0 +1,212 @@
+{
+  "synthetic": true,
+  "n": 12,
+  "models": {
+    "ggml-org/Kev-0.8B-GGUF": {
+      "correct": 12,
+      "valid": 12,
+      "ties": 0
+    },
+    "ggml-org/Laya-GGUF": {
+      "correct": 8,
+      "valid": 12,
+      "ties": 0
+    }
+  },
+  "ensemble": {
+    "correct": 11,
+    "ties": 0,
+    "disagreement_cases": 4
+  },
+  "latency_us": {
+    "ggml-org/Kev-0.8B-GGUF": {
+      "median": 72538.5,
+      "min": 55386,
+      "max": 310671,
+      "n": 12,
+      "p95_inclusive": 214583.25
+    },
+    "ggml-org/Laya-GGUF": {
+      "median": 70997.5,
+      "min": 46005,
+      "max": 202223,
+      "n": 12,
+      "p95_inclusive": 138247.55
+    },
+    "ensemble": {
+      "median": 78800.0,
+      "min": 55560,
+      "max": 312406,
+      "n": 12,
+      "p95_inclusive": 252006.1
+    }
+  },
+  "cold_start": [
+    {
+      "phase": "coldStart",
+      "time": "2026-10-04T19:49:18.901281Z",
+      "assetId": "716b7180cc1f3edee55fc48795aa6371ff89cf654a17ac0aa47857742940c1a4",
+      "instanceId": "jev-99f44aebc8362f7e23ec2ec3bb73b4a7a1d8d42a6758f474",
+      "elapsedUs": 9093470,
+      "pid": 23135
+    },
+    {
+      "phase": "coldStart",
+      "time": "2026-10-04T19:49:23.561389Z",
+      "assetId": "dfbd29e122e9a78d3c66996972e9ebef163b91970cb60970174ab39413f07903",
+      "instanceId": "jev-3e478e5c98ffecacc0b9f2383e95665db990098402a6e4ce",
+      "elapsedUs": 4658667,
+      "pid": 23378
+    }
+  ],
+  "sampled_rss_kib": {
+    "23135": 1249264,
+    "23378": 584672
+  },
+  "cases": [
+    {
+      "id": "billing-routing",
+      "expected": "billing",
+      "choices": {
+        "ggml-org/Kev-0.8B-GGUF": "billing",
+        "ggml-org/Laya-GGUF": "billing"
+      },
+      "ensemble_top": [
+        "billing"
+      ],
+      "disagreement": 0.0
+    },
+    {
+      "id": "billing-routing-reordered",
+      "expected": "billing",
+      "choices": {
+        "ggml-org/Kev-0.8B-GGUF": "billing",
+        "ggml-org/Laya-GGUF": "returns"
+      },
+      "ensemble_top": [
+        "billing"
+      ],
+      "disagreement": 0.5
+    },
+    {
+      "id": "negated-refund",
+      "expected": "shipping",
+      "choices": {
+        "ggml-org/Kev-0.8B-GGUF": "shipping",
+        "ggml-org/Laya-GGUF": "returns"
+      },
+      "ensemble_top": [
+        "shipping"
+      ],
+      "disagreement": 0.5
+    },
+    {
+      "id": "explicit-rule-priority",
+      "expected": "backup",
+      "choices": {
+        "ggml-org/Kev-0.8B-GGUF": "backup",
+        "ggml-org/Laya-GGUF": "backup"
+      },
+      "ensemble_top": [
+        "backup"
+      ],
+      "disagreement": 0.0
+    },
+    {
+      "id": "missing-permission",
+      "expected": "ask",
+      "choices": {
+        "ggml-org/Kev-0.8B-GGUF": "ask",
+        "ggml-org/Laya-GGUF": "restart"
+      },
+      "ensemble_top": [
+        "ask"
+      ],
+      "disagreement": 0.5
+    },
+    {
+      "id": "local-only-rule",
+      "expected": "local",
+      "choices": {
+        "ggml-org/Kev-0.8B-GGUF": "local",
+        "ggml-org/Laya-GGUF": "local"
+      },
+      "ensemble_top": [
+        "local"
+      ],
+      "disagreement": 0.0
+    },
+    {
+      "id": "threshold-boundary",
+      "expected": "urgent",
+      "choices": {
+        "ggml-org/Kev-0.8B-GGUF": "urgent",
+        "ggml-org/Laya-GGUF": "urgent"
+      },
+      "ensemble_top": [
+        "urgent"
+      ],
+      "disagreement": 0.0
+    },
+    {
+      "id": "missing-decision-head",
+      "expected": "download_head",
+      "choices": {
+        "ggml-org/Kev-0.8B-GGUF": "download_head",
+        "ggml-org/Laya-GGUF": "start"
+      },
+      "ensemble_top": [
+        "start"
+      ],
+      "disagreement": 0.5
+    },
+    {
+      "id": "offline-existing-model",
+      "expected": "use_a",
+      "choices": {
+        "ggml-org/Kev-0.8B-GGUF": "use_a",
+        "ggml-org/Laya-GGUF": "use_a"
+      },
+      "ensemble_top": [
+        "use_a"
+      ],
+      "disagreement": 0.0
+    },
+    {
+      "id": "conflicting-rules",
+      "expected": "clarify",
+      "choices": {
+        "ggml-org/Kev-0.8B-GGUF": "clarify",
+        "ggml-org/Laya-GGUF": "clarify"
+      },
+      "ensemble_top": [
+        "clarify"
+      ],
+      "disagreement": 0.0
+    },
+    {
+      "id": "insufficient-selection-data",
+      "expected": "ask_budget",
+      "choices": {
+        "ggml-org/Kev-0.8B-GGUF": "ask_budget",
+        "ggml-org/Laya-GGUF": "ask_budget"
+      },
+      "ensemble_top": [
+        "ask_budget"
+      ],
+      "disagreement": 0.0
+    },
+    {
+      "id": "partial-result-deadline",
+      "expected": "return_partial",
+      "choices": {
+        "ggml-org/Kev-0.8B-GGUF": "return_partial",
+        "ggml-org/Laya-GGUF": "return_partial"
+      },
+      "ensemble_top": [
+        "return_partial"
+      ],
+      "disagreement": 0.0
+    }
+  ]
+}

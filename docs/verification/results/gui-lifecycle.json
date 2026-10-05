@@ -1,0 +1,130 @@
+{
+  "cli": "0.160.0",
+  "approval": "--approve-for-me",
+  "app_pid": 28227,
+  "sdk_calls": [
+    {
+      "phase": "before_window_close",
+      "request_id": "8fdc02e48a64f8f29988eb52ae7e1680",
+      "status": "ok",
+      "scope": "ensemble",
+      "pids": [
+        28983,
+        29303
+      ],
+      "instance_ids": [
+        "jev-409441279bbe47d313dc1bafdb7ee1b57b8ef4e6eef040bb",
+        "jev-c51d5ce5142f3607de8c4ac7cb275ae82a2375569108c46f"
+      ],
+      "aggregate_scores": {
+        "refund": 0.7738609897313978,
+        "investigate": 0.22613901026860217
+      },
+      "text_structured_identical": true,
+      "concurrent_dispatch": true
+    },
+    {
+      "phase": "while_window_closed",
+      "request_id": "dab63469ea1b8610f2221ec22e3a0b37",
+      "status": "ok",
+      "scope": "ensemble",
+      "pids": [
+        28983,
+        29303
+      ],
+      "instance_ids": [
+        "jev-409441279bbe47d313dc1bafdb7ee1b57b8ef4e6eef040bb",
+        "jev-c51d5ce5142f3607de8c4ac7cb275ae82a2375569108c46f"
+      ],
+      "aggregate_scores": {
+        "refund": 0.7738609897313978,
+        "investigate": 0.22613901026860217
+      },
+      "text_structured_identical": true,
+      "concurrent_dispatch": true
+    },
+    {
+      "phase": "after_second_close",
+      "request_id": "17b075b1ed1a7e20af4d9aabb094510b",
+      "status": "ok",
+      "scope": "ensemble",
+      "pids": [
+        28983,
+        29303
+      ],
+      "instance_ids": [
+        "jev-409441279bbe47d313dc1bafdb7ee1b57b8ef4e6eef040bb",
+        "jev-c51d5ce5142f3607de8c4ac7cb275ae82a2375569108c46f"
+      ],
+      "aggregate_scores": {
+        "refund": 0.7738609897313978,
+        "investigate": 0.22613901026860217
+      },
+      "text_structured_identical": true,
+      "concurrent_dispatch": true
+    },
+    {
+      "phase": "after_reopen",
+      "request_id": "dcf2bab4a6e70469b55884fb02c42862",
+      "status": "ok",
+      "scope": "ensemble",
+      "pids": [
+        28983,
+        29303
+      ],
+      "instance_ids": [
+        "jev-409441279bbe47d313dc1bafdb7ee1b57b8ef4e6eef040bb",
+        "jev-c51d5ce5142f3607de8c4ac7cb275ae82a2375569108c46f"
+      ],
+      "aggregate_scores": {
+        "refund": 0.7738609897313978,
+        "investigate": 0.22613901026860217
+      },
+      "text_structured_identical": true,
+      "concurrent_dispatch": true
+    }
+  ],
+  "codex_while_window_closed": {
+    "request_id": "5170e95356167de48c31aa08c1c80357",
+    "status": "ok",
+    "scope": "ensemble",
+    "pids": [
+      28983,
+      29303
+    ],
+    "final_consumed_same_request_id": true,
+    "aggregate_scores": {
+      "refund": 0.9748408378100055,
+      "investigate": 0.025159162189994512
+    }
+  },
+  "process_checks": [
+    {
+      "phase": "window_closed",
+      "live_pids": [
+        28227,
+        28983,
+        29303
+      ],
+      "lm_studio_http": 401
+    },
+    {
+      "phase": "after_reopen",
+      "same_live_pids": [
+        28227,
+        28983,
+        29303
+      ]
+    },
+    {
+      "phase": "explicit_quit",
+      "gone_pids": [
+        28227,
+        28983,
+        29303
+      ],
+      "mcp_port_closed": true,
+      "lm_studio_http_preserved": 401
+    }
+  ]
+}

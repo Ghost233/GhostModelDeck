@@ -1,0 +1,11 @@
+{
+  "flutter": "3.47.6",
+  "flutterRevision": "5fc346839b5d0eef006ed8404392afb4dfae428d",
+  "flutterDirectory": "/Users/ghost233/flutter",
+  "dart": "3.13.5",
+  "dartDirectory": "/Users/ghost233/dart",
+  "dartSource": "Matching Dart SDK copied from the Flutter release bundle",
+  "archiveSha256": "a1946d3b6b3de15ce247dc89649df9035ce29e6b4e7ebe91919a25890ea2e79a",
+  "officialArchive": "https://storage.googleapis.com/flutter_infra_release/releases/stable/macos/flutter_macos_arm64_3.47.6-stable.zip",
+  "downloadedFrom": "https://storage.flutter-io.cn/flutter_infra_release/releases/stable/macos/flutter_macos_arm64_3.47.6-stable.zip"
+}
