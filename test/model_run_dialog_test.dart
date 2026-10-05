@@ -16,27 +16,203 @@ import 'fixtures/decision_gguf.dart';
 import 'fixtures/engine_archive.dart';
 
 void main() {
-  for (final ordinaryChat in [false, true]) {
+  test('dual managed and linked process identities recycle and seal together while removal owns only selected scope', () async {
+    final root = await Directory.systemTemp.createTemp('gmd-three-providers-');
+    final library = ModelLibrary();
+    final use = ModelUseRegistry(library);
+    final ios = [_RuntimeIO(), _RuntimeIO(standard: true), _RuntimeIO()];
+    final providers = <LlamaEngine>[];
+    late EngineCatalog catalog;
+    addTearDown(() async {
+      await catalog.stopManaged();
+      catalog.close();
+      for (final provider in providers) {
+        provider.close();
+      }
+      library.close();
+      await root.delete(recursive: true);
+    });
+    final models = Directory('${root.path}/models');
+    await writeDecisionKev(models, ordinaryChat: true);
+    final asset = (await library.scan(models, verifyFiles: true)).single;
+    final archives = <File>[];
+    for (var index = 0; index < 2; index++) {
+      final standard = index == 1;
+      final data = engineArchive(artifactTag: standard ? 'b11146' : 'b11381');
+      archives.add(await File('${root.path}/$index.tar.gz').writeAsBytes(data));
+      providers.add(
+        LlamaEngine(
+          library: library,
+          useRegistry: use,
+          installationDirectory: Directory('${root.path}/engines'),
+          io: ios[index],
+          release: LlamaRelease(
+            tag: standard ? 'v0.5.0' : 'b11381',
+            artifactTag: standard ? 'b11146' : 'b11381',
+            expectedBuild: standard ? 11146 : 11381,
+            supportsSystemone: !standard,
+            expectedBinaryVersion: '0.5.0-dev',
+            commit: standard
+                ? '7fe450e19305b828c199d602c23a8337aaa1f03b'
+                : '836d57176',
+            url: Uri.parse('https://github.com/fixture/$index'),
+            sha256: sha256.convert(data).toString(),
+            sizeBytes: data.length,
+          ),
+        ),
+      );
+    }
+    catalog = EngineCatalog(
+      library: library,
+      officialEngine: providers[0],
+      standardEngine: providers[1],
+      useRegistry: use,
+      registryFile: File('${root.path}/registry.json'),
+      io: ios[2],
+    );
+    await catalog.installOfficial(verifiedArchive: archives[0]);
+    await catalog.installManaged(
+      EngineCatalog.standardId,
+      verifiedArchive: archives[1],
+    );
+    final external = await File('${root.path}/external/llama-server')
+        .create(recursive: true);
+    await external.writeAsString('external native fixture');
+    final chmod = await Process.run('/bin/chmod', ['+x', external.path]);
+    expect(chmod.exitCode, 0);
+    final linked = await catalog.link(external.parent.path);
+    expect(linked.archiveSha256, isNull);
+    expect(linked.release, isNull);
+    expect(linked.binarySha256, isNotNull);
+    final all = [...providers, catalog.providerFor(linked.id)];
+    await HttpOverrides.runWithHttpOverrides(() async {
+      final first = <LlamaInstance>[];
+      for (final provider in all) {
+        first.add(await provider.start(asset.id));
+      }
+      expect(first.map((i) => i.installationId).toSet(), {
+        EngineCatalog.officialId,
+        EngineCatalog.standardId,
+        linked.id,
+      });
+      expect(first.map((i) => i.engineServiceId).toSet(), hasLength(3));
+      expect(
+        first.map((i) => i.modelInferenceInstanceId).toSet(),
+        hasLength(3),
+      );
+      expect(
+        first.every(
+          (i) =>
+              i.nativeAlias == i.id &&
+              i.capabilities.contains(LlamaCapability.textGeneration),
+        ),
+        isTrue,
+      );
+      await expectLater(
+        catalog.prepareRemoval(EngineCatalog.standardId),
+        throwsA(isA<LlamaEngineException>()),
+      );
+      ios.first.stopFailure = true;
+      await expectLater(
+        catalog.stopManaged(),
+        throwsA(isA<LlamaEngineException>()),
+      );
+      expect(ios.map((i) => i.stopAttempts), [1, 1, 1]);
+      expect(all.first.state.instances.single.hasLiveProcess, isTrue);
+      expect(all.first.state.instances.single.capabilities, isEmpty);
+      expect(all[1].state.instances.single.status, LlamaInstanceStatus.stopped);
+      expect(all[2].state.instances.single.status, LlamaInstanceStatus.stopped);
+      await catalog.stopManaged();
+      expect(ios.map((i) => i.stopAttempts), [2, 1, 1]);
+      for (final provider in all) {
+        expect(
+          provider.state.instances.single.status,
+          LlamaInstanceStatus.stopped,
+        );
+        expect(provider.state.instances.single.nativeAlias, isNull);
+        expect(provider.state.instances.single.capabilities, isEmpty);
+      }
+      final restarted = <LlamaInstance>[];
+      for (final provider in all) {
+        restarted.add(await provider.start(asset.id));
+      }
+      for (var index = 0; index < 3; index++) {
+        expect(restarted[index].installationId, first[index].installationId);
+        expect(
+          restarted[index].engineServiceId,
+          isNot(first[index].engineServiceId),
+        );
+        expect(restarted[index].id, isNot(first[index].id));
+        expect(
+          restarted[index].generation,
+          greaterThan(first[index].generation),
+        );
+      }
+      final standardBinary = File(all[1].executablePath!);
+      await standardBinary.writeAsString('foreign replacement');
+      await catalog.refresh();
+      expect(all[1].state.installation, LlamaInstallationStatus.failed);
+      expect(all[1].state.instances.last.capabilities, isEmpty);
+      expect(all[1].state.instances.last.acceptingRequests, isFalse);
+      expect(all[1].state.instances.last.nativeAlias, isNull);
+      expect(all[1].state.instances.last.hasLiveProcess, isTrue);
+      expect(all[0].state.instances.last.status, LlamaInstanceStatus.ready);
+      expect(all[2].state.instances.last.status, LlamaInstanceStatus.ready);
+      await standardBinary.writeAsString('server fixture');
+      await catalog.refresh();
+      expect(
+        all[1].state.instances.last.capabilities,
+        isEmpty,
+        reason: 'repair must not resurrect old generation evidence',
+      );
+      await all[1].stop(restarted[1].id);
+      final removal = await catalog.prepareRemoval(EngineCatalog.standardId);
+      await catalog.remove(removal, confirmed: true);
+      expect(all[0].state.instances.last.status, LlamaInstanceStatus.ready);
+      expect(all[2].state.instances.last.status, LlamaInstanceStatus.ready);
+      expect(await external.readAsString(), 'external native fixture');
+      await catalog.shutdown();
+      expect(ios.map((i) => i.stopAttempts), [3, 2, 2]);
+      for (final provider in all) {
+        expect(provider.state.instances.last.capabilities, isEmpty);
+        await expectLater(provider.start(asset.id), throwsA(isA<StateError>()));
+      }
+    }, _NetworkBoundary());
+  });
+  for (final selection in [(false, false), (true, false), (true, true)]) {
+    final (ordinaryChat, standard) = selection;
     testWidgets(
-      'running ${ordinaryChat ? 'ordinary text' : 'decision'} from the library discovers an existing installation without visiting engine management',
+      'running ${standard
+          ? 'selected standard ordinary text'
+          : ordinaryChat
+          ? 'ordinary text'
+          : 'decision'} from the library discovers an existing installation without visiting engine management',
       (tester) async {
         late Directory root, models;
         late ModelLibrary library;
         late LlamaEngine original, fresh;
+        LlamaEngine? peer;
         late EngineCatalog catalog;
-        final io = _RuntimeIO();
+        final io = _RuntimeIO(standard: standard);
         await tester.runAsync(() async {
           root = await Directory.systemTemp.createTemp('jev-library-run-');
           models = Directory('${root.path}/models');
           await writeDecisionKev(models, ordinaryChat: ordinaryChat);
           library = ModelLibrary();
           final use = ModelUseRegistry(library);
-          final data = engineArchive();
+          final data = engineArchive(
+            artifactTag: standard ? 'b11146' : 'b11381',
+          );
           final archive = await File('${root.path}/release.tar.gz')
               .writeAsBytes(data);
           final release = LlamaRelease(
-            tag: 'b11381',
-            commit: '836d57176',
+            tag: standard ? 'v0.5.0' : 'b11381',
+            artifactTag: standard ? 'b11146' : 'b11381',
+            expectedBuild: standard ? 11146 : 11381,
+            supportsSystemone: !standard,
+            commit: standard
+                ? '7fe450e19305b828c199d602c23a8337aaa1f03b'
+                : '836d57176',
             url: Uri.parse('https://github.com/fixture'),
             sha256: sha256.convert(data).toString(),
             sizeBytes: data.length,
@@ -58,9 +234,29 @@ void main() {
             useRegistry: use,
             loadTimeout: const Duration(seconds: 2),
           );
+          if (standard) {
+            final peerData = engineArchive();
+            final peerArchive = await File('${root.path}/peer.tar.gz')
+                .writeAsBytes(peerData);
+            peer = LlamaEngine(
+              library: library,
+              installationDirectory: owned,
+              useRegistry: use,
+              io: _RuntimeIO(),
+              release: LlamaRelease(
+                tag: 'b11381',
+                commit: '836d57176',
+                url: Uri.parse('https://github.com/fixture'),
+                sha256: sha256.convert(peerData).toString(),
+                sizeBytes: peerData.length,
+              ),
+            );
+            await peer!.install(verifiedArchive: peerArchive);
+          }
           catalog = EngineCatalog(
             library: library,
-            officialEngine: fresh,
+            officialEngine: peer ?? fresh,
+            standardEngine: standard ? fresh : null,
             useRegistry: use,
             registryFile: File('${root.path}/private/engines.json'),
             io: io,
@@ -75,6 +271,7 @@ void main() {
             catalog.close();
             original.close();
             fresh.close();
+            peer?.close();
             library.close();
             await root.delete(recursive: true);
           });
@@ -110,10 +307,10 @@ void main() {
             await tester.pump();
             final dropdown = find.byType(DropdownButton<String>);
             if (dropdown.evaluate().isNotEmpty &&
-                tester
-                    .widget<DropdownButton<String>>(dropdown)
-                    .items!
-                    .isNotEmpty) {
+                tester.widget<DropdownButton<String>>(dropdown).items!.length ==
+                    (standard ? 2 : 1) &&
+                tester.widget<DropdownButton<String>>(dropdown).onChanged !=
+                    null) {
               break;
             }
             await Future<void>.delayed(const Duration(milliseconds: 10));
@@ -122,10 +319,18 @@ void main() {
         final dropdown = tester.widget<DropdownButton<String>>(
           find.byType(DropdownButton<String>),
         );
-        expect(dropdown.items, hasLength(1));
+        expect(dropdown.items, hasLength(standard ? 2 : 1));
+        if (standard) {
+          await tester.tap(find.byType(DropdownButton<String>));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('llama.cpp · 标准 v0.5.0').last);
+          await tester.pumpAndSettle();
+        }
         expect(find.text('请先安装或关联引擎'), findsNothing);
         final engineField = find.byType(DropdownButtonFormField<String>);
-        final version = find.textContaining('836d57176');
+        final version = find.textContaining(
+          standard ? '7fe450e19' : '836d57176',
+        );
         final fieldBounds = tester.getRect(engineField);
         final versionBounds = tester.getRect(version);
         expect(versionBounds.top, greaterThanOrEqualTo(fieldBounds.top));
@@ -161,6 +366,31 @@ void main() {
             'change': 0.75,
           });
         }
+        final instance = fresh.state.instances.single;
+        expect(
+          instance.installationId,
+          standard ? EngineCatalog.standardId : EngineCatalog.officialId,
+        );
+        expect(instance.engineServiceId, isNotNull);
+        expect(
+          instance.engineServiceId,
+          isNot(instance.modelInferenceInstanceId),
+        );
+        expect(instance.nativeAlias, instance.id);
+        expect(instance.pid, 42421);
+        expect(instance.generation, greaterThan(0));
+        expect(instance.binaryVersion!.build, standard ? 11146 : 11381);
+        expect(instance.binaryVersion!.semanticVersion, '0.5.0-dev');
+        expect(
+          instance.processEnvironment,
+          isNull,
+          reason: 'I/O fixture does not observe a native environment',
+        );
+        expect(
+          io.startedExecutables.single,
+          endsWith('/${standard ? 'v0.5.0' : 'b11381'}/llama-server'),
+        );
+        if (standard) expect(peer!.state.instances, isEmpty);
         expect(library.state.artifacts.single.fingerprintsVerified, isTrue);
         await expectLater(
           library.prepareDeletion([library.state.artifacts.single.id]),
@@ -248,6 +478,9 @@ Future<void> _settleFilesystemFrames(WidgetTester tester) async {
 }
 
 class _RuntimeIO implements EngineProcessIO {
+  _RuntimeIO({this.standard = false});
+  final bool standard;
+  final startedExecutables = <String>[];
   bool stopFailure = false;
   int stopAttempts = 0;
   Completer<void>? stopRelease;
@@ -258,10 +491,22 @@ class _RuntimeIO implements EngineProcessIO {
     List<String> arguments, {
     required Duration timeout,
   }) async {
-    if (arguments.singleOrNull == '--version') {
+    if (executable == '/usr/bin/file') {
+      return const EngineCommandResult(0, 'Mach-O 64-bit executable arm64', '');
+    }
+    if (arguments.singleOrNull == '--help') {
       return const EngineCommandResult(
         0,
-        'version: 0.5.0-dev (build 11381, commit 836d57176)\nbuilt for Darwin arm64',
+        '--model --alias --host --port --ctx-size --batch-size --ubatch-size --parallel --n-gpu-layers --device',
+        '',
+      );
+    }
+    if (arguments.singleOrNull == '--version') {
+      return EngineCommandResult(
+        0,
+        standard
+            ? 'version: 0.5.0-dev (build 11146, commit 7fe450e19)\nbuilt for Darwin arm64'
+            : 'version: 0.5.0-dev (build 11381, commit 836d57176)\nbuilt for Darwin arm64',
         '',
       );
     }
@@ -275,6 +520,7 @@ class _RuntimeIO implements EngineProcessIO {
 
   @override
   Future<EngineChild> start(String executable, List<String> arguments) async {
+    startedExecutables.add(executable);
     String arg(String name) => arguments[arguments.indexOf(name) + 1];
     final server = await HttpServer.bind(
       InternetAddress.loopbackIPv4,

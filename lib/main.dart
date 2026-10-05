@@ -55,6 +55,7 @@ class _ManagerShellState extends State<_ManagerShell> {
   late final DownloadTaskController _downloads;
   late final ModelUseRegistry _useRegistry;
   late final LlamaEngine _officialEngine;
+  late final LlamaEngine _standardEngine;
   late final EngineCatalog _engines;
   late final CouncilController _council;
   late final CouncilMcpServer _mcp;
@@ -82,9 +83,17 @@ class _ManagerShellState extends State<_ManagerShell> {
       ),
       useRegistry: _useRegistry,
     );
+    _standardEngine = LlamaEngine(
+      library: _library,
+      installationDirectory: _officialEngine.installationDirectory,
+      useRegistry: _useRegistry,
+      release: standardLlamaRelease,
+      installationId: EngineCatalog.standardId,
+    );
     _engines = EngineCatalog(
       library: _library,
       officialEngine: _officialEngine,
+      standardEngine: _standardEngine,
       useRegistry: _useRegistry,
       registryFile: File('${_settings.file.parent.path}/engines.json'),
     );
@@ -152,6 +161,7 @@ class _ManagerShellState extends State<_ManagerShell> {
     _council.close();
     _engines.close();
     _officialEngine.close();
+    _standardEngine.close();
     _library.close();
     _preferences.dispose();
     super.dispose();

@@ -18,6 +18,10 @@ class EngineRegistration {
     this.version,
     this.path,
     this.sha256,
+    this.archiveSha256,
+    this.binarySha256,
+    this.release,
+    this.binaryVersion,
     this.error,
   });
   final String id;
@@ -26,7 +30,14 @@ class EngineRegistration {
   final LlamaInstallationStatus status;
   final String? version;
   final String? path;
+
+  /// Legacy digest: managed archive or linked executable. Prefer typed fields.
   final String? sha256;
+  final String? archiveSha256;
+  final String? binarySha256;
+  final LlamaRelease? release;
+  final LlamaBinaryVersion? binaryVersion;
+  String get installationId => id;
   final String? error;
 }
 
@@ -66,15 +77,28 @@ class EngineCatalog {
   EngineCatalog({
     required this.library,
     required this.officialEngine,
+    this.standardEngine,
     required this.useRegistry,
     required this.registryFile,
     EngineProcessIO? io,
   }) : io = io ?? NativeEngineProcessIO() {
-    _subscriptions.add(officialEngine.changes.listen((_) => _publish()));
+    for (final provider in _managed.values) {
+      _subscriptions.add(provider.changes.listen((_) => _publish()));
+    }
   }
   static const officialId = 'official-llama-b11381';
+  static const standardId = 'official-llama-v0.5.0';
+  Map<String, LlamaEngine> get _managed => {
+    officialId: officialEngine,
+    standardId: ?standardEngine,
+  };
+  Iterable<LlamaEngine> get _providers => [
+    ..._managed.values,
+    ..._linked.values,
+  ];
   final ModelLibrary library;
   final LlamaEngine officialEngine;
+  final LlamaEngine? standardEngine;
   final ModelUseRegistry useRegistry;
   final File registryFile;
   final EngineProcessIO io;
@@ -93,25 +117,34 @@ class EngineCatalog {
     busy: _busy,
     error: _error,
     entries: List.unmodifiable([
-      EngineRegistration(
-        id: officialId,
-        name: 'llama.cpp',
-        source: EngineSource.managed,
-        status: officialEngine.state.installation,
-        version: officialEngine.observedVersion,
-        path: officialEngine.executablePath,
-        sha256: officialEngine.release.sha256,
-        error: officialEngine.state.error,
-      ),
+      for (final entry in _managed.entries)
+        EngineRegistration(
+          id: entry.key,
+          name: entry.key == officialId
+              ? 'llama.cpp · JEV b11381'
+              : 'llama.cpp · 标准 v0.5.0',
+          source: EngineSource.managed,
+          status: entry.value.state.installation,
+          version: entry.value.observedVersion,
+          path: entry.value.executablePath,
+          sha256: entry.value.release.sha256,
+          archiveSha256: entry.value.release.sha256,
+          binarySha256: entry.value.binarySha256,
+          release: entry.value.release,
+          binaryVersion: entry.value.binaryVersion,
+          error: entry.value.state.error,
+        ),
       for (final entry in _linked.entries)
         EngineRegistration(
           id: entry.key,
           name: _names[entry.key]!,
           source: EngineSource.linked,
           status: entry.value.state.installation,
-          version: entry.value.linkedInstallation!.version,
+          version: entry.value.observedVersion,
           path: entry.value.linkedInstallation!.path,
           sha256: entry.value.linkedInstallation!.sha256,
+          binarySha256: entry.value.binarySha256,
+          binaryVersion: entry.value.binaryVersion,
           error: entry.value.state.error,
         ),
     ]),
@@ -142,8 +175,7 @@ class EngineCatalog {
 
   Future<void> refresh() => _serial(() async {
     await _load();
-    await officialEngine.refreshInstallation();
-    for (final provider in _linked.values) {
+    for (final provider in _providers) {
       await provider.refreshInstallation();
     }
   });
@@ -161,7 +193,7 @@ class EngineCatalog {
             row['path'] is! String ||
             row['version'] is! String ||
             row['fingerprints'] is! Map ||
-            row['id'] == officialId ||
+            [officialId, standardId].contains(row['id']) ||
             _linked.containsKey(row['id'])) {
           throw const LlamaEngineException('关联引擎登记信息无效');
         }
@@ -192,6 +224,7 @@ class EngineCatalog {
       io: io,
       useRegistry: useRegistry,
       linkedInstallation: location,
+      installationId: id,
     );
     if (_shuttingDown) provider.beginShutdown();
     _linked[id] = provider;
@@ -222,10 +255,15 @@ class EngineCatalog {
     await temporary.rename(registryFile.path);
   }
 
-  Future<void> installOfficial({File? verifiedArchive}) => _serial(() async {
-    await _load();
-    await officialEngine.install(verifiedArchive: verifiedArchive);
-  });
+  Future<void> installOfficial({File? verifiedArchive}) =>
+      installManaged(officialId, verifiedArchive: verifiedArchive);
+  Future<void> installManaged(String id, {File? verifiedArchive}) =>
+      _serial(() async {
+        await _load();
+        final provider = _managed[id];
+        if (provider == null) throw const LlamaEngineException('请选择受管引擎安装');
+        await provider.install(verifiedArchive: verifiedArchive);
+      });
   Future<EngineRegistration> link(String path) => _serial(() async {
     await _load();
     final type = await FileSystemEntity.type(path);
@@ -233,17 +271,21 @@ class EngineCatalog {
         ? File('$path/llama-server')
         : File(path);
     final location = await inspectLinkedLlama(binary, io);
-    final managed = File(
-      '${officialEngine.installationDirectory.path}/${officialEngine.release.tag}/llama-server',
-    );
-    if (await managed.exists() &&
-        await managed.resolveSymbolicLinks() == location.path) {
-      throw const LlamaEngineException('该引擎已由本应用管理');
+    for (final provider in _managed.values) {
+      final managed = File(
+        '${provider.installationDirectory.path}/${provider.release.tag}/llama-server',
+      );
+      if (await managed.exists() &&
+          await managed.resolveSymbolicLinks() == location.path) {
+        throw const LlamaEngineException('该引擎已由本应用管理');
+      }
     }
     if (_linked.values.any(
           (provider) => provider.linkedInstallation!.path == location.path,
         ) ||
-        officialEngine.executablePath == location.path) {
+        _managed.values.any(
+          (provider) => provider.executablePath == location.path,
+        )) {
       throw const LlamaEngineException('该引擎已登记');
     }
     final id = List.generate(
@@ -271,7 +313,7 @@ class EngineCatalog {
       throw const LlamaEngineException('请先停止该引擎的模型实例');
     }
     if (entry.source == EngineSource.managed) {
-      final plan = await officialEngine.prepareRemoval();
+      final plan = await providerFor(id).prepareRemoval();
       return EngineRemovalPlan._(
         this,
         entry: entry,
@@ -295,10 +337,7 @@ class EngineCatalog {
         }
         final provider = providerFor(plan.entry.id);
         if (plan.entry.source == EngineSource.managed) {
-          await officialEngine.removeInstallation(
-            plan._managed!,
-            confirmed: true,
-          );
+          await provider.removeInstallation(plan._managed!, confirmed: true);
           return;
         }
         await provider.detachLinked();
@@ -308,8 +347,7 @@ class EngineCatalog {
         provider.close();
       });
   LlamaEngine providerFor(String id) {
-    if (id == officialId) return officialEngine;
-    final provider = _linked[id];
+    final provider = _managed[id] ?? _linked[id];
     if (provider == null) throw const LlamaEngineException('引擎登记已变化');
     return provider;
   }
@@ -324,16 +362,26 @@ class EngineCatalog {
   }
 
   Future<void> stopManaged() async {
-    await officialEngine.stopManaged();
-    for (final provider in _linked.values) {
-      await provider.stopManaged();
+    final errors = <Object>[];
+    // Start every recycle before awaiting, so every provider seals admission.
+    final stops = [for (final provider in _providers) provider.stopManaged()];
+    await Future.wait(
+      stops.map((stop) async {
+        try {
+          await stop;
+        } catch (error) {
+          errors.add(error);
+        }
+      }),
+    );
+    if (errors.isNotEmpty) {
+      throw LlamaEngineException('引擎回收未完成：${errors.join('; ')}');
     }
   }
 
   void beginShutdown() {
     _shuttingDown = true;
-    officialEngine.beginShutdown();
-    for (final provider in _linked.values) {
+    for (final provider in _providers) {
       provider.beginShutdown();
     }
   }
@@ -347,7 +395,7 @@ class EngineCatalog {
   Future<void> _drainAndStop() async {
     await _operations;
     final errors = <Object>[];
-    for (final provider in [officialEngine, ..._linked.values]) {
+    for (final provider in _providers) {
       try {
         await provider.shutdown();
       } catch (error) {

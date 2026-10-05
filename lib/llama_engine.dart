@@ -17,11 +17,38 @@ class LlamaRelease {
     required this.url,
     required this.sha256,
     required this.sizeBytes,
+    this.artifactTag,
+    this.expectedBuild,
+    this.supportsSystemone = true,
+    this.expectedBinaryVersion,
+    this.expectedPlatform = 'Darwin arm64',
   });
+
+  /// Curated release label, not an observed binary semantic version.
   final String tag;
+  final String? artifactTag;
+  final int? expectedBuild;
+
+  /// Expected protocol compatibility only; never evidence of readiness.
+  final bool supportsSystemone;
+  final String? expectedBinaryVersion;
+  final String expectedPlatform;
+  String get archiveRoot => 'llama-${artifactTag ?? tag}';
+  int get buildNumber {
+    if (expectedBuild != null) return expectedBuild!;
+    final legacy = RegExp(r'^b([0-9]+)$').firstMatch(tag);
+    if (legacy == null) {
+      throw const LlamaEngineException('语义发行标签必须声明实际构建号');
+    }
+    return int.parse(legacy.group(1)!);
+  }
+
   final String commit;
   final Uri url;
+
+  /// Curated managed archive digest, never the linked/extracted executable hash.
   final String sha256;
+  String get targetPlatform => 'Darwin arm64';
   final int sizeBytes;
 }
 
@@ -147,6 +174,9 @@ Future<LinkedLlamaInstallation> inspectLinkedLlama(
 
 final officialLlamaRelease = LlamaRelease(
   tag: 'b11381',
+  artifactTag: 'b11381',
+  expectedBuild: 11381,
+  expectedBinaryVersion: '0.5.0-dev',
   commit: '836d57176dc699a726c55418e4f96b8ca628e1bf',
   url: Uri.parse(
     'https://github.com/ggml-org/llama.cpp/releases/download/b11381/llama-b11381-bin-macos-arm64.tar.gz',
@@ -154,6 +184,48 @@ final officialLlamaRelease = LlamaRelease(
   sha256: 'ea92f83904a1a1d76752581acbb87c7099ae1a3ac37cc6a634b1648d707dc341',
   sizeBytes: 11925693,
 );
+
+final standardLlamaRelease = LlamaRelease(
+  tag: 'v0.5.0',
+  artifactTag: 'b11146',
+  expectedBuild: 11146,
+  expectedBinaryVersion: '0.5.0-dev',
+  supportsSystemone: false,
+  commit: '7fe450e19305b828c199d602c23a8337aaa1f03b',
+  url: Uri.parse(
+    'https://github.com/ggml-org/llama.cpp/releases/download/b11146/llama-b11146-bin-macos-arm64.tar.gz',
+  ),
+  sha256: '1ad3f9eff80edb9dbef4259ad564d1720612ef7eea48fa4afed0e54f5f3d5711',
+  sizeBytes: 11189714,
+);
+
+/// Facts parsed from successful native output; never inferred from a tag.
+class LlamaBinaryVersion {
+  const LlamaBinaryVersion(
+    this.semanticVersion,
+    this.build,
+    this.commit,
+    this.platform,
+  );
+  final String semanticVersion;
+  final int build;
+  final String commit;
+  final String platform;
+  static LlamaBinaryVersion? parse(String? output) {
+    if (output == null) return null;
+    final match = RegExp(
+      r'version: ([^\s]+) \(build ([0-9]+), commit ([0-9a-f]+)\)',
+    ).firstMatch(output);
+    final platform = RegExp(r'for (Darwin arm64)\b').firstMatch(output);
+    if (match == null || platform == null) return null;
+    return LlamaBinaryVersion(
+      match.group(1)!,
+      int.parse(match.group(2)!),
+      match.group(3)!,
+      platform.group(1)!,
+    );
+  }
+}
 
 class EngineCommandResult {
   const EngineCommandResult(this.exitCode, this.stdout, this.stderr);
@@ -186,16 +258,20 @@ class NativeEngineProcessIO implements EngineProcessIO {
       if (Platform.environment[key] != null) key: Platform.environment[key]!,
   };
   @override
-  Future<EngineChild> start(String executable, List<String> arguments) async =>
-      _NativeChild(
-        await Process.start(
-          executable,
-          arguments,
-          environment: _environment,
-          includeParentEnvironment: false,
-          runInShell: false,
-        ),
-      );
+  Future<EngineChild> start(String executable, List<String> arguments) async {
+    final environment = Map<String, String>.unmodifiable(_environment);
+    return _NativeChild(
+      await Process.start(
+        executable,
+        arguments,
+        environment: environment,
+        includeParentEnvironment: false,
+        runInShell: false,
+      ),
+      environment,
+    );
+  }
+
   @override
   Future<EngineCommandResult> run(
     String executable,
@@ -226,8 +302,9 @@ class NativeEngineProcessIO implements EngineProcessIO {
 }
 
 class _NativeChild implements EngineChild {
-  _NativeChild(this.process);
+  _NativeChild(this.process, this.environment);
   final Process process;
+  final Map<String, String> environment;
   @override
   int get pid => process.pid;
   @override
@@ -253,6 +330,11 @@ class LlamaInstance {
     required this.endpoint,
     required this.status,
     this.pid,
+    this.installationId,
+    this.engineServiceId,
+    this.processEnvironment,
+    this.binaryVersion,
+    this.binarySha256,
     this.generation = 0,
     this.activeRequests = 0,
     this.acceptingRequests = false,
@@ -267,6 +349,24 @@ class LlamaInstance {
   final LibraryArtifact asset;
   final Uri endpoint;
   final int? pid;
+  final String? installationId;
+
+  /// Assigned only after our process starts. Not a PID or model identifier.
+  final String? engineServiceId;
+
+  /// Exact restricted native launch environment; unknown for other I/O seams.
+  final Map<String, String>? processEnvironment;
+
+  /// Validated launch snapshots; not claims about a later on-disk replacement.
+  final LlamaBinaryVersion? binaryVersion;
+  final String? binarySha256;
+  String get modelInferenceInstanceId => id;
+
+  /// Observed, identity-checked native alias; null before props succeeds.
+  String? get nativeAlias =>
+      status == LlamaInstanceStatus.ready && properties['model_alias'] == id
+      ? id
+      : null;
   final int generation;
   final int activeRequests;
   final bool acceptingRequests;
@@ -378,7 +478,13 @@ class LlamaEngine {
     ModelUseRegistry? useRegistry,
     this.loadTimeout = const Duration(seconds: 120),
     this.linkedInstallation,
-  }) : release = release ?? officialLlamaRelease,
+    String? installationId,
+  }) : installationId =
+           installationId ??
+           (linkedInstallation == null
+               ? 'official-llama-${(release ?? officialLlamaRelease).tag}'
+               : null),
+       release = release ?? officialLlamaRelease,
        io = io ?? NativeEngineProcessIO(),
        useRegistry = useRegistry ?? ModelUseRegistry(library);
   final ModelLibrary library;
@@ -388,6 +494,7 @@ class LlamaEngine {
   final ModelUseRegistry useRegistry;
   final Duration loadTimeout;
   final LinkedLlamaInstallation? linkedInstallation;
+  final String? installationId;
   final _changes = StreamController<LlamaEngineState>.broadcast();
   LlamaEngineState _state = const LlamaEngineState();
   LlamaEngineState get state => _state;
@@ -395,6 +502,10 @@ class LlamaEngine {
   Future<void> _operations = Future.value();
   String? executablePath;
   String? observedVersion;
+  String? _binarySha256;
+  String? get binarySha256 => executablePath == null ? null : _binarySha256;
+  LlamaBinaryVersion? get binaryVersion =>
+      LlamaBinaryVersion.parse(observedVersion);
   final _running = <String, _Running>{};
   final _instances = <String, LlamaInstance>{};
   final _reserved = <String, Set<String>>{};
@@ -450,6 +561,9 @@ class LlamaEngine {
         throw const LlamaEngineException('请选择完整且已核验的普通文本或 Kev/Laya GGUF 模型变体');
       }
       final asset = assets.single;
+      if (asset.kind == AssetKind.decision && !release.supportsSystemone) {
+        throw const LlamaEngineException('此固定标准发行不支持 /v1/systemone；请选择 JEV 引擎');
+      }
       final alias =
           'jev-${List.generate(24, (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0')).join()}';
       _reserved[alias] = asset.files.map((value) => value.path).toSet();
@@ -482,6 +596,9 @@ class LlamaEngine {
         var instance = LlamaInstance(
           id: alias,
           generation: instanceGeneration,
+          installationId: installationId,
+          binaryVersion: binaryVersion,
+          binarySha256: binarySha256,
           asset: asset,
           endpoint: endpoint,
           status: LlamaInstanceStatus.starting,
@@ -515,6 +632,8 @@ class LlamaEngine {
         instance = _copy(
           instance,
           pid: child.pid,
+          engineServiceId: 'llama-service-$alias',
+          processEnvironment: child is _NativeChild ? child.environment : null,
           hasLiveProcess: true,
           status: startupCancellation.isCancelled
               ? LlamaInstanceStatus.stopping
@@ -1406,6 +1525,8 @@ class LlamaEngine {
     LlamaInstance value, {
     LlamaInstanceStatus? status,
     int? pid,
+    String? engineServiceId,
+    Map<String, String>? processEnvironment,
     int? activeRequests,
     bool? acceptingRequests,
     bool? hasLiveProcess,
@@ -1417,6 +1538,11 @@ class LlamaEngine {
   }) => LlamaInstance(
     id: value.id,
     generation: value.generation,
+    installationId: value.installationId,
+    engineServiceId: engineServiceId ?? value.engineServiceId,
+    processEnvironment: processEnvironment ?? value.processEnvironment,
+    binaryVersion: value.binaryVersion,
+    binarySha256: value.binarySha256,
     asset: value.asset,
     endpoint: value.endpoint,
     status: status ?? value.status,
@@ -1553,7 +1679,7 @@ class LlamaEngine {
           names.isEmpty ||
           names.any(
             (name) =>
-                !name.startsWith('llama-${release.tag}/') ||
+                !name.startsWith('${release.archiveRoot}/') ||
                 name.startsWith('/') ||
                 name.split('/').contains('..'),
           )) {
@@ -1568,23 +1694,26 @@ class LlamaEngine {
         unpack.path,
       ], timeout: const Duration(seconds: 30));
       if (result.exitCode != 0) throw const LlamaEngineException('引擎解包失败');
-      final extracted = Directory('${unpack.path}/llama-${release.tag}');
+      final extracted = Directory('${unpack.path}/${release.archiveRoot}');
       final binary = File('${extracted.path}/llama-server');
       final inventory = await _inventory(extracted);
       final version = await _version(binary);
       await File('${extracted.path}/installation.json').writeAsString(
         jsonEncode({
           'tag': release.tag,
+          'artifactRoot': release.archiveRoot,
+          'expectedBuild': release.buildNumber,
           'commit': release.commit,
           'source': release.url.toString(),
           'archiveSha256': release.sha256,
-          'platform': 'Darwin arm64',
+          'platform': release.targetPlatform,
           'version': version,
           'files': inventory,
         }),
         flush: true,
       );
       await extracted.rename(target.path);
+      _binarySha256 = (inventory['llama-server'] as Map)['sha256'] as String;
       executablePath = '${target.path}/llama-server';
       observedVersion = version;
       _publish(
@@ -1633,6 +1762,7 @@ class LlamaEngine {
       final root = await installationDirectory.resolveSymbolicLinks();
       final target = Directory('$root/${release.tag}');
       if (!await target.exists()) {
+        _invalidateInstallationEvidence('受管安装已消失，请重新安装并启动模型');
         _publish(const LlamaEngineState());
         return;
       }
@@ -1646,8 +1776,10 @@ class LlamaEngine {
         ),
       );
     } on FileSystemException {
+      _invalidateInstallationEvidence('引擎安装无法读取，请检查文件并重新启动模型');
       _publish(const LlamaEngineState());
     } catch (error) {
+      _invalidateInstallationEvidence('$error');
       _publish(
         LlamaEngineState(
           installation: LlamaInstallationStatus.failed,
@@ -1656,6 +1788,24 @@ class LlamaEngine {
       );
     }
   });
+
+  void _invalidateInstallationEvidence(String reason) {
+    executablePath = null;
+    observedVersion = null;
+    _binarySha256 = null;
+    for (final running in _running.values.toList()) {
+      if (running.exitCode != null) continue;
+      _seal(running);
+      running.instance = _copy(
+        running.instance,
+        status: LlamaInstanceStatus.failed,
+        properties: const {},
+        capabilities: const {},
+        error: '$reason；请停止旧实例后重新启动',
+      );
+      _publishRun(running);
+    }
+  }
 
   Future<bool> _checkInstallation(Directory target) async {
     try {
@@ -1667,16 +1817,35 @@ class LlamaEngine {
       final value = jsonDecode(await marker.readAsString());
       if (value is! Map ||
           value['tag'] != release.tag ||
+          (value['artifactRoot'] != null &&
+              value['artifactRoot'] != release.archiveRoot) ||
+          (value['expectedBuild'] != null &&
+              value['expectedBuild'] != release.buildNumber) ||
+          (release.tag.startsWith('v') &&
+              (value['artifactRoot'] != release.archiveRoot ||
+                  value['expectedBuild'] != release.buildNumber)) ||
           value['commit'] != release.commit ||
           value['source'] != release.url.toString() ||
           value['archiveSha256'] != release.sha256 ||
-          value['platform'] != 'Darwin arm64' ||
+          value['platform'] != release.targetPlatform ||
           value['files'] is! Map) {
         return false;
       }
       final actual = await _inventory(target);
       if (jsonEncode(actual) != jsonEncode(value['files'])) return false;
       final version = await _version(File('${target.path}/llama-server'));
+      if (value['version'] is! String) return false;
+      final recorded = LlamaBinaryVersion.parse(value['version'] as String);
+      final observed = LlamaBinaryVersion.parse(version);
+      if (recorded == null ||
+          observed == null ||
+          recorded.semanticVersion != observed.semanticVersion ||
+          recorded.build != observed.build ||
+          recorded.commit != observed.commit ||
+          recorded.platform != observed.platform) {
+        return false;
+      }
+      _binarySha256 = (actual['llama-server'] as Map)['sha256'] as String;
       executablePath = '${target.path}/llama-server';
       observedVersion = version;
       return true;
@@ -1695,6 +1864,7 @@ class LlamaEngine {
         return false;
       }
       executablePath = actual.path;
+      _binarySha256 = actual.sha256;
       observedVersion = actual.version;
       return true;
     } catch (_) {
@@ -1864,11 +2034,14 @@ class LlamaEngine {
     ], timeout: const Duration(seconds: 10));
     final version = '${result.stdout}\n${result.stderr}'.trim();
     final commit = release.commit.substring(0, min(9, release.commit.length));
+    final observed = LlamaBinaryVersion.parse(version);
     if (result.exitCode != 0 ||
-        !version.contains(
-          'build ${release.tag.substring(1)}, commit $commit',
-        ) ||
-        !version.contains('Darwin arm64')) {
+        observed == null ||
+        observed.build != release.buildNumber ||
+        observed.commit != commit ||
+        observed.platform != release.expectedPlatform ||
+        (release.expectedBinaryVersion != null &&
+            observed.semanticVersion != release.expectedBinaryVersion)) {
       throw const LlamaEngineException('引擎实际版本或架构不匹配');
     }
     return version;

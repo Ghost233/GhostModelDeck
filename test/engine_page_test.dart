@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/app_theme.dart';
@@ -8,6 +9,8 @@ import 'package:ghost_model_deck/engine_page.dart';
 import 'package:ghost_model_deck/llama_engine.dart';
 import 'package:ghost_model_deck/model_library.dart';
 import 'package:ghost_model_deck/model_use_registry.dart';
+
+import 'fixtures/engine_archive.dart';
 
 void main() {
   testWidgets(
@@ -66,4 +69,189 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets(
+    'engine page installs and removes selected standard release without changing JEV peer',
+    (tester) async {
+      late Directory root;
+      late ModelLibrary library;
+      late LlamaEngine jev, standard;
+      late EngineCatalog catalog;
+      late HttpServer download;
+      var requests = 0;
+      await tester.runAsync(() async {
+        root = await Directory.systemTemp.createTemp('gmd-dual-engine-page-');
+        library = ModelLibrary();
+        final use = ModelUseRegistry(library);
+        final data = engineArchive(artifactTag: 'b11146');
+        download = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        download.listen((request) async {
+          requests++;
+          expect(request.uri.path, '/llama-b11146.tar.gz');
+          request.response.add(data);
+          await request.response.close();
+        });
+        final owned = Directory('${root.path}/engines');
+        final peerData = engineArchive();
+        jev = LlamaEngine(
+          library: library,
+          installationDirectory: owned,
+          useRegistry: use,
+          io: _InstallIO(),
+          release: LlamaRelease(
+            tag: 'b11381',
+            commit: '836d57176',
+            url: Uri.parse('https://github.com/fixture'),
+            sha256: sha256.convert(peerData).toString(),
+            sizeBytes: peerData.length,
+          ),
+        );
+        standard = LlamaEngine(
+          library: library,
+          installationDirectory: owned,
+          useRegistry: use,
+          io: _InstallIO(),
+          release: LlamaRelease(
+            tag: 'v0.5.0',
+            artifactTag: 'b11146',
+            expectedBuild: 11146,
+            supportsSystemone: false,
+            commit: '7fe450e19305b828c199d602c23a8337aaa1f03b',
+            url: Uri.parse(
+              'http://127.0.0.1:${download.port}/llama-b11146.tar.gz',
+            ),
+            sha256: sha256.convert(data).toString(),
+            sizeBytes: data.length,
+          ),
+        );
+        catalog = EngineCatalog(
+          library: library,
+          officialEngine: jev,
+          standardEngine: standard,
+          useRegistry: use,
+          registryFile: File('${root.path}/registry.json'),
+        );
+        final archive = await File('${root.path}/peer.tar.gz')
+            .writeAsBytes(peerData);
+        await catalog.installOfficial(verifiedArchive: archive);
+      });
+      addTearDown(() async {
+        catalog.close();
+        jev.close();
+        standard.close();
+        library.close();
+        await tester.runAsync(() async {
+          await download.close(force: true);
+          await root.delete(recursive: true);
+        });
+      });
+      await tester.runAsync(() async {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildJevTheme(Brightness.light),
+            home: Scaffold(
+              body: Padding(
+                padding: const EdgeInsets.all(28),
+                child: EnginePage(
+                  catalog: catalog,
+                  pickEngineDirectory: () async => null,
+                ),
+              ),
+            ),
+          ),
+        );
+        await catalog.refresh();
+      });
+      await tester.pumpAndSettle();
+      expect(find.text('llama.cpp · 标准 v0.5.0'), findsOneWidget);
+      expect(find.text('安装'), findsOneWidget);
+      await tester.runAsync(
+        () => HttpOverrides.runWithHttpOverrides(() async {
+          final installed = catalog.changes.firstWhere(
+            (_) =>
+                standard.state.installation ==
+                LlamaInstallationStatus.installed,
+          );
+          await tester.tap(find.widgetWithText(FilledButton, '安装'));
+          await installed.timeout(const Duration(seconds: 5));
+          await catalog.refresh();
+          await tester.pump();
+        }, _NetworkBoundary()),
+      );
+      await tester.pumpAndSettle();
+      expect(requests, 1);
+      expect(standard.executablePath, endsWith('/v0.5.0/llama-server'));
+      expect(jev.state.installation, LlamaInstallationStatus.installed);
+      expect(find.text('安装'), findsNothing);
+      await tester.runAsync(() async {
+        await tester.tap(find.widgetWithText(TextButton, '删除').last);
+        for (
+          var n = 0;
+          n < 100 && find.text('删除受管引擎').evaluate().isEmpty;
+          n++
+        ) {
+          await tester.pump();
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+      });
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('删除受管引擎'), findsOneWidget);
+      await tester.runAsync(() async {
+        // Keep the stream subscription and confirmation in the real I/O zone.
+        final removed = catalog.changes.firstWhere(
+          (_) => standard.state.installation == LlamaInstallationStatus.absent,
+        );
+        await tester.tap(find.widgetWithText(FilledButton, '删除'));
+        // Navigator completes confirmation after its reverse animation. The first
+        // frame starts the ticker; the next advances it before waiting for I/O.
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pump();
+        await removed.timeout(const Duration(seconds: 5));
+        await catalog.refresh();
+        await tester.pump();
+      });
+      await tester.pumpAndSettle();
+      expect(standard.executablePath, isNull);
+      expect(jev.state.installation, LlamaInstallationStatus.installed);
+      expect(
+        await tester.runAsync(() => File(jev.executablePath!).exists()),
+        isTrue,
+      );
+      expect(find.text('安装'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+}
+
+class _NetworkBoundary extends HttpOverrides {}
+
+class _InstallIO implements EngineProcessIO {
+  @override
+  Future<EngineCommandResult> run(
+    String executable,
+    List<String> arguments, {
+    required Duration timeout,
+  }) async {
+    if (arguments.singleOrNull == '--version') {
+      expect(timeout, const Duration(seconds: 10));
+      return EngineCommandResult(
+        0,
+        executable.contains('b11146') || executable.contains('v0.5.0')
+            ? 'version: 0.5.0-dev (build 11146, commit 7fe450e19)\nbuilt for Darwin arm64'
+            : 'version: 0.5.0-dev (build 11381, commit 836d57176)\nbuilt for Darwin arm64',
+        '',
+      );
+    }
+    final result = await Process.run(executable, arguments);
+    return EngineCommandResult(
+      result.exitCode,
+      '${result.stdout}',
+      '${result.stderr}',
+    );
+  }
+
+  @override
+  Future<EngineChild> start(String executable, List<String> arguments) =>
+      throw UnimplementedError();
 }

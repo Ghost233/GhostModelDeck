@@ -2,12 +2,12 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-List<int> engineArchive() {
+List<int> engineArchive({String artifactTag = 'b11381'}) {
   final body = utf8.encode('server fixture');
   final header = Uint8List(512);
   void field(int offset, int length, String value) =>
       header.setRange(offset, offset + value.length, ascii.encode(value));
-  field(0, 100, 'llama-b11381/llama-server');
+  field(0, 100, 'llama-$artifactTag/llama-server');
   field(100, 8, '0000755\x00');
   field(108, 8, '0000000\x00');
   field(116, 8, '0000000\x00');

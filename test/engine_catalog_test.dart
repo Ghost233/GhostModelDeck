@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
@@ -10,6 +11,249 @@ import 'package:ghost_model_deck/model_use_registry.dart';
 import 'fixtures/engine_archive.dart';
 
 void main() {
+  for (final standard in [false, true]) {
+    test(
+      '${standard ? 'standard' : 'JEV'} managed marker and complete inventory survive reopen but reject false version and corruption',
+      () async {
+        final root = await Directory.systemTemp.createTemp(
+          'gmd-managed-integrity-',
+        );
+        addTearDown(() => root.delete(recursive: true));
+        final library = ModelLibrary();
+        addTearDown(library.close);
+        final data = engineArchive(artifactTag: standard ? 'b11146' : 'b11381');
+        final archive = await File('${root.path}/archive.tar.gz')
+            .writeAsBytes(data);
+        final release = LlamaRelease(
+          tag: standard ? 'v0.5.0' : 'b11381',
+          artifactTag: standard ? 'b11146' : 'b11381',
+          expectedBuild: standard ? 11146 : 11381,
+          expectedBinaryVersion: '0.5.0-dev',
+          supportsSystemone: !standard,
+          commit: standard
+              ? '7fe450e19305b828c199d602c23a8337aaa1f03b'
+              : '836d57176',
+          url: Uri.parse('https://github.com/fixture'),
+          sha256: sha256.convert(data).toString(),
+          sizeBytes: data.length,
+        );
+        final io = standard ? _StandardIO() : _ManagedIO();
+        final directory = Directory('${root.path}/owned');
+        final original = LlamaEngine(
+          library: library,
+          installationDirectory: directory,
+          release: release,
+          io: io,
+        );
+        addTearDown(original.close);
+        await original.install(verifiedArchive: archive);
+        final reopened = LlamaEngine(
+          library: library,
+          installationDirectory: directory,
+          release: release,
+          io: io,
+        );
+        addTearDown(reopened.close);
+        await reopened.refreshInstallation();
+        expect(reopened.state.installation, LlamaInstallationStatus.installed);
+        final marker = File(
+          '${directory.path}/${release.tag}/installation.json',
+        );
+        final text = await marker.readAsString();
+        final value = jsonDecode(text) as Map<String, dynamic>;
+        expect(value['artifactRoot'], release.archiveRoot);
+        expect(value['expectedBuild'], release.buildNumber);
+        expect(value['files'], contains('llama-server'));
+        value['version'] =
+            '${value['version']}\nMetal initialization diagnostic';
+        await marker.writeAsString(jsonEncode(value));
+        await reopened.refreshInstallation();
+        expect(reopened.state.installation, LlamaInstallationStatus.installed);
+        value['version'] = 'version: 0.5.0 release (fabricated)';
+        await marker.writeAsString(jsonEncode(value));
+        await reopened.refreshInstallation();
+        expect(reopened.state.installation, LlamaInstallationStatus.failed);
+        expect(reopened.executablePath, isNull);
+        expect(reopened.binarySha256, isNull);
+        expect(reopened.observedVersion, isNull);
+        await marker.writeAsString(text);
+        await reopened.refreshInstallation();
+        expect(reopened.state.installation, LlamaInstallationStatus.installed);
+        final extra = await File(
+          '${directory.path}/${release.tag}/foreign.dylib',
+        ).writeAsString('unexpected dependency');
+        await reopened.refreshInstallation();
+        expect(reopened.state.installation, LlamaInstallationStatus.failed);
+        await extra.delete();
+        final binary = File('${directory.path}/${release.tag}/llama-server');
+        await binary.writeAsString('changed binary');
+        await reopened.refreshInstallation();
+        expect(reopened.state.installation, LlamaInstallationStatus.failed);
+        await expectLater(
+          reopened.install(verifiedArchive: archive),
+          throwsA(isA<LlamaEngineException>()),
+        );
+        expect(await binary.readAsString(), 'changed binary');
+      },
+    );
+  }
+  for (final output in [
+    'version: 0.5.0 (build 11146, commit 7fe450e19)\nbuilt for Darwin arm64',
+    'version: 0.5.0-dev (build 11381, commit 7fe450e19)\nbuilt for Darwin arm64',
+    'version: 0.5.0-dev (build 11146, commit 000000000)\nbuilt for Darwin arm64',
+    'version: 0.5.0-dev (build 11146, commit 7fe450e19)\nbuilt for Darwin x86_64',
+  ]) {
+    test(
+      'fixed standard installation rejects inaccurate observed identity: $output',
+      () async {
+        final root = await Directory.systemTemp.createTemp(
+          'gmd-standard-invalid-',
+        );
+        addTearDown(() => root.delete(recursive: true));
+        final library = ModelLibrary();
+        addTearDown(library.close);
+        final data = engineArchive(artifactTag: 'b11146');
+        final archive = await File('${root.path}/archive.tar.gz')
+            .writeAsBytes(data);
+        final engine = LlamaEngine(
+          library: library,
+          installationDirectory: Directory('${root.path}/owned'),
+          io: _ObservedIO(output),
+          release: LlamaRelease(
+            tag: standardLlamaRelease.tag,
+            artifactTag: standardLlamaRelease.artifactTag,
+            expectedBuild: standardLlamaRelease.expectedBuild,
+            expectedBinaryVersion: standardLlamaRelease.expectedBinaryVersion,
+            supportsSystemone: false,
+            commit: standardLlamaRelease.commit,
+            url: standardLlamaRelease.url,
+            sha256: sha256.convert(data).toString(),
+            sizeBytes: data.length,
+          ),
+        );
+        addTearDown(engine.close);
+        await expectLater(
+          engine.install(verifiedArchive: archive),
+          throwsA(isA<LlamaEngineException>()),
+        );
+        expect(engine.state.installation, LlamaInstallationStatus.failed);
+        expect(engine.executablePath, isNull);
+        expect(engine.state.instances, isEmpty);
+        expect(await Directory('${root.path}/owned/v0.5.0').exists(), isFalse);
+      },
+    );
+  }
+  test('semantic v0.5.0 installs its same-commit b11146 archive without inventing a release binary version', () async {
+    final root = await Directory.systemTemp.createTemp('gmd-semantic-install-');
+    addTearDown(() => root.delete(recursive: true));
+    final data = engineArchive(artifactTag: 'b11146');
+    final archive = await File('${root.path}/release.tar.gz')
+        .writeAsBytes(data);
+    final library = ModelLibrary();
+    addTearDown(library.close);
+    final engine = LlamaEngine(
+      library: library,
+      installationDirectory: Directory('${root.path}/owned'),
+      io: _StandardIO(),
+      release: LlamaRelease(
+        tag: 'v0.5.0',
+        artifactTag: 'b11146',
+        expectedBuild: 11146,
+        commit: '7fe450e19305b828c199d602c23a8337aaa1f03b',
+        url: Uri.parse('https://github.com/fixture/b11146'),
+        sha256: sha256.convert(data).toString(),
+        sizeBytes: data.length,
+      ),
+    );
+    addTearDown(engine.close);
+    await engine.install(verifiedArchive: archive);
+    expect(engine.state.installation, LlamaInstallationStatus.installed);
+    expect(
+      engine.observedVersion,
+      contains('0.5.0-dev (build 11146, commit 7fe450e19)'),
+    );
+    expect(engine.state.instances, isEmpty);
+    await engine.refreshInstallation();
+    expect(engine.state.installation, LlamaInstallationStatus.installed);
+  });
+  test('two managed selections retain separate archive and binary identity and removal scope', () async {
+    final root = await Directory.systemTemp.createTemp('gmd-dual-managed-');
+    addTearDown(() => root.delete(recursive: true));
+    final library = ModelLibrary();
+    addTearDown(library.close);
+    final use = ModelUseRegistry(library);
+    final owned = Directory('${root.path}/owned');
+    final engines = <LlamaEngine>[];
+    final archives = <File>[];
+    for (final standard in [false, true]) {
+      final data = engineArchive(artifactTag: standard ? 'b11146' : 'b11381');
+      archives.add(
+        await File('${root.path}/${standard ? 'standard' : 'jev'}.tar.gz')
+            .writeAsBytes(data),
+      );
+      engines.add(
+        LlamaEngine(
+          library: library,
+          installationDirectory: owned,
+          useRegistry: use,
+          io: standard ? _StandardIO() : _ManagedIO(),
+          release: LlamaRelease(
+            tag: standard ? 'v0.5.0' : 'b11381',
+            artifactTag: standard ? 'b11146' : 'b11381',
+            expectedBuild: standard ? 11146 : 11381,
+            commit: standard
+                ? '7fe450e19305b828c199d602c23a8337aaa1f03b'
+                : '836d57176',
+            url: Uri.parse(
+              'https://github.com/fixture/${standard ? 'b11146' : 'b11381'}',
+            ),
+            sha256: sha256.convert(data).toString(),
+            sizeBytes: data.length,
+          ),
+        ),
+      );
+      addTearDown(engines.last.close);
+    }
+    final catalog = EngineCatalog(
+      library: library,
+      officialEngine: engines.first,
+      standardEngine: engines.last,
+      useRegistry: use,
+      registryFile: File('${root.path}/registry.json'),
+    );
+    addTearDown(catalog.close);
+    expect(catalog.state.entries, hasLength(2));
+    expect(
+      catalog.state.entries.every(
+        (e) => e.status == LlamaInstallationStatus.absent,
+      ),
+      isTrue,
+    );
+    await catalog
+        .providerFor(EngineCatalog.standardId)
+        .install(verifiedArchive: archives.last);
+    await catalog.installOfficial(verifiedArchive: archives.first);
+    await catalog.refresh();
+    final standard = catalog.state.entries.singleWhere(
+      (e) => e.id == EngineCatalog.standardId,
+    );
+    expect(standard.release!.tag, 'v0.5.0');
+    expect(standard.release!.archiveRoot, 'llama-b11146');
+    expect(standard.binaryVersion!.semanticVersion, '0.5.0-dev');
+    expect(standard.binaryVersion!.build, 11146);
+    expect(
+      standard.binarySha256,
+      '1e4556a3af5b64777d8d102f3404c84d4a28d50ebc931e0098e27916acdb92eb',
+    );
+    expect(standard.archiveSha256, isNot(standard.binarySha256));
+    expect(standard.installationId, EngineCatalog.standardId);
+    final plan = await catalog.prepareRemoval(EngineCatalog.standardId);
+    await catalog.remove(plan, confirmed: true);
+    expect(engines.last.executablePath, isNull);
+    expect(engines.first.state.installation, LlamaInstallationStatus.installed);
+    expect(await File(engines.first.executablePath!).exists(), isTrue);
+  });
+
   test('linking registers observed local content and version without copying or owning the external engine', () async {
     final root = await Directory.systemTemp.createTemp('jev-engine-link-');
     addTearDown(() => root.delete(recursive: true));
@@ -310,6 +554,42 @@ class _LinkIO implements EngineProcessIO {
   @override
   Future<EngineChild> start(String executable, List<String> arguments) =>
       throw UnimplementedError();
+}
+
+class _ObservedIO extends _ManagedIO {
+  _ObservedIO(this.output);
+  final String output;
+  @override
+  Future<EngineCommandResult> run(
+    String executable,
+    List<String> arguments, {
+    required Duration timeout,
+  }) async {
+    if (arguments.singleOrNull == '--version') {
+      expect(timeout, const Duration(seconds: 10));
+      return EngineCommandResult(0, output, '');
+    }
+    return super.run(executable, arguments, timeout: timeout);
+  }
+}
+
+class _StandardIO extends _ManagedIO {
+  @override
+  Future<EngineCommandResult> run(
+    String executable,
+    List<String> arguments, {
+    required Duration timeout,
+  }) async {
+    if (arguments.singleOrNull == '--version') {
+      expect(timeout, const Duration(seconds: 10));
+      return const EngineCommandResult(
+        0,
+        'version: 0.5.0-dev (build 11146, commit 7fe450e19)\nbuilt for Darwin arm64',
+        '',
+      );
+    }
+    return super.run(executable, arguments, timeout: timeout);
+  }
 }
 
 class _ManagedIO extends _LinkIO {

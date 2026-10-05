@@ -112,9 +112,17 @@ class _EnginePageState extends State<EnginePage> {
                 engineSourceLabel(entry),
                 if (entry.version != null) entry.version!,
                 if (entry.path != null) entry.path!,
-                if (entry.source == EngineSource.managed)
-                  widget.catalog.officialEngine.release.url.toString(),
-                if (entry.sha256 != null) 'SHA-256 ${entry.sha256}',
+                if (entry.release != null) ...[
+                  '发行标签 ${entry.release!.tag}',
+                  '归档 ${entry.release!.archiveRoot} · 构建 ${entry.release!.buildNumber}',
+                  '提交 ${entry.release!.commit}',
+                  entry.release!.url.toString(),
+                ],
+                if (entry.archiveSha256 != null)
+                  '归档 SHA-256 ${entry.archiveSha256}',
+                if (entry.binarySha256 != null)
+                  '可执行文件 SHA-256 ${entry.binarySha256}',
+                '安装 ID ${entry.installationId}',
               ].join('\n\n'),
               style: Theme.of(context).textTheme.bodySmall,
             ),
@@ -219,7 +227,7 @@ class _EnginePageState extends State<EnginePage> {
                                     const SizedBox(height: 4),
                                     Text(
                                       entry.version == null
-                                          ? 'b11381 · macOS arm64'
+                                          ? '${entry.release?.tag ?? '未知版本'} · macOS arm64'
                                           : engineVersionLabel(entry.version),
                                       style: theme.textTheme.bodySmall,
                                     ),
@@ -239,8 +247,9 @@ class _EnginePageState extends State<EnginePage> {
                                   onPressed: busy
                                       ? null
                                       : () => _run(
-                                          () =>
-                                              widget.catalog.installOfficial(),
+                                          () => widget.catalog.installManaged(
+                                            entry.id,
+                                          ),
                                         ),
                                   child: const Text('安装'),
                                 ),
