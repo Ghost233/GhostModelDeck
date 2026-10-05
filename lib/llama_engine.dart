@@ -534,20 +534,33 @@ class LlamaEngine {
         });
         child.exitCode.then((code) async {
           owned.exitCode = code;
-          if (!owned.stopping && _isCurrent(owned)) {
-            _seal(owned);
+          // An in-flight stop owns its terminal publication. A failed stop,
+          // however, leaves a sealed live residual whose later exit we own.
+          final residual =
+              owned.stopping &&
+              owned.instance.status == LlamaInstanceStatus.failed;
+          if ((!owned.stopping || residual) && _isCurrent(owned)) {
+            final stopError = residual ? owned.instance.error : null;
+            if (!residual) _seal(owned);
             owned.instance = _copy(
               owned.instance,
               status: LlamaInstanceStatus.failed,
               hasLiveProcess: false,
               acceptingRequests: false,
-              error: '受管引擎已退出 ($code)',
+              error: stopError == null
+                  ? '受管引擎已退出 ($code)'
+                  : '$stopError；受管引擎已退出 ($code)',
             );
             _instances[alias] = owned.instance;
             _publishInstances();
             await Future.wait(
               owned.active.map((p) => p.drained.future).toList(),
             );
+            if (!_isCurrent(owned)) return;
+            if (residual) {
+              if (owned.instance.status != LlamaInstanceStatus.failed) return;
+              _running.remove(alias);
+            }
             _reserved.remove(alias);
             await _protect();
           }

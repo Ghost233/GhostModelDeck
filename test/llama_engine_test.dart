@@ -1126,6 +1126,91 @@ void main() {
     },
   );
 
+  test('failed owned stop reconciles a later natural exit without retry or peer revocation', () async {
+    final fixture = await _Fixture.create(ordinaryChat: true);
+    addTearDown(fixture.close);
+    final a = await fixture.engine.start(fixture.asset.id);
+    final b = await fixture.engine.start(fixture.asset.id);
+    expect(a.pid, isNot(b.pid));
+    expect(a.generation, isNot(b.generation));
+    final child = fixture.io.children.first;
+    child.onKill = () => throw StateError('owned stop refused');
+    addTearDown(() => child.onKill = null);
+    addTearDown(() => child.server.close(force: true));
+    await expectLater(fixture.engine.stop(a.id), throwsA(isA<StateError>()));
+    final residual = fixture.engine.state.instances.firstWhere(
+      (i) => i.id == a.id,
+    );
+    expect(residual.status, LlamaInstanceStatus.failed);
+    expect(residual.hasLiveProcess, isTrue);
+    expect(residual.capabilities, isEmpty);
+    expect(residual.acceptingRequests, isFalse);
+    expect(residual.activeRequests, 0);
+    await expectLater(
+      fixture.library.prepareDeletion([fixture.asset.id]),
+      throwsA(isA<LibraryException>()),
+    );
+    final exited = fixture.engine.changes.firstWhere(
+      (s) => s.instances.any(
+        (i) =>
+            i.id == a.id &&
+            i.status == LlamaInstanceStatus.failed &&
+            !i.hasLiveProcess,
+      ),
+    );
+    child.exited.complete(17);
+    final dead = (await exited.timeout(const Duration(seconds: 2))).instances
+        .firstWhere((i) => i.id == a.id);
+    expect(dead.status, LlamaInstanceStatus.failed);
+    expect(dead.pid, a.pid);
+    expect(dead.generation, a.generation);
+    expect(dead.activeRequests, 0);
+    expect(dead.capabilities, isEmpty);
+    expect(dead.acceptingRequests, isFalse);
+    expect(dead.error, contains('owned stop refused'));
+    expect(dead.error, contains('受管引擎已退出 (17)'));
+    await expectLater(
+      fixture.engine.generateText(a.id, TextRequest(prompt: 'rejected')),
+      throwsA(
+        isA<LlamaRequestException>().having(
+          (e) => e.kind,
+          'kind',
+          DecisionFailureKind.notReady,
+        ),
+      ),
+    );
+    final peer = fixture.engine.state.instances.firstWhere((i) => i.id == b.id);
+    expect(peer.status, LlamaInstanceStatus.ready);
+    expect(peer.pid, b.pid);
+    expect(peer.generation, b.generation);
+    expect(peer.hasLiveProcess, isTrue);
+    expect(peer.acceptingRequests, isTrue);
+    expect(fixture.io.children.last.exited.isCompleted, isFalse);
+    expect(
+      (await fixture.engine.generateText(
+        b.id,
+        TextRequest(prompt: 'peer'),
+      )).text,
+      'Hello.',
+    );
+    await expectLater(
+      fixture.library.prepareDeletion([fixture.asset.id]),
+      throwsA(isA<LibraryException>()),
+    );
+    await fixture.engine.stop(b.id);
+    expect(
+      (await fixture.library.prepareDeletion([fixture.asset.id])).files,
+      hasLength(1),
+    );
+    await fixture.engine.stopManaged();
+    final settled = fixture.engine.state.instances.firstWhere(
+      (i) => i.id == a.id,
+    );
+    expect(settled.status, LlamaInstanceStatus.failed);
+    expect(settled.hasLiveProcess, isFalse);
+    expect(settled.error, contains('owned stop refused'));
+  });
+
   test(
     'unexpected exit cancels active work and revokes only the exited instance',
     () async {
