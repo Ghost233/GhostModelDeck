@@ -1,0 +1,199 @@
+tar: Ignoring unknown extended header keyword 'SCHILY.fflags'
+tar: Ignoring unknown extended header keyword 'SCHILY.fflags'
+Resolving dependencies...
+Downloading packages...
+  material_color_utilities 0.13.0 (0.13.1 available)
+  test_api 0.7.12 (0.7.14 available)
+Got dependencies!
+2 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Resolving dependencies...
+Downloading packages...
+  material_color_utilities 0.13.0 (0.13.1 available)
+  test_api 0.7.12 (0.7.14 available)
+Got dependencies!
+2 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /workspace/project/test/desktop_layout_test.dart
+00:00 +0: /workspace/project/test/desktop_layout_test.dart: (setUpAll)
+00:00 +0: /workspace/project/test/council_test.dart: a failed third seat preserves the two valid opinions and their aggregate
+00:00 +1: /workspace/project/test/desktop_layout_test.dart: production shell preserves minimum desktop layout (dark-1.5x)
+00:00 +2: /workspace/project/test/desktop_layout_test.dart: production shell preserves minimum desktop layout (dark-1.5x)
+00:01 +3: /workspace/project/test/council_test.dart: the default round budget expires after ten seconds with no fabricated opinion
+00:01 +4: /workspace/project/test/council_test.dart: the default round budget expires after ten seconds with no fabricated opinion
+00:02 +5: /workspace/project/test/council_test.dart: the default round budget expires after ten seconds with no fabricated opinion
+00:02 +6: /workspace/project/test/council_test.dart: the default round budget expires after ten seconds with no fabricated opinion
+00:03 +7: /workspace/project/test/council_test.dart: the default round budget expires after ten seconds with no fabricated opinion
+00:04 +8: /workspace/project/test/council_test.dart: the default round budget expires after ten seconds with no fabricated opinion
+00:04 +9: /workspace/project/test/council_test.dart: the default round budget expires after ten seconds with no fabricated opinion
+00:05 +10: /workspace/project/test/council_test.dart: the default round budget expires after ten seconds with no fabricated opinion
+00:07 +11: /workspace/project/test/council_test.dart: the default round budget expires after ten seconds with no fabricated opinion
+00:07 +12: /workspace/project/test/council_test.dart: the default round budget expires after ten seconds with no fabricated opinion
+00:08 +13: /workspace/project/test/council_test.dart: the default round budget expires after ten seconds with no fabricated opinion
+00:08 +14: /workspace/project/test/council_test.dart: the default round budget expires after ten seconds with no fabricated opinion
+00:09 +15: /workspace/project/test/council_test.dart: the default round budget expires after ten seconds with no fabricated opinion
+00:10 +16: /workspace/project/test/council_test.dart: the default round budget expires after ten seconds with no fabricated opinion
+00:10 +17: /workspace/project/test/desktop_layout_test.dart: council preserves minimum desktop layout (dark-1.5x)
+00:10 +18: /workspace/project/test/desktop_layout_test.dart: council preserves minimum desktop layout (dark-1.5x)
+00:10 +19: /workspace/project/test/desktop_layout_test.dart: council preserves minimum desktop layout (dark-1.5x)
+00:10 +20: /workspace/project/test/council_test.dart: one round deadline returns the completed opinion and seals its late peer
+00:10 +21: /workspace/project/test/desktop_layout_test.dart: mcp preserves minimum desktop layout (dark-1.5x)
+00:11 +22: /workspace/project/test/desktop_layout_test.dart: mcp preserves minimum desktop layout (dark-1.5x)
+00:11 +23: /workspace/project/test/desktop_layout_test.dart: mcp preserves minimum desktop layout (dark-1.5x)
+00:11 +24: /workspace/project/test/desktop_layout_test.dart: mcp preserves minimum desktop layout (dark-1.5x)
+00:11 +25: /workspace/project/test/desktop_layout_test.dart: mcp preserves minimum desktop layout (dark-1.5x)
+00:11 +26: /workspace/project/test/desktop_layout_test.dart: run-dialog preserves minimum desktop layout (dark-1.5x)
+00:11 +27: /workspace/project/test/desktop_layout_test.dart: run-dialog preserves minimum desktop layout (dark-1.5x)
+00:12 +28: /workspace/project/test/desktop_layout_test.dart: run-dialog preserves minimum desktop layout (dark-1.5x)
+00:12 +29: /workspace/project/test/desktop_layout_test.dart: run-dialog preserves minimum desktop layout (dark-1.5x)
+00:13 +30: /workspace/project/test/desktop_layout_test.dart: run-dialog preserves minimum desktop layout (dark-1.5x)
+Shell: [INFO][mcp_dart.client] Setting request handler for potentially custom method 'ping'. Ensure client capabilities match.
+Shell: [DEBUG][mcp_dart.client] MCP Server Discovered. Server: ghostmodeldeck 0.1.0, Protocol: 2026-07-28
+Shell: [INFO][mcp_dart.client] Setting request handler for potentially custom method 'ping'. Ensure client capabilities match.
+Shell: [DEBUG][mcp_dart.client] MCP Server Discovered. Server: ghostmodeldeck 0.1.0, Protocol: 2026-07-28
+00:13 +31: /workspace/project/test/desktop_layout_test.dart: run-dialog preserves minimum desktop layout (dark-1.5x)
+00:13 +32: /workspace/project/test/manager_lifecycle_test.dart: shutdown awaits an in-flight spawn handle then stops its late child without waiting for cold load
+00:13 +33: /workspace/project/test/desktop_layout_test.dart: production shell preserves minimum desktop layout (light-1.5x)
+00:13 +34: /workspace/project/test/desktop_layout_test.dart: production shell preserves minimum desktop layout (light-1.5x)
+00:13 +35: /workspace/project/test/desktop_layout_test.dart: production shell preserves minimum desktop layout (light-1.5x)
+00:13 +36: /workspace/project/test/desktop_layout_test.dart: production shell preserves minimum desktop layout (light-1.5x)
+00:13 +37: /workspace/project/test/model_use_registry_test.dart: stopping one provider retains the other provider model file reservation
+00:13 +38: /workspace/project/test/desktop_layout_test.dart: search preserves minimum desktop layout (light-1.0x)
+00:14 +39: /workspace/project/test/desktop_layout_test.dart: search preserves minimum desktop layout (light-1.0x)
+00:14 +40: /workspace/project/test/desktop_layout_test.dart: search preserves minimum desktop layout (light-1.0x)
+00:14 +41: /workspace/project/test/desktop_layout_test.dart: search preserves minimum desktop layout (light-1.0x)
+00:14 +42: /workspace/project/test/model_library_test.dart: Safetensors content and actual config/index links distinguish complete, adapter, missing and damaged bundles
+00:14 +43: /workspace/project/test/desktop_layout_test.dart: library preserves minimum desktop layout (light-1.0x)
+00:14 +44: /workspace/project/test/desktop_layout_test.dart: library preserves minimum desktop layout (light-1.0x)
+00:14 +45: /workspace/project/test/desktop_layout_test.dart: library preserves minimum desktop layout (light-1.0x)
+00:14 +46: /workspace/project/test/desktop_layout_test.dart: library preserves minimum desktop layout (light-1.0x)
+00:14 +46: /workspace/project/test/model_library_test.dart: selective verification succeeds while an unrelated real file is being written
+selective verification phase: elapsed=2ms, unrelated mtime 1791210774831246->1791210774837752
+00:14 +47: /workspace/project/test/desktop_layout_test.dart: library preserves minimum desktop layout (light-1.0x)
+00:14 +48: /workspace/project/test/desktop_layout_test.dart: library preserves minimum desktop layout (light-1.0x)
+00:14 +49: /workspace/project/test/desktop_layout_test.dart: library preserves minimum desktop layout (light-1.0x)
+00:14 +50: /workspace/project/test/lmstudio_provider_test.dart: exact local load owns only its new instance and protects the verified installation
+00:14 +51: /workspace/project/test/desktop_layout_test.dart: downloads preserves minimum desktop layout (light-1.0x)
+00:14 +52: /workspace/project/test/desktop_layout_test.dart: downloads preserves minimum desktop layout (light-1.0x)
+00:14 +53: /workspace/project/test/desktop_layout_test.dart: downloads preserves minimum desktop layout (light-1.0x)
+00:14 +54: /workspace/project/test/desktop_layout_test.dart: downloads preserves minimum desktop layout (light-1.0x)
+00:14 +55: /workspace/project/test/desktop_layout_test.dart: downloads preserves minimum desktop layout (light-1.0x)
+00:14 +56: /workspace/project/test/desktop_layout_test.dart: downloads preserves minimum desktop layout (light-1.0x)
+00:14 +57: /workspace/project/test/desktop_layout_test.dart: downloads preserves minimum desktop layout (light-1.0x)
+00:14 +58: /workspace/project/test/desktop_layout_test.dart: downloads preserves minimum desktop layout (light-1.0x)
+00:15 +59: /workspace/project/test/desktop_layout_test.dart: engines preserves minimum desktop layout (light-1.0x)
+00:15 +60: /workspace/project/test/desktop_layout_test.dart: engines preserves minimum desktop layout (light-1.0x)
+00:15 +61: /workspace/project/test/desktop_layout_test.dart: engines preserves minimum desktop layout (light-1.0x)
+00:15 +62: /workspace/project/test/desktop_layout_test.dart: engines preserves minimum desktop layout (light-1.0x)
+00:15 +63: /workspace/project/test/desktop_layout_test.dart: engines preserves minimum desktop layout (light-1.0x)
+00:15 +64: /workspace/project/test/desktop_layout_test.dart: engines preserves minimum desktop layout (light-1.0x)
+00:15 +65: /workspace/project/test/library_directory_settings_test.dart: selected shared directory persists without moving its model files
+00:15 +66: /workspace/project/test/desktop_layout_test.dart: settings preserves minimum desktop layout (light-1.0x)
+00:15 +67: /workspace/project/test/desktop_layout_test.dart: settings preserves minimum desktop layout (light-1.0x)
+00:16 +68: /workspace/project/test/desktop_layout_test.dart: settings preserves minimum desktop layout (light-1.0x)
+00:16 +69: /workspace/project/test/desktop_layout_test.dart: settings preserves minimum desktop layout (light-1.0x)
+00:16 +70: /workspace/project/test/desktop_layout_test.dart: settings preserves minimum desktop layout (light-1.0x)
+00:16 +71: /workspace/project/test/desktop_layout_test.dart: settings preserves minimum desktop layout (light-1.0x)
+00:16 +72: /workspace/project/test/desktop_layout_test.dart: settings preserves minimum desktop layout (light-1.0x)
+00:16 +73: /workspace/project/test/desktop_layout_test.dart: settings preserves minimum desktop layout (light-1.0x)
+00:16 +74: /workspace/project/test/desktop_layout_test.dart: settings preserves minimum desktop layout (light-1.0x)
+00:16 +75: /workspace/project/test/desktop_layout_test.dart: settings preserves minimum desktop layout (light-1.0x)
+00:16 +76: /workspace/project/test/model_downloader_test.dart: resume rejection preserves fragments and existing shared assets
+00:16 +77: /workspace/project/test/desktop_layout_test.dart: council preserves minimum desktop layout (light-1.0x)
+00:16 +78: /workspace/project/test/desktop_layout_test.dart: council preserves minimum desktop layout (light-1.0x)
+00:16 +79: /workspace/project/test/desktop_layout_test.dart: council preserves minimum desktop layout (light-1.0x)
+00:16 +80: /workspace/project/test/desktop_layout_test.dart: council preserves minimum desktop layout (light-1.0x)
+00:17 +81: /workspace/project/test/council_page_test.dart: desktop cancellation returns every seat status and keeps the resident models
+00:17 +82: /workspace/project/test/council_page_test.dart: desktop cancellation returns every seat status and keeps the resident models
+00:18 +83: /workspace/project/test/desktop_layout_test.dart: run-dialog preserves minimum desktop layout (light-1.0x)
+00:18 +84: /workspace/project/test/desktop_layout_test.dart: run-dialog preserves minimum desktop layout (light-1.0x)
+00:18 +85: /workspace/project/test/desktop_layout_test.dart: run-dialog preserves minimum desktop layout (light-1.0x)
+00:19 +86: /workspace/project/test/desktop_layout_test.dart: run-dialog preserves minimum desktop layout (light-1.0x)
+00:19 +87: /workspace/project/test/settings_page_test.dart: the complete shared library path is visible on hover at minimum desktop size
+00:20 +88: /workspace/project/test/desktop_layout_test.dart: search preserves minimum desktop layout (light-1.5x)
+00:20 +89: /workspace/project/test/desktop_layout_test.dart: library preserves minimum desktop layout (light-1.5x)
+00:20 +90: /workspace/project/test/desktop_layout_test.dart: library preserves minimum desktop layout (light-1.5x)
+00:20 +91: /workspace/project/test/desktop_layout_test.dart: library preserves minimum desktop layout (light-1.5x)
+00:20 +92: /workspace/project/test/desktop_layout_test.dart: library preserves minimum desktop layout (light-1.5x)
+00:20 +93: /workspace/project/test/desktop_layout_test.dart: library preserves minimum desktop layout (light-1.5x)
+00:20 +94: /workspace/project/test/desktop_layout_test.dart: library preserves minimum desktop layout (light-1.5x)
+00:20 +95: /workspace/project/test/desktop_layout_test.dart: library preserves minimum desktop layout (light-1.5x)
+00:20 +96: /workspace/project/test/desktop_layout_test.dart: library preserves minimum desktop layout (light-1.5x)
+00:20 +97: /workspace/project/test/desktop_layout_test.dart: library preserves minimum desktop layout (light-1.5x)
+00:20 +98: /workspace/project/test/desktop_layout_test.dart: library preserves minimum desktop layout (light-1.5x)
+00:20 +99: /workspace/project/test/desktop_layout_test.dart: library preserves minimum desktop layout (light-1.5x)
+00:20 +100: /workspace/project/test/desktop_layout_test.dart: library preserves minimum desktop layout (light-1.5x)
+00:20 +101: /workspace/project/test/desktop_layout_test.dart: library preserves minimum desktop layout (light-1.5x)
+00:20 +102: /workspace/project/test/desktop_layout_test.dart: library preserves minimum desktop layout (light-1.5x)
+00:20 +103: /workspace/project/test/desktop_layout_test.dart: library preserves minimum desktop layout (light-1.5x)
+00:20 +104: /workspace/project/test/desktop_layout_test.dart: library preserves minimum desktop layout (light-1.5x)
+00:20 +105: /workspace/project/test/desktop_layout_test.dart: library preserves minimum desktop layout (light-1.5x)
+00:20 +106: /workspace/project/test/desktop_layout_test.dart: library preserves minimum desktop layout (light-1.5x)
+00:20 +107: /workspace/project/test/desktop_layout_test.dart: library preserves minimum desktop layout (light-1.5x)
+00:20 +108: /workspace/project/test/desktop_layout_test.dart: library preserves minimum desktop layout (light-1.5x)
+00:20 +109: /workspace/project/test/desktop_layout_test.dart: downloads preserves minimum desktop layout (light-1.5x)
+00:21 +110: /workspace/project/test/model_search_page_test.dart: selects a model variant and keeps files in read-only details
+00:21 +111: /workspace/project/test/model_search_page_test.dart: selects a model variant and keeps files in read-only details
+00:21 +112: /workspace/project/test/desktop_layout_test.dart: settings preserves minimum desktop layout (light-1.5x)
+00:22 +113: /workspace/project/test/desktop_layout_test.dart: settings preserves minimum desktop layout (light-1.5x)
+00:22 +114: /workspace/project/test/model_search_page_test.dart: clears the old variant while a new revision is pending
+00:22 +115: /workspace/project/test/desktop_layout_test.dart: council preserves minimum desktop layout (light-1.5x)
+00:22 +116: /workspace/project/test/model_search_page_test.dart: opens a model revision when the default branch has no weights
+00:22 +117: /workspace/project/test/desktop_layout_test.dart: mcp preserves minimum desktop layout (light-1.5x)
+00:23 +118: /workspace/project/test/mcp_page_test.dart: MCP management starts the real listener and shows its actual connection configuration
+00:23 +119: /workspace/project/test/desktop_layout_test.dart: run-dialog preserves minimum desktop layout (light-1.5x)
+00:24 +120: /workspace/project/test/desktop_layout_test.dart: run-dialog preserves minimum desktop layout (light-1.5x)
+00:24 +121: /workspace/project/test/desktop_layout_test.dart: run-dialog preserves minimum desktop layout (light-1.5x)
+00:24 +122: /workspace/project/test/desktop_layout_test.dart: run-dialog preserves minimum desktop layout (light-1.5x)
+00:25 +123: /workspace/project/test/model_run_dialog_test.dart: running from the library discovers an existing installation without visiting engine management
+00:25 +124: /workspace/project/test/model_package_test.dart: the fixed native Laya package includes its complete tokenizer and encoder configuration only
+00:25 +125: /workspace/project/test/model_package_test.dart: locally reused files retain their fixed lineage and upstream verification after a library scan
+00:25 +126: /workspace/project/test/model_package_test.dart: a GGUF quantization resolves its complete shards and companions
+00:25 +127: /workspace/project/test/model_package_test.dart: package action reuses only complete full-hash verified installations
+00:25 +128: /workspace/project/test/model_package_test.dart: a Safetensors folder package resolves its index tokenizer and head
+00:25 +129: /workspace/project/test/model_package_test.dart: a model includes its sole projector and rejects ambiguous projectors
+00:26 +130: /workspace/project/test/llama_engine_test.dart: verified release publishes a version checked installation and refuses a corrupt replacement
+00:26 +131: /workspace/project/test/llama_engine_test.dart: a verified model becomes ready only after a bound typed response and remains protected until its owned child stops
+00:26 +132: /workspace/project/test/llama_engine_test.dart: spawn failure leaves a failed launch and releases the model without claiming readiness
+00:26 +133: /workspace/project/test/download_task_source_test.dart: a desktop task handles a terminal cleanup failure while preserving failed state and rejecting new attempts
+00:26 +134: /workspace/project/test/download_task_source_test.dart: a desktop task handles a terminal cleanup failure while preserving failed state and rejecting new attempts
+00:26 +135: /workspace/project/test/download_task_source_test.dart: a desktop task handles a terminal cleanup failure while preserving failed state and rejecting new attempts
+00:26 +136: /workspace/project/test/download_task_source_test.dart: a desktop task handles a terminal cleanup failure while preserving failed state and rejecting new attempts
+00:26 +137: /workspace/project/test/download_task_source_test.dart: a desktop task handles a terminal cleanup failure while preserving failed state and rejecting new attempts
+00:26 +138: /workspace/project/test/download_task_source_test.dart: a desktop task handles a terminal cleanup failure while preserving failed state and rejecting new attempts
+00:26 +139: /workspace/project/test/download_task_source_test.dart: a desktop task handles a terminal cleanup failure while preserving failed state and rejecting new attempts
+00:26 +140: /workspace/project/test/download_task_source_test.dart: changing download settings affects the next task, not cancelled resume
+00:26 +141: /workspace/project/test/council_mcp_test.dart: an occupied configured port fails explicitly and retries that exact address after release
+Shell: [INFO][mcp_dart.client] Setting request handler for potentially custom method 'ping'. Ensure client capabilities match.
+Shell: [DEBUG][mcp_dart.client] MCP Server Discovered. Server: ghostmodeldeck 0.1.0, Protocol: 2026-07-28
+00:27 +142: /workspace/project/test/council_mcp_test.dart: exact Host and Origin checks cover POST and preflight while malformed RPC stays a protocol error
+00:27 +143: /workspace/project/test/council_mcp_test.dart: stopping MCP drains only its own consultation and preserves desktop work and resident engines
+Shell: [INFO][mcp_dart.client] Setting request handler for potentially custom method 'ping'. Ensure client capabilities match.
+Shell: [DEBUG][mcp_dart.client] MCP Server Discovered. Server: ghostmodeldeck 0.1.0, Protocol: 2026-07-28
+Shell: [INFO][mcp_dart.client] Setting request handler for potentially custom method 'ping'. Ensure client capabilities match.
+Shell: [DEBUG][mcp_dart.client] MCP Server Discovered. Server: ghostmodeldeck 0.1.0, Protocol: 2026-07-28
+00:27 +144: /workspace/project/test/council_mcp_test.dart: SDK cancellation aborts only its own consultation while a peer client continues with the same PIDs
+Shell: [INFO][mcp_dart.client] Setting request handler for potentially custom method 'ping'. Ensure client capabilities match.
+Shell: [DEBUG][mcp_dart.client] MCP Server Discovered. Server: ghostmodeldeck 0.1.0, Protocol: 2026-07-28
+Shell: [INFO][mcp_dart.client] Setting request handler for potentially custom method 'ping'. Ensure client capabilities match.
+Shell: [DEBUG][mcp_dart.client] MCP Client Initialized. Server: ghostmodeldeck 0.1.0, Protocol: 2025-11-25
+00:27 +145: /workspace/project/test/council_mcp_test.dart: the actual Codex protocol profile preserves full, single and zero-seat results through the SDK
+Shell: [INFO][mcp_dart.client] Setting request handler for potentially custom method 'ping'. Ensure client capabilities match.
+Shell: [DEBUG][mcp_dart.client] MCP Client Initialized. Server: ghostmodeldeck 0.1.0, Protocol: 2025-06-18
+00:27 +146: /workspace/project/test/council_mcp_test.dart: invalid business inputs return complete structured errors in both protocol eras without model requests
+Shell: [INFO][mcp_dart.client] Setting request handler for potentially custom method 'ping'. Ensure client capabilities match.
+Shell: [DEBUG][mcp_dart.client] MCP Server Discovered. Server: ghostmodeldeck 0.1.0, Protocol: 2026-07-28
+Shell: [INFO][mcp_dart.client] Setting request handler for potentially custom method 'ping'. Ensure client capabilities match.
+Shell: [DEBUG][mcp_dart.client] MCP Client Initialized. Server: ghostmodeldeck 0.1.0, Protocol: 2025-11-25
+00:27 +147: /workspace/project/test/council_mcp_test.dart: the public HTTP listener bounds both declared and chunked request bodies before RPC processing
+Shell: [INFO][mcp_dart.client] Setting request handler for potentially custom method 'ping'. Ensure client capabilities match.
+Shell: [DEBUG][mcp_dart.client] MCP Server Discovered. Server: ghostmodeldeck 0.1.0, Protocol: 2026-07-28
+00:27 +148: /workspace/project/test/council_mcp_test.dart: modern and legacy SDK clients share the same ready seats and receive identical structured and text results
+Shell: [INFO][mcp_dart.client] Setting request handler for potentially custom method 'ping'. Ensure client capabilities match.
+Shell: [DEBUG][mcp_dart.client] MCP Server Discovered. Server: ghostmodeldeck 0.1.0, Protocol: 2026-07-28
+Shell: [INFO][mcp_dart.client] Setting request handler for potentially custom method 'ping'. Ensure client capabilities match.
+Shell: [DEBUG][mcp_dart.client] MCP Client Initialized. Server: ghostmodeldeck 0.1.0, Protocol: 2025-11-25
+00:27 +149: /workspace/project/test/council_mcp_test.dart: the real MCP SDK discovers a council tool before any model is loaded
+Shell: [INFO][mcp_dart.client] Setting request handler for potentially custom method 'ping'. Ensure client capabilities match.
+Shell: [DEBUG][mcp_dart.client] MCP Server Discovered. Server: ghostmodeldeck 0.1.0, Protocol: 2026-07-28
+00:27 +150: All tests passed!

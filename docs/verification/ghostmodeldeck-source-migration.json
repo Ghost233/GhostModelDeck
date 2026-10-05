@@ -1,0 +1,547 @@
+{
+  "source_commit": "ff97c9a5b1c7ed164abe6f6906c03cacd65a4d3e",
+  "copied_count": 90,
+  "excluded_historical_asset": ".scratch/jevmanager/assets/prototype-v1.dart",
+  "files": [
+    {
+      "path": ".metadata",
+      "source_sha256": "238fb908d8e20b24abe59a3cdbc50a8c7b3e8cbaa141b099fd3072632c6e7064",
+      "target_sha256": "238fb908d8e20b24abe59a3cdbc50a8c7b3e8cbaa141b099fd3072632c6e7064",
+      "byte_identical": true
+    },
+    {
+      "path": "benchmarks/run_native.dart",
+      "source_sha256": "8c75a5898fe1fdc7ea66814ea369f331c6363e549bd17d5c95df2f80c54f2c44",
+      "target_sha256": "6df7122a324dd561b545d14d29c701edd81a6e86455b7084cab817e246caa8d7",
+      "byte_identical": false
+    },
+    {
+      "path": "lib/app_theme.dart",
+      "source_sha256": "c56030b8b7102a6d70bd931efb7efd1d4093c034b63846942df32c55863aab03",
+      "target_sha256": "c56030b8b7102a6d70bd931efb7efd1d4093c034b63846942df32c55863aab03",
+      "byte_identical": true
+    },
+    {
+      "path": "lib/council.dart",
+      "source_sha256": "02a13297dc6887ab794f356967b52d92a789b8d3e98fab19278ce8608d7a7fe9",
+      "target_sha256": "02a13297dc6887ab794f356967b52d92a789b8d3e98fab19278ce8608d7a7fe9",
+      "byte_identical": true
+    },
+    {
+      "path": "lib/council_mcp.dart",
+      "source_sha256": "081c03156a9b15b42e88be992dbb3c14f9f87230f37600b1afe9d04677135ff9",
+      "target_sha256": "11d45893521520255300483a9eb9840a139b05cf399a0323dba55b46b1fc29a4",
+      "byte_identical": false
+    },
+    {
+      "path": "lib/council_page.dart",
+      "source_sha256": "ef39e151504d77a85b233278b7680c43f055fe5230b7899ded808d46f9f5f851",
+      "target_sha256": "ef39e151504d77a85b233278b7680c43f055fe5230b7899ded808d46f9f5f851",
+      "byte_identical": true
+    },
+    {
+      "path": "lib/decision_protocol.dart",
+      "source_sha256": "9e4acaad008852e1139d47dde7ca4334769bcf5ddbf577dc80ec10ab92e15b00",
+      "target_sha256": "9e4acaad008852e1139d47dde7ca4334769bcf5ddbf577dc80ec10ab92e15b00",
+      "byte_identical": true
+    },
+    {
+      "path": "lib/download_panel.dart",
+      "source_sha256": "40c31ab845be92f3563cf72881bfb579ed8c4ddb02d9f5dba74124c96adc86c3",
+      "target_sha256": "40c31ab845be92f3563cf72881bfb579ed8c4ddb02d9f5dba74124c96adc86c3",
+      "byte_identical": true
+    },
+    {
+      "path": "lib/download_preferences.dart",
+      "source_sha256": "d0ac3a7228d8172d93b5b35c5dff54b46f60dfa47793f8419f402b747cd4c652",
+      "target_sha256": "3656b0190e263e4441d58981a41b4fa0129243988fb910e7f4b83f35e5168d05",
+      "byte_identical": false
+    },
+    {
+      "path": "lib/download_tasks_page.dart",
+      "source_sha256": "93f4473a475671e0fd0392efbf7c2dce91f9f030f8775bc9dbc4f26bacd61668",
+      "target_sha256": "93f4473a475671e0fd0392efbf7c2dce91f9f030f8775bc9dbc4f26bacd61668",
+      "byte_identical": true
+    },
+    {
+      "path": "lib/engine_catalog.dart",
+      "source_sha256": "e52ca1b93a8e8bcf4e44ea6f888cd22a4d1e630a165df0b60b7462b8ceb518cd",
+      "target_sha256": "e52ca1b93a8e8bcf4e44ea6f888cd22a4d1e630a165df0b60b7462b8ceb518cd",
+      "byte_identical": true
+    },
+    {
+      "path": "lib/engine_labels.dart",
+      "source_sha256": "185ce1cebd71c91051d1cd06608fb2eaafb0df625b74841af2de80a954221a8e",
+      "target_sha256": "4aa8c74c06e8038a5165a33ffea2f96ae3d3cd5a5528511b66381c6dece70759",
+      "byte_identical": false
+    },
+    {
+      "path": "lib/engine_page.dart",
+      "source_sha256": "be4284c9d2291427c6e3102c55c49f2b91beb774725bae1b153be202d28f613e",
+      "target_sha256": "be4284c9d2291427c6e3102c55c49f2b91beb774725bae1b153be202d28f613e",
+      "byte_identical": true
+    },
+    {
+      "path": "lib/hf_model_browser.dart",
+      "source_sha256": "cc95ba9aa0ac98ecaa69c099510245cf205b42c5cc6c3f97be5920f4513a98e9",
+      "target_sha256": "fadbdcbb79827d8b215d35f1f3b6542d48d105f1d0d6d71701b816eac250e2aa",
+      "byte_identical": false
+    },
+    {
+      "path": "lib/library_directory_settings.dart",
+      "source_sha256": "cf821f57c60bd868defccb900eeb3a39fd08a1d8b7c7307968ee923559335779",
+      "target_sha256": "2fa98c55e2e48ea173b3a020e521fdc17216f485c1942a3d5a89c136e5af5f3d",
+      "byte_identical": false
+    },
+    {
+      "path": "lib/library_page.dart",
+      "source_sha256": "782046f8f54285b3c7b9a2365031395023b20951dd62a815a18dc9af0e9ec21b",
+      "target_sha256": "782046f8f54285b3c7b9a2365031395023b20951dd62a815a18dc9af0e9ec21b",
+      "byte_identical": true
+    },
+    {
+      "path": "lib/llama_engine.dart",
+      "source_sha256": "bc63b3a20c5630c26703021fb739c6d188bf324bb1164a4694aa4e2eb363759d",
+      "target_sha256": "bc63b3a20c5630c26703021fb739c6d188bf324bb1164a4694aa4e2eb363759d",
+      "byte_identical": true
+    },
+    {
+      "path": "lib/lmstudio_provider.dart",
+      "source_sha256": "3505e77fd1810092ad2293337adbe571c3f23db869d92546f7259f118caa3bd1",
+      "target_sha256": "227e985bdf95bbf5555532dbc191022dbb867a9685b8a47d2e1b9ddbe4e4b702",
+      "byte_identical": false
+    },
+    {
+      "path": "lib/local_model_package.dart",
+      "source_sha256": "fb75af8ab5276a6eb62df413a13939bca74a62d7ca0b5762f12b104f52b5b3cb",
+      "target_sha256": "baa570798b247d2bd2851e020a1d56b7cca3509e3bc4f475a7115c114b5e0876",
+      "byte_identical": false
+    },
+    {
+      "path": "lib/main.dart",
+      "source_sha256": "ac4e23d103c57dec80acf2d2152258eadfad6a0ea72f0281c7e70c4551c37243",
+      "target_sha256": "dac5fa701a4b82a65a8764d2be0d29fbfc32fa2126a468d2dfd28b8797f0db76",
+      "byte_identical": false
+    },
+    {
+      "path": "lib/manager_lifecycle.dart",
+      "source_sha256": "0614ba8e0ae2b730804f4d989bcff3db7d5cacbda27a3b0d35615a31ba18f8c0",
+      "target_sha256": "0614ba8e0ae2b730804f4d989bcff3db7d5cacbda27a3b0d35615a31ba18f8c0",
+      "byte_identical": true
+    },
+    {
+      "path": "lib/mcp_page.dart",
+      "source_sha256": "d22b0f724f4a8606487f27eb03dd5a8956d8446b3fc25bc74d4b423751288be1",
+      "target_sha256": "d22b0f724f4a8606487f27eb03dd5a8956d8446b3fc25bc74d4b423751288be1",
+      "byte_identical": true
+    },
+    {
+      "path": "lib/model_downloader.dart",
+      "source_sha256": "aa359018630397daa4a41d1c22d3b30b246d771f67f45bc503d40e5ebe264c4b",
+      "target_sha256": "d34d763c6200cb38c7a632c806aad02ea78c3f1fcb0bb645db0a94bea4204f4f",
+      "byte_identical": false
+    },
+    {
+      "path": "lib/model_library.dart",
+      "source_sha256": "d13bcb46dac40b30a9b21eda46bc2f0d28928b40f3eacdd420630cd0e44570f8",
+      "target_sha256": "949e35e5e1f942ecec45070f577291fe79a86f28d8fa85221bc056cd60534374",
+      "byte_identical": false
+    },
+    {
+      "path": "lib/model_package.dart",
+      "source_sha256": "6246135865b0ab188956cc67f25d74b5df27989685a22f3b8f3670f83560d4d3",
+      "target_sha256": "6246135865b0ab188956cc67f25d74b5df27989685a22f3b8f3670f83560d4d3",
+      "byte_identical": true
+    },
+    {
+      "path": "lib/model_run_dialog.dart",
+      "source_sha256": "39fad251c2855702c19467d0641784367f85c0fd64dea342510b6c537320bfb7",
+      "target_sha256": "39fad251c2855702c19467d0641784367f85c0fd64dea342510b6c537320bfb7",
+      "byte_identical": true
+    },
+    {
+      "path": "lib/model_search_page.dart",
+      "source_sha256": "426e54de2457902c9de1b3124dc33bc986e95590ad113b7455f610eb48426874",
+      "target_sha256": "426e54de2457902c9de1b3124dc33bc986e95590ad113b7455f610eb48426874",
+      "byte_identical": true
+    },
+    {
+      "path": "lib/model_use_registry.dart",
+      "source_sha256": "923238fd6eb71044e4abfec49c48c1969d7a006371e1a298440298256d094d3d",
+      "target_sha256": "923238fd6eb71044e4abfec49c48c1969d7a006371e1a298440298256d094d3d",
+      "byte_identical": true
+    },
+    {
+      "path": "lib/prototype_main.dart",
+      "source_sha256": "3ec48dd9a6e871f206b8993e5b2c1c45c5eb13c2971c976c8452d732df1277db",
+      "target_sha256": "a133fdceb1c96def164a44e8e69b8d5b311522968b5c44713d5770eb6cd2ccbf",
+      "byte_identical": false
+    },
+    {
+      "path": "lib/settings_page.dart",
+      "source_sha256": "ee030de5b4c2f749e130621a1d07664c275e2aea0e7ff771a73cc05cbd259365",
+      "target_sha256": "ee030de5b4c2f749e130621a1d07664c275e2aea0e7ff771a73cc05cbd259365",
+      "byte_identical": true
+    },
+    {
+      "path": "macos/.gitignore",
+      "source_sha256": "ffec1a0bbd70547186b82ad4e49089bafab2de309b89de97c776d70debb179fa",
+      "target_sha256": "ffec1a0bbd70547186b82ad4e49089bafab2de309b89de97c776d70debb179fa",
+      "byte_identical": true
+    },
+    {
+      "path": "macos/Flutter/Flutter-Debug.xcconfig",
+      "source_sha256": "62290ad8e938bf410206d8c7e131262696b58a6df110d39faf3399396ffe61b1",
+      "target_sha256": "62290ad8e938bf410206d8c7e131262696b58a6df110d39faf3399396ffe61b1",
+      "byte_identical": true
+    },
+    {
+      "path": "macos/Flutter/Flutter-Release.xcconfig",
+      "source_sha256": "62290ad8e938bf410206d8c7e131262696b58a6df110d39faf3399396ffe61b1",
+      "target_sha256": "62290ad8e938bf410206d8c7e131262696b58a6df110d39faf3399396ffe61b1",
+      "byte_identical": true
+    },
+    {
+      "path": "macos/Flutter/GeneratedPluginRegistrant.swift",
+      "source_sha256": "9ebc54b4d21464b875d1289b3dd5e44cd7e68930dbd6e8c7f954e438eb6ad499",
+      "target_sha256": "9ebc54b4d21464b875d1289b3dd5e44cd7e68930dbd6e8c7f954e438eb6ad499",
+      "byte_identical": true
+    },
+    {
+      "path": "macos/Runner.xcodeproj/project.pbxproj",
+      "source_sha256": "a2e9128d1a92c48fa84c812ee43caa0c23967a00f8bedd1e5dcfcdfc5b8bd796",
+      "target_sha256": "d83c1c4ab75c442796b0226385eabea0e95abcb3b6afc5c79577ef9c9381ee58",
+      "byte_identical": false
+    },
+    {
+      "path": "macos/Runner.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist",
+      "source_sha256": "dfa0f9bb85b95ccba9c6811adadf8cb407fb5d52088e89db83ebc308ec448542",
+      "target_sha256": "dfa0f9bb85b95ccba9c6811adadf8cb407fb5d52088e89db83ebc308ec448542",
+      "byte_identical": true
+    },
+    {
+      "path": "macos/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme",
+      "source_sha256": "6d5985d542df5b80b91bb868d19eedc460de3e65e32f35c096a0754220bff71c",
+      "target_sha256": "4881d994c014d996a7499814d53fe69ab3e62455ab755d2f9b1deaa9fc37d000",
+      "byte_identical": false
+    },
+    {
+      "path": "macos/Runner.xcworkspace/contents.xcworkspacedata",
+      "source_sha256": "46c3c9702ff7c5584e11c954d943cfb6e07fb26e3fbd072ddbc0f388aa352de1",
+      "target_sha256": "46c3c9702ff7c5584e11c954d943cfb6e07fb26e3fbd072ddbc0f388aa352de1",
+      "byte_identical": true
+    },
+    {
+      "path": "macos/Runner.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist",
+      "source_sha256": "dfa0f9bb85b95ccba9c6811adadf8cb407fb5d52088e89db83ebc308ec448542",
+      "target_sha256": "dfa0f9bb85b95ccba9c6811adadf8cb407fb5d52088e89db83ebc308ec448542",
+      "byte_identical": true
+    },
+    {
+      "path": "macos/Runner/AppDelegate.swift",
+      "source_sha256": "6c5acc59d458031f6505dff6d85d88a45f3e939da41241640828158a3ea43ad1",
+      "target_sha256": "6c5acc59d458031f6505dff6d85d88a45f3e939da41241640828158a3ea43ad1",
+      "byte_identical": true
+    },
+    {
+      "path": "macos/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json",
+      "source_sha256": "bc6ba8105ca69651aeeb77358851590de295dca04681a1d58c0f449641c242f3",
+      "target_sha256": "bc6ba8105ca69651aeeb77358851590de295dca04681a1d58c0f449641c242f3",
+      "byte_identical": true
+    },
+    {
+      "path": "macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_1024.png",
+      "source_sha256": "6232e5815af17e25e0268b2fec7aea9e068cc92ec709e9605c2b31df4ff2a313",
+      "target_sha256": "6232e5815af17e25e0268b2fec7aea9e068cc92ec709e9605c2b31df4ff2a313",
+      "byte_identical": true
+    },
+    {
+      "path": "macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_128.png",
+      "source_sha256": "15591f03f31313af6fd644ed0512106cc04365130b8b73244f1cfa6dddfb4400",
+      "target_sha256": "15591f03f31313af6fd644ed0512106cc04365130b8b73244f1cfa6dddfb4400",
+      "byte_identical": true
+    },
+    {
+      "path": "macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_16.png",
+      "source_sha256": "cc6928b5adfc00dbf526192e2705dd9af641cdf20ab4c6c7ca7cd4936dca59f0",
+      "target_sha256": "cc6928b5adfc00dbf526192e2705dd9af641cdf20ab4c6c7ca7cd4936dca59f0",
+      "byte_identical": true
+    },
+    {
+      "path": "macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_256.png",
+      "source_sha256": "416efd77cde932d42ef34168da24dd428a495b1f4f34bbbd125a18d2add186a2",
+      "target_sha256": "416efd77cde932d42ef34168da24dd428a495b1f4f34bbbd125a18d2add186a2",
+      "byte_identical": true
+    },
+    {
+      "path": "macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_32.png",
+      "source_sha256": "ae8c4458e41f1e28b1e851ed87d3268d4a0351ceea427fa2a84cc94ddfb6d4c5",
+      "target_sha256": "ae8c4458e41f1e28b1e851ed87d3268d4a0351ceea427fa2a84cc94ddfb6d4c5",
+      "byte_identical": true
+    },
+    {
+      "path": "macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_512.png",
+      "source_sha256": "0a91c6c1bf242e54ee179e34629e9ef3e8a6d286c0fce01e302280a8be9277e6",
+      "target_sha256": "0a91c6c1bf242e54ee179e34629e9ef3e8a6d286c0fce01e302280a8be9277e6",
+      "byte_identical": true
+    },
+    {
+      "path": "macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_64.png",
+      "source_sha256": "6ad229623498e5f1277800db3ab7cb11faf85eb2569e1213f7d8e55003c07b42",
+      "target_sha256": "6ad229623498e5f1277800db3ab7cb11faf85eb2569e1213f7d8e55003c07b42",
+      "byte_identical": true
+    },
+    {
+      "path": "macos/Runner/Base.lproj/MainMenu.xib",
+      "source_sha256": "be9e9ef8469d3262370e0f0b855ed163cbf9c8362c59e330b2ffe63b86fa42f4",
+      "target_sha256": "be9e9ef8469d3262370e0f0b855ed163cbf9c8362c59e330b2ffe63b86fa42f4",
+      "byte_identical": true
+    },
+    {
+      "path": "macos/Runner/Configs/AppInfo.xcconfig",
+      "source_sha256": "117b828c343bb930b95f8208ca7623208cdce08861b3019e8ebb0cce6c70bac9",
+      "target_sha256": "347d445b0a37dca94ae09efa51c00b6e551fde8f5742051c857237fe627373eb",
+      "byte_identical": false
+    },
+    {
+      "path": "macos/Runner/Configs/Debug.xcconfig",
+      "source_sha256": "8067d533ef6593760baad9a9855a786a7a77470fcc3f0925ec04fe43bc1ac4b0",
+      "target_sha256": "8067d533ef6593760baad9a9855a786a7a77470fcc3f0925ec04fe43bc1ac4b0",
+      "byte_identical": true
+    },
+    {
+      "path": "macos/Runner/Configs/Release.xcconfig",
+      "source_sha256": "7a6a4b4d973a23052fa0a0388dd261e32d311d7b66ba1bfc3b914b361808ac61",
+      "target_sha256": "7a6a4b4d973a23052fa0a0388dd261e32d311d7b66ba1bfc3b914b361808ac61",
+      "byte_identical": true
+    },
+    {
+      "path": "macos/Runner/Configs/Warnings.xcconfig",
+      "source_sha256": "0e341a392b16ad302d12890aa3dac9257a6c10ece685437604259a85341645a3",
+      "target_sha256": "0e341a392b16ad302d12890aa3dac9257a6c10ece685437604259a85341645a3",
+      "byte_identical": true
+    },
+    {
+      "path": "macos/Runner/DebugProfile.entitlements",
+      "source_sha256": "7f5fd5153379206e95b8ba5e66be12c1944584400e3fe14f507515b344bebc7b",
+      "target_sha256": "7f5fd5153379206e95b8ba5e66be12c1944584400e3fe14f507515b344bebc7b",
+      "byte_identical": true
+    },
+    {
+      "path": "macos/Runner/Info.plist",
+      "source_sha256": "f253e89c512b3a9a81bc5cdd7a14bf932470f835f261654a808ea4549cd94aad",
+      "target_sha256": "f253e89c512b3a9a81bc5cdd7a14bf932470f835f261654a808ea4549cd94aad",
+      "byte_identical": true
+    },
+    {
+      "path": "macos/Runner/MainFlutterWindow.swift",
+      "source_sha256": "2fe80eef7cfa83b51df54be6a98501b212d8a971052f72431622ec37d0ee11fe",
+      "target_sha256": "3396cd1505e5db94d7aa5cb8763f20c59167b5fc4e2ed717cc3fc279b466df1a",
+      "byte_identical": false
+    },
+    {
+      "path": "macos/Runner/Release.entitlements",
+      "source_sha256": "d9b06c202956033b01e62b21c727eea89b6a4fd456ef71d420c39f460426b9f3",
+      "target_sha256": "d9b06c202956033b01e62b21c727eea89b6a4fd456ef71d420c39f460426b9f3",
+      "byte_identical": true
+    },
+    {
+      "path": "macos/RunnerTests/RunnerTests.swift",
+      "source_sha256": "6bc180bc77c7def7a21d197233e25dff42cc493ab9d294632edafc18fdf0ac44",
+      "target_sha256": "6bc180bc77c7def7a21d197233e25dff42cc493ab9d294632edafc18fdf0ac44",
+      "byte_identical": true
+    },
+    {
+      "path": "pubspec.lock",
+      "source_sha256": "1fe5e0ab75922dc0c732092f7de335a2783e5cd972c9e11039bdd7f34f67c345",
+      "target_sha256": "1fe5e0ab75922dc0c732092f7de335a2783e5cd972c9e11039bdd7f34f67c345",
+      "byte_identical": true
+    },
+    {
+      "path": "pubspec.yaml",
+      "source_sha256": "96c0c67ca1be53967b96d18a784efdc3273aa2efac96301439f273eb3af59165",
+      "target_sha256": "d3a3a03cb2fd91c17c29dbb1f0bd3be5e1c56de7486c18559d7bba6853baa88d",
+      "byte_identical": false
+    },
+    {
+      "path": "scripts/container/bootstrap-flutter.sh",
+      "source_sha256": "480c4dd9fdc6bed083254bc2914e7d0d0832d0f97c73a7a1ec8c301badc2870e",
+      "target_sha256": "480c4dd9fdc6bed083254bc2914e7d0d0832d0f97c73a7a1ec8c301badc2870e",
+      "byte_identical": true
+    },
+    {
+      "path": "scripts/run-desktop-prototype.sh",
+      "source_sha256": "8c6bb300ce06e2d60f9195cb3bd2cfa503e86e7d8c5b88f4ae82c692a10f04f7",
+      "target_sha256": "5a271758bbb1b012893946ce4698c5024bd5955f68e16499061220872fd08d7c",
+      "byte_identical": false
+    },
+    {
+      "path": "scripts/run-desktop.sh",
+      "source_sha256": "27d6896afe15e01289535d381ee4f95959399a69c82b51f825f9ac63782a80ab",
+      "target_sha256": "3dbf079f32eee4b6f3cc9d5b046dfb2ddda64b4c21a4f10ad9a81c17c831c2b2",
+      "byte_identical": false
+    },
+    {
+      "path": "scripts/test-container.sh",
+      "source_sha256": "57dfbe9c3e0771c9cc59d2641858fddc02150cf6e706ff417faf6c9601d57c0f",
+      "target_sha256": "8d5aae36d9db00cc0055fba9a1b094ba832bcc31fd796db67edc87c606c7d71a",
+      "byte_identical": false
+    },
+    {
+      "path": "test/council_mcp_test.dart",
+      "source_sha256": "0ebaf6ce4c371923fd270c414cc33770c08d0fe0de1465d438d8a86a74983a71",
+      "target_sha256": "b0a09a8fe79cb6951e58ee5f5fed139250d52a0fbd6a2ea920c184adf53032f7",
+      "byte_identical": false
+    },
+    {
+      "path": "test/council_page_test.dart",
+      "source_sha256": "aad8359f0832ef603de81a82c02e46bcef295143a1e43efa113376f9a02e93da",
+      "target_sha256": "d168a96a38ee5159d520314b5c613573077a14f3e8346576f28809f5ae60f7df",
+      "byte_identical": false
+    },
+    {
+      "path": "test/council_test.dart",
+      "source_sha256": "4b84e64f1ffadea27011677b572c4682e26a35de1ed083a91420d7befae01d63",
+      "target_sha256": "a5d6e8856739fb276e0ec6c0a4ba3d5d91faabebd024f49a325be5a3036c0f0f",
+      "byte_identical": false
+    },
+    {
+      "path": "test/desktop_layout_test.dart",
+      "source_sha256": "b3560eb9b650d88c7671af57f71d366a4016a21a218fbcc5191af6db7c2fac1f",
+      "target_sha256": "9f46ef6f8d9a1028ae1437d00048539d894d94a2c81104b22b1e854e8acc9171",
+      "byte_identical": false
+    },
+    {
+      "path": "test/download_preferences_test.dart",
+      "source_sha256": "bfcd39715ca2d9a3ac3770cc29c42990fadbb367fab514240b6ca60f5b0df3bd",
+      "target_sha256": "8cc22ea33a8e7cdd83f93f7ec379ec34b906661e3bac16c105a4806e9c3307b5",
+      "byte_identical": false
+    },
+    {
+      "path": "test/download_task_source_test.dart",
+      "source_sha256": "26119e22ff86c9d9e1ff95437b59919bc6d8bf1e42a159f225794b5bbffcaf4a",
+      "target_sha256": "15ec4764ccbd5c36cb8b136bf1407f71dc0d0f3eb66424921aa2a01bb474c678",
+      "byte_identical": false
+    },
+    {
+      "path": "test/engine_catalog_test.dart",
+      "source_sha256": "d28cf15ea67b8dd71103d1cfdbe38e028fb8cec4da5268f413e55483374a0501",
+      "target_sha256": "3077d17c6459f7d755db4b84aa79aa2e85962fe1e4b7305dc96ee9c3c3a6b2ce",
+      "byte_identical": false
+    },
+    {
+      "path": "test/engine_page_test.dart",
+      "source_sha256": "61f05996da0913f5775c22c5607734dab728e4c138e67521fb01b01eeb101eea",
+      "target_sha256": "ff4972a157f70707404542ccf2a8d4ff3201081c0c89e2b7192f489639fef109",
+      "byte_identical": false
+    },
+    {
+      "path": "test/fixtures/council_runtime.dart",
+      "source_sha256": "12c2a93fd5809637e110e6624a90afe18892f6e4e56fe78b64e2970403ddf2e3",
+      "target_sha256": "b86b8a61e1b5967ee0c01b5f238925a7ec42dbc328eb027d854188194c39b297",
+      "byte_identical": false
+    },
+    {
+      "path": "test/fixtures/decision_gguf.dart",
+      "source_sha256": "908db2d00c22ebdb890d933de69b6594efdd56ddc31addf18a6cd58f43f4b1aa",
+      "target_sha256": "908db2d00c22ebdb890d933de69b6594efdd56ddc31addf18a6cd58f43f4b1aa",
+      "byte_identical": true
+    },
+    {
+      "path": "test/fixtures/engine_archive.dart",
+      "source_sha256": "c164e8688c4ac372a5f23520ee0f4dee883406e1028fb992a4b24060596c7d46",
+      "target_sha256": "c164e8688c4ac372a5f23520ee0f4dee883406e1028fb992a4b24060596c7d46",
+      "byte_identical": true
+    },
+    {
+      "path": "test/fixtures/hf_laya_multilingual_1720e3e.json",
+      "source_sha256": "f6330a4eda0eee4a9223a8001c37e9510ba17841218289c68215e0d4e92414cc",
+      "target_sha256": "f6330a4eda0eee4a9223a8001c37e9510ba17841218289c68215e0d4e92414cc",
+      "byte_identical": true
+    },
+    {
+      "path": "test/hf_model_browser_test.dart",
+      "source_sha256": "62917203c5105ffa47b40d23f55a052122f282170f652e44af0644a0da611b27",
+      "target_sha256": "8c20c2d94e1ae91c731bb0f5adefbed9cc5aa2707f1b9ceb89baf2420ec407d1",
+      "byte_identical": false
+    },
+    {
+      "path": "test/library_directory_settings_test.dart",
+      "source_sha256": "eb82aa3f19621d85e7cfb1e15ced4ac2713e1f0d5b6e159b1a602395023f15ef",
+      "target_sha256": "68b3dfe31e713b890c90e728136768d96b44c151f576fc8b4774a695fd6032dc",
+      "byte_identical": false
+    },
+    {
+      "path": "test/llama_engine_test.dart",
+      "source_sha256": "55496064a3cda34393abdc1696e2367ce9bb420594807d87745c7a48a2829eca",
+      "target_sha256": "3241d0fa2f4789949f146439e0a7d7b9d9c936db6448d9c294501f283276fa7b",
+      "byte_identical": false
+    },
+    {
+      "path": "test/lmstudio_provider_test.dart",
+      "source_sha256": "81f4a728a6eca08193b1776daed95f754e46064ac197e626d59beeb88b77644a",
+      "target_sha256": "08eaf11ca72a7c7f36d8ca144ec20caca3f8a72bf08d0afcaf86890ac523fd37",
+      "byte_identical": false
+    },
+    {
+      "path": "test/local_model_package_test.dart",
+      "source_sha256": "4dcc0d717929f04bb77c8e8cac400d5a27fb3b339793a41b4804e2d50ac702ee",
+      "target_sha256": "a1e4e8913ae3b2f97e1abe294d4c0d8539cd26a52e5f680ae896428be2b62c7d",
+      "byte_identical": false
+    },
+    {
+      "path": "test/manager_lifecycle_test.dart",
+      "source_sha256": "462550363d4b5fd222dabf1fd3d1aa927d1e663a63ee7364f23597264627d5af",
+      "target_sha256": "2e5b3a354661e6684c0502a017246f48dff2a4bec2b3cf6acb90f8e60338fbf6",
+      "byte_identical": false
+    },
+    {
+      "path": "test/mcp_page_test.dart",
+      "source_sha256": "416b5e1b5d498aca5e2f5c657e6c29fe897689b3587415b9b107dc9c2d927f8a",
+      "target_sha256": "7ca7e18d9745cfd52bf8a71a40086b7ad0ea36681b5143f66be1fe183e6d55dc",
+      "byte_identical": false
+    },
+    {
+      "path": "test/model_downloader_test.dart",
+      "source_sha256": "ec6521a31b232de8bcec38780ddb6e801a009d27451d1f65f23d5be07fdacb05",
+      "target_sha256": "162e8d51c684f000820bc7c69976922447dadbae3e055c161951794c48e065dd",
+      "byte_identical": false
+    },
+    {
+      "path": "test/model_library_test.dart",
+      "source_sha256": "10a3515a8f8e5b447b742f3cdc31fb9ae916f10f55e6f30c9f833c1e4b93d3c4",
+      "target_sha256": "ecadd2114bd87fd439e27acfb9dafff5add6ececf4dbb8d15b3a0e647d9d9ab1",
+      "byte_identical": false
+    },
+    {
+      "path": "test/model_package_test.dart",
+      "source_sha256": "1f81f6dc7e3f52d2cf1669d883a8257bdacdb03dda174e51baecf81264946bfe",
+      "target_sha256": "4184cbf00bddbfc183660563d7b6ac151c246148789652ea56d96737e0acd225",
+      "byte_identical": false
+    },
+    {
+      "path": "test/model_run_dialog_test.dart",
+      "source_sha256": "0b93ce58a256ed2c5004ec3e6fff1cec1e968f7cc534acc29a27c8b4b9cdd96b",
+      "target_sha256": "12a9454c15f0ea3443449d35fa7e17a91196e11264f360fc4ab1858e69009212",
+      "byte_identical": false
+    },
+    {
+      "path": "test/model_search_page_test.dart",
+      "source_sha256": "fed6729cf9eff1b4e9a4f5e57447f8595b5a1586672aeb329a20285de370030e",
+      "target_sha256": "b0675f98546a78fb9f30d73355688613adaad0a5be1c7102fadf1ce94016c987",
+      "byte_identical": false
+    },
+    {
+      "path": "test/model_use_registry_test.dart",
+      "source_sha256": "d9ab88a8da9e4743fa69c38458c20f2c6a4cf0363d08ce5cc6ebe23f5d5a3375",
+      "target_sha256": "154366f8b279d2642f30b892bdd0584b61247d62e29de97ba7f99c0f27b30f45",
+      "byte_identical": false
+    },
+    {
+      "path": "test/settings_page_test.dart",
+      "source_sha256": "f6fb3f6c31448a95d9759f05d450af38bd468c3152c577afc0023b18d6b0928f",
+      "target_sha256": "3e4cbd7b8f19457e07d68581c0dc96f92fce6c6ef9a50b81abf20e20a5dfe75b",
+      "byte_identical": false
+    }
+  ]
+}
