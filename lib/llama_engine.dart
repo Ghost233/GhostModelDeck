@@ -5,6 +5,7 @@ import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 
+import 'chat_protocol.dart';
 import 'decision_protocol.dart';
 import 'model_library.dart';
 import 'model_use_registry.dart';
@@ -239,6 +240,10 @@ class _NativeChild implements EngineChild {
   bool kill(ProcessSignal signal) => process.kill(signal);
 }
 
+/// Each capability is earned by a request, never by asset metadata or health.
+/// Choice does not imply score/noul support.
+enum LlamaCapability { choiceProbability, textGeneration }
+
 enum LlamaInstanceStatus { starting, ready, stopped, failed }
 
 class LlamaInstance {
@@ -250,6 +255,8 @@ class LlamaInstance {
     this.pid,
     this.properties = const {},
     this.lastResult,
+    this.lastTextResult,
+    this.capabilities = const {},
     this.error,
   });
   final String id;
@@ -259,6 +266,8 @@ class LlamaInstance {
   final LlamaInstanceStatus status;
   final Map<String, dynamic> properties;
   final DecisionResult? lastResult;
+  final TextResult? lastTextResult;
+  final Set<LlamaCapability> capabilities;
   final String? error;
 }
 
@@ -390,11 +399,12 @@ class LlamaEngine {
         .toList();
     if (assets.length != 1 ||
         assets.single.format != 'GGUF' ||
-        assets.single.kind != AssetKind.decision ||
+        ![AssetKind.decision, AssetKind.chat].contains(assets.single.kind) ||
         assets.single.integrity != AssetIntegrity.complete ||
         !assets.single.fingerprintsVerified ||
-        !['kev', 'laya'].contains(assets.single.decisionType)) {
-      throw const LlamaEngineException('请选择完整且已核验的 Kev 或 Laya GGUF 模型变体');
+        (assets.single.kind == AssetKind.decision &&
+            !['kev', 'laya'].contains(assets.single.decisionType))) {
+      throw const LlamaEngineException('请选择完整且已核验的普通文本或 Kev/Laya GGUF 模型变体');
     }
     final asset = assets.single;
     final alias =
@@ -405,7 +415,7 @@ class LlamaEngine {
       await _protect();
       final verified = (await library.verify([asset.id])).single;
       if (verified.integrity != AssetIntegrity.complete ||
-          verified.kind != AssetKind.decision ||
+          verified.kind != asset.kind ||
           verified.files.length != asset.files.length ||
           verified.files.any(
             (file) => !asset.files.any(
@@ -514,23 +524,39 @@ class LlamaEngine {
       }
       final properties = await _identity(owned, const Duration(seconds: 5));
       owned.instance = _copy(owned.instance, properties: properties);
-      final result = await _decision(
-        owned,
-        DecisionRequest(
-          state: 'A change has been requested.',
-          instructions: 'Choose an action.',
-          options: {
-            'keep': 'Keep the current state.',
-            'change': 'Apply the requested change.',
-          },
-        ),
-        const Duration(seconds: 10),
-      );
+      DecisionResult? result;
+      TextResult? text;
+      if (asset.kind == AssetKind.chat) {
+        text = await _text(
+          owned,
+          TextRequest(prompt: 'Say hello.', maxTokens: 8),
+          const Duration(seconds: 10),
+        );
+      } else {
+        result = await _decision(
+          owned,
+          DecisionRequest(
+            state: 'A change has been requested.',
+            instructions: 'Choose an action.',
+            options: {
+              'keep': 'Keep the current state.',
+              'change': 'Apply the requested change.',
+            },
+          ),
+          const Duration(seconds: 10),
+        );
+      }
       _checkStartup();
       owned.instance = _copy(
         owned.instance,
         status: LlamaInstanceStatus.ready,
         lastResult: result,
+        lastTextResult: text,
+        capabilities: Set.unmodifiable({
+          asset.kind == AssetKind.chat
+              ? LlamaCapability.textGeneration
+              : LlamaCapability.choiceProbability,
+        }),
       );
       _instances[alias] = owned.instance;
       _publishInstances();
@@ -579,6 +605,9 @@ class LlamaEngine {
     final running = _running[instanceId];
     if (running == null ||
         running.instance.status != LlamaInstanceStatus.ready ||
+        !running.instance.capabilities.contains(
+          LlamaCapability.choiceProbability,
+        ) ||
         running.stopping ||
         running.exitCode != null) {
       throw const LlamaRequestException(
@@ -725,6 +754,76 @@ class LlamaEngine {
     return result;
   }
 
+  Future<TextResult> generateText(
+    String instanceId,
+    TextRequest request, {
+    Duration timeout = const Duration(seconds: 30),
+    DecisionCancellation? cancellation,
+  }) async {
+    final running = _running[instanceId];
+    if (_shuttingDown ||
+        running == null ||
+        running.instance.status != LlamaInstanceStatus.ready ||
+        !running.instance.capabilities.contains(
+          LlamaCapability.textGeneration,
+        ) ||
+        running.stopping ||
+        running.exitCode != null) {
+      throw const LlamaRequestException(
+        '所选实例没有已验证的文本生成能力',
+        kind: DecisionFailureKind.notReady,
+      );
+    }
+    try {
+      final watch = Stopwatch()..start();
+      await _identity(running, timeout, cancellation: cancellation);
+      final result = await _text(
+        running,
+        request,
+        timeout - watch.elapsed,
+        cancellation: cancellation,
+      );
+      running.instance = _copy(running.instance, lastTextResult: result);
+      _instances[instanceId] = running.instance;
+      _publishInstances();
+      return result;
+    } on _InstanceIdentityException catch (error) {
+      await _fail(running, error.message);
+      rethrow;
+    }
+  }
+
+  Future<TextResult> _text(
+    _Running running,
+    TextRequest request,
+    Duration timeout, {
+    DecisionCancellation? cancellation,
+  }) async {
+    final raw = await _request(
+      running.instance.endpoint.resolve('/v1/chat/completions'),
+      timeout: timeout,
+      body: request.toChat(model: running.instance.id),
+      cancellation: cancellation,
+    );
+    final TextResult result;
+    try {
+      result = TextResult.parse(raw, expectedModel: running.instance.id);
+    } on TextProtocolException catch (error) {
+      throw LlamaRequestException(
+        error.message,
+        kind: DecisionFailureKind.invalidResponse,
+        rawResponse: raw,
+      );
+    }
+    if (running.exitCode != null || running.stopping) {
+      throw const LlamaRequestException(
+        '文本生成期间受管进程停止',
+        kind: DecisionFailureKind.notReady,
+      );
+    }
+    return result;
+  }
+
   Future<String> _request(
     Uri uri, {
     required Duration timeout,
@@ -853,6 +952,8 @@ class LlamaEngine {
     int? pid,
     Map<String, dynamic>? properties,
     DecisionResult? lastResult,
+    TextResult? lastTextResult,
+    Set<LlamaCapability>? capabilities,
     String? error,
   }) => LlamaInstance(
     id: value.id,
@@ -862,6 +963,8 @@ class LlamaEngine {
     pid: pid ?? value.pid,
     properties: properties ?? value.properties,
     lastResult: lastResult ?? value.lastResult,
+    lastTextResult: lastTextResult ?? value.lastTextResult,
+    capabilities: capabilities ?? value.capabilities,
     error: error,
   );
   Future<T> _serial<T>(Future<T> Function() work, {bool cleanup = false}) {

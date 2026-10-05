@@ -2,7 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-Future<File> writeDecisionKev(Directory root) async {
+Future<File> writeDecisionKev(
+  Directory root, {
+  bool ordinaryChat = false,
+}) async {
   final fields = <String, Object>{
     'general.architecture': 'qwen35',
     'qwen35.block_count': 1,
@@ -47,6 +50,13 @@ Future<File> writeDecisionKev(Directory root) async {
     'cls.output.weight': [1, 2],
     'cls.output.bias': [2],
   };
+  if (ordinaryChat) {
+    fields.removeWhere(
+      (key, _) => key.contains('.decision.') || key.endsWith('.systemone'),
+    );
+    fields['tokenizer.chat_template'] = '{{ messages }}';
+    tensors.removeWhere((key, _) => key.startsWith('cls.'));
+  }
   final bytes = BytesBuilder()..add([71, 71, 85, 70]);
   void u32(int value) => bytes.add(
     (ByteData(4)..setUint32(0, value, Endian.little)).buffer.asUint8List(),

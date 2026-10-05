@@ -48,7 +48,14 @@ fi
 printf '\n' >> "$run_dir/job.sh"
 docker exec "$container_name" rm -f /workspace/job.exit
 docker cp "$run_dir/job.sh" "$container_name:/workspace/inbox/job.sh"
-until docker exec "$container_name" test -f /workspace/job.exit; do sleep 5; done
+until docker exec "$container_name" test -f /workspace/job.exit; do
+  if [[ "$(docker inspect "$container_name" --format '{{.State.Running}}')" != true ]]; then
+    docker logs --tail 30 "$container_name"
+    echo 'Test container stopped before the check job completed.' >&2
+    exit 1
+  fi
+  sleep 5
+done
 docker exec "$container_name" base64 -w 0 /workspace/job.log | /usr/bin/base64 -D > "$run_dir/result.log"
 remote_sha="$(docker exec "$container_name" sha256sum /workspace/job.log | awk '{print $1}')"
 local_sha="$(shasum -a 256 "$run_dir/result.log" | awk '{print $1}')"

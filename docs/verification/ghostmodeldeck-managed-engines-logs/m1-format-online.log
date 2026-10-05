@@ -1,0 +1,10 @@
+tar: Ignoring unknown extended header keyword 'SCHILY.fflags'
+tar: Ignoring unknown extended header keyword 'SCHILY.fflags'
+Resolving dependencies...
+Downloading packages...
+  material_color_utilities 0.13.0 (0.13.1 available)
+  test_api 0.7.12 (0.7.14 available)
+Got dependencies!
+2 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Formatted 56 files (0 changed) in 0.35 seconds.

@@ -475,9 +475,12 @@ class _LibraryPageState extends State<LibraryPage> {
                                                   widget.engines == null ||
                                                   !variant.artifacts.any(
                                                     (asset) =>
-                                                        asset.kind ==
-                                                            AssetKind
-                                                                .decision &&
+                                                        [
+                                                          AssetKind.decision,
+                                                          AssetKind.chat,
+                                                        ].contains(
+                                                          asset.kind,
+                                                        ) &&
                                                         asset.integrity ==
                                                             AssetIntegrity
                                                                 .complete,

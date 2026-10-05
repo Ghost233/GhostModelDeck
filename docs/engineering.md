@@ -37,7 +37,9 @@
 ./scripts/test-container.sh test
 ```
 
-源码迁入后，脚本在 Socktainer 内安装依赖并检查隔离源码副本；`format --output=none` 只检查，不改写工作区文件。迁移实现同步采用新项目容器名称与 `GMD_TEST_CONTAINER`，不覆盖来源测试工作区。当前应用代码/脚本尚未迁入，以上命令未在本项目执行。
+脚本在 Socktainer 内解析依赖并检查隔离源码副本；`format --output=none` 只检查，不改写工作区文件。使用新项目容器名称与 `GMD_TEST_CONTAINER`，不覆盖来源测试工作区。应用代码与脚本已迁入；具体已执行范围及限制见 [迁入验证](verification/ghostmodeldeck-migration-validation.md) 和各切片验证记录，不以来源旧测试记录替代本项目结果。
+
+检查按联网模式执行；用户明确要求不使用离线模式。外网故障应保留具体请求、超时阶段与失败结果，诊断恢复后重跑，不以缓存离线结果替代正式检查。
 
 通用 Dart/widget 检查在容器执行。Mac 构建、桌面交互、原生引擎和应用内 MCP 的联调按 [规格中的开发边界](spec.md#开发与交付边界) 在 Mac 执行。
 

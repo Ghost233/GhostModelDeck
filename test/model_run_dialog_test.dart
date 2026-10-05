@@ -16,201 +16,211 @@ import 'fixtures/decision_gguf.dart';
 import 'fixtures/engine_archive.dart';
 
 void main() {
-  testWidgets(
-    'running from the library discovers an existing installation without visiting engine management',
-    (tester) async {
-      late Directory root, models;
-      late ModelLibrary library;
-      late LlamaEngine original, fresh;
-      late EngineCatalog catalog;
-      final io = _RuntimeIO();
-      await tester.runAsync(() async {
-        root = await Directory.systemTemp.createTemp('jev-library-run-');
-        models = Directory('${root.path}/models');
-        await writeDecisionKev(models);
-        library = ModelLibrary();
-        final use = ModelUseRegistry(library);
-        final data = engineArchive();
-        final archive = await File('${root.path}/release.tar.gz')
-            .writeAsBytes(data);
-        final release = LlamaRelease(
-          tag: 'b11381',
-          commit: '836d57176',
-          url: Uri.parse('https://github.com/fixture'),
-          sha256: sha256.convert(data).toString(),
-          sizeBytes: data.length,
-        );
-        final owned = Directory('${root.path}/engines');
-        original = LlamaEngine(
-          library: library,
-          installationDirectory: owned,
-          io: io,
-          release: release,
-          useRegistry: use,
-        );
-        await original.install(verifiedArchive: archive);
-        fresh = LlamaEngine(
-          library: library,
-          installationDirectory: owned,
-          io: io,
-          release: release,
-          useRegistry: use,
-          loadTimeout: const Duration(seconds: 2),
-        );
-        catalog = EngineCatalog(
-          library: library,
-          officialEngine: fresh,
-          useRegistry: use,
-          registryFile: File('${root.path}/private/engines.json'),
-          io: io,
-        );
-      });
-      addTearDown(() async {
+  for (final ordinaryChat in [false, true]) {
+    testWidgets(
+      'running ${ordinaryChat ? 'ordinary text' : 'decision'} from the library discovers an existing installation without visiting engine management',
+      (tester) async {
+        late Directory root, models;
+        late ModelLibrary library;
+        late LlamaEngine original, fresh;
+        late EngineCatalog catalog;
+        final io = _RuntimeIO();
         await tester.runAsync(() async {
-          if (io.stopRelease != null && !io.stopRelease!.isCompleted) {
-            io.stopRelease!.complete();
-          }
-          await catalog.stopManaged();
-          catalog.close();
-          original.close();
-          fresh.close();
-          library.close();
-          await root.delete(recursive: true);
+          root = await Directory.systemTemp.createTemp('jev-library-run-');
+          models = Directory('${root.path}/models');
+          await writeDecisionKev(models, ordinaryChat: ordinaryChat);
+          library = ModelLibrary();
+          final use = ModelUseRegistry(library);
+          final data = engineArchive();
+          final archive = await File('${root.path}/release.tar.gz')
+              .writeAsBytes(data);
+          final release = LlamaRelease(
+            tag: 'b11381',
+            commit: '836d57176',
+            url: Uri.parse('https://github.com/fixture'),
+            sha256: sha256.convert(data).toString(),
+            sizeBytes: data.length,
+          );
+          final owned = Directory('${root.path}/engines');
+          original = LlamaEngine(
+            library: library,
+            installationDirectory: owned,
+            io: io,
+            release: release,
+            useRegistry: use,
+          );
+          await original.install(verifiedArchive: archive);
+          fresh = LlamaEngine(
+            library: library,
+            installationDirectory: owned,
+            io: io,
+            release: release,
+            useRegistry: use,
+            loadTimeout: const Duration(seconds: 2),
+          );
+          catalog = EngineCatalog(
+            library: library,
+            officialEngine: fresh,
+            useRegistry: use,
+            registryFile: File('${root.path}/private/engines.json'),
+            io: io,
+          );
         });
-      });
-      expect(fresh.state.installation, LlamaInstallationStatus.absent);
-      await tester.runAsync(() async {
-        await tester.pumpWidget(
-          MaterialApp(
-            theme: buildJevTheme(Brightness.light),
-            home: Scaffold(
-              body: Padding(
-                padding: const EdgeInsets.all(28),
-                child: LibraryPage(
-                  library: library,
-                  libraryPath: models.path,
-                  engines: catalog,
+        addTearDown(() async {
+          await tester.runAsync(() async {
+            if (io.stopRelease != null && !io.stopRelease!.isCompleted) {
+              io.stopRelease!.complete();
+            }
+            await catalog.stopManaged();
+            catalog.close();
+            original.close();
+            fresh.close();
+            library.close();
+            await root.delete(recursive: true);
+          });
+        });
+        expect(fresh.state.installation, LlamaInstallationStatus.absent);
+        await tester.runAsync(() async {
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: buildJevTheme(Brightness.light),
+              home: Scaffold(
+                body: Padding(
+                  padding: const EdgeInsets.all(28),
+                  child: LibraryPage(
+                    library: library,
+                    libraryPath: models.path,
+                    engines: catalog,
+                  ),
                 ),
               ),
             ),
-          ),
-        );
-        for (var n = 0; n < 100; n++) {
-          await tester.pump();
-          final run = find.widgetWithText(TextButton, '运行');
-          if (run.evaluate().isNotEmpty &&
-              tester.widget<TextButton>(run).onPressed != null) {
-            break;
-          }
-          await Future<void>.delayed(const Duration(milliseconds: 10));
-        }
-        await tester.tap(find.widgetWithText(TextButton, '运行'));
-        for (var n = 0; n < 100; n++) {
-          await tester.pump();
-          final dropdown = find.byType(DropdownButton<String>);
-          if (dropdown.evaluate().isNotEmpty &&
-              tester
-                  .widget<DropdownButton<String>>(dropdown)
-                  .items!
-                  .isNotEmpty) {
-            break;
-          }
-          await Future<void>.delayed(const Duration(milliseconds: 10));
-        }
-      });
-      final dropdown = tester.widget<DropdownButton<String>>(
-        find.byType(DropdownButton<String>),
-      );
-      expect(dropdown.items, hasLength(1));
-      expect(find.text('请先安装或关联引擎'), findsNothing);
-      final engineField = find.byType(DropdownButtonFormField<String>);
-      final version = find.textContaining('836d57176');
-      final fieldBounds = tester.getRect(engineField);
-      final versionBounds = tester.getRect(version);
-      expect(versionBounds.top, greaterThanOrEqualTo(fieldBounds.top));
-      expect(
-        versionBounds.bottom,
-        lessThanOrEqualTo(fieldBounds.bottom),
-        reason: 'The selected engine version must stay inside its input',
-      );
-      await tester.runAsync(
-        () => HttpOverrides.runWithHttpOverrides(() async {
-          final completed = catalog.changes.firstWhere(
-            (_) => fresh.state.instances.any(
-              (instance) => instance.status == LlamaInstanceStatus.ready,
-            ),
           );
-          await tester.tap(find.widgetWithText(FilledButton, '运行'));
-          await completed.timeout(const Duration(seconds: 5));
-        }, _NetworkBoundary()),
-      );
-      await tester.runAsync(() => _settleFilesystemFrames(tester));
-      expect(find.text('运行中'), findsOneWidget);
-      expect(find.text('运行模型'), findsNothing);
-      expect(find.widgetWithText(TextButton, '停止'), findsOneWidget);
-      expect(fresh.state.instances.single.lastResult!.probabilities, {
-        'keep': 0.25,
-        'change': 0.75,
-      });
-      expect(library.state.artifacts.single.fingerprintsVerified, isTrue);
-      await expectLater(
-        library.prepareDeletion([library.state.artifacts.single.id]),
-        throwsA(isA<LibraryException>()),
-      );
-      io.stopFailure = true;
-      await tester.runAsync(() async {
-        await tester.tap(find.widgetWithText(TextButton, '停止'));
-        await _settleFilesystemFrames(tester);
-      });
-      expect(find.text('Bad state: provider refused stop'), findsOneWidget);
-      expect(
-        tester
-            .widget<TextButton>(find.widgetWithText(TextButton, '停止'))
-            .onPressed,
-        isNotNull,
-      );
-      io.stopRelease = Completer<void>();
-      io.stopRequested = Completer<void>();
-      await tester.runAsync(() async {
-        final stopped = catalog.changes.firstWhere(
-          (_) =>
-              fresh.state.instances.single.status ==
-              LlamaInstanceStatus.stopped,
-        );
-        await tester.ensureVisible(find.widgetWithText(TextButton, '停止'));
-        await tester.pumpAndSettle();
-        await tester.tap(find.widgetWithText(TextButton, '停止'));
-        await tester.pump();
-        await io.stopRequested!.future.timeout(const Duration(seconds: 3));
-        await tester.pump();
-        expect(find.text('运行中'), findsNothing);
-        final pendingStop = find.widgetWithText(TextButton, '停止中');
-        expect(pendingStop, findsOneWidget);
-        expect(tester.widget<TextButton>(pendingStop).onPressed, isNull);
-        await tester.tap(pendingStop);
-        expect(io.stopAttempts, 2);
-        io.stopRelease!.complete();
-        for (var n = 0; n < 200; n++) {
-          await tester.pump();
-          if (fresh.state.instances.single.status ==
-              LlamaInstanceStatus.stopped) {
-            break;
+          for (var n = 0; n < 100; n++) {
+            await tester.pump();
+            final run = find.widgetWithText(TextButton, '运行');
+            if (run.evaluate().isNotEmpty &&
+                tester.widget<TextButton>(run).onPressed != null) {
+              break;
+            }
+            await Future<void>.delayed(const Duration(milliseconds: 10));
           }
-          await Future<void>.delayed(const Duration(milliseconds: 5));
-        }
-        await stopped.timeout(const Duration(seconds: 5));
-        expect(
-          (await library.prepareDeletion([library.state.artifacts.single.id]))
-              .files,
-          hasLength(1),
+          await tester.tap(find.widgetWithText(TextButton, '运行'));
+          for (var n = 0; n < 100; n++) {
+            await tester.pump();
+            final dropdown = find.byType(DropdownButton<String>);
+            if (dropdown.evaluate().isNotEmpty &&
+                tester
+                    .widget<DropdownButton<String>>(dropdown)
+                    .items!
+                    .isNotEmpty) {
+              break;
+            }
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+          }
+        });
+        final dropdown = tester.widget<DropdownButton<String>>(
+          find.byType(DropdownButton<String>),
         );
-      });
-      await tester.runAsync(() => _settleFilesystemFrames(tester));
-      expect(find.text('已停止'), findsOneWidget);
-      expect(find.text('运行中'), findsNothing);
-      expect(tester.takeException(), isNull);
-    },
-  );
+        expect(dropdown.items, hasLength(1));
+        expect(find.text('请先安装或关联引擎'), findsNothing);
+        final engineField = find.byType(DropdownButtonFormField<String>);
+        final version = find.textContaining('836d57176');
+        final fieldBounds = tester.getRect(engineField);
+        final versionBounds = tester.getRect(version);
+        expect(versionBounds.top, greaterThanOrEqualTo(fieldBounds.top));
+        expect(
+          versionBounds.bottom,
+          lessThanOrEqualTo(fieldBounds.bottom),
+          reason: 'The selected engine version must stay inside its input',
+        );
+        await tester.runAsync(
+          () => HttpOverrides.runWithHttpOverrides(() async {
+            final completed = catalog.changes.firstWhere(
+              (_) => fresh.state.instances.any(
+                (instance) => instance.status == LlamaInstanceStatus.ready,
+              ),
+            );
+            await tester.tap(find.widgetWithText(FilledButton, '运行'));
+            await completed.timeout(const Duration(seconds: 5));
+          }, _NetworkBoundary()),
+        );
+        await tester.runAsync(() => _settleFilesystemFrames(tester));
+        expect(find.text('运行中'), findsOneWidget);
+        expect(find.text('运行模型'), findsNothing);
+        expect(find.widgetWithText(TextButton, '停止'), findsOneWidget);
+        if (ordinaryChat) {
+          expect(fresh.state.instances.single.lastTextResult!.text, 'Hello.');
+          expect(fresh.state.instances.single.capabilities, {
+            LlamaCapability.textGeneration,
+          });
+          expect(fresh.state.instances.single.lastResult, isNull);
+        } else {
+          expect(fresh.state.instances.single.lastResult!.probabilities, {
+            'keep': 0.25,
+            'change': 0.75,
+          });
+        }
+        expect(library.state.artifacts.single.fingerprintsVerified, isTrue);
+        await expectLater(
+          library.prepareDeletion([library.state.artifacts.single.id]),
+          throwsA(isA<LibraryException>()),
+        );
+        io.stopFailure = true;
+        await tester.runAsync(() async {
+          await tester.tap(find.widgetWithText(TextButton, '停止'));
+          await _settleFilesystemFrames(tester);
+        });
+        expect(find.text('Bad state: provider refused stop'), findsOneWidget);
+        expect(
+          tester
+              .widget<TextButton>(find.widgetWithText(TextButton, '停止'))
+              .onPressed,
+          isNotNull,
+        );
+        io.stopRelease = Completer<void>();
+        io.stopRequested = Completer<void>();
+        await tester.runAsync(() async {
+          final stopped = catalog.changes.firstWhere(
+            (_) =>
+                fresh.state.instances.single.status ==
+                LlamaInstanceStatus.stopped,
+          );
+          await tester.ensureVisible(find.widgetWithText(TextButton, '停止'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.widgetWithText(TextButton, '停止'));
+          await tester.pump();
+          await io.stopRequested!.future.timeout(const Duration(seconds: 3));
+          await tester.pump();
+          expect(find.text('运行中'), findsNothing);
+          final pendingStop = find.widgetWithText(TextButton, '停止中');
+          expect(pendingStop, findsOneWidget);
+          expect(tester.widget<TextButton>(pendingStop).onPressed, isNull);
+          await tester.tap(pendingStop);
+          expect(io.stopAttempts, 2);
+          io.stopRelease!.complete();
+          for (var n = 0; n < 200; n++) {
+            await tester.pump();
+            if (fresh.state.instances.single.status ==
+                LlamaInstanceStatus.stopped) {
+              break;
+            }
+            await Future<void>.delayed(const Duration(milliseconds: 5));
+          }
+          await stopped.timeout(const Duration(seconds: 5));
+          expect(
+            (await library.prepareDeletion([library.state.artifacts.single.id]))
+                .files,
+            hasLength(1),
+          );
+        });
+        await tester.runAsync(() => _settleFilesystemFrames(tester));
+        expect(find.text('已停止'), findsOneWidget);
+        expect(find.text('运行中'), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 }
 
 class _NetworkBoundary extends HttpOverrides {}
@@ -269,6 +279,23 @@ class _RuntimeIO implements EngineProcessIO {
           jsonEncode({
             'model_alias': arg('--alias'),
             'model_path': arg('--model'),
+          }),
+        );
+      } else if (request.uri.path == '/v1/chat/completions') {
+        final body = jsonDecode(await utf8.decoder.bind(request).join()) as Map;
+        expect(body['model'], arg('--alias'));
+        expect(body['stream'], false);
+        request.response.write(
+          jsonEncode({
+            'model': arg('--alias'),
+            'choices': [
+              {
+                'index': 0,
+                'message': {'role': 'assistant', 'content': 'Hello.'},
+                'finish_reason': 'stop',
+              },
+            ],
+            'usage': {'completion_tokens': 2},
           }),
         );
       } else {

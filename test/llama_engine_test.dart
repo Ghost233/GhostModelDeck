@@ -5,13 +5,101 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ghost_model_deck/chat_protocol.dart';
+import 'package:ghost_model_deck/council.dart';
 import 'package:ghost_model_deck/decision_protocol.dart';
+import 'package:ghost_model_deck/engine_catalog.dart';
 import 'package:ghost_model_deck/llama_engine.dart';
 import 'package:ghost_model_deck/model_library.dart';
 
 import 'fixtures/decision_gguf.dart';
 
 void main() {
+  test('a healthy text endpoint with an unbound or non-generation response never earns readiness', () async {
+    for (final raw in [
+      '{"model":"foreign","choices":[{"index":0,"message":{"role":"assistant","content":"Hello."},"finish_reason":"stop"}],"usage":{"completion_tokens":2}}',
+      '{"model":"ALIAS","choices":[{"index":0,"message":{"role":"assistant","content":"Hello."},"finish_reason":"stop"}],"usage":{"completion_tokens":0}}',
+      '{"model":"ALIAS","answers":{"council_choice":{"type":"choice","choice":"yes","probabilities":{"yes":0.5,"no":0.5}}},"usage":{"output_tokens":0}}',
+    ]) {
+      final fixture = await _Fixture.create(ordinaryChat: true);
+      addTearDown(fixture.close);
+      fixture.io.textResponseOverride = raw;
+      await expectLater(
+        fixture.engine.start(fixture.asset.id),
+        throwsA(isA<LlamaEngineException>()),
+      );
+      final instance = fixture.engine.state.instances.single;
+      expect(instance.status, LlamaInstanceStatus.failed);
+      expect(instance.capabilities, isEmpty);
+      expect(instance.lastTextResult, isNull);
+      expect(await fixture.io.child!.exitCode, 0);
+      expect(
+        (await fixture.library.prepareDeletion([fixture.asset.id]))
+            .files
+            .single
+            .path,
+        fixture.asset.files.single.path,
+      );
+      expect(await File(fixture.asset.files.single.path).exists(), isTrue);
+    }
+  });
+  test('a resident text instance serves explicit text requests but never becomes a council seat', () async {
+    final fixture = await _Fixture.create(ordinaryChat: true);
+    addTearDown(fixture.close);
+    final catalog = EngineCatalog(
+      library: fixture.library,
+      officialEngine: fixture.engine,
+      useRegistry: fixture.engine.useRegistry,
+      registryFile: File('${fixture.root.path}/registry.json'),
+    );
+    addTearDown(catalog.close);
+    final council = CouncilController(catalog: catalog);
+    addTearDown(council.close);
+    final instance = await fixture.engine.start(fixture.asset.id);
+    expect(council.availableSeats, isEmpty);
+    expect(
+      () => council.selectSeats(['${EngineCatalog.officialId}/${instance.id}']),
+      throwsA(isA<DecisionProtocolException>()),
+    );
+    final text = await fixture.engine.generateText(
+      instance.id,
+      TextRequest(prompt: 'Hello'),
+    );
+    expect(text.text, 'Hello.');
+    expect(text.outputTokens, 2);
+    expect(text.model, instance.id);
+    expect(text.rawResponse, contains('completion_tokens'));
+    expect(fixture.io.textRequests, 2);
+    expect(fixture.io.decisionRequests, 0);
+    await fixture.engine.stop(instance.id);
+    await expectLater(
+      fixture.engine.generateText(instance.id, TextRequest(prompt: 'Hello')),
+      throwsA(isA<LlamaRequestException>()),
+    );
+    expect(fixture.io.textRequests, 2);
+  });
+  test('ordinary GGUF becomes ready through actual bound text generation but cannot answer probability decisions', () async {
+    final fixture = await _Fixture.create(ordinaryChat: true);
+    addTearDown(fixture.close);
+    expect(fixture.asset.kind, AssetKind.chat);
+    final instance = await fixture.engine.start(fixture.asset.id);
+    expect(instance.status, LlamaInstanceStatus.ready);
+    expect(instance.lastResult, isNull);
+    expect(fixture.io.textRequests, 1);
+    expect(fixture.io.decisionRequests, 0);
+    await expectLater(
+      fixture.engine.decide(
+        instance.id,
+        DecisionRequest(
+          state: '',
+          instructions: 'Choose',
+          options: {'yes': 'Yes', 'no': 'No'},
+        ),
+      ),
+      throwsA(isA<LlamaRequestException>()),
+    );
+    expect(fixture.io.decisionRequests, 0);
+  });
   test('verified release publishes a version checked installation and refuses a corrupt replacement', () async {
     final root = await Directory.systemTemp.createTemp('jev-llama-install-');
     addTearDown(() => root.delete(recursive: true));
@@ -335,10 +423,10 @@ class _Fixture {
   final LibraryArtifact asset;
   final _InstallIO io;
   final LlamaEngine engine;
-  static Future<_Fixture> create() async {
+  static Future<_Fixture> create({bool ordinaryChat = false}) async {
     final root = await Directory.systemTemp.createTemp('jev-llama-boundary-');
     final models = Directory('${root.path}/models');
-    await writeDecisionKev(models);
+    await writeDecisionKev(models, ordinaryChat: ordinaryChat);
     final library = ModelLibrary();
     final asset = (await library.scan(models, verifyFiles: true)).single;
     final archive = await File('${root.path}/release.tar.gz')
@@ -371,6 +459,9 @@ class _Fixture {
 
 class _InstallIO implements EngineProcessIO {
   int versions = 0;
+  int textRequests = 0;
+  String? textResponseOverride;
+  int decisionRequests = 0;
   _Child? child;
   bool failSpawn = false;
   bool invalidProbabilities = false;
@@ -396,7 +487,31 @@ class _InstallIO implements EngineProcessIO {
             'model_path': arg('--model'),
           }),
         );
+      } else if (request.uri.path == '/v1/chat/completions') {
+        textRequests++;
+        final body = jsonDecode(await utf8.decoder.bind(request).join()) as Map;
+        expect(body['model'], arg('--alias'));
+        expect(body['stream'], false);
+        request.response.write(
+          textResponseOverride?.replaceAll('ALIAS', arg('--alias')) ??
+              jsonEncode({
+                'model': arg('--alias'),
+                'choices': [
+                  {
+                    'index': 0,
+                    'message': {'role': 'assistant', 'content': 'Hello.'},
+                    'finish_reason': 'stop',
+                  },
+                ],
+                'usage': {
+                  'prompt_tokens': 4,
+                  'completion_tokens': 2,
+                  'total_tokens': 6,
+                },
+              }),
+        );
       } else {
+        decisionRequests++;
         final body = jsonDecode(await utf8.decoder.bind(request).join()) as Map;
         final options =
             (body['questions'] as Map)['council_choice']['criteria'] as Map;

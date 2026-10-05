@@ -188,7 +188,8 @@ class CouncilController {
   List<CouncilSeat> get availableSeats => List.unmodifiable([
     for (final entry in catalog.state.entries)
       for (final instance in catalog.providerFor(entry.id).state.instances)
-        if (instance.status == LlamaInstanceStatus.ready)
+        if (instance.status == LlamaInstanceStatus.ready &&
+            instance.capabilities.contains(LlamaCapability.choiceProbability))
           CouncilSeat(engine: entry, instance: instance),
   ]);
 

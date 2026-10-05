@@ -79,11 +79,14 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
     });
     try {
       final assets = (await widget.library.verify(widget.variant.artifactIds))
-          .where((value) => value.kind == AssetKind.decision)
+          .where(
+            (value) =>
+                [AssetKind.decision, AssetKind.chat].contains(value.kind),
+          )
           .toList();
       if (assets.length != 1 ||
           assets.single.integrity != AssetIntegrity.complete) {
-        throw const LlamaEngineException('此变体缺少完整决策资产');
+        throw const LlamaEngineException('此变体缺少完整文本或决策 GGUF 资产');
       }
       final instance = await widget.catalog
           .providerFor(_engineId!)
