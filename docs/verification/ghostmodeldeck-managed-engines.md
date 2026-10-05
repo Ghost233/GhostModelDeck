@@ -69,4 +69,11 @@ JEV official release 仍为 `b11381 / 836d57176dc699a726c55418e4f96b8ca628e1bf`�
 
 最终在线原脚本检查（唯一串行 slot `ghostmodeldeck-checks-r33b`）：format `run-zeUgb3` exit0，56 files / 0 changed；analyze `run-pP5zvD` exit0，No issues found；full test `run-KXhzLr` exit0，169 tests passed。包含停止失败后删除仍受保护的生产 widget 断言。这些是 `EngineProcessIO`/`EngineChild` 接缝 + 真实 loopback HTTP/Completer 的确定性生命周期证据，不是原生模型推理证据。
 
-本增量尚未完成 M2：明确每实例代次/晚 spawn 单实例 stop、异常退出请求、peer 失败残留与重试、真实内部 SSE 仍需逐个公共切片。M3 两版本、M4 native 模型与 score/noul 均未由本增量完成。终态 `ManagerLifecycle.shutdown` 未作为业务 recycle 使用，#15 保持开放。
+后续生命周期公开切片（distinct fixture PIDs 12345 + spawn index，实际 loopback HTTP，不调用 private helper）：
+- unexpected exit held request RED `run-14DoeS` exit1：`决策已超时` / timedOut，而非 cancelled（`test/llama_engine_test.dart:493`）→ GREEN `run-sc10vK` exit0。当前 owned exit watcher 先 seal/cancel/撤销能力，再发布 failed/退出码，等待 active drain 后释放模型保护。A 无能力/准入/live/active，B 原 PID/Ready/仍可调用/保护保留，晚 A 响应不能恢复 Ready。
+- 公共 stop failure/retry 保留真实 failed/live residual、零能力/准入、PID 与保护，显式 retry 停止后 no-live；distinct peer 始终原 PID/Ready、可调用且保护保留。引擎回归 `run-0PIt9X` exit0，17 tests passed。
+- 单实例 stop 在 accepted spawn 尚未返回时 RED `run-ZsMEGy` exit1：Expected stopping / Actual starting (`test/llama_engine_test.dart:32`) → GREEN `run-LCDpeE` exit0，引擎 18 tests passed。pending startup token 归原 manager 管理，同步封口，serialized cleanup 包含 late child，零晚 probe；peer 不受影响，显式再启动成功。公开 immutable `generation` 单调增长；启动 token、owned identity 与 generation 在晚 HTTP/exit 发布前核验，copy 不变更 generation。
+
+生命周期后续最终在线检查：formatter `run-fnZaVV` exit0（仅两个 owned 源文件格式化，base64 传回 SHA256 核验）；strict full format `run-PaFiYE` exit0，56 files / 0 changed；analyze `run-GDrvwB` exit0，No issues found；full test `run-8Js1pO` exit0，172 tests passed。
+
+本增量尚未完成 M2：真实内部 SSE 仍需公共切片。M3 两版本、M4 native 模型与 score/noul 均未由本增量完成。终态 `ManagerLifecycle.shutdown` 未作为业务 recycle 使用，#15 保持开放。

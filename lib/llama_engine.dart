@@ -253,6 +253,7 @@ class LlamaInstance {
     required this.endpoint,
     required this.status,
     this.pid,
+    this.generation = 0,
     this.activeRequests = 0,
     this.acceptingRequests = false,
     this.hasLiveProcess = false,
@@ -266,6 +267,7 @@ class LlamaInstance {
   final LibraryArtifact asset;
   final Uri endpoint;
   final int? pid;
+  final int generation;
   final int activeRequests;
   final bool acceptingRequests;
   final bool hasLiveProcess;
@@ -278,14 +280,14 @@ class LlamaInstance {
 }
 
 class _Running {
-  _Running(this.instance, this.child);
+  _Running(this.instance, this.child, this.startupCancellation);
   LlamaInstance instance;
   final EngineChild child;
   int? exitCode;
   bool stopping = false;
   String log = '';
   final active = <_RequestPermit>{};
-  final startupCancellation = DecisionCancellation();
+  final DecisionCancellation startupCancellation;
 }
 
 class _RequestPermit {
@@ -402,6 +404,8 @@ class LlamaEngine {
   Future<void>? _shutdown;
 
   int _generation = 0;
+  int _nextInstanceGeneration = 0;
+  final _pendingStarts = <String, DecisionCancellation>{};
   bool _recycling = false;
   Future<void>? _recycle;
 
@@ -410,8 +414,13 @@ class LlamaEngine {
       return Future.error(const LlamaEngineException('受管引擎正在回收'));
     }
     final generation = _generation;
+    final instanceGeneration = ++_nextInstanceGeneration;
+    final startupCancellation = DecisionCancellation();
     void checkStartup() {
       _checkStartup();
+      if (startupCancellation.isCancelled) {
+        throw const LlamaEngineException('已取消所选实例的引擎启动');
+      }
       if (generation != _generation) {
         throw const LlamaEngineException('受管引擎回收，已取消引擎启动');
       }
@@ -472,10 +481,12 @@ class LlamaEngine {
         final endpoint = Uri.parse('http://127.0.0.1:$port');
         var instance = LlamaInstance(
           id: alias,
+          generation: instanceGeneration,
           asset: asset,
           endpoint: endpoint,
           status: LlamaInstanceStatus.starting,
         );
+        _pendingStarts[alias] = startupCancellation;
         _instances[alias] = instance;
         _publishInstances();
         checkStartup();
@@ -501,8 +512,15 @@ class LlamaEngine {
           '--device',
           'MTL0',
         ]);
-        instance = _copy(instance, pid: child.pid, hasLiveProcess: true);
-        running = _Running(instance, child);
+        instance = _copy(
+          instance,
+          pid: child.pid,
+          hasLiveProcess: true,
+          status: startupCancellation.isCancelled
+              ? LlamaInstanceStatus.stopping
+              : LlamaInstanceStatus.starting,
+        );
+        running = _Running(instance, child, startupCancellation);
         _running[alias] = running;
         _instances[alias] = instance;
         _publishInstances();
@@ -516,7 +534,8 @@ class LlamaEngine {
         });
         child.exitCode.then((code) async {
           owned.exitCode = code;
-          if (!owned.stopping) {
+          if (!owned.stopping && _isCurrent(owned)) {
+            _seal(owned);
             owned.instance = _copy(
               owned.instance,
               status: LlamaInstanceStatus.failed,
@@ -526,6 +545,9 @@ class LlamaEngine {
             );
             _instances[alias] = owned.instance;
             _publishInstances();
+            await Future.wait(
+              owned.active.map((p) => p.drained.future).toList(),
+            );
             _reserved.remove(alias);
             await _protect();
           }
@@ -628,6 +650,8 @@ class LlamaEngine {
           }
         }
         throw LlamaEngineException(reason);
+      } finally {
+        _pendingStarts.remove(alias);
       }
     });
   }
@@ -747,7 +771,7 @@ class LlamaEngine {
     Duration timeout, {
     DecisionCancellation? cancellation,
   }) async {
-    if (running.exitCode != null || running.stopping) {
+    if (running.exitCode != null || running.stopping || !_isCurrent(running)) {
       throw const LlamaEngineException('受管进程已停止');
     }
     final value = jsonDecode(
@@ -764,7 +788,8 @@ class LlamaEngine {
         value['model_alias'] != running.instance.id ||
         value['model_path'] != paths.first ||
         running.exitCode != null ||
-        running.stopping) {
+        running.stopping ||
+        !_isCurrent(running)) {
       throw const _InstanceIdentityException('引擎实际 alias 或模型路径不匹配');
     }
     return Map.unmodifiable(value);
@@ -798,7 +823,7 @@ class LlamaEngine {
         rawResponse: raw,
       );
     }
-    if (running.exitCode != null || running.stopping) {
+    if (running.exitCode != null || running.stopping || !_isCurrent(running)) {
       throw const LlamaEngineException('决策期间受管进程停止');
     }
     return result;
@@ -869,7 +894,7 @@ class LlamaEngine {
         rawResponse: raw,
       );
     }
-    if (running.exitCode != null || running.stopping) {
+    if (running.exitCode != null || running.stopping || !_isCurrent(running)) {
       throw const LlamaRequestException(
         '文本生成期间受管进程停止',
         kind: DecisionFailureKind.notReady,
@@ -961,7 +986,13 @@ class LlamaEngine {
     _publishRun(running);
   }
 
+  bool _isCurrent(_Running running) =>
+      identical(_running[running.instance.id], running) &&
+      _instances[running.instance.id]?.generation ==
+          running.instance.generation;
+
   void _publishRun(_Running running) {
+    if (!_isCurrent(running)) return;
     running.instance = _copy(
       running.instance,
       activeRequests: running.active.length,
@@ -1029,7 +1060,35 @@ class LlamaEngine {
   Future<void> stop(String instanceId) {
     final running = _running[instanceId];
     if (running == null) {
-      return Future.error(const LlamaEngineException('仅可停止本应用创建的引擎进程'));
+      final pending = _pendingStarts[instanceId];
+      if (pending == null) {
+        return Future.error(const LlamaEngineException('仅可停止本应用创建的引擎进程'));
+      }
+      pending.cancel();
+      _instances[instanceId] = _copy(
+        _instances[instanceId]!,
+        status: LlamaInstanceStatus.stopping,
+        capabilities: const {},
+        acceptingRequests: false,
+      );
+      _publishInstances();
+      return _serial(() async {
+        final late = _running[instanceId];
+        if (late != null) {
+          await _stopChild(late);
+          late.instance = _copy(
+            late.instance,
+            status: LlamaInstanceStatus.stopped,
+          );
+          _publishRun(late);
+        } else {
+          _instances[instanceId] = _copy(
+            _instances[instanceId]!,
+            status: LlamaInstanceStatus.stopped,
+          );
+          _publishInstances();
+        }
+      }, cleanup: true);
     }
     if (running.instance.status == LlamaInstanceStatus.stopped) {
       return Future.value();
@@ -1049,6 +1108,17 @@ class LlamaEngine {
     if (_recycle != null) return _recycle!;
     _recycling = true;
     _generation++;
+    for (final entry in _pendingStarts.entries.toList()) {
+      entry.value.cancel();
+      final instance = _instances[entry.key]!;
+      _instances[entry.key] = _copy(
+        instance,
+        status: LlamaInstanceStatus.stopping,
+        capabilities: const {},
+        acceptingRequests: false,
+      );
+    }
+    _publishInstances();
     for (final running in _running.values.toList()) {
       _seal(running);
     }
@@ -1101,6 +1171,7 @@ class LlamaEngine {
     String? error,
   }) => LlamaInstance(
     id: value.id,
+    generation: value.generation,
     asset: value.asset,
     endpoint: value.endpoint,
     status: status ?? value.status,

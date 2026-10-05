@@ -15,6 +15,77 @@ import 'package:ghost_model_deck/model_library.dart';
 import 'fixtures/decision_gguf.dart';
 
 void main() {
+  test('single instance stop seals an accepted spawn and cleans its late child without touching the peer', () async {
+    final fixture = await _Fixture.create(ordinaryChat: true);
+    addTearDown(fixture.close);
+    final peer = await fixture.engine.start(fixture.asset.id);
+    final arrived = Completer<void>();
+    final release = Completer<void>();
+    addTearDown(() {
+      if (!release.isCompleted) release.complete();
+    });
+    fixture.io.holdSpawn = () async {
+      arrived.complete();
+      await release.future;
+    };
+    final starting = fixture.engine
+        .start(fixture.asset.id)
+        .then<Object>((value) => value, onError: (Object error) => error);
+    await arrived.future;
+    final pending = fixture.engine.state.instances.last;
+    expect(pending.status, LlamaInstanceStatus.starting);
+    expect(pending.hasLiveProcess, isFalse);
+    final stopping = fixture.engine
+        .stop(pending.id)
+        .then<Object>((_) => 'stopped', onError: (Object error) => error);
+    expect(
+      fixture.engine.state.instances.last.status,
+      LlamaInstanceStatus.stopping,
+    );
+    release.complete();
+    expect(
+      await starting,
+      isA<LlamaEngineException>().having(
+        (e) => e.message,
+        'message',
+        contains('取消'),
+      ),
+    );
+    expect(await stopping, 'stopped');
+    expect(fixture.io.children.last.exited.isCompleted, isTrue);
+    expect(fixture.io.textRequests, 1);
+    final stopped = fixture.engine.state.instances.firstWhere(
+      (i) => i.id == pending.id,
+    );
+    expect(stopped.status, LlamaInstanceStatus.stopped);
+    expect(stopped.capabilities, isEmpty);
+    expect(stopped.hasLiveProcess, isFalse);
+    expect(
+      fixture.engine.state.instances.first.status,
+      LlamaInstanceStatus.ready,
+    );
+    expect(fixture.engine.state.instances.first.pid, peer.pid);
+    expect(fixture.io.children.first.exited.isCompleted, isFalse);
+    expect(
+      (await fixture.engine.generateText(
+        peer.id,
+        TextRequest(prompt: 'peer'),
+      )).text,
+      'Hello.',
+    );
+    await expectLater(
+      fixture.library.prepareDeletion([fixture.asset.id]),
+      throwsA(isA<LibraryException>()),
+    );
+    fixture.io.holdSpawn = null;
+    final restarted = await fixture.engine.start(fixture.asset.id);
+    expect(restarted.id, isNot(pending.id));
+    expect(pending.generation, greaterThan(peer.generation));
+    expect(restarted.generation, greaterThan(pending.generation));
+    expect(stopped.generation, pending.generation);
+    expect(restarted.status, LlamaInstanceStatus.ready);
+  });
+
   test('stopManaged cancels an active readiness probe without waiting for its response', () async {
     final fixture = await _Fixture.create(ordinaryChat: true);
     addTearDown(fixture.close);
@@ -473,6 +544,158 @@ void main() {
     );
   });
 
+  test(
+    'failed owned stop preserves the residual and peer until explicit retry',
+    () async {
+      final fixture = await _Fixture.create(ordinaryChat: true);
+      addTearDown(fixture.close);
+      final a = await fixture.engine.start(fixture.asset.id);
+      final b = await fixture.engine.start(fixture.asset.id);
+      expect(a.pid, isNot(b.pid));
+      fixture.io.children.first.onKill = () =>
+          throw StateError('owned stop refused');
+      await expectLater(fixture.engine.stop(a.id), throwsA(isA<StateError>()));
+      final residual = fixture.engine.state.instances.firstWhere(
+        (i) => i.id == a.id,
+      );
+      expect(residual.status, LlamaInstanceStatus.failed);
+      expect(residual.hasLiveProcess, isTrue);
+      expect(residual.pid, a.pid);
+      expect(residual.capabilities, isEmpty);
+      expect(residual.acceptingRequests, isFalse);
+      expect(residual.activeRequests, 0);
+      expect(residual.error, contains('owned stop refused'));
+      expect(fixture.io.children.first.exited.isCompleted, isFalse);
+      expect(fixture.io.children.last.exited.isCompleted, isFalse);
+      await expectLater(
+        fixture.engine.generateText(a.id, TextRequest(prompt: 'rejected')),
+        throwsA(
+          isA<LlamaRequestException>().having(
+            (e) => e.kind,
+            'kind',
+            DecisionFailureKind.notReady,
+          ),
+        ),
+      );
+      await expectLater(
+        fixture.library.prepareDeletion([fixture.asset.id]),
+        throwsA(isA<LibraryException>()),
+      );
+      expect(
+        (await fixture.engine.generateText(
+          b.id,
+          TextRequest(prompt: 'peer'),
+        )).text,
+        'Hello.',
+      );
+      fixture.io.children.first.onKill = null;
+      await fixture.engine.stop(a.id);
+      final stopped = fixture.engine.state.instances.firstWhere(
+        (i) => i.id == a.id,
+      );
+      expect(stopped.status, LlamaInstanceStatus.stopped);
+      expect(stopped.hasLiveProcess, isFalse);
+      expect(stopped.capabilities, isEmpty);
+      final peer = fixture.engine.state.instances.firstWhere(
+        (i) => i.id == b.id,
+      );
+      expect(peer.status, LlamaInstanceStatus.ready);
+      expect(peer.pid, b.pid);
+      expect(peer.hasLiveProcess, isTrue);
+      expect(fixture.io.children.last.exited.isCompleted, isFalse);
+      await expectLater(
+        fixture.library.prepareDeletion([fixture.asset.id]),
+        throwsA(isA<LibraryException>()),
+      );
+      await fixture.engine.stop(b.id);
+      expect(
+        (await fixture.library.prepareDeletion([fixture.asset.id])).files,
+        hasLength(1),
+      );
+    },
+  );
+
+  test(
+    'unexpected exit cancels active work and revokes only the exited instance',
+    () async {
+      final fixture = await _Fixture.create(ordinaryChat: true);
+      addTearDown(fixture.close);
+      final a = await fixture.engine.start(fixture.asset.id);
+      final b = await fixture.engine.start(fixture.asset.id);
+      expect(a.pid, isNot(b.pid));
+      final arrived = Completer<void>();
+      final release = Completer<void>();
+      addTearDown(() {
+        if (!release.isCompleted) release.complete();
+      });
+      fixture.io.holdText = (body) async {
+        if (body['model'] == a.id) {
+          arrived.complete();
+          await release.future;
+        }
+      };
+      final pending = fixture.engine
+          .generateText(
+            a.id,
+            TextRequest(prompt: 'held'),
+            timeout: const Duration(seconds: 1),
+          )
+          .then<Object>((value) => value, onError: (Object error) => error);
+      await arrived.future;
+      final failed = fixture.engine.changes.firstWhere(
+        (s) =>
+            s.instances.firstWhere((i) => i.id == a.id).status ==
+            LlamaInstanceStatus.failed,
+      );
+      fixture.io.children.first.exited.complete(17);
+      await failed;
+      expect(
+        await pending,
+        isA<LlamaRequestException>().having(
+          (e) => e.kind,
+          'kind',
+          DecisionFailureKind.cancelled,
+        ),
+      );
+      final dead = fixture.engine.state.instances.firstWhere(
+        (i) => i.id == a.id,
+      );
+      expect(dead.error, '受管引擎已退出 (17)');
+      expect(dead.capabilities, isEmpty);
+      expect(dead.acceptingRequests, isFalse);
+      expect(dead.hasLiveProcess, isFalse);
+      expect(dead.activeRequests, 0);
+      final peer = fixture.engine.state.instances.firstWhere(
+        (i) => i.id == b.id,
+      );
+      expect(peer.status, LlamaInstanceStatus.ready);
+      expect(peer.pid, b.pid);
+      expect(peer.hasLiveProcess, isTrue);
+      expect(fixture.io.children.last.exited.isCompleted, isFalse);
+      expect(
+        (await fixture.engine.generateText(
+          b.id,
+          TextRequest(prompt: 'peer'),
+        )).text,
+        'Hello.',
+      );
+      await expectLater(
+        fixture.library.prepareDeletion([fixture.asset.id]),
+        throwsA(isA<LibraryException>()),
+      );
+      release.complete();
+      await fixture.engine.stop(b.id);
+      expect(
+        (await fixture.library.prepareDeletion([fixture.asset.id])).files,
+        hasLength(1),
+      );
+      expect(
+        fixture.engine.state.instances.firstWhere((i) => i.id == a.id).status,
+        LlamaInstanceStatus.failed,
+      );
+    },
+  );
+
   test('unexpected child exit immediately invalidates readiness and the next decision', () async {
     final fixture = await _Fixture.create();
     addTearDown(fixture.close);
@@ -619,7 +842,11 @@ class _InstallIO implements EngineProcessIO {
       InternetAddress.loopbackIPv4,
       int.parse(arg('--port')),
     );
-    child = _Child(server, stopServer: !foreignEndpoint);
+    child = _Child(
+      server,
+      pid: 12345 + children.length,
+      stopServer: !foreignEndpoint,
+    );
     children.add(child!);
     server.listen((request) async {
       if (request.uri.path == '/health') {
@@ -706,13 +933,13 @@ class _InstallIO implements EngineProcessIO {
 }
 
 class _Child implements EngineChild {
-  _Child(this.server, {this.stopServer = true});
+  _Child(this.server, {required this.pid, this.stopServer = true});
   final HttpServer server;
   final bool stopServer;
   final exited = Completer<int>();
   void Function()? onKill;
   @override
-  int get pid => 12345;
+  final int pid;
   @override
   Future<int> get exitCode => exited.future;
   @override
