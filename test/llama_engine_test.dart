@@ -15,6 +15,517 @@ import 'package:ghost_model_deck/model_library.dart';
 import 'fixtures/decision_gguf.dart';
 
 void main() {
+  test('managed recycle attempts every owned child after a stop failure and exposes a retryable residual', () async {
+    final fixture = await _Fixture.create(ordinaryChat: true);
+    addTearDown(fixture.close);
+    final a = await fixture.engine.start(fixture.asset.id);
+    await fixture.engine.start(fixture.asset.id);
+    final attempts = <int>[];
+    fixture.io.children.first.onKill = () {
+      attempts.add(a.pid!);
+      throw StateError('owned recycle stop refused');
+    };
+    fixture.io.children.last.onKill = () {
+      attempts.add(fixture.io.children.last.pid);
+      expect(
+        fixture.engine.state.instances.every(
+          (i) => i.activeRequests == 0 && !i.acceptingRequests,
+        ),
+        isTrue,
+      );
+    };
+    await expectLater(
+      fixture.engine.stopManaged(),
+      throwsA(
+        isA<LlamaEngineException>().having(
+          (e) => e.message,
+          'message',
+          contains('owned recycle stop refused'),
+        ),
+      ),
+    );
+    expect(attempts, [
+      fixture.io.children.first.pid,
+      fixture.io.children.last.pid,
+    ]);
+    expect(
+      fixture.engine.state.instances.first.status,
+      LlamaInstanceStatus.failed,
+    );
+    expect(fixture.engine.state.instances.first.hasLiveProcess, isTrue);
+    expect(fixture.engine.state.instances.first.capabilities, isEmpty);
+    expect(
+      fixture.engine.state.instances.last.status,
+      LlamaInstanceStatus.stopped,
+    );
+    expect(fixture.engine.state.instances.last.hasLiveProcess, isFalse);
+    await expectLater(
+      fixture.library.prepareDeletion([fixture.asset.id]),
+      throwsA(isA<LibraryException>()),
+    );
+    await expectLater(
+      fixture.engine.generateText(a.id, TextRequest(prompt: 'sealed')),
+      throwsA(
+        isA<LlamaRequestException>().having(
+          (e) => e.kind,
+          'kind',
+          DecisionFailureKind.notReady,
+        ),
+      ),
+    );
+    final c = await fixture.engine.start(fixture.asset.id);
+    expect(c.status, LlamaInstanceStatus.ready);
+    fixture.io.children.first.onKill = null;
+    await fixture.engine.stop(a.id);
+    expect(fixture.engine.state.instances.first.hasLiveProcess, isFalse);
+    expect(fixture.engine.state.instances.last.pid, c.pid);
+    expect(
+      fixture.engine.state.instances.last.status,
+      LlamaInstanceStatus.ready,
+    );
+    expect(
+      (await fixture.engine.generateText(
+        c.id,
+        TextRequest(prompt: 'restart'),
+      )).text,
+      'Hello.',
+    );
+    await fixture.engine.stopManaged();
+    expect(
+      fixture.engine.state.instances.every(
+        (i) => i.status == LlamaInstanceStatus.stopped && !i.hasLiveProcess,
+      ),
+      isTrue,
+    );
+    expect(
+      (await fixture.library.prepareDeletion([fixture.asset.id])).files,
+      hasLength(1),
+    );
+  });
+
+  test(
+    'SSE timeout drains an idle upstream without forging a terminal result',
+    () async {
+      final fixture = await _Fixture.create(ordinaryChat: true);
+      addTearDown(fixture.close);
+      final a = await fixture.engine.start(fixture.asset.id);
+      final b = await fixture.engine.start(fixture.asset.id);
+      final arrived = Completer<void>();
+      final release = Completer<void>();
+      addTearDown(() {
+        if (!release.isCompleted) release.complete();
+      });
+      fixture.io.streamResponse = (response, alias, body) async {
+        arrived.complete();
+        await release.future;
+      };
+      final events = <TextStreamEvent>[];
+      final completed = fixture.engine
+          .streamText(
+            a.id,
+            TextRequest(prompt: 'idle'),
+            timeout: const Duration(seconds: 1),
+          )
+          .forEach(events.add);
+      final checked = expectLater(
+        completed,
+        throwsA(
+          isA<LlamaRequestException>().having(
+            (e) => e.kind,
+            'kind',
+            DecisionFailureKind.timedOut,
+          ),
+        ),
+      );
+      await arrived.future;
+      expect(fixture.engine.state.instances.first.activeRequests, 1);
+      await checked;
+      expect(fixture.engine.state.instances.first.activeRequests, 0);
+      expect(
+        fixture.engine.state.instances.first.lastTextResult,
+        same(a.lastTextResult),
+      );
+      expect(events, isEmpty);
+      expect(
+        fixture.engine.state.instances.first.status,
+        LlamaInstanceStatus.ready,
+      );
+      expect(fixture.engine.state.instances.last.pid, b.pid);
+      expect(fixture.io.children.every((c) => !c.exited.isCompleted), isTrue);
+      expect(
+        (await fixture.engine.generateText(
+          b.id,
+          TextRequest(prompt: 'peer'),
+        )).text,
+        'Hello.',
+      );
+      release.complete();
+    },
+  );
+
+  for (final action in ['external cancel', 'single stop', 'unexpected exit']) {
+    test(
+      'SSE $action cancels held work without terminal success or touching its peer',
+      () async {
+        final fixture = await _Fixture.create(ordinaryChat: true);
+        addTearDown(fixture.close);
+        final a = await fixture.engine.start(fixture.asset.id);
+        final b = await fixture.engine.start(fixture.asset.id);
+        final release = Completer<void>();
+        addTearDown(() {
+          if (!release.isCompleted) release.complete();
+        });
+        fixture.io.streamResponse = (response, alias, body) async {
+          response.write(
+            'data: ${jsonEncode({
+              'model': alias,
+              'choices': [
+                {
+                  'index': 0,
+                  'delta': {'role': 'assistant', 'content': 'partial'},
+                  'finish_reason': null,
+                },
+              ],
+            })}\n\n',
+          );
+          await response.flush();
+          await release.future;
+        };
+        fixture.io.children.first.onKill = () {
+          expect(fixture.engine.state.instances.first.activeRequests, 0);
+          expect(
+            fixture.engine.state.instances.first.acceptingRequests,
+            isFalse,
+          );
+          expect(fixture.engine.state.instances.last.pid, b.pid);
+          expect(fixture.io.children.last.exited.isCompleted, isFalse);
+        };
+        final cancellation = DecisionCancellation();
+        final received = Completer<void>();
+        final failed = Completer<Object>();
+        final events = <TextStreamEvent>[];
+        final subscription = fixture.engine
+            .streamText(
+              a.id,
+              TextRequest(prompt: 'held'),
+              cancellation: cancellation,
+            )
+            .listen(
+              (event) {
+                events.add(event);
+                if (!received.isCompleted) received.complete();
+              },
+              onError: (Object error) {
+                if (!failed.isCompleted) failed.complete(error);
+              },
+            );
+        await received.future;
+        expect(fixture.engine.state.instances.first.activeRequests, 1);
+        if (action == 'external cancel') cancellation.cancel();
+        if (action == 'unexpected exit') {
+          fixture.io.children.first.exited.complete(17);
+        }
+        if (action == 'single stop') await fixture.engine.stop(a.id);
+        expect(
+          await failed.future,
+          isA<LlamaRequestException>().having(
+            (e) => e.kind,
+            'kind',
+            DecisionFailureKind.cancelled,
+          ),
+        );
+        await subscription.cancel();
+        expect(fixture.engine.state.instances.first.activeRequests, 0);
+        expect(events.where((e) => e.result != null), isEmpty);
+        expect(
+          fixture.engine.state.instances.first.lastTextResult,
+          same(a.lastTextResult),
+        );
+        expect(
+          fixture.engine.state.instances.first.status,
+          action == 'external cancel'
+              ? LlamaInstanceStatus.ready
+              : action == 'single stop'
+              ? LlamaInstanceStatus.stopped
+              : LlamaInstanceStatus.failed,
+        );
+        expect(fixture.engine.state.instances.last.pid, b.pid);
+        expect(fixture.engine.state.instances.last.generation, b.generation);
+        expect(
+          fixture.engine.state.instances.last.status,
+          LlamaInstanceStatus.ready,
+        );
+        expect(
+          (await fixture.engine.generateText(
+            b.id,
+            TextRequest(prompt: 'peer'),
+          )).text,
+          'Hello.',
+        );
+        await expectLater(
+          fixture.library.prepareDeletion([fixture.asset.id]),
+          throwsA(isA<LibraryException>()),
+        );
+        release.complete();
+      },
+    );
+  }
+
+  for (final invalid in [
+    'foreign delta',
+    'foreign usage',
+    'missing usage',
+    'missing finish',
+    'missing DONE',
+    'malformed JSON',
+    'zero usage',
+    'invalid finish',
+    'wrong role',
+    'duplicate usage',
+    'data after DONE',
+    'oversized frame',
+  ]) {
+    test(
+      'SSE rejects $invalid without publishing success or changing its peer',
+      () async {
+        final fixture = await _Fixture.create(ordinaryChat: true);
+        addTearDown(fixture.close);
+        final a = await fixture.engine.start(fixture.asset.id);
+        final b = await fixture.engine.start(fixture.asset.id);
+        fixture.io.streamResponse = (response, alias, body) async {
+          final delta = {
+            'model': invalid == 'foreign delta' ? 'foreign' : alias,
+            'choices': [
+              {
+                'index': 0,
+                'delta': {
+                  'role': invalid == 'wrong role' ? 'user' : 'assistant',
+                  'content': 'partial',
+                },
+                'finish_reason': null,
+              },
+            ],
+          };
+          final finish = {
+            'model': alias,
+            'choices': [
+              {
+                'index': 0,
+                'delta': <String, String>{},
+                'finish_reason': invalid == 'invalid finish'
+                    ? 'tool_calls'
+                    : 'stop',
+              },
+            ],
+          };
+          final usage = {
+            'model': invalid == 'foreign usage' ? 'foreign' : alias,
+            'choices': [],
+            'usage': {'completion_tokens': invalid == 'zero usage' ? 0 : 3},
+          };
+          final frames = <String>[
+            if (invalid == 'oversized frame')
+              'x' * (4 * 1024 * 1024 + 1)
+            else if (invalid == 'malformed JSON')
+              '{broken'
+            else
+              jsonEncode(delta),
+            if (invalid != 'missing finish') jsonEncode(finish),
+            if (invalid != 'missing usage') jsonEncode(usage),
+            if (invalid == 'duplicate usage') jsonEncode(usage),
+            if (invalid != 'missing DONE') '[DONE]',
+            if (invalid == 'data after DONE') jsonEncode(delta),
+          ];
+          for (final data in frames) {
+            response.write('data: $data\n\n');
+          }
+        };
+        final events = <TextStreamEvent>[];
+        await expectLater(
+          fixture.engine
+              .streamText(a.id, TextRequest(prompt: 'invalid'))
+              .forEach(events.add),
+          throwsA(
+            isA<LlamaRequestException>().having(
+              (e) => e.kind,
+              'kind',
+              DecisionFailureKind.invalidResponse,
+            ),
+          ),
+        );
+        expect(events.where((event) => event.result != null), isEmpty);
+        expect(
+          fixture.engine.state.instances.first.lastTextResult,
+          same(a.lastTextResult),
+        );
+        expect(fixture.engine.state.instances.first.activeRequests, 0);
+        expect(
+          fixture.engine.state.instances.first.status,
+          LlamaInstanceStatus.ready,
+        );
+        expect(fixture.engine.state.instances.last.pid, b.pid);
+        expect(fixture.engine.state.instances.last.generation, b.generation);
+        expect(
+          (await fixture.engine.generateText(
+            b.id,
+            TextRequest(prompt: 'peer'),
+          )).text,
+          'Hello.',
+        );
+        expect(fixture.io.children.every((c) => !c.exited.isCompleted), isTrue);
+      },
+    );
+  }
+
+  test('SSE consumer cancellation closes only its upstream and drains before returning', () async {
+    final fixture = await _Fixture.create(ordinaryChat: true);
+    addTearDown(fixture.close);
+    final a = await fixture.engine.start(fixture.asset.id);
+    final b = await fixture.engine.start(fixture.asset.id);
+    final release = Completer<void>();
+    addTearDown(() {
+      if (!release.isCompleted) release.complete();
+    });
+    final upstreamClosed = Completer<void>();
+    fixture.io.streamResponse = (response, alias, body) async {
+      // Observe actual remote EOF on the real socket, not HttpResponse.done
+      // (that future describes response completion, not an idle peer's FIN).
+      final socket = await response.detachSocket(writeHeaders: false);
+      socket.listen(
+        (_) {},
+        onDone: () {
+          if (!upstreamClosed.isCompleted) upstreamClosed.complete();
+        },
+        onError: (Object error) {
+          if (!upstreamClosed.isCompleted) upstreamClosed.complete();
+        },
+      );
+      try {
+        socket.add(
+          utf8.encode(
+            'HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: ${jsonEncode({
+              'model': alias,
+              'choices': [
+                {
+                  'index': 0,
+                  'delta': {'role': 'assistant', 'content': 'partial'},
+                  'finish_reason': null,
+                },
+              ],
+            })}\n\n',
+          ),
+        );
+        await socket.flush();
+        await release.future;
+      } finally {
+        socket.destroy();
+      }
+    };
+    final received = Completer<void>();
+    final events = <dynamic>[];
+    final subscription = fixture.engine
+        .streamText(a.id, TextRequest(prompt: 'held'))
+        .listen((event) {
+          events.add(event);
+          if (!received.isCompleted) received.complete();
+        });
+    await received.future;
+    expect(fixture.engine.state.instances.first.activeRequests, 1);
+    await subscription.cancel();
+    expect(fixture.engine.state.instances.first.activeRequests, 0);
+    await upstreamClosed.future.timeout(const Duration(seconds: 5));
+    expect(events.map((e) => e.delta).join(), 'partial');
+    expect(events.where((e) => e.result != null), isEmpty);
+    expect(
+      fixture.engine.state.instances.first.lastTextResult,
+      same(a.lastTextResult),
+    );
+    expect(fixture.io.children.every((c) => !c.exited.isCompleted), isTrue);
+    expect(fixture.engine.state.instances.last.pid, b.pid);
+    expect(
+      fixture.engine.state.instances.last.status,
+      LlamaInstanceStatus.ready,
+    );
+    expect(
+      (await fixture.engine.generateText(
+        b.id,
+        TextRequest(prompt: 'peer'),
+      )).text,
+      'Hello.',
+    );
+    expect(
+      (await fixture.engine.generateText(
+        a.id,
+        TextRequest(prompt: 'retry'),
+      )).text,
+      'Hello.',
+    );
+    await expectLater(
+      fixture.library.prepareDeletion([fixture.asset.id]),
+      throwsA(isA<LibraryException>()),
+    );
+    release.complete();
+  });
+
+  test('resident text SSE binds fragmented frames and returns only actual terminal usage', () async {
+    final fixture = await _Fixture.create(ordinaryChat: true);
+    addTearDown(fixture.close);
+    final instance = await fixture.engine.start(fixture.asset.id);
+    fixture.io.streamResponse = (response, alias, body) async {
+      final frames = [
+        {
+          'model': alias,
+          'choices': [
+            {
+              'index': 0,
+              'delta': {'role': 'assistant', 'content': 'Hello 🌙'},
+              'finish_reason': null,
+            },
+          ],
+        },
+        {
+          'model': alias,
+          'choices': [
+            {'index': 0, 'delta': {}, 'finish_reason': 'length'},
+          ],
+        },
+        {
+          'model': alias,
+          'choices': [],
+          'usage': {'completion_tokens': 3},
+        },
+      ];
+      final bytes = utf8.encode(
+        ': heartbeat\r\n\r\n${frames.map((frame) => 'data: ${jsonEncode(frame).replaceFirst(',"choices"', ',\r\ndata: "choices"')}\r\n\r\n').join()}data: [DONE]\r\n\r\n',
+      );
+      for (final byte in bytes) {
+        response.add([byte]);
+        await response.flush();
+      }
+    };
+    final events = await fixture.engine
+        .streamText(instance.id, TextRequest(prompt: 'stream'))
+        .toList();
+    expect(
+      events.where((e) => e.result == null).map((e) => e.delta).join(),
+      'Hello 🌙',
+    );
+    final result = events.last.result!;
+    expect(result.model, instance.id);
+    expect(result.text, 'Hello 🌙');
+    expect(result.finishReason, 'length');
+    expect(result.outputTokens, 3);
+    expect(result.rawResponse, contains('"completion_tokens":3'));
+    expect(result.rawResponse, contains('[DONE]'));
+    expect(events.where((e) => e.result != null), hasLength(1));
+    expect(fixture.engine.state.instances.single.lastTextResult, same(result));
+    expect(fixture.engine.state.instances.single.activeRequests, 0);
+    expect(
+      fixture.engine.state.instances.single.status,
+      LlamaInstanceStatus.ready,
+    );
+  });
+
   test('single instance stop seals an accepted spawn and cleans its late child without touching the peer', () async {
     final fixture = await _Fixture.create(ordinaryChat: true);
     addTearDown(fixture.close);
@@ -827,6 +1338,8 @@ class _InstallIO implements EngineProcessIO {
   _Child? child;
   final children = <_Child>[];
   Future<void> Function(Map body)? holdText;
+  Future<void> Function(HttpResponse response, String alias, Map body)?
+  streamResponse;
   Future<void> Function()? holdSpawn;
   bool failSpawn = false;
   bool invalidProbabilities = false;
@@ -862,6 +1375,21 @@ class _InstallIO implements EngineProcessIO {
         textRequests++;
         final body = jsonDecode(await utf8.decoder.bind(request).join()) as Map;
         expect(body['model'], arg('--alias'));
+        if (body['stream'] == true) {
+          expect(body['stream_options'], {'include_usage': true});
+          request.response.headers.contentType = ContentType(
+            'text',
+            'event-stream',
+          );
+          request.response.bufferOutput = false;
+          try {
+            await streamResponse!(request.response, arg('--alias'), body);
+            await request.response.close();
+          } on HttpException {
+            // A consumer may disconnect while this real server is still held.
+          }
+          return;
+        }
         expect(body['stream'], false);
         await holdText?.call(body);
         request.response.write(

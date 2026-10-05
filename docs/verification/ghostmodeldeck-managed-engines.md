@@ -76,4 +76,12 @@ JEV official release 仍为 `b11381 / 836d57176dc699a726c55418e4f96b8ca628e1bf`�
 
 生命周期后续最终在线检查：formatter `run-fnZaVV` exit0（仅两个 owned 源文件格式化，base64 传回 SHA256 核验）；strict full format `run-PaFiYE` exit0，56 files / 0 changed；analyze `run-GDrvwB` exit0，No issues found；full test `run-8Js1pO` exit0，172 tests passed。
 
-本增量尚未完成 M2：真实内部 SSE 仍需公共切片。M3 两版本、M4 native 模型与 score/noul 均未由本增量完成。终态 `ManagerLifecycle.shutdown` 未作为业务 recycle 使用，#15 保持开放。
+内部 SSE 公开切片仍在同一个 `LlamaEngine`，无第二管理器、自动载入、聊天 UI 或 #17 网关：
+- 新增 resident-only `streamText` 与 `TextStreamEvent`。`TextRequest` 显式请求 `stream:true` / `stream_options.include_usage:true`；非流式调用默认行为不变。每个 JSON data event 验证所选 alias、单个 index 0、assistant delta；终态必须来自实际 stop/length、正整数 completion_tokens、上游 `[DONE]` 及完整 EOF。delta 是临时内容，只有末尾 result 可代表成功；截断/异常不伪造 DONE、用量或成功。累计原始 wire bytes 在 UTF-8/行缓冲之前限制为 4 MiB。
+- 公共 API 首次 RED `run-W3ghci` exit1：`The method 'streamText' isn't defined for the type 'LlamaEngine'`。GREEN `run-ivDJVp` exit0，14 个真实 SSE 用例：fragmented CRLF/UTF-8、comment、实际 finish/usage；foreign delta/usage、missing finish/usage/DONE、malformed JSON、zero usage、invalid finish/role、duplicate usage、DONE 后数据与超限帧全部拒绝，没有 terminal result，不改变 peer PID/generation/Ready/调用能力。
+- 消费者 cancel 等待自身 permit drain 并 force-close 自身 upstream HTTP，不 kill 任一进程。真实 detached loopback socket 的 remote EOF 证明取消关闭 upstream；peer 仍可用、受保护，原实例可立即再请求。不使用 `HttpResponse.done` 作为 idle peer FIN 证明（该 future 描述 response completion）；普通 SSE fixture 显式禁用 server output buffering，确保持有响应时已实际收到 delta。
+- external cancellation、单实例 stop、unexpected exit 持有真实 upstream 的首次 RED `run-jy0xCT` exit1：取消关闭 socket 时 `HttpException: Connection closed while receiving data` 抢先于 cancellation future。按实际 token/current generation 归一为 cancelled 后 GREEN `run-oPaYlV` exit0，全部 35 个引擎公开回归通过；排空发生在 owned kill 前，晚响应没有 terminal result / Ready 恢复，peer 不受影响。新增 idle-stream timeout 与全 managed recycle 中单个 stop 失败后仍尝试所有 owned child 的 residual/retry 用例，纳入最终检查。
+
+SSE 最终检查仍全部通过唯一 SERIAL `ghostmodeldeck-checks-r33b` 与原脚本正常联网 pub get：strict format `run-W8eLcr` exit0（56 files / 0 changed），analyze `run-Z6O39k` exit0（No issues found），全量 `run-EXiJdS` exit0（191 tests passed，包含 37 个公开引擎用例）。修复中间 analyzer 的三个 curly-braces 提示；全量中间 `run-T98jfl` 190 passed / 1 failed 只因新增测试把 `DeletionPlan` 本身误匹配 hasLength，改为真实公开 `.files` 后全过。终态 publication 在 Future.any await 后再次校验实例/manager cancellation 与当前 generation，seal 后不得发布成功。`git diff --check` 通过；格式化只复制三个 owned 源文件并逐项核对 SHA-256。
+
+M3 两版本、M4 native 模型与 score/noul 均未由本增量完成；这里的 fixture 不表示真实模型 SSE 已验证。终态 `ManagerLifecycle.shutdown` 未作为业务 recycle 使用，#15 保持开放。

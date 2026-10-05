@@ -872,6 +872,238 @@ class LlamaEngine {
     }
   }
 
+  /// Resident-only SSE. Cancellation drains this request, never its peers.
+  Stream<TextStreamEvent> streamText(
+    String instanceId,
+    TextRequest request, {
+    Duration timeout = const Duration(seconds: 30),
+    DecisionCancellation? cancellation,
+  }) {
+    late final StreamController<TextStreamEvent> controller;
+    _RequestPermit? permit;
+    Future<void> execute() async {
+      final running = _running[instanceId];
+      try {
+        if (_shuttingDown ||
+            running == null ||
+            !_isCurrent(running) ||
+            running.instance.status != LlamaInstanceStatus.ready ||
+            !running.instance.capabilities.contains(
+              LlamaCapability.textGeneration,
+            ) ||
+            running.stopping ||
+            running.exitCode != null) {
+          throw const LlamaRequestException(
+            '所选实例没有已验证的文本生成能力',
+            kind: DecisionFailureKind.notReady,
+          );
+        }
+        final active = _admit(running, cancellation);
+        permit = active;
+        final watch = Stopwatch()..start();
+        await _identity(running, timeout, cancellation: active.cancellation);
+        final result = await _streamText(
+          running,
+          request,
+          timeout - watch.elapsed,
+          active.cancellation,
+          (event) => controller.add(event),
+        );
+        // Recheck after the future race, before any terminal publication.
+        if (active.cancellation.isCancelled ||
+            _shutdownCancellation.isCancelled ||
+            running.stopping ||
+            running.exitCode != null ||
+            !_isCurrent(running)) {
+          throw const LlamaRequestException(
+            '文本流已取消',
+            kind: DecisionFailureKind.cancelled,
+          );
+        }
+        running.instance = _copy(running.instance, lastTextResult: result);
+        _publishRun(running);
+        controller.add(TextStreamEvent.complete(result));
+      } on _InstanceIdentityException catch (error, stack) {
+        if (running != null && permit != null) {
+          _release(running, permit!);
+          try {
+            await _fail(running, error.message);
+          } catch (failure, failureStack) {
+            controller.addError(failure, failureStack);
+            return;
+          }
+        }
+        controller.addError(error, stack);
+      } catch (error, stack) {
+        controller.addError(error, stack);
+      } finally {
+        if (running != null && permit != null) _release(running, permit!);
+        unawaited(controller.close());
+      }
+    }
+
+    controller = StreamController<TextStreamEvent>(
+      onListen: () => unawaited(execute()),
+      onCancel: () {
+        final active = permit;
+        active?.cancellation.cancel();
+        return active?.drained.future ?? Future<void>.value();
+      },
+    );
+    return controller.stream;
+  }
+
+  Future<TextResult> _streamText(
+    _Running running,
+    TextRequest request,
+    Duration timeout,
+    DecisionCancellation cancellation,
+    void Function(TextStreamEvent) emit,
+  ) async {
+    if (timeout <= Duration.zero) {
+      throw const LlamaRequestException(
+        '文本流已超时',
+        kind: DecisionFailureKind.timedOut,
+      );
+    }
+    if (cancellation.isCancelled || _shutdownCancellation.isCancelled) {
+      throw const LlamaRequestException(
+        '文本流已取消',
+        kind: DecisionFailureKind.cancelled,
+      );
+    }
+    final client = HttpClient()..connectionTimeout = timeout;
+    final cancelled = Completer<TextResult>();
+    final decoder = TextStreamDecoder(expectedModel: running.instance.id);
+    void cancel() {
+      if (!cancelled.isCompleted) {
+        cancelled.completeError(
+          const LlamaRequestException(
+            '文本流已取消',
+            kind: DecisionFailureKind.cancelled,
+          ),
+        );
+        client.close(force: true);
+      }
+    }
+
+    final removeShutdown = _shutdownCancellation.listen(cancel);
+    final removeExternal = cancellation.listen(cancel);
+    try {
+      final response =
+          (() async {
+            final upstream = await client.postUrl(
+              running.instance.endpoint.resolve('/v1/chat/completions'),
+            );
+            upstream.headers.contentType = ContentType.json;
+            upstream.write(
+              jsonEncode(
+                request.toChat(model: running.instance.id, stream: true),
+              ),
+            );
+            final response = await upstream.close();
+            if (response.statusCode != 200) {
+              throw LlamaRequestException(
+                '引擎 HTTP ${response.statusCode}',
+                kind: DecisionFailureKind.failed,
+              );
+            }
+            if (response.headers.contentType?.mimeType != 'text/event-stream') {
+              throw const TextProtocolException('文本流响应不是 SSE');
+            }
+            var bytes = 0;
+            final lines = response
+                .map((chunk) {
+                  bytes += chunk.length;
+                  if (bytes > 4 * 1024 * 1024) {
+                    throw const TextProtocolException('文本流超过 4 MiB 上限');
+                  }
+                  return chunk;
+                })
+                .transform(utf8.decoder)
+                .transform(const LineSplitter());
+            final data = <String>[];
+            await for (final line in lines) {
+              if (cancellation.isCancelled ||
+                  running.stopping ||
+                  running.exitCode != null ||
+                  !_isCurrent(running)) {
+                throw const LlamaRequestException(
+                  '文本流已取消',
+                  kind: DecisionFailureKind.cancelled,
+                );
+              }
+              if (line.isEmpty) {
+                if (data.isNotEmpty) {
+                  final event = decoder.add(data.join('\n'));
+                  data.clear();
+                  if (event != null) emit(event);
+                }
+              } else if (line == 'data' || line.startsWith('data:')) {
+                var value = line == 'data' ? '' : line.substring(5);
+                if (value.startsWith(' ')) value = value.substring(1);
+                data.add(value);
+              }
+            }
+            if (data.isNotEmpty) {
+              throw const TextProtocolException('文本流事件未完整结束');
+            }
+            if (cancellation.isCancelled ||
+                running.stopping ||
+                running.exitCode != null ||
+                !_isCurrent(running)) {
+              throw const LlamaRequestException(
+                '文本流已取消',
+                kind: DecisionFailureKind.cancelled,
+              );
+            }
+            return decoder.finish();
+          })().timeout(
+            timeout,
+            onTimeout: () => throw const LlamaRequestException(
+              '文本流已超时',
+              kind: DecisionFailureKind.timedOut,
+            ),
+          );
+      return await Future.any<TextResult>([response, cancelled.future]);
+    } on TextProtocolException catch (error) {
+      throw LlamaRequestException(
+        error.message,
+        kind: DecisionFailureKind.invalidResponse,
+        rawResponse: decoder.rawResponse,
+      );
+    } on FormatException {
+      throw LlamaRequestException(
+        '文本流不是有效 UTF-8',
+        kind: DecisionFailureKind.invalidResponse,
+        rawResponse: decoder.rawResponse,
+      );
+    } on IOException catch (error) {
+      // Closing the owned socket can beat the cancellation future to the race.
+      // Classify using the actual token/generation, not the network exception.
+      if (cancellation.isCancelled ||
+          _shutdownCancellation.isCancelled ||
+          running.stopping ||
+          running.exitCode != null ||
+          !_isCurrent(running)) {
+        throw LlamaRequestException(
+          '文本流已取消',
+          kind: DecisionFailureKind.cancelled,
+          rawResponse: decoder.rawResponse,
+        );
+      }
+      throw LlamaRequestException(
+        '文本流连接失败：$error',
+        kind: DecisionFailureKind.failed,
+        rawResponse: decoder.rawResponse,
+      );
+    } finally {
+      removeShutdown();
+      removeExternal();
+      client.close(force: true);
+    }
+  }
+
   Future<TextResult> _text(
     _Running running,
     TextRequest request,
