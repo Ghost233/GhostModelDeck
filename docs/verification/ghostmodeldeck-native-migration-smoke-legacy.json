@@ -1,0 +1,232 @@
+{
+  "home": "/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-home-xx7mdgvg",
+  "app": "/Users/ghost233/Ghost233Code/GhostModelDeck/build/macos/Build/Products/Release/GhostModelDeck.app",
+  "scope": "fresh configuration, live MCP discovery, no-model response, native quit; no real model inference",
+  "observations": [],
+  "pid": 90890,
+  "listeners": "COMMAND     PID     USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME\nGhostMode 90890 ghost233    7u  IPv4 0x9fca4260ae1be607      0t0  TCP 127.0.0.1:54842 (LISTEN)\n",
+  "fresh_settings_absent": true,
+  "initialize": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "protocolVersion": "2025-11-25",
+      "capabilities": {
+        "tools": {}
+      },
+      "serverInfo": {
+        "name": "ghostmodeldeck",
+        "version": "0.1.0"
+      }
+    }
+  },
+  "tools": {
+    "jsonrpc": "2.0",
+    "id": 2,
+    "result": {
+      "tools": [
+        {
+          "name": "consult_jev_council",
+          "description": "咨询已运行的决策委员会，返回每席原始意见、综合评分、分歧与故障。",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "description": "本次判断的完整上下文。",
+                "type": "string"
+              },
+              "options": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "text": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "text"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 2,
+                "maxItems": 255
+              }
+            },
+            "required": [
+              "state",
+              "options"
+            ],
+            "additionalProperties": false
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "schema_version": {
+                "type": "integer",
+                "const": 1
+              },
+              "request_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "partial",
+                  "failed"
+                ]
+              },
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "ensemble",
+                  "single_model",
+                  "none"
+                ]
+              },
+              "request": {
+                "type": "object"
+              },
+              "started_at": {
+                "type": "string"
+              },
+              "completed_at": {
+                "type": "string"
+              },
+              "elapsed_us": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "seats": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "aggregate_scores": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              },
+              "top_choices": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "votes": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "disagreement": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
+            "required": [
+              "schema_version",
+              "request_id",
+              "status",
+              "scope",
+              "request",
+              "started_at",
+              "completed_at",
+              "elapsed_us",
+              "seats",
+              "aggregate_scores",
+              "top_choices",
+              "votes",
+              "disagreement"
+            ]
+          },
+          "annotations": {
+            "readOnlyHint": true,
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": false
+          },
+          "execution": {
+            "taskSupport": "forbidden"
+          }
+        }
+      ]
+    }
+  },
+  "no_model_call": {
+    "jsonrpc": "2.0",
+    "id": 3,
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"schema_version\":1,\"request_id\":\"51b7f281e0cde741cd75a870df7ccb99\",\"status\":\"failed\",\"scope\":\"none\",\"request\":{\"state\":\"Native migration smoke: no model is selected.\",\"instructions\":\"根据上下文，从候选项中选择最合适的一项。\",\"options\":[{\"id\":\"a\",\"text\":\"A\"},{\"id\":\"b\",\"text\":\"B\"}]},\"started_at\":\"2026-10-05T14:42:20.969418Z\",\"completed_at\":\"2026-10-05T14:42:20.969430Z\",\"elapsed_us\":12,\"seats\":[],\"aggregate_scores\":null,\"top_choices\":null,\"votes\":null,\"disagreement\":null}"
+        }
+      ],
+      "isError": true,
+      "structuredContent": {
+        "schema_version": 1,
+        "request_id": "51b7f281e0cde741cd75a870df7ccb99",
+        "status": "failed",
+        "scope": "none",
+        "request": {
+          "state": "Native migration smoke: no model is selected.",
+          "instructions": "根据上下文，从候选项中选择最合适的一项。",
+          "options": [
+            {
+              "id": "a",
+              "text": "A"
+            },
+            {
+              "id": "b",
+              "text": "B"
+            }
+          ]
+        },
+        "started_at": "2026-10-05T14:42:20.969418Z",
+        "completed_at": "2026-10-05T14:42:20.969430Z",
+        "elapsed_us": 12,
+        "seats": [],
+        "aggregate_scores": null,
+        "top_choices": null,
+        "votes": null,
+        "disagreement": null
+      }
+    }
+  },
+  "quit_command": {
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "app_exit": 0,
+  "port_after_quit": false,
+  "passed": true,
+  "runtime_log": "/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-home-xx7mdgvg/app.log"
+}

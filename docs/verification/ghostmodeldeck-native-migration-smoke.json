@@ -1,0 +1,13 @@
+{
+  "home": "/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-home-y5l76sv9",
+  "app": "/Users/ghost233/Ghost233Code/GhostModelDeck/build/macos/Build/Products/Release/GhostModelDeck.app",
+  "scope": "fresh configuration, live MCP discovery, no-model response, native quit; no real model inference",
+  "observations": [],
+  "pid": 89550,
+  "listeners": "COMMAND     PID     USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME\nGhostMode 89550 ghost233    7u  IPv4 0x372b6f162b7f44f2      0t0  TCP 127.0.0.1:54842 (LISTEN)\n",
+  "fresh_settings_absent": true,
+  "passed": false,
+  "failure": "HTTP Error 400: Bad Request",
+  "forced_cleanup": true,
+  "runtime_log": "/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-home-y5l76sv9/app.log"
+}
