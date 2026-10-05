@@ -285,33 +285,39 @@ class DecisionBatchResult {
     required String expectedModel,
     Duration elapsed = Duration.zero,
   }) {
-    if (utf8.encode(raw).length > decisionMaxResponseBytes)
+    if (utf8.encode(raw).length > decisionMaxResponseBytes) {
       throw const DecisionProtocolException('typed 响应超出字节上限');
+    }
     try {
       final value = jsonDecode(raw);
-      if (value is! Map || value['model'] != expectedModel)
+      if (value is! Map || value['model'] != expectedModel) {
         throw const DecisionProtocolException('响应无法绑定到所选实例');
+      }
       final usage = value['usage'];
       final answers = value['answers'];
       if (usage is! Map ||
           usage['output_tokens'] is! int ||
           usage['output_tokens'] != 0 ||
           usage['input_tokens'] is! int ||
-          (usage['input_tokens'] as int) < 0)
+          (usage['input_tokens'] as int) < 0) {
         throw const DecisionProtocolException('响应不是零生成 token 的 typed 判断');
+      }
       if (answers is! Map ||
           answers.length != request.questions.length ||
-          answers.keys.any((id) => !request.questions.containsKey(id)))
+          answers.keys.any((id) => !request.questions.containsKey(id))) {
         throw const DecisionProtocolException('响应问题 ID 与请求不一致');
+      }
       final parsed = <String, DecisionAnswer>{};
       for (final entry in request.questions.entries) {
         final answer = answers[entry.key];
         final question = entry.value;
-        if (answer is! Map || answer['type'] != question.type.name)
+        if (answer is! Map || answer['type'] != question.type.name) {
           throw const DecisionProtocolException('响应题型与请求不一致');
+        }
         if (question is NoulQuestion) {
-          if (answer.length != 2 || !answer.containsKey('noul'))
+          if (answer.length != 2 || !answer.containsKey('noul')) {
             throw const DecisionProtocolException('noul 只能返回 scalar');
+          }
           parsed[entry.key] = NoulAnswer._(_finite(answer['noul'], 1));
         } else if (question is ChoiceQuestion) {
           final probabilities = _distribution(
@@ -323,23 +329,26 @@ class DecisionBatchResult {
               !probabilities.containsKey(choice) ||
               probabilities.values.any(
                 (p) => p > probabilities[choice]! + 1e-12,
-              ))
+              )) {
             throw const DecisionProtocolException('响应选择不是最高概率候选');
+          }
           parsed[entry.key] = ChoiceAnswer._(choice, probabilities);
         } else if (question is ScoreQuestion) {
           final legend = answer['legend'];
           if (legend is! Map ||
               legend.length != question.levels.length ||
-              question.legend.entries.any((e) => legend[e.key] != e.value))
+              question.legend.entries.any((e) => legend[e.key] != e.value)) {
             throw const DecisionProtocolException('score legend 与有序级别不一致');
+          }
           final probabilities = _distribution(
             answer['probabilities'],
             question.legend.keys,
           );
           final score = _finite(answer['score'], question.levels.length - 1);
           final expected = ordinalExpectation(probabilities);
-          if ((score - expected).abs() > decisionProbabilitySumTolerance)
+          if ((score - expected).abs() > decisionProbabilitySumTolerance) {
             throw const DecisionProtocolException('score 不是概率期望索引');
+          }
           parsed[entry.key] = ScoreAnswer._(
             score,
             question.legend,
@@ -366,20 +375,23 @@ double ordinalExpectation(Map<String, double> probabilities) => probabilities
     .fold(0.0, (sum, entry) => sum + int.parse(entry.key) * entry.value);
 
 double _finite(Object? value, num maximum) {
-  if (value is! num || !value.isFinite || value < 0 || value > maximum)
+  if (value is! num || !value.isFinite || value < 0 || value > maximum) {
     throw const DecisionProtocolException('响应数值无效');
+  }
   return value.toDouble();
 }
 
 Map<String, double> _distribution(Object? value, Iterable<String> ids) {
   if (value is! Map ||
       value.length != ids.length ||
-      value.keys.any((id) => !ids.contains(id)))
+      value.keys.any((id) => !ids.contains(id))) {
     throw const DecisionProtocolException('响应候选 ID 与请求不一致');
+  }
   final result = {for (final id in ids) id: _finite(value[id], 1)};
   if ((result.values.fold(0.0, (a, b) => a + b) - 1).abs() >
-      decisionProbabilitySumTolerance)
+      decisionProbabilitySumTolerance) {
     throw const DecisionProtocolException('响应概率未归一化');
+  }
   return result;
 }
 

@@ -9,6 +9,141 @@ import 'package:ghost_model_deck/llama_engine.dart';
 import 'fixtures/council_runtime.dart';
 
 void main() {
+  test('typed deadlines and cancellation seal late seats without killing or contaminating the next round', () async {
+    final runtime = await CouncilRuntime.create();
+    addTearDown(runtime.close);
+    final council = CouncilController(catalog: runtime.catalog);
+    addTearDown(council.close);
+    council.selectSeats(council.availableSeats.map((seat) => seat.id));
+    final lateId = council.selectedSeats.last.instance.id;
+    final arrival = Completer<void>();
+    final release = Completer<void>();
+    final lateReturned = Completer<void>();
+    addTearDown(() {
+      if (!release.isCompleted) release.complete();
+    });
+    var count = 0;
+    runtime.io.respond = (request, raw) async {
+      if (++count == 2) arrival.complete();
+      if (request['model'] == lateId) {
+        await release.future;
+        lateReturned.complete();
+      }
+      return raw;
+    };
+    final request = DecisionBatchRequest(
+      state: 'typed deadline',
+      questions: {
+        'rank': ScoreQuestion(instructions: 'Rank', levels: ['Low', 'High']),
+        'valid': NoulQuestion(
+          instructions: 'Valid',
+          falseText: 'False',
+          trueText: 'True',
+        ),
+      },
+    );
+    final pending = council.consultBatch(
+      request,
+      timeout: const Duration(milliseconds: 250),
+    );
+    await arrival.future.timeout(const Duration(seconds: 2));
+    final timed = await pending;
+    expect(timed.scope, CouncilScope.singleModel);
+    expect(timed.aggregates, isEmpty);
+    expect(timed.seats.map((seat) => seat.status), [
+      CouncilSeatStatus.ok,
+      CouncilSeatStatus.timedOut,
+    ]);
+    final sealed = jsonEncode(timed.toJson());
+    release.complete();
+    await lateReturned.future.timeout(const Duration(seconds: 2));
+    runtime.io.respond = null;
+    runtime.io.holdConsultation();
+    final token = DecisionCancellation();
+    final cancelled = council.consultBatch(request, cancellation: token);
+    await runtime.io.bothArrived!.future.timeout(const Duration(seconds: 2));
+    token.cancel();
+    final none = await cancelled;
+    expect(none.scope, CouncilScope.none);
+    expect(
+      none.seats.every((seat) => seat.status == CouncilSeatStatus.cancelled),
+      isTrue,
+    );
+    runtime.io.release!.complete();
+    final recovered = await council.consultBatch(request);
+    expect(recovered.scope, CouncilScope.ensemble);
+    expect(council.state.lastBatchResult, same(recovered));
+    expect(jsonEncode(timed.toJson()), sealed);
+    expect(runtime.io.killedChildren, 0);
+  });
+
+  test('mixed typed council independently aggregates ordinal and scalar answers with coverage', () async {
+    final runtime = await CouncilRuntime.create(modelCount: 3);
+    addTearDown(runtime.close);
+    final council = CouncilController(catalog: runtime.catalog);
+    addTearDown(council.close);
+    council.selectSeats(council.availableSeats.map((s) => s.id));
+    final ids = council.selectedSeats.map((s) => s.instance.id).toList();
+    final request = DecisionBatchRequest(
+      state: 'same context',
+      questions: {
+        'rank': ScoreQuestion(instructions: 'Rank', levels: ['Low', 'High']),
+        'valid': NoulQuestion(
+          instructions: 'Valid',
+          falseText: 'False',
+          trueText: 'True',
+        ),
+      },
+    );
+    var successful = 3;
+    runtime.io.respond = (req, raw) async {
+      final body = jsonDecode(raw) as Map;
+      final index = ids.indexOf(req['model'] as String);
+      if (index == 1) {
+        body['answers']['rank']['probabilities'] = {'0': 0.75, '1': 0.25};
+        body['answers']['rank']['score'] = 0.25;
+        body['answers']['valid'] = {'type': 'noul', 'noul': 0.2};
+      }
+      if (index >= successful) body['answers'].remove('valid');
+      return jsonEncode(body);
+    };
+    final all = await council.consultBatch(request);
+    expect(all.status, CouncilStatus.ok);
+    expect(all.scope, CouncilScope.ensemble);
+    successful = 2;
+    final partial = await council.consultBatch(request);
+    expect(partial.status, CouncilStatus.partial);
+    expect(partial.scope, CouncilScope.ensemble);
+    expect(partial.aggregates['rank'], {
+      'type': 'score',
+      'legend': {'0': 'Low', '1': 'High'},
+      'probabilities': {'0': 0.5, '1': 0.5},
+      'score': 0.5,
+      'ordinal_spread': 0.5,
+    });
+    expect(partial.aggregates['valid'], {
+      'type': 'noul',
+      'noul': 0.5,
+      'scalar_spread': closeTo(0.6, 1e-12),
+    });
+    expect(partial.seats.last.status, CouncilSeatStatus.invalidResponse);
+    expect(partial.toJson()['request'], request.toSystemone());
+    successful = 1;
+    final single = await council.consultBatch(request);
+    expect(single.scope, CouncilScope.singleModel);
+    expect(single.aggregates, isEmpty);
+    expect(single.seats.first.batchResult!.answers['valid']!.toJson(), {
+      'type': 'noul',
+      'noul': 0.8,
+    });
+    successful = 0;
+    final none = await council.consultBatch(request);
+    expect(none.status, CouncilStatus.failed);
+    expect(none.scope, CouncilScope.none);
+    expect(none.aggregates, isEmpty);
+    expect(runtime.io.killedChildren, 0);
+  });
+
   test(
     'a failed third seat preserves the two valid opinions and their aggregate',
     () async {

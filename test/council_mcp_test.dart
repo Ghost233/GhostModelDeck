@@ -55,6 +55,84 @@ Future<(int, dynamic)> _http(
 }
 
 void main() {
+  test('existing MCP discovers typed batches and renders the same computed mixed DTO', () async {
+    final runtime = await CouncilRuntime.create();
+    addTearDown(runtime.close);
+    final council = CouncilController(catalog: runtime.catalog);
+    addTearDown(council.close);
+    council.selectSeats(council.availableSeats.map((s) => s.id));
+    final server = CouncilMcpServer(controller: council, port: 0);
+    addTearDown(server.close);
+    await server.start();
+    final client = await _connect(server.endpoint!);
+    addTearDown(client.close);
+    final tools = (await client.listTools()).tools;
+    expect(tools.map((t) => t.name), contains('consult_jev_council_batch'));
+    final questions = {
+      'rank': {
+        'type': 'score',
+        'instructions': 'Rank',
+        'criteria': ['Low', 'High'],
+      },
+      'valid': {
+        'type': 'noul',
+        'instructions': 'Valid',
+        'criteria': {'false': 'False', 'true': 'True'},
+      },
+      'route': {
+        'type': 'choice',
+        'instructions': 'Route',
+        'criteria': {'a': 'A', 'b': 'B'},
+      },
+    };
+    final result = await client.callTool(
+      CallToolRequest(
+        name: 'consult_jev_council_batch',
+        arguments: {'state': 'same', 'questions': questions},
+      ),
+    );
+    final dto = result.structuredContent!;
+    expect(dto, council.state.lastBatchResult!.toJson());
+    expect(jsonDecode((result.content.single as TextContent).text), dto);
+    expect(dto['status'], 'ok');
+    expect(dto['aggregates']['rank']['score'], 0.75);
+    expect(dto['aggregates']['valid'], {
+      'type': 'noul',
+      'noul': 0.8,
+      'scalar_spread': 0.0,
+    });
+    expect(dto['aggregates']['route']['votes'], {'a': 0, 'b': 2});
+    for (final seat in dto['seats']) {
+      expect(seat.containsKey('probabilities'), isFalse);
+      expect(seat['answers']['valid'], {'type': 'noul', 'noul': 0.8});
+    }
+    for (final bad in [
+      {'state': 'same', 'questions': questions, 'stream': true},
+      {
+        'state': 'same',
+        'questions': {
+          'bad': {
+            'type': 'score',
+            'instructions': 'Rank',
+            'criteria': ['Only'],
+          },
+        },
+      },
+      {'state': 'same', 'questions': {}, 'options': []},
+    ]) {
+      final failure = await client.callTool(
+        CallToolRequest(name: 'consult_jev_council_batch', arguments: bad),
+      );
+      expect(failure.isError, isTrue);
+      expect(failure.structuredContent!['error']['code'], 'invalid_input');
+      expect(failure.structuredContent!['aggregates'], isEmpty);
+      expect(
+        jsonDecode((failure.content.single as TextContent).text),
+        failure.structuredContent,
+      );
+    }
+  });
+
   test('an occupied configured port fails explicitly and retries that exact address after release', () async {
     final runtime = await CouncilRuntime.create(modelCount: 0);
     addTearDown(runtime.close);
@@ -73,7 +151,12 @@ void main() {
     expect(server.endpoint!.port, port);
     final client = await _connect(server.endpoint!);
     addTearDown(client.close);
-    expect((await client.listTools()).tools.single.name, 'consult_jev_council');
+    expect(
+      (await client.listTools()).tools
+          .singleWhere((tool) => tool.name == 'consult_jev_council')
+          .name,
+      'consult_jev_council',
+    );
   });
   test('exact Host and Origin checks cover POST and preflight while malformed RPC stays a protocol error', () async {
     final runtime = await CouncilRuntime.create(modelCount: 0);
@@ -200,7 +283,9 @@ void main() {
     final reconnected = await _connect(server.endpoint!);
     addTearDown(reconnected.close);
     expect(
-      (await reconnected.listTools()).tools.single.name,
+      (await reconnected.listTools()).tools
+          .singleWhere((tool) => tool.name == 'consult_jev_council')
+          .name,
       'consult_jev_council',
     );
   });
@@ -462,7 +547,12 @@ void main() {
     }
     final client = await _connect(server.endpoint!);
     addTearDown(client.close);
-    expect((await client.listTools()).tools.single.name, 'consult_jev_council');
+    expect(
+      (await client.listTools()).tools
+          .singleWhere((tool) => tool.name == 'consult_jev_council')
+          .name,
+      'consult_jev_council',
+    );
     expect(runtime.engine.state.instances, isEmpty);
   });
   test('modern and legacy SDK clients share the same ready seats and receive identical structured and text results', () async {
@@ -556,13 +646,24 @@ void main() {
       final client = await _connect(server.endpoint!);
       addTearDown(client.close);
       final discovered = await client.listTools();
-      expect(discovered.tools.single.name, 'consult_jev_council');
-      expect(discovered.tools.single.inputSchema.toJson()['required'], [
-        'state',
-        'options',
-      ]);
       expect(
-        discovered.tools.single.outputSchema!.toJson()['required'],
+        discovered.tools
+            .singleWhere((tool) => tool.name == 'consult_jev_council')
+            .name,
+        'consult_jev_council',
+      );
+      expect(
+        discovered.tools
+            .singleWhere((tool) => tool.name == 'consult_jev_council')
+            .inputSchema
+            .toJson()['required'],
+        ['state', 'options'],
+      );
+      expect(
+        discovered.tools
+            .singleWhere((tool) => tool.name == 'consult_jev_council')
+            .outputSchema!
+            .toJson()['required'],
         containsAll([
           'schema_version',
           'request_id',

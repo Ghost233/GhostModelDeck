@@ -25,7 +25,33 @@ Original ONLINE serial slot `GMD_TEST_CONTAINER=ghostmodeldeck-checks-r33b`:
 
 Raw evidence is under ignored `.tooling/container-tests/` and is not native inference proof. `bash-369` / `run-Rd02Sh` formatting exit0 formatted the four requested protocol/engine files; one mistyped nonexistent fixture path was reported and is **not** credited as checked. Correct paths subsequently checked separately. Formatted remote copies read back through base64 into owned host source paths (Socktainer remote-to-host `docker cp` reported path not found).
 
-First green commit and Council/MCP/page integration pending; final ONLINE strict format/analyze/full gates pending. No whole #15 acceptance claim.
+First protocol+engine green commit: `c19428ef050500ff9465009979daedc0b6fc588a` on main. Council/MCP/page integration is implemented; final ONLINE strict format/analyze/full gates GREEN below. Final integration SHA is recorded in the durable progress handoff after commit. No whole #15 acceptance claim.
+
+| Integration slice | RED | GREEN |
+|---|---|---|
+| Public mixed Council | `bash-375`, `run-o487fq`, exit1 (consultBatch absent) | `bash-376`, `run-9qWS1o`, exit1 exposed a nonexistent DecisionBatchResult.toJson call; corrected to render real answer objects |
+| Existing MCP typed discovery | `bash-377`, `run-3xD645`, exit1 (typed tool absent; also test I/O success-mask ordering corrected) | `bash-378`, `run-2XbOjf`, exit0, 26 Council/MCP/page tests including legacy regressions |
+| Typed deadline/cancel/late recovery | shared lifecycle regression after integration | `bash-379`, `run-i7q0Kg`, exit0, one public round test |
+| Actual score/noul controls at200% text | `bash-384`, `run-oVuvey`, exit1: RenderFlex overflow52px right | `bash-385`, `run-bQIyQP`, exit0: minimal flexible label fix, 1200×900 and400×800 layouts |
+
+## Caller and DTO decisions
+
+- MCP preserves the exact legacy tool name/input/output schema and choice execution branch. Additive `consult_jev_council_batch` uses the actual existing `/mcp` transport and shared controller; no new HTTP API. Separate discovery avoids the proposal's ambiguous legacy-versus-v2 arguments or breaking legacy output validation. Typed tool schema_version is 1 in its separate namespace; its questions object matches the fixed local wire. Stream=true and wrong request shapes return structured invalid_input errors. Text is JSON serialization of exactly the structured computed DTO, including failures.
+- Default CouncilPage remains the legacy choice branch. Its selector exposes ordered score levels (2–10, visible ordinal indices) and false/true noul descriptions, submitting through the same `consultBatch` as MCP, not a test-only facade. Aggregate display reads computed results; raw per-seat identity, answers, source wire and errors remain inspectable. Noul scalar is never displayed as confidence or a client-invented probability map. Single-seat views explicitly have no ensemble aggregate.
+- Typed result validates only consumed choice/score fields; optional upstream confidence is not exposed or used as a success/weight/calibration signal. Missing confidence does not break legacy producers. Noul strictly forbids all additional answer fields, including confidence/probabilities/legend. Exact questions/usage/input_tokens/owned model are mandatory for the new typed branch.
+- Expectation-consistency uses absolute tolerance `0.0001`, the existing distribution tolerance; no rounding/renormalization repair. Choice argmax tie tolerance remains `1e-12`. App bounds differ from tentative planning numbers to use one simple whole-request budget rather than arbitrary per-descriptor Unicode limits; encoded request bound is 256 KiB before owned model envelope, at most32 questions, response1 MiB before decoding. No claims about upstream token fit.
+- Engine fixed a public post-await cancellation publication race in the legacy decision path as part of preserving M2: terminal token/current-generation check before installing a result. Typed dispatch uses the same permit/cancellation/drain/identity ownership and independently earned capability checks. New tests use held external loopback responses; late results cannot update the completed consultation or contaminate the next one.
+- Widget tests tap the real existing controls and verify computed score/noul summaries through real production catalog/engine/Council paths, with only external process/loopback/files substituted. These are not native desktop visual or real-weight inference acceptance.
+
+## Formal gates (original ONLINE serial container)
+
+- Slot: `GMD_TEST_CONTAINER=ghostmodeldeck-checks-r33b`; original `scripts/test-container.sh`, normal dependency resolution, no offline/no-pub substitutes.
+- Strict `format --output=none --set-exit-if-changed lib test benchmarks`: latest `bash-390`, `.tooling/container-tests/run-ysuWvc`, exit0,58 files,0 changed (after lint-block fix).
+- Full `analyze`: `bash-389`, `.tooling/container-tests/run-ZV1K2S`, exit1 reported12 `curly_braces_in_flow_control_structures` infos in typed protocol. All12 corrected using braces only, no ignores/semantics changes; repeated `bash-391`, `.tooling/container-tests/run-LQesyK`, exit0: No issues found.
+- Full normal ONLINE `test`: `bash-392`, `.tooling/container-tests/run-ScCcxp`, exit0,223 tests passed. Host raw `exit` file independently reads0; original script's source/result transfer checks remain intact. All jobs collected; no alternate/offline/no-pub formal runner.
+- Final `git diff --check` clean; current main remains first green `c19428ef050500ff9465009979daedc0b6fc588a` before integration commit. All58 Dart files in lib/test/benchmarks were byte-compared to each of the three final gate archives and matched final source. Archive SHA256: format `0fe745862251dcaf74e00ddc7785a4e229083c4c812a30e67ac792da84fe146d`; analyze `84a56dfe0f5d64e8615b2def49356d07703367d0fac0e77f476854467b0a681a`; test `ae58fb83d9cce71a4027b0d9d1f71b26fefd4a73535fe6bc4928b796756bf46e`.
+- Exact integration SHA/job/run/exit/limits carried in durable progress after named-owned-path commit. IDs are harness jobs, not native inference or acceptance.
+- Container widget200% layout at1200×900/400×800 is not native desktop screenshot, keyboard/focus, real-model Ready or Release acceptance. No calibrated-confidence/quality claim.
 
 ## Limits
 

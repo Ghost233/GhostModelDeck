@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
 import 'council.dart';
+import 'decision_protocol.dart';
 
 class CouncilPage extends StatefulWidget {
   const CouncilPage({
@@ -21,6 +22,14 @@ class _CouncilPageState extends State<CouncilPage> {
   final _context = TextEditingController();
   final _options = [_OptionFields(1), _OptionFields(2)];
   int _nextOption = 3;
+  DecisionPrimitive _primitive = DecisionPrimitive.choice;
+  int get _maxOptions => switch (_primitive) {
+    DecisionPrimitive.choice => 255,
+    DecisionPrimitive.score => 10,
+    DecisionPrimitive.noul => 2,
+  };
+  Iterable<_OptionFields> get _visibleOptions =>
+      _primitive == DecisionPrimitive.noul ? _options.take(2) : _options;
   String? _error;
   DecisionCancellation? _activeCancellation;
 
@@ -35,14 +44,17 @@ class _CouncilPageState extends State<CouncilPage> {
   }
 
   bool get _validOptions =>
-      _options.length >= 2 &&
-      _options.every(
-        (option) =>
-            option.id.text.trim().isNotEmpty &&
-            option.text.text.trim().isNotEmpty,
-      ) &&
-      _options.map((option) => option.id.text.trim()).toSet().length ==
-          _options.length;
+      _visibleOptions.length >= 2 &&
+      _visibleOptions.length <= _maxOptions &&
+      (_primitive != DecisionPrimitive.choice ||
+          _options.every(
+                (option) =>
+                    option.id.text.trim().isNotEmpty &&
+                    option.text.text.trim().isNotEmpty,
+              ) &&
+              _options.map((option) => option.id.text.trim()).toSet().length ==
+                  _options.length) &&
+      _visibleOptions.every((option) => option.text.text.trim().isNotEmpty);
 
   Future<void> _consult() async {
     final cancellation = DecisionCancellation();
@@ -51,14 +63,37 @@ class _CouncilPageState extends State<CouncilPage> {
       _activeCancellation = cancellation;
     });
     try {
-      await widget.controller.consult(
-        state: _context.text,
-        options: {
-          for (final option in _options)
-            option.id.text.trim(): option.text.text.trim(),
-        },
-        cancellation: cancellation,
-      );
+      if (_primitive != DecisionPrimitive.choice) {
+        final descriptions = _visibleOptions
+            .map((option) => option.text.text.trim())
+            .toList();
+        final DecisionQuestion question = _primitive == DecisionPrimitive.score
+            ? ScoreQuestion(
+                instructions: '根据上下文，按从低到高的有序等级评分。',
+                levels: descriptions,
+              )
+            : NoulQuestion(
+                instructions: '根据上下文判断描述。',
+                falseText: descriptions[0],
+                trueText: descriptions[1],
+              );
+        await widget.controller.consultBatch(
+          DecisionBatchRequest(
+            state: _context.text,
+            questions: {'council_typed': question},
+          ),
+          cancellation: cancellation,
+        );
+      } else {
+        await widget.controller.consult(
+          state: _context.text,
+          options: {
+            for (final option in _options)
+              option.id.text.trim(): option.text.text.trim(),
+          },
+          cancellation: cancellation,
+        );
+      }
     } catch (error) {
       if (mounted) setState(() => _error = error.toString());
     } finally {
@@ -93,7 +128,8 @@ class _CouncilPageState extends State<CouncilPage> {
         ),
         if (widget.controller.availableSeats.isEmpty &&
             widget.controller.selectedSeats.isEmpty &&
-            snapshot.data!.lastResult == null)
+            snapshot.data!.lastResult == null &&
+            snapshot.data!.lastBatchResult == null)
           Expanded(
             child: Center(
               child: JevSurface(
@@ -126,24 +162,30 @@ class _CouncilPageState extends State<CouncilPage> {
               builder: (context, constraints) {
                 final state = snapshot.data!;
                 final result = state.lastResult;
+                final batch = state.lastBatchResult;
+                final output = batch != null
+                    ? _batchResult(context, batch)
+                    : result != null
+                    ? _result(context, result)
+                    : null;
                 final input = _input(context, state);
                 return SingleChildScrollView(
-                  child: result != null && constraints.maxWidth >= 880
+                  child: output != null && constraints.maxWidth >= 880
                       ? Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Expanded(flex: 5, child: input),
                             const SizedBox(width: 20),
-                            Expanded(flex: 6, child: _result(context, result)),
+                            Expanded(flex: 6, child: output),
                           ],
                         )
                       : Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             input,
-                            if (result != null) ...[
+                            if (output != null) ...[
                               const SizedBox(height: 20),
-                              _result(context, result),
+                              output,
                             ],
                           ],
                         ),
@@ -198,6 +240,29 @@ class _CouncilPageState extends State<CouncilPage> {
             ],
           ),
           const SizedBox(height: 24),
+          DropdownButton<DecisionPrimitive>(
+            key: const Key('council-primitive'),
+            value: _primitive,
+            isExpanded: true,
+            items: const [
+              DropdownMenuItem(
+                value: DecisionPrimitive.choice,
+                child: Text('Choice · 候选选择'),
+              ),
+              DropdownMenuItem(
+                value: DecisionPrimitive.score,
+                child: Text('Score · 有序评分'),
+              ),
+              DropdownMenuItem(
+                value: DecisionPrimitive.noul,
+                child: Text('Noul · true-head'),
+              ),
+            ],
+            onChanged: state.busy
+                ? null
+                : (value) => setState(() => _primitive = value!),
+          ),
+          const SizedBox(height: 12),
           Text('上下文', style: theme.textTheme.titleMedium),
           const SizedBox(height: 10),
           TextField(
@@ -210,10 +275,15 @@ class _CouncilPageState extends State<CouncilPage> {
           const SizedBox(height: 24),
           Row(
             children: [
-              Text('候选项', style: theme.textTheme.titleMedium),
-              const Spacer(),
+              Expanded(
+                child: Text(switch (_primitive) {
+                  DecisionPrimitive.choice => '候选项',
+                  DecisionPrimitive.score => '等级 · 从低到高（2–10）',
+                  DecisionPrimitive.noul => '描述 · false / true',
+                }, style: theme.textTheme.titleMedium),
+              ),
               TextButton.icon(
-                onPressed: state.busy || _options.length >= 255
+                onPressed: state.busy || _options.length >= _maxOptions
                     ? null
                     : () => setState(
                         () => _options.add(_OptionFields(_nextOption++)),
@@ -224,20 +294,28 @@ class _CouncilPageState extends State<CouncilPage> {
             ],
           ),
           const SizedBox(height: 8),
-          for (final option in _options)
+          for (final option in _visibleOptions)
             Padding(
               padding: const EdgeInsets.only(bottom: 10),
               child: Row(
                 children: [
                   SizedBox(
                     width: 96,
-                    child: TextField(
-                      key: Key('council-id-${option.number}'),
-                      controller: option.id,
-                      enabled: !state.busy,
-                      decoration: const InputDecoration(hintText: 'ID'),
-                      onChanged: (_) => setState(() {}),
-                    ),
+                    child: _primitive != DecisionPrimitive.choice
+                        ? Text(
+                            _primitive == DecisionPrimitive.score
+                                ? '${_options.indexOf(option)}'
+                                : (_options.indexOf(option) == 0
+                                      ? 'false'
+                                      : 'true'),
+                          )
+                        : TextField(
+                            key: Key('council-id-${option.number}'),
+                            controller: option.id,
+                            enabled: !state.busy,
+                            decoration: const InputDecoration(hintText: 'ID'),
+                            onChanged: (_) => setState(() {}),
+                          ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
@@ -252,7 +330,10 @@ class _CouncilPageState extends State<CouncilPage> {
                   const SizedBox(width: 4),
                   IconButton(
                     tooltip: '删除候选项',
-                    onPressed: state.busy || _options.length <= 2
+                    onPressed:
+                        state.busy ||
+                            _options.length <= 2 ||
+                            _primitive == DecisionPrimitive.noul
                         ? null
                         : () {
                             setState(() => _options.remove(option));
@@ -302,6 +383,74 @@ class _CouncilPageState extends State<CouncilPage> {
       ),
     );
   }
+
+  Widget _batchResult(BuildContext context, CouncilBatchConsultation result) {
+    final theme = Theme.of(context);
+    return JevSurface(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            result.scope == CouncilScope.ensemble
+                ? '综合 typed 判断'
+                : result.scope == CouncilScope.singleModel
+                ? '单模型结果 · 无综合'
+                : '咨询失败',
+            style: theme.textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${result.seats.where((seat) => seat.batchResult != null).length}/${result.seats.length} 席 · ${result.status.name} · ${result.elapsed.inMilliseconds} ms',
+            style: theme.textTheme.bodySmall,
+          ),
+          const SizedBox(height: 12),
+          const Text('概率与原值分歧不是校准置信度；score 为等级期望索引，noul 不解释为概率。'),
+          for (final entry in result.aggregates.entries)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(
+                '${entry.key} · ${_typedSummary(entry.value)}',
+                style: theme.textTheme.bodyLarge,
+              ),
+            ),
+          for (final seat in result.seats)
+            ExpansionTile(
+              title: Text('${_seatLabel(seat.seat)} · ${seat.status.name}'),
+              children: [
+                if (result.scope == CouncilScope.singleModel &&
+                    seat.batchResult != null)
+                  for (final entry in seat.batchResult!.answers.entries)
+                    Text(
+                      '${entry.key} · ${_typedSummary(entry.value.toJson())}',
+                    ),
+                SelectableText(
+                  const JsonEncoder.withIndent('  ')
+                      .convert(seat.toJson(typed: true)),
+                  style: theme.textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ExpansionTile(
+            title: const Text('完整 computed DTO'),
+            children: [
+              SelectableText(
+                const JsonEncoder.withIndent('  ').convert(result.toJson()),
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _typedSummary(Map<String, Object?> value) => switch (value['type']) {
+    'score' =>
+      '期望索引 ${(value['score'] as num).toStringAsFixed(4)} · 0–${(value['legend'] as Map).length - 1}${value.containsKey('ordinal_spread') ? ' · 原值极差 ${value['ordinal_spread']}' : ''}',
+    'noul' =>
+      'true-head scalar ${(value['noul'] as num).toStringAsFixed(4)}${value.containsKey('scalar_spread') ? ' · 原值极差 ${value['scalar_spread']}' : ''}',
+    _ => 'choice · ${value['top_choices'] ?? value['choice']}',
+  };
 
   Widget _result(BuildContext context, CouncilConsultation result) {
     final theme = Theme.of(context);

@@ -43,6 +43,7 @@ class CouncilOpinion {
     required this.dispatchedAfter,
     required this.completedAfter,
     this.result,
+    this.batchResult,
     this.error,
     this.rawResponse,
   });
@@ -53,11 +54,12 @@ class CouncilOpinion {
   final Duration dispatchedAfter;
   final Duration completedAfter;
   final DecisionResult? result;
+  final DecisionBatchResult? batchResult;
   final String? error;
   final String? rawResponse;
   Duration get elapsed => completedAfter - dispatchedAfter;
 
-  Map<String, Object?> toJson() => {
+  Map<String, Object?> toJson({bool typed = false}) => {
     'seat_id': seat.id,
     'status': _seatStatusName(status),
     'engine': {
@@ -95,9 +97,17 @@ class CouncilOpinion {
     'dispatched_after_us': dispatchedAfter.inMicroseconds,
     'completed_after_us': completedAfter.inMicroseconds,
     'elapsed_us': elapsed.inMicroseconds,
-    'choice': result?.choice,
-    'probabilities': result?.probabilities,
-    'raw_response': result?.rawResponse ?? rawResponse,
+    if (!typed) 'choice': result?.choice,
+    if (!typed) 'probabilities': result?.probabilities,
+    if (typed)
+      'answers': batchResult == null
+          ? null
+          : {
+              for (final answer in batchResult!.answers.entries)
+                answer.key: answer.value.toJson(),
+            },
+    'raw_response':
+        batchResult?.rawResponse ?? result?.rawResponse ?? rawResponse,
     'error': error,
   };
 }
@@ -159,10 +169,56 @@ class CouncilConsultation {
   };
 }
 
+/// A computed typed DTO, shared by text/structured callers without reaggregation.
+class CouncilBatchConsultation {
+  CouncilBatchConsultation._({
+    required this.requestId,
+    required this.status,
+    required this.scope,
+    required this.request,
+    required this.startedAt,
+    required this.completedAt,
+    required this.elapsed,
+    required List<CouncilOpinion> seats,
+    required Map<String, Map<String, Object?>> aggregates,
+  }) : seats = List.unmodifiable(seats),
+       aggregates = Map.unmodifiable({
+         for (final entry in aggregates.entries)
+           entry.key: Map<String, Object?>.unmodifiable(entry.value),
+       });
+  final String requestId;
+  final CouncilStatus status;
+  final CouncilScope scope;
+  final DecisionBatchRequest request;
+  final DateTime startedAt;
+  final DateTime completedAt;
+  final Duration elapsed;
+  final List<CouncilOpinion> seats;
+  final Map<String, Map<String, Object?>> aggregates;
+
+  Map<String, Object?> toJson() => {
+    'schema_version': 1,
+    'request_id': requestId,
+    'status': status.name,
+    'scope': scope == CouncilScope.singleModel ? 'single_model' : scope.name,
+    'request': request.toSystemone(),
+    'started_at': startedAt.toIso8601String(),
+    'completed_at': completedAt.toIso8601String(),
+    'elapsed_us': elapsed.inMicroseconds,
+    'seats': [for (final seat in seats) seat.toJson(typed: true)],
+    'aggregates': aggregates,
+  };
+}
+
 class CouncilState {
-  const CouncilState({this.busy = false, this.lastResult});
+  const CouncilState({
+    this.busy = false,
+    this.lastResult,
+    this.lastBatchResult,
+  });
   final bool busy;
   final CouncilConsultation? lastResult;
+  final CouncilBatchConsultation? lastBatchResult;
 }
 
 /// The desktop and MCP share this consultation entry point.
@@ -179,9 +235,13 @@ class CouncilController {
   bool get isShuttingDown => _shuttingDown;
   final _active = <DecisionCancellation, Completer<void>>{};
   CouncilConsultation? _lastResult;
+  CouncilBatchConsultation? _lastBatchResult;
   Stream<CouncilState> get changes => _changes.stream;
-  CouncilState get state =>
-      CouncilState(busy: _pending > 0, lastResult: _lastResult);
+  CouncilState get state => CouncilState(
+    busy: _pending > 0,
+    lastResult: _lastResult,
+    lastBatchResult: _lastBatchResult,
+  );
   List<String> get selectedSeatIds =>
       List.unmodifiable(_selected.map((seat) => seat.id));
   List<CouncilSeat> get selectedSeats => _selected;
@@ -311,27 +371,111 @@ class CouncilController {
     }
   }
 
+  Future<CouncilBatchConsultation> consultBatch(
+    DecisionBatchRequest request, {
+    Duration timeout = const Duration(seconds: 10),
+    DecisionCancellation? cancellation,
+  }) async {
+    if (_shuttingDown) throw StateError('委员会正在退出');
+    if (timeout <= Duration.zero) {
+      throw ArgumentError.value(timeout, 'timeout', '截止预算必须大于零');
+    }
+    final available = {for (final seat in availableSeats) seat.id: seat};
+    final selected = List<CouncilSeat>.unmodifiable(
+      _selected.map((seat) => available[seat.id] ?? seat),
+    );
+    final requestId = List.generate(
+      16,
+      (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+    final startedAt = DateTime.now().toUtc();
+    final watch = Stopwatch()..start();
+    final token = DecisionCancellation();
+    final drained = Completer<void>();
+    _active[token] = drained;
+    final removeCancellation = cancellation?.listen(token.cancel);
+    _pending++;
+    _publish();
+    try {
+      final opinions = await _round(
+        selected,
+        null,
+        watch,
+        timeout,
+        token,
+        batch: request,
+      );
+      final successful = opinions
+          .where((s) => s.status == CouncilSeatStatus.ok)
+          .toList();
+      final result = CouncilBatchConsultation._(
+        requestId: requestId,
+        status: successful.isEmpty
+            ? CouncilStatus.failed
+            : successful.length == selected.length
+            ? CouncilStatus.ok
+            : CouncilStatus.partial,
+        scope: successful.length >= 2
+            ? CouncilScope.ensemble
+            : successful.isEmpty
+            ? CouncilScope.none
+            : CouncilScope.singleModel,
+        request: request,
+        startedAt: startedAt,
+        completedAt: DateTime.now().toUtc(),
+        elapsed: watch.elapsed,
+        seats: opinions,
+        aggregates: {
+          if (successful.length >= 2)
+            for (final question in request.questions.entries)
+              question.key: _aggregateQuestion(question.value, [
+                for (final seat in successful)
+                  seat.batchResult!.answers[question.key]!,
+              ]),
+        },
+      );
+      _lastBatchResult = result;
+      return result;
+    } finally {
+      removeCancellation?.call();
+      _active.remove(token);
+      drained.complete();
+      _pending--;
+      _publish();
+    }
+  }
+
   Future<CouncilOpinion> _consultSeat(
     CouncilSeat seat,
-    DecisionRequest request,
+    DecisionRequest? request,
     Stopwatch watch,
     Duration timeout,
     DecisionCancellation cancellation,
-    _SeatDispatch dispatch,
-  ) async {
+    _SeatDispatch dispatch, {
+    DecisionBatchRequest? batch,
+  }) async {
     DecisionResult? result;
+    DecisionBatchResult? batchResult;
     String? error;
     String? rawResponse;
     var status = CouncilSeatStatus.ok;
     try {
-      result = await catalog
-          .providerFor(seat.engine.id)
-          .decide(
-            seat.instance.id,
-            request,
-            timeout: timeout,
-            cancellation: cancellation,
-          );
+      final engine = catalog.providerFor(seat.engine.id);
+      if (batch != null) {
+        batchResult = await engine.decideBatch(
+          seat.instance.id,
+          batch,
+          timeout: timeout,
+          cancellation: cancellation,
+        );
+      } else {
+        result = await engine.decide(
+          seat.instance.id,
+          request!,
+          timeout: timeout,
+          cancellation: cancellation,
+        );
+      }
     } catch (failure) {
       error = failure.toString();
       status = failure is LlamaRequestException
@@ -354,6 +498,7 @@ class CouncilController {
       dispatchedAfter: dispatch.after,
       completedAfter: watch.elapsed,
       result: result,
+      batchResult: batchResult,
       error: error,
       rawResponse: rawResponse,
     );
@@ -361,11 +506,12 @@ class CouncilController {
 
   Future<List<CouncilOpinion>> _round(
     List<CouncilSeat> selected,
-    DecisionRequest request,
+    DecisionRequest? request,
     Stopwatch watch,
     Duration timeout,
-    DecisionCancellation? external,
-  ) async {
+    DecisionCancellation? external, {
+    DecisionBatchRequest? batch,
+  }) async {
     if (selected.isEmpty) return [];
     final token = DecisionCancellation();
     final done = Completer<void>();
@@ -398,6 +544,7 @@ class CouncilController {
             timeout - watch.elapsed,
             token,
             dispatch,
+            batch: batch,
           ).then((opinion) {
             if (sealed || stopped != null) return;
             if (watch.elapsed >= timeout) {
@@ -457,6 +604,56 @@ class CouncilController {
     _subscription.cancel();
     _changes.close();
   }
+}
+
+Map<String, Object?> _aggregateQuestion(
+  DecisionQuestion question,
+  List<DecisionAnswer> answers,
+) {
+  if (question is NoulQuestion) {
+    final values = answers.cast<NoulAnswer>().map((a) => a.noul).toList();
+    return {
+      'type': 'noul',
+      'noul': values.reduce((a, b) => a + b) / values.length,
+      'scalar_spread': values.reduce(max) - values.reduce(min),
+    };
+  }
+  final distributions = [
+    for (final answer in answers)
+      if (answer is ChoiceAnswer)
+        answer.probabilities
+      else
+        (answer as ScoreAnswer).probabilities,
+  ];
+  final mean = Map<String, double>.unmodifiable({
+    for (final id in distributions.first.keys)
+      id: distributions.fold(0.0, (sum, p) => sum + p[id]!) / answers.length,
+  });
+  if (question is ScoreQuestion) {
+    final values = answers.cast<ScoreAnswer>().map((a) => a.score).toList();
+    return {
+      'type': 'score',
+      'legend': question.legend,
+      'probabilities': mean,
+      'score': ordinalExpectation(mean),
+      'ordinal_spread': values.reduce(max) - values.reduce(min),
+    };
+  }
+  final choices = answers.cast<ChoiceAnswer>();
+  final votes = Map<String, int>.unmodifiable({
+    for (final id in mean.keys) id: choices.where((a) => a.choice == id).length,
+  });
+  final best = mean.values.reduce(max);
+  return {
+    'type': 'choice',
+    'probabilities': mean,
+    'top_choices': List<String>.unmodifiable([
+      for (final entry in mean.entries)
+        if ((entry.value - best).abs() <= 1e-12) entry.key,
+    ]),
+    'votes': votes,
+    'disagreement': 1 - votes.values.reduce(max) / answers.length,
+  };
 }
 
 class _SeatDispatch {

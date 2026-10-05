@@ -10,6 +10,85 @@ import 'fixtures/council_runtime.dart';
 
 void main() {
   testWidgets(
+    'existing Council controls submit score and noul through the shared public engine path',
+    (tester) async {
+      late CouncilRuntime runtime;
+      late CouncilController council;
+      await tester.runAsync(
+        () => HttpOverrides.runWithHttpOverrides(() async {
+          runtime = await CouncilRuntime.create();
+          council = CouncilController(catalog: runtime.catalog);
+          council.selectSeats(council.availableSeats.map((s) => s.id));
+        }, _NetworkBoundary()),
+      );
+      addTearDown(() async {
+        council.close();
+        await tester.runAsync(runtime.close);
+      });
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1200, 900);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildJevTheme(Brightness.light),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: TextScaler.linear(2)),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: CouncilPage(controller: council, onOpenLibrary: () {}),
+          ),
+        ),
+      );
+      for (final primitive in ['Score · 有序评分', 'Noul · true-head']) {
+        await tester.tap(find.byKey(const Key('council-primitive')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(primitive).last);
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const Key('council-option-1')),
+          '低 / 不成立',
+        );
+        await tester.enterText(
+          find.byKey(const Key('council-option-2')),
+          '高 / 成立',
+        );
+        await tester.pump();
+        final button = find.widgetWithText(FilledButton, '咨询');
+        await tester.ensureVisible(button);
+        await tester.runAsync(
+          () => HttpOverrides.runWithHttpOverrides(() async {
+            final previous = council.state.lastBatchResult;
+            final done = council.changes.firstWhere(
+              (s) =>
+                  s.lastBatchResult != null &&
+                  !identical(previous, s.lastBatchResult),
+            );
+            await tester.tap(button);
+            await done.timeout(const Duration(seconds: 3));
+          }, _NetworkBoundary()),
+        );
+        await tester.pumpAndSettle();
+        expect(council.state.lastBatchResult!.scope, CouncilScope.ensemble);
+        final expected = primitive.startsWith('Score')
+            ? '期望索引 0.7500'
+            : 'true-head scalar 0.8000';
+        expect(find.textContaining(expected), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        tester.view.physicalSize = const Size(400, 800);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        tester.view.physicalSize = const Size(1200, 900);
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.byKey(const Key('council-primitive')));
+      }
+      expect(runtime.io.killedChildren, 0);
+    },
+  );
+
+  testWidgets(
     'desktop cancellation returns every seat status and keeps the resident models',
     (tester) async {
       late CouncilRuntime runtime;
