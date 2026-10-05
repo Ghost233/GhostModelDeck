@@ -35,3 +35,9 @@ container expected to be in created state, got: running
 主线程以原联网依赖解析执行 `GMD_TEST_CONTAINER=ghostmodeldeck-checks-r33b ./scripts/test-container.sh` 的 GUI测试→format→analyze→完整tests，后台 bash-777 已收集，exit0：GUI2项 run-GfB1hi；format56文件0改动 run-HgmhGR；analyze零诊断 run-4vRxlF；完整166项全部通过 run-xOjIpZ。四个阶段都使用普通联网 pub get，无 `--offline`，也无临时 `--no-pub` 绕过。之前显式离线诊断结果不替代这次用户要求的联网检查。
 
 这些结果只验证 #15 M1 与现有回归，不是原生模型、双版本、请求生命周期或全规格验收。没有升级SDK/依赖，没有训练或加载模型，没有把网络探针当模型Ready。#15保留开放。
+
+## 停止护栏回归与恢复资源收尾
+
+2026-10-06 主线程通过公开脚本 CLI 和可控 Docker I/O 接缝验证停止场景：`python3 .tooling/check-runner-stopped-container-regression.py` exit0，脚本自身预期 exit1，1.94s 内返回 `Test container stopped before the check job completed.`。结果保存在 `.tooling/check-runner-stopped-container-result.json`。这是基础设施护栏的受控测试，没有停止真实容器，没有运行 Flutter 测试或绕过联网解析，不能替代上面的正式联网检查。
+
+已先按确切名称核验以下四个**本线程自有且已停止**的恢复/探针容器，再删除其容器对象：`ghostmodeldeck-checks-r24b`、`ghostmodeldeck-checks-r33`、`ghostmodeldeck-mount-probe-r33`、`ghostmodeldeck-mount-alias-probe-r33`。核验快照 `/tmp/gmd-owned-recovery-containers.json` 保留。不删除宿主 SDK/cache/字体或任何用户模型，不操作来源或其他服务；M2 独占使用的 `ghostmodeldeck-checks-r33b` 未改动。
