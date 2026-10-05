@@ -176,9 +176,12 @@ List<ModelVariant> _nativeVariants(
     final format = first.path.contains('.safetensors')
         ? 'Safetensors'
         : 'PyTorch';
-    final quant = _quantization(_nativeStem(group.key))
-        ?.group(1)
-        ?.toUpperCase();
+    final prefix = directory.isEmpty ? '' : '$directory/';
+    final quant =
+        _quantization(_nativeStem(group.key))?.group(1)?.toUpperCase() ??
+        (groups.length == 1
+            ? repository.configurations['${prefix}config.json']?.quantization
+            : null);
     final indexed = indexes.isNotEmpty;
     List<HfModelFile> files;
     String? reason;
@@ -192,7 +195,6 @@ List<ModelVariant> _nativeVariants(
       resolution = PackageResolution.incomplete;
       reason = error.message;
     }
-    final prefix = directory.isEmpty ? '' : '$directory/';
     final hasConfig = files.any(
       (file) =>
           file.path == '${prefix}config.json' || file.path == 'config.json',

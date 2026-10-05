@@ -9,6 +9,137 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/model_library.dart';
 
 void main() {
+  test(
+    'shared companions never attach another indexed variant receipt',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'gmd-receipt-isolation-',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      final library = ModelLibrary();
+      addTearDown(library.close);
+      await _writeJson(root, 'package/config.json', {'model_type': 'qwen2'});
+      await _writeJson(root, 'package/tokenizer.json', {'model': {}});
+      for (final variant in ['A', 'B']) {
+        await _writeSafetensors(root, 'package/model-$variant.safetensors', {
+          'layer.weight': [1],
+        });
+        await _writeJson(
+          root,
+          'package/model-$variant.safetensors.index.json',
+          {
+            'weight_map': {'layer.weight': 'model-$variant.safetensors'},
+          },
+        );
+      }
+      final initial = await library.scan(root);
+      expect(initial, hasLength(2));
+      final ids = {
+        for (final variant in ['A', 'B'])
+          variant: initial
+              .singleWhere(
+                (asset) => asset.files.any(
+                  (file) => file.path.endsWith('/model-$variant.safetensors'),
+                ),
+              )
+              .id,
+      };
+      for (final variant in ['A', 'B']) {
+        final files = <Map<String, Object?>>[];
+        for (final name in [
+          'model-$variant.safetensors',
+          'model-$variant.safetensors.index.json',
+          'config.json',
+          'tokenizer.json',
+        ]) {
+          final bytes = await File('${root.path}/package/$name').readAsBytes();
+          final digest = sha256.convert(bytes).toString();
+          files.add({
+            'path': 'package/$name',
+            'sizeBytes': bytes.length,
+            'sha256': digest,
+            'upstreamSha256': digest,
+            'isLfs': true,
+          });
+        }
+        await _writeJson(root, '.ghostmodeldeck/installations/$variant.json', {
+          'version': 1,
+          'id': variant,
+          'repoId': 'publisher/package',
+          'revision': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          'source': 'hf',
+          'files': files,
+        });
+      }
+      final scanned = await library.scan(root);
+      expect(scanned, hasLength(2));
+      for (final variant in ['A', 'B']) {
+        final asset = scanned.singleWhere((asset) => asset.id == ids[variant]);
+        expect(
+          asset.files
+              .where((file) => file.path.endsWith('.safetensors'))
+              .map((file) => file.path.split('/').last),
+          ['model-$variant.safetensors'],
+        );
+        final plan = await library.prepareDeletion([asset.id]);
+        expect(
+          plan.files
+              .where((file) => file.path.endsWith('.safetensors'))
+              .map((file) => file.path.split('/').last),
+          ['model-$variant.safetensors'],
+        );
+        expect(
+          await library.delete(plan, confirmed: false),
+          DeletionResult.cancelled,
+        );
+      }
+      expect(
+        await File('${root.path}/package/model-A.safetensors').exists(),
+        isTrue,
+      );
+      expect(
+        await File('${root.path}/package/model-B.safetensors').exists(),
+        isTrue,
+      );
+    },
+  );
+  test(
+    'ordinary GGUF chat uses its own embedded template not SystemOne',
+    () async {
+      final root = await Directory.systemTemp.createTemp('gmd-chat-template-');
+      addTearDown(() => root.delete(recursive: true));
+      for (final name in ['present', 'absent', 'systemone-only']) {
+        await _writeGguf(
+          root,
+          '$name.gguf',
+          metadata: {
+            'general.architecture': 'qwen2',
+            'tokenizer.ggml.model': 'gpt2',
+            'tokenizer.ggml.tokens': ['hello'],
+            if (name == 'present') 'tokenizer.chat_template': '{{ messages }}',
+            if (name == 'systemone-only')
+              'tokenizer.chat_template.systemone': '{{ state }}',
+          },
+          tensors: {
+            'token_embd.weight': [1, 1],
+          },
+        );
+      }
+      final library = ModelLibrary();
+      addTearDown(library.close);
+      final assets = await library.scan(root, verifyFiles: true);
+      for (final asset in assets) {
+        expect(asset.kind, AssetKind.chat);
+        expect(asset.engineCapability, EngineCapability.awaitingVerification);
+        if (asset.name == 'present.gguf') {
+          expect(asset.integrity, AssetIntegrity.complete);
+        } else {
+          expect(asset.integrity, AssetIntegrity.incomplete);
+          expect(asset.diagnostics, contains('缺少普通 chat 模板'));
+        }
+      }
+    },
+  );
   test('scan recognizes actual GGUF bytes without a GGUF filename and preserves them', () async {
     final root = await Directory.systemTemp.createTemp('jev-library-');
     addTearDown(() => root.delete(recursive: true));

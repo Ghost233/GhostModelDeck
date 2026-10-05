@@ -186,10 +186,12 @@ class LocalModelPackages {
               '.gguf',
             );
         // Filename token is a display label; artifact format/status remain authoritative.
-        final quant = RegExp(
-          r'(?:^|[-_.])((?:IQ[1-4]|Q[1-8])(?:_[a-z0-9]+)+|BF16|F16|F32|MXFP4|NVFP4)(?=$|[-.])',
-          caseSensitive: false,
-        ).firstMatch(name)?.group(1)?.toUpperCase();
+        final quant =
+            artifact.quantization ??
+            RegExp(
+              r'(?:^|[-_.])((?:IQ[1-4]|Q[1-8])(?:_[a-z0-9]+)+|BF16|F16|F32|MXFP4|NVFP4)(?=$|[-.])',
+              caseSensitive: false,
+            ).firstMatch(name)?.group(1)?.toUpperCase();
         variants.add(
           LocalModelVariant(
             id: artifact.id,

@@ -47,6 +47,25 @@ class HfModelFile {
   }
 }
 
+/// Validated configuration evidence, never an engine compatibility claim.
+class NativeModelConfiguration {
+  const NativeModelConfiguration({required this.bits, required this.groupSize});
+  final int bits;
+  final int groupSize;
+  String get quantization => '${bits}bit · group $groupSize';
+
+  static NativeModelConfiguration? fromJson(Map<String, dynamic> config) {
+    final quant = config['quantization'];
+    if (quant is! Map) return null;
+    final bits = quant['bits'];
+    final group = quant['group_size'];
+    if (bits is! int || bits <= 0 || bits > 32 || group is! int || group <= 0) {
+      return null;
+    }
+    return NativeModelConfiguration(bits: bits, groupSize: group);
+  }
+}
+
 class HfRepositoryFiles {
   HfRepositoryFiles({
     required this.summary,
@@ -54,13 +73,18 @@ class HfRepositoryFiles {
     required this.requestedRevision,
     required this.source,
     required List<HfModelFile> files,
-  }) : files = List.unmodifiable(files);
+    Map<String, NativeModelConfiguration> configurations = const {},
+  }) : files = List.unmodifiable(files),
+       configurations = Map.unmodifiable(configurations);
 
   final HfRepositorySummary summary;
   final String revision;
   final String requestedRevision;
   final Uri source;
   final List<HfModelFile> files;
+
+  /// Keys are repository-relative config.json paths at [revision].
+  final Map<String, NativeModelConfiguration> configurations;
 }
 
 class HfBrowserState {
@@ -345,8 +369,8 @@ class HfModelBrowser {
   );
 
   Future<({HfRepositoryFiles value, MetadataOrigin origin, String? error})>
-  _readRepository(String id, String revision, bool Function() current) {
-    return _readMetadata<HfRepositoryFiles>(
+  _readRepository(String id, String revision, bool Function() current) async {
+    final metadata = await _readMetadata<HfRepositoryFiles>(
       _repositoryUri(id, revision),
       (data) => _parseRepository(data, revision),
       _repositoryJson,
@@ -357,6 +381,107 @@ class HfModelBrowser {
         if (id != repository.summary.id)
           _repositoryUri(repository.summary.id, revision),
       ],
+    );
+    final repository = metadata.value;
+    final configurations = <String, NativeModelConfiguration>{};
+    // Only read bounded native-model configs; preserve the existing JEV path.
+    for (final file
+        in repository.files
+            .where(
+              (file) =>
+                  file.path == 'config.json' ||
+                  file.path.endsWith('/config.json'),
+            )
+            .take(32)) {
+      if (!current() || _closed) break;
+      final prefix = file.path.substring(
+        0,
+        file.path.length - 'config.json'.length,
+      );
+      if (repository.files.any(
+            (item) => item.path == '${prefix}rl_agent_config.json',
+          ) ||
+          !repository.files.any(
+            (item) =>
+                item.path.startsWith(prefix) &&
+                item.path.endsWith('.safetensors'),
+          )) {
+        continue;
+      }
+      try {
+        final config = await _readConfiguration(repository, file);
+        if (config != null) configurations[file.path] = config;
+      } on IOException {
+        // Discovery remains usable; unavailable evidence is not inferred.
+      } on FormatException {
+        // Invalid/changed content cannot supply a quantization label.
+      } on TimeoutException {
+        // Config evidence is optional, not a fabricated compatibility result.
+      }
+    }
+    return (
+      value: HfRepositoryFiles(
+        summary: repository.summary,
+        revision: repository.revision,
+        requestedRevision: repository.requestedRevision,
+        source: repository.source,
+        files: repository.files,
+        configurations: configurations,
+      ),
+      origin: metadata.origin,
+      error: metadata.error,
+    );
+  }
+
+  Future<NativeModelConfiguration?> _readConfiguration(
+    HfRepositoryFiles repository,
+    HfModelFile file,
+  ) async {
+    const limit = 1024 * 1024;
+    const timeout = Duration(seconds: 20);
+    if (file.sizeBytes != null && file.sizeBytes! > limit ||
+        file.path.contains('\\') ||
+        file.path
+            .split('/')
+            .any((part) => part.isEmpty || part == '.' || part == '..')) {
+      return null;
+    }
+    final uri = _endpoint.replace(
+      pathSegments: [
+        ...repository.summary.id.split('/'),
+        'resolve',
+        repository.revision,
+        ...file.path.split('/'),
+      ],
+      query: '',
+    );
+    final request = await _client.getUrl(uri).timeout(timeout);
+    final response = await request.close().timeout(timeout);
+    if (response.statusCode != HttpStatus.ok) {
+      await response.drain<void>().timeout(timeout);
+      return null;
+    }
+    final bytes = <int>[];
+    await for (final chunk in response.timeout(timeout)) {
+      if (bytes.length + chunk.length > limit) return null;
+      bytes.addAll(chunk);
+    }
+    if (file.sizeBytes != null && file.sizeBytes != bytes.length) return null;
+    if (file.sha256 != null &&
+        sha256.convert(bytes).toString() != file.sha256!.toLowerCase()) {
+      return null;
+    }
+    if (file.isLfs == false &&
+        file.blobId != null &&
+        sha1.convert([
+              ...utf8.encode('blob ${bytes.length}\u0000'),
+              ...bytes,
+            ]).toString() !=
+            file.blobId!.toLowerCase()) {
+      return null;
+    }
+    return NativeModelConfiguration.fromJson(
+      _object(jsonDecode(utf8.decode(bytes))),
     );
   }
 

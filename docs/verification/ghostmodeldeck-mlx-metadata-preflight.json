@@ -1,0 +1,70 @@
+{
+  "scope": "real fixed HF metadata/config validation through production entry, no weight download or engine execution",
+  "repository": "mlx-community/Qwen2.5-0.5B-Instruct-4bit",
+  "revision": "a5339a4131f135d0fdc6a5c8b5bbed2753bbe0f3",
+  "status": "ready",
+  "origin": "online",
+  "configuration": {
+    "bits": 4,
+    "groupSize": 64
+  },
+  "variants": [
+    {
+      "id": "Safetensors:model.safetensors.index.json",
+      "format": "Safetensors",
+      "quantization": "4bit · group 64",
+      "resolution": "indexed",
+      "files": [
+        {
+          "path": "added_tokens.json",
+          "bytes": 605,
+          "sha256": null,
+          "blobId": "482ced4679301bf287ebb310bdd1790eb4514232"
+        },
+        {
+          "path": "config.json",
+          "bytes": 783,
+          "sha256": null,
+          "blobId": "e3c0e76e4e54c951f36d49e3042347b58382136e"
+        },
+        {
+          "path": "merges.txt",
+          "bytes": 1671853,
+          "sha256": null,
+          "blobId": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7"
+        },
+        {
+          "path": "model.safetensors.index.json",
+          "bytes": 44209,
+          "sha256": null,
+          "blobId": "8831428421e282132532f717fcaba43f8c7f5445"
+        },
+        {
+          "path": "special_tokens_map.json",
+          "bytes": 613,
+          "sha256": null,
+          "blobId": "ac23c0aaa2434523c494330aeb79c58395378103"
+        },
+        {
+          "path": "tokenizer.json",
+          "bytes": 7031673,
+          "sha256": null,
+          "blobId": "d24314ef7f0afd1b678c2e24c767e19f24f86b0e"
+        },
+        {
+          "path": "tokenizer_config.json",
+          "bytes": 7308,
+          "sha256": null,
+          "blobId": "482ccbc1096b0e9400e86e33f189681c2aebdab9"
+        },
+        {
+          "path": "vocab.json",
+          "bytes": 2776833,
+          "sha256": null,
+          "blobId": "4783fe10ac3adce15ac8f358ef5462739852c569"
+        }
+      ]
+    }
+  ],
+  "passed": true
+}

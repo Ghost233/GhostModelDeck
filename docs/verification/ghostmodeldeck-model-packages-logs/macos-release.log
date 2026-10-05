@@ -1,0 +1,10 @@
+Resolving dependencies...
+Downloading packages...
+  material_color_utilities 0.13.0 (0.13.1 available)
+  test_api 0.7.12 (0.7.14 available)
+Got dependencies!
+2 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Building macOS application...                                   
+Xcode 27 no longer requires macOS binaries to support the x86_64 architecture. To build ARM-only macOS apps now, run: "flutter config --enable-macos-arm64-only". This will become the default behavior in a future Flutter release.
+✓ Built build/macos/Build/Products/Release/GhostModelDeck.app (46.2MB)

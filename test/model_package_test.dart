@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -9,10 +10,415 @@ import 'package:ghost_model_deck/model_library.dart';
 import 'package:ghost_model_deck/model_package.dart';
 
 import 'fixtures/decision_gguf.dart';
+import 'fixtures/mlx_package.dart';
+
+import 'package:ghost_model_deck/local_model_package.dart';
+import 'package:ghost_model_deck/model_use_registry.dart';
 
 const _revision = '0123456789012345678901234567890123456789';
 
+HfRepositoryFiles _fixtureRepository(
+  Map<String, List<int>> bodies,
+  Uri endpoint,
+) => HfRepositoryFiles(
+  summary: const HfRepositorySummary(id: 'publisher/model'),
+  revision: 'a5339a4131f135d0fdc6a5c8b5bbed2753bbe0f3',
+  requestedRevision: 'main',
+  source: endpoint,
+  files: [
+    for (final entry in bodies.entries)
+      HfModelFile(
+        path: entry.key,
+        sizeBytes: entry.value.length,
+        sha256: sha256.convert(entry.value).toString(),
+        isLfs: true,
+      ),
+  ],
+);
+
 void main() {
+  test('indexed MLX public package cancellation reopens Range ETag resume with proxy lineage', () async {
+    final root = await Directory.systemTemp.createTemp('gmd-mlx-resume-');
+    final bodies = mlxPackageBytes();
+    final payload = bodies['model.safetensors']!;
+    final half = payload.length ~/ 2;
+    final release = Completer<void>();
+    final fragment = Completer<void>();
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    var firstWeight = true;
+    String? range;
+    String? validator;
+    server.listen((request) async {
+      final path = request.uri.pathSegments.skip(4).join('/');
+      final bytes = bodies[path]!;
+      request.response.headers.set(HttpHeaders.etagHeader, '"mlx-fixed-v1"');
+      request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+      if (path == 'model.safetensors' && firstWeight) {
+        firstWeight = false;
+        request.response.bufferOutput = false;
+        request.response.contentLength = bytes.length;
+        request.response.add(bytes.take(half).toList());
+        await request.response.flush();
+        await release.future;
+      } else if (path == 'model.safetensors') {
+        range = request.headers.value(HttpHeaders.rangeHeader);
+        validator = request.headers.value(HttpHeaders.ifRangeHeader);
+        request.response.statusCode = HttpStatus.partialContent;
+        request.response.headers.set(
+          HttpHeaders.contentRangeHeader,
+          'bytes $half-${bytes.length - 1}/${bytes.length}',
+        );
+        request.response.contentLength = bytes.length - half;
+        request.response.add(bytes.sublist(half));
+      } else {
+        request.response.add(bytes);
+      }
+      try {
+        await request.response.close();
+      } on IOException {
+        // First response intentionally stops while the downloader is cancelled.
+      }
+    });
+    final endpoint = Uri.parse('http://127.0.0.1:${server.port}');
+    var downloader = ModelDownloader(lmStudioEndpoint: endpoint);
+    final library = ModelLibrary();
+    addTearDown(() async {
+      if (!release.isCompleted) release.complete();
+      await downloader.close();
+      library.close();
+      await server.close(force: true);
+      await root.delete(recursive: true);
+    });
+    final repository = _fixtureRepository(bodies, endpoint);
+    final package = ModelPackage.discover(repository).single;
+    final selection = package.selectVariant(package.variants.single.id);
+    int? weightStartedAt;
+    final subscription = downloader.changes.listen((state) {
+      if (state.currentFile == 'model.safetensors') {
+        weightStartedAt ??= state.downloadedBytes;
+        if (state.status == DownloadStatus.downloading &&
+            state.downloadedBytes > weightStartedAt! &&
+            !fragment.isCompleted) {
+          fragment.complete();
+        }
+      }
+    });
+    final transfer = downloader.downloadPackage(
+      selection: selection,
+      currentRepository: repository,
+      libraryDirectory: root,
+      source: DownloadSource.lmStudio,
+    );
+    await fragment.future.timeout(const Duration(seconds: 5));
+    expect(downloader.state.downloadedBytes - weightStartedAt!, half);
+    downloader.cancel();
+    await transfer.timeout(const Duration(seconds: 5));
+    await subscription.cancel();
+    expect(downloader.state.status, DownloadStatus.cancelled);
+    expect(
+      await File('${root.path}/publisher/model/model.safetensors').exists(),
+      isFalse,
+    );
+    final fragments = await Directory('${root.path}/.ghostmodeldeck/downloads')
+        .list(recursive: true)
+        .where((entry) => entry.path.endsWith('/model.safetensors.part'))
+        .cast<File>()
+        .toList();
+    expect(await fragments.single.readAsBytes(), payload.take(half).toList());
+    await downloader.close();
+    release.complete();
+    downloader = ModelDownloader(lmStudioEndpoint: endpoint);
+    await downloader.downloadPackage(
+      selection: selection,
+      currentRepository: repository,
+      libraryDirectory: root,
+      source: DownloadSource.lmStudio,
+    );
+    expect(downloader.state.status, DownloadStatus.installed);
+    expect(range, 'bytes=$half-');
+    expect(validator, '"mlx-fixed-v1"');
+    expect(
+      downloader.state.downloadedBytes,
+      bodies.values.fold<int>(0, (sum, bytes) => sum + bytes.length),
+    );
+    final receipt = jsonDecode(
+      await File(
+        '${root.path}/.ghostmodeldeck/installations/${downloader.state.installationId}.json',
+      ).readAsString(),
+    ) as Map<String, dynamic>;
+    expect(receipt['source'], 'lmStudio');
+    expect(receipt['revision'], repository.revision);
+    expect(receipt['files'], hasLength(9));
+    final asset = (await library.scan(root, verifyFiles: true)).single;
+    expect(asset.sourceVerified, isTrue);
+    expect(asset.files, hasLength(9));
+  });
+  for (final failure in [
+    'missing',
+    'checksum',
+    'offline',
+    'conflict',
+    'index-missing',
+    'mixed-unindexed',
+  ]) {
+    test(
+      'indexed MLX public downloadPackage preserves assets on $failure',
+      () async {
+        final root = await Directory.systemTemp.createTemp('gmd-mlx-failure-');
+        final bodies = mlxPackageBytes();
+        if (failure == 'index-missing') {
+          bodies['model.safetensors.index.json'] = utf8.encode(
+            '{"weight_map":{"layer.weight":"absent.safetensors"}}',
+          );
+        }
+        if (failure == 'mixed-unindexed') {
+          bodies.remove('model.safetensors.index.json');
+          bodies['model-F16.safetensors'] = bodies['model.safetensors']!;
+        }
+        final sentinel = await File('${root.path}/existing/user.asset')
+            .create(recursive: true);
+        await sentinel.writeAsString('untouched user asset');
+        File? collision;
+        if (failure == 'conflict') {
+          collision = await File('${root.path}/publisher/model/vocab.json')
+              .create(recursive: true);
+          await collision.writeAsString('existing formal content');
+        }
+        final before = await sentinel.stat();
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        var requests = 0;
+        server.listen((request) async {
+          requests++;
+          final path = request.uri.pathSegments.skip(4).join('/');
+          final bytes = bodies[path]!;
+          if (path == 'model.safetensors' && failure == 'missing') {
+            request.response.statusCode = HttpStatus.notFound;
+          } else if (path == 'model.safetensors' && failure == 'checksum') {
+            request.response.add([...bytes.take(bytes.length - 1), 255]);
+          } else if (path == 'model.safetensors' && failure == 'offline') {
+            request.response.contentLength = bytes.length;
+            request.response.add(bytes.take(bytes.length ~/ 2).toList());
+          } else {
+            request.response.add(bytes);
+          }
+          try {
+            await request.response.close();
+          } on IOException {
+            // Deliberately truncated HTTP body simulates a broken connection.
+          }
+        });
+        final endpoint = Uri.parse('http://127.0.0.1:${server.port}');
+        final downloader = ModelDownloader(hfEndpoint: endpoint);
+        addTearDown(() async {
+          await downloader.close();
+          await server.close(force: true);
+          await root.delete(recursive: true);
+        });
+        final repository = _fixtureRepository(bodies, endpoint);
+        final package = ModelPackage.discover(repository).single;
+        await downloader.downloadPackage(
+          selection: package.selectVariant(package.variants.first.id),
+          currentRepository: repository,
+          libraryDirectory: root,
+        );
+        expect(
+          downloader.state.status,
+          failure == 'conflict'
+              ? DownloadStatus.conflict
+              : failure == 'offline'
+              ? DownloadStatus.interrupted
+              : DownloadStatus.failed,
+        );
+        expect(
+          await File('${root.path}/publisher/model/model.safetensors').exists(),
+          isFalse,
+        );
+        expect(await sentinel.readAsString(), 'untouched user asset');
+        expect((await sentinel.stat()).modified, before.modified);
+        if (collision != null) {
+          expect(await collision.readAsString(), 'existing formal content');
+        }
+        if (failure == 'mixed-unindexed') {
+          expect(
+            package.variants.every((variant) => !variant.canDownload),
+            isTrue,
+          );
+          expect(requests, 0);
+        }
+        final receipts = Directory(
+          '${root.path}/.ghostmodeldeck/installations',
+        );
+        expect(
+          await receipts.exists() ? await receipts.list().toList() : [],
+          isEmpty,
+        );
+      },
+    );
+  }
+  test(
+    'GGUF receipt companions remain in scan verification and deletion',
+    () async {
+      final temp = await Directory.systemTemp.createTemp('gmd-gguf-closure-');
+      final source = await Directory('${temp.path}/source').create();
+      final root = await Directory('${temp.path}/library').create();
+      final gguf = await writeDecisionKev(source);
+      final bodies = <String, List<int>>{
+        'Kev-Q8_0.gguf': await gguf.readAsBytes(),
+        'chat_template.jinja': utf8.encode('{{ messages }}'),
+      };
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      server.listen((request) async {
+        request.response.add(
+          bodies[request.uri.pathSegments.skip(4).join('/')]!,
+        );
+        await request.response.close();
+      });
+      final endpoint = Uri.parse('http://127.0.0.1:${server.port}');
+      final downloader = ModelDownloader(hfEndpoint: endpoint);
+      final library = ModelLibrary();
+      addTearDown(() async {
+        await downloader.close();
+        library.close();
+        await server.close(force: true);
+        await temp.delete(recursive: true);
+      });
+      final repository = _fixtureRepository(bodies, endpoint);
+      final package = ModelPackage.discover(repository).single;
+      await downloader.downloadPackage(
+        selection: package.selectVariant(package.variants.single.id),
+        currentRepository: repository,
+        libraryDirectory: root,
+      );
+      expect(downloader.state.status, DownloadStatus.installed);
+      final asset = (await library.scan(root)).single;
+      expect(asset.files, hasLength(2));
+      final checked = (await library.verify([asset.id])).single;
+      expect(checked.sourceVerified, isTrue);
+      final plan = await library.prepareDeletion([checked.id]);
+      expect(plan.files, hasLength(2));
+      final registry = ModelUseRegistry(library);
+      final template = '${root.path}/publisher/model/chat_template.jinja';
+      await registry.update('engine-a', [template]);
+      await registry.update('engine-b', [template]);
+      await registry.update('engine-a', []);
+      await expectLater(
+        library.delete(plan, confirmed: true),
+        throwsA(isA<LibraryException>()),
+      );
+      await registry.update('engine-b', []);
+      expect(
+        await library.delete(plan, confirmed: true),
+        DeletionResult.deleted,
+      );
+      expect(await File(template).exists(), isFalse);
+      expect(await gguf.exists(), isTrue);
+    },
+  );
+  test('indexed MLX download scan and verify retain all nine assets', () async {
+    final root = await Directory.systemTemp.createTemp('gmd-mlx-');
+    final bodies = mlxPackageBytes();
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final requested = <String>[];
+    server.listen((request) async {
+      final path = request.uri.pathSegments.skip(4).join('/');
+      requested.add(path);
+      request.response.add(bodies[path]!);
+      await request.response.close();
+    });
+    final endpoint = Uri.parse('http://127.0.0.1:${server.port}');
+    final downloader = ModelDownloader(hfEndpoint: endpoint);
+    final library = ModelLibrary();
+    addTearDown(() async {
+      await downloader.close();
+      library.close();
+      await server.close(force: true);
+      await root.delete(recursive: true);
+    });
+    final repository = HfRepositoryFiles(
+      summary: const HfRepositorySummary(id: 'publisher/model'),
+      revision: 'a5339a4131f135d0fdc6a5c8b5bbed2753bbe0f3',
+      requestedRevision: 'main',
+      source: endpoint,
+      files: [
+        for (final entry in bodies.entries)
+          HfModelFile(
+            path: entry.key,
+            sizeBytes: entry.value.length,
+            sha256: sha256.convert(entry.value).toString(),
+            isLfs: true,
+          ),
+        const HfModelFile(path: 'unused-Q8.safetensors', sizeBytes: 99),
+      ],
+    );
+    final package = ModelPackage.discover(repository).single;
+    await downloader.downloadPackage(
+      selection: package.selectVariant(package.variants.single.id),
+      currentRepository: repository,
+      libraryDirectory: root,
+    );
+    expect(downloader.state.status, DownloadStatus.installed);
+    expect(requested.toSet(), bodies.keys.toSet());
+    final asset = (await library.scan(root)).single;
+    expect(
+      asset.files.map((file) => file.path.split('/').last).toSet(),
+      bodies.keys.toSet(),
+    );
+    final local = await LocalModelPackages.discover(root, [asset]);
+    expect(local.packages.single.variants.single.files, hasLength(9));
+    expect(
+      local.packages.single.variants.single.label,
+      'Safetensors · 4bit · group 64',
+    );
+    expect(asset.integrity, AssetIntegrity.unknown);
+    expect(asset.engineCapability, EngineCapability.awaitingVerification);
+    final checked = (await library.verify([asset.id])).single;
+    expect(checked.fingerprintsVerified, isTrue);
+    expect(checked.sourceVerified, isTrue);
+    expect(
+      local.packages.single.variants.single.sizeBytes,
+      bodies.values.fold<int>(0, (sum, bytes) => sum + bytes.length),
+    );
+    final plan = await library.prepareDeletion([checked.id]);
+    expect(plan.files, hasLength(9));
+    expect(
+      await library.delete(plan, confirmed: false),
+      DeletionResult.cancelled,
+    );
+    final registry = ModelUseRegistry(library);
+    final companion = '${root.path}/publisher/model/vocab.json';
+    await registry.update('engine-a', [companion]);
+    await registry.update('engine-b', [companion]);
+    await registry.update('engine-a', []);
+    await expectLater(
+      library.delete(plan, confirmed: true),
+      throwsA(isA<LibraryException>()),
+    );
+    await registry.update('engine-b', []);
+    // Same length text changes must be caught by selected full verification.
+    await File(companion).writeAsString('{"jello":0}');
+    final changed = (await library.verify([checked.id])).single;
+    expect(changed.integrity, AssetIntegrity.corrupt);
+    expect(changed.sourceVerified, isFalse);
+    await File(companion).writeAsBytes(bodies['vocab.json']!);
+    await File('${root.path}/publisher/model/merges.txt').delete();
+    final missing = (await library.scan(root, verifyFiles: true)).single;
+    expect(missing.integrity, AssetIntegrity.incomplete);
+    await File('${root.path}/publisher/model/merges.txt')
+        .writeAsBytes(bodies['merges.txt']!);
+    final restored = (await library.scan(root, verifyFiles: true)).single;
+    final fresh = await library.prepareDeletion([restored.id]);
+    expect(
+      await library.delete(fresh, confirmed: true),
+      DeletionResult.deleted,
+    );
+    for (final path in bodies.keys) {
+      expect(
+        await File('${root.path}/publisher/model/$path').exists(),
+        isFalse,
+      );
+    }
+    expect(await root.exists(), isTrue);
+  });
   test('the fixed native Laya package includes its complete tokenizer and encoder configuration only', () async {
     // Primary HF metadata snapshot, retrieved at this immutable revision.
     const revision = '1720e3e3357cfe1e281542e223f8273b0890ca34';

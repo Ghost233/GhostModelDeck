@@ -5,6 +5,8 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 
+import 'hf_model_browser.dart';
+
 enum AssetKind { decision, chat, adapter, encoder, unknown }
 
 enum AssetIntegrity { complete, incomplete, corrupt, unknown }
@@ -22,6 +24,7 @@ class LibraryArtifact {
     required this.integrity,
     required this.engineCapability,
     this.architecture,
+    this.quantization,
     this.decisionType,
     this.sourceVerified = false,
     this.repoId,
@@ -38,6 +41,9 @@ class LibraryArtifact {
   final AssetIntegrity integrity;
   final EngineCapability engineCapability;
   final String? architecture;
+
+  /// Configuration evidence only; neither tensor validation nor engine support.
+  final String? quantization;
   final String? decisionType;
   final bool sourceVerified;
   final String? repoId;
@@ -224,6 +230,12 @@ class ModelLibrary {
         artifacts,
         allFiles,
         record,
+        {
+          for (final file in discovered)
+            if (file.inspection.format == 'GGUF' ||
+                file.inspection.format == 'Safetensors')
+              file.file.path,
+        },
       );
       if (generation == _generation) {
         final displayed =
@@ -469,6 +481,7 @@ Future<List<LibraryArtifact>> _applyManifests(
   List<LibraryArtifact> artifacts,
   Map<String, File> allFiles,
   Future<LibraryFile> Function(String) record,
+  Set<String> weightPaths,
 ) async {
   final directory = Directory('$root/.ghostmodeldeck/installations');
   if (await FileSystemEntity.type(directory.path, followLinks: false) !=
@@ -516,16 +529,21 @@ Future<List<LibraryArtifact>> _applyManifests(
   }
   final result = <LibraryArtifact>[];
   for (final artifact in artifacts) {
-    final matching = manifests
+    // Shared config/tokenizer files cannot establish a model's receipt identity.
+    // Anchor on every structurally inspected weight, regardless of filename.
+    final corePaths = artifact.files
         .where(
-          (manifest) => (manifest['files'] as List).any(
-            (file) => artifact.files.any(
-              (actual) =>
-                  actual.path == _relativeFile(root, file['path'] as String),
-            ),
-          ),
+          (file) => weightPaths.contains(file.path) || artifact.format == '未知',
         )
-        .toList();
+        .map((file) => file.path)
+        .toSet();
+    final matching = manifests.where((manifest) {
+      final receiptPaths = {
+        for (final file in manifest['files'] as List)
+          _relativeFile(root, file['path'] as String),
+      };
+      return corePaths.isNotEmpty && receiptPaths.containsAll(corePaths);
+    }).toList();
     if (matching.isEmpty) {
       result.add(artifact);
       continue;
@@ -555,6 +573,7 @@ Future<List<LibraryArtifact>> _applyManifests(
     final diagnostics = [...artifact.diagnostics];
     var integrity = artifact.integrity;
     var sourceVerified = artifact.fingerprintsVerified;
+    final files = {for (final file in artifact.files) file.path: file};
     final covered = <String>{};
     for (final entry in manifest['files'] as List) {
       final path = _relativeFile(root, entry['path'] as String)!;
@@ -568,6 +587,7 @@ Future<List<LibraryArtifact>> _applyManifests(
       }
       covered.add(path);
       final actual = await record(path);
+      files[path] = actual;
       if (actual.sizeBytes != entry['sizeBytes'] ||
           actual.sha256 != null &&
               actual.sha256 != (entry['sha256'] as String).toLowerCase()) {
@@ -611,12 +631,13 @@ Future<List<LibraryArtifact>> _applyManifests(
     result.add(
       LibraryArtifact(
         id: artifact.id,
-        files: artifact.files,
+        files: files.values.toList(),
         format: artifact.format,
         kind: artifact.kind,
         integrity: integrity,
         engineCapability: artifact.engineCapability,
         architecture: artifact.architecture,
+        quantization: artifact.quantization,
         decisionType: artifact.decisionType,
         sourceVerified: sourceVerified,
         repoId: manifest['repoId'] as String,
@@ -1027,8 +1048,26 @@ Future<_SafetensorsGroups> _groupSafetensors(
         integrity = AssetIntegrity.unknown;
       }
       diagnostics.add('架构必要 tensor 布局尚未核验');
-      await companion('tokenizer.json');
-      await companion('tokenizer_config.json');
+      for (final name in [
+        'tokenizer.json',
+        'tokenizer_config.json',
+        'special_tokens_map.json',
+        'added_tokens.json',
+        'vocab.json',
+        'generation_config.json',
+      ]) {
+        await companion(name);
+      }
+      // Text/binary tokenizer fallbacks are assets too, not JSON documents.
+      for (final name in [
+        'merges.txt',
+        'vocab.txt',
+        'tokenizer.model',
+        'chat_template.jinja',
+      ]) {
+        final path = '$directory/$name';
+        if (allFiles.containsKey(path)) files[path] = await record(path);
+      }
     }
     if (selected.isEmpty || tensors.isEmpty) missing('缺少权重');
     consumed.addAll(files.keys);
@@ -1041,6 +1080,10 @@ Future<_SafetensorsGroups> _groupSafetensors(
         kind: kind,
         integrity: integrity,
         architecture: architecture,
+        quantization:
+            config != null && (indexPath != null || selected.length == 1)
+            ? NativeModelConfiguration.fromJson(config)?.quantization
+            : null,
         decisionType: decision,
         engineCapability: EngineCapability.awaitingVerification,
         diagnostics: diagnostics,
@@ -1587,6 +1630,10 @@ LibraryArtifact _ggufArtifact(List<_ScannedFile> files) {
           'phi3',
         ].contains(architecture)) {
       kind = AssetKind.chat;
+      final template = metadata['tokenizer.chat_template'];
+      if (template is! String || template.trim().isEmpty) {
+        missing('缺少普通 chat 模板');
+      }
     } else if (!decisionMarker &&
         ['modern-bert', 'bert', 'nomic-bert'].contains(architecture)) {
       kind = AssetKind.encoder;

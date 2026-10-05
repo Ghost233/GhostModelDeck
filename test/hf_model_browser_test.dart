@@ -2,10 +2,111 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/hf_model_browser.dart';
+import 'package:ghost_model_deck/model_package.dart';
+
+import 'fixtures/mlx_package.dart';
 
 void main() {
+  test('native quantization comes from fixed config bytes not the repository name', () async {
+    const revision = 'a5339a4131f135d0fdc6a5c8b5bbed2753bbe0f3';
+    final bodies = mlxPackageBytes();
+    final requests = <String>[];
+    var config = await File('test/fixtures/hf_mlx_qwen2_config_a5339a4.json')
+        .readAsString();
+    expect(utf8.encode(config), hasLength(783));
+    expect(
+      sha256.convert(utf8.encode(config)).toString(),
+      'b045e57ea90b8f1b35f89f954b176a5c1faa02bd0af2c89bcec191239d66cef4',
+    );
+    var wrongBlob = false;
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    server.listen((request) async {
+      requests.add(request.uri.path);
+      request.response.headers.contentType = ContentType.json;
+      if (request.uri.path.startsWith('/api/')) {
+        request.response.write(
+          jsonEncode({
+            'id': 'publisher/4bit-mlx-name-is-not-evidence',
+            'sha': revision,
+            'siblings': [
+              for (final entry in bodies.entries)
+                {
+                  'rfilename': entry.key,
+                  if (entry.key == 'config.json')
+                    'blobId': wrongBlob
+                        ? '0000000000000000000000000000000000000000'
+                        : sha1.convert([
+                            ...utf8.encode(
+                              'blob ${utf8.encode(config).length}\u0000',
+                            ),
+                            ...utf8.encode(config),
+                          ]).toString(),
+                  'size': entry.key == 'config.json'
+                      ? utf8.encode(config).length
+                      : entry.value.length,
+                },
+            ],
+          }),
+        );
+      } else {
+        request.response.write(config);
+      }
+      await request.response.close();
+    });
+    final browser = HfModelBrowser(
+      endpoint: Uri.parse('http://127.0.0.1:${server.port}'),
+    );
+    addTearDown(() async {
+      browser.close();
+      await server.close(force: true);
+    });
+    await browser.selectRepository('publisher/4bit-mlx-name-is-not-evidence');
+    final variant = ModelPackage.discover(browser.state.repository!)
+        .single
+        .variants
+        .single;
+    expect(variant.format, 'Safetensors');
+    expect(variant.quantization, '4bit · group 64');
+    expect(
+      requests.last,
+      '/publisher/4bit-mlx-name-is-not-evidence/resolve/$revision/config.json',
+    );
+    wrongBlob = true;
+    await browser.selectRepository('publisher/4bit-mlx-name-is-not-evidence');
+    expect(
+      ModelPackage.discover(browser.state.repository!)
+          .single
+          .variants
+          .single
+          .quantization,
+      isNull,
+    );
+    wrongBlob = false;
+    config =
+        '{"model_type":"qwen2","quantization":{"bits":"4","group_size":64}}';
+    await browser.selectRepository('publisher/4bit-mlx-name-is-not-evidence');
+    expect(
+      ModelPackage.discover(browser.state.repository!)
+          .single
+          .variants
+          .single
+          .quantization,
+      isNull,
+    );
+    config = '{"model_type":"qwen2"}';
+    await browser.selectRepository('publisher/4bit-mlx-name-is-not-evidence');
+    expect(
+      ModelPackage.discover(browser.state.repository!)
+          .single
+          .variants
+          .single
+          .quantization,
+      isNull,
+    );
+  });
   test('keyword search exposes repositories returned by HF', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final requests = <Uri>[];

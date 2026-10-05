@@ -1,0 +1,37 @@
+tar: Ignoring unknown extended header keyword 'SCHILY.fflags'
+tar: Ignoring unknown extended header keyword 'SCHILY.fflags'
+Resolving dependencies...
+Downloading packages...
+  material_color_utilities 0.13.0 (0.13.1 available)
+  test_api 0.7.12 (0.7.14 available)
+Got dependencies!
+2 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Resolving dependencies...
+Downloading packages...
+  material_color_utilities 0.13.0 (0.13.1 available)
+  test_api 0.7.12 (0.7.14 available)
+Got dependencies!
+2 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /workspace/project/test/model_library_test.dart
+00:00 +0: shared companions never attach another indexed variant receipt
+00:00 +0 -1: shared companions never attach another indexed variant receipt [E]
+  Expected: ['model-B.safetensors']
+    Actual: MappedIterable<LibraryFile, String>:[
+              'model-B.safetensors',
+              'model-A.safetensors'
+            ]
+     Which: at location [1] is MappedIterable<LibraryFile, String>:[
+              'model-B.safetensors',
+              'model-A.safetensors'
+            ] which longer than expected
+  
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  test/model_library_test.dart 78:9                   main.<fn>
+  
+00:00 +0 -1: Some tests failed.
+
+Failing tests:
+  /workspace/project/test/model_library_test.dart: shared companions never attach another indexed variant receipt
