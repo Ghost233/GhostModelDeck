@@ -306,6 +306,11 @@ class OmlxEngine {
     return uid;
   }
 
+  /// `%Mp%Lp` keeps the set-uid/set-gid/sticky digit that `%Lp` alone drops;
+  /// macOS prints a sticky directory such as /private/tmp as plain 777
+  /// without it, which made trusted system sticky roots unreachable.
+  static const _statFields = '%u:%g:%Mp%Lp:%HT';
+
   Future<void> _safeDirectory(
     String path,
     int uid, {
@@ -314,7 +319,7 @@ class OmlxEngine {
   }) async {
     final result = await _run('/usr/bin/stat', [
       '-f',
-      '%u:%g:%Lp:%HT',
+      _statFields,
       path,
     ], timeout: const Duration(seconds: 10));
     final fields = result.stdout.toString().trim().split(':');
@@ -335,8 +340,17 @@ class OmlxEngine {
       path,
     ], timeout: const Duration(seconds: 10));
     final lines = acl.stdout.toString().trim().split('\n');
-    if (lines.length != 1 ||
-        !RegExp(r'^d[rwxstST-]{9}[@]?\s').hasMatch(lines[0])) {
+    // Deny-only ACEs (for example the standard `group:everyone deny delete`
+    // on macOS home directories) can only restrict access, never widen it;
+    // any allow entry or unclassifiable line stays fail-closed.
+    if (!RegExp(r'^d[rwxstST-]{9}[+@]?\s').hasMatch(lines[0]) ||
+        lines
+            .skip(1)
+            .any(
+              (line) =>
+                  !RegExp(r'^\s*\d+: (user|group):\S+ deny [a-z_,]+$')
+                      .hasMatch(line),
+            )) {
       throw const OmlxException('oMLX 路径 ACL 无法安全分类');
     }
   }
@@ -359,7 +373,7 @@ class OmlxEngine {
       path = '$path/$part';
       final result = await io.run(
         '/usr/bin/stat',
-        ['-f', '%u:%g:%Lp:%HT', path],
+        ['-f', _statFields, path],
         timeout: const Duration(seconds: 10),
         environment: const {'LC_ALL': 'C'},
       );
@@ -534,11 +548,7 @@ class OmlxEngine {
         index,
         index + 200 > paths.length ? paths.length : index + 200,
       );
-      final result = await _run('/usr/bin/stat', [
-        '-f',
-        '%u:%g:%Lp:%HT',
-        ...batch,
-      ]);
+      final result = await _run('/usr/bin/stat', ['-f', _statFields, ...batch]);
       final lines = result.stdout.toString().trim().split('\n');
       if (lines.length != batch.length) {
         throw const OmlxException('oMLX 资源所有权证据不完整');
@@ -848,6 +858,15 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
       if ((await _inventory(copied)).digest != sourceInventory.digest) {
         throw const OmlxException('oMLX 完整 app 复制内容不符');
       }
+      // The official bundle ships group-writable CPython entries; only this
+      // owned private copy is normalized, never ancestors or user paths.
+      // _inspect below re-verifies manifest, signature and ownership on the
+      // normalized bytes before any Python launch.
+      await _run('/bin/chmod', [
+        '-R',
+        'go-w',
+        copied.path,
+      ], timeout: const Duration(seconds: 180));
       await _inspect(copied, epoch, dmgSha256: dmgDigest);
       // No publication while an owned device still needs cleanup.
       await _detach(device, mount.path);

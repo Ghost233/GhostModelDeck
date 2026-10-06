@@ -24,7 +24,7 @@ class _BuilderIO implements OmlxProcessIO {
     commands.add(executable);
     if (executable == '/usr/bin/id') return ProcessResult(1, 0, '501\n', '');
     if (executable == '/usr/bin/stat') {
-      return ProcessResult(1, 0, '0:0:755:Directory\n', '');
+      return ProcessResult(1, 0, '0:0:0755:Directory\n', '');
     }
     if (executable == '/bin/ls') {
       return ProcessResult(1, 0, 'drwxr-xr-x  root wheel path\n', '');
@@ -58,7 +58,7 @@ class _ValidBundleIO extends _BuilderIO {
       return ProcessResult(
         1,
         0,
-        List.filled(arguments.length - 2, '501:20:700:Directory').join('\n'),
+        List.filled(arguments.length - 2, '501:20:0700:Directory').join('\n'),
         '',
       );
     }
@@ -169,11 +169,11 @@ class _UnsafeGateIO extends _ValidBundleIO {
     if (executable == '/usr/bin/stat' && arguments.last == '/Users') {
       switch (failure) {
         case 'foreign owner':
-          return ProcessResult(1, 0, '502:20:755:Directory\n', '');
+          return ProcessResult(1, 0, '502:20:0755:Directory\n', '');
         case 'foreign writable':
-          return ProcessResult(1, 0, '0:0:775:Directory\n', '');
+          return ProcessResult(1, 0, '0:0:0775:Directory\n', '');
         case 'dangling link':
-          return ProcessResult(1, 0, '0:0:755:Symbolic Link\n', '');
+          return ProcessResult(1, 0, '0:0:0755:Symbolic Link\n', '');
         case 'permission':
           return ProcessResult(1, 1, '', 'Permission denied SECRET-SENTINEL');
         case 'parse':
@@ -278,6 +278,126 @@ class _BlockingBundleIO extends _ValidBundleIO {
   }
 }
 
+class _StickyAncestorIO extends _ValidBundleIO {
+  _StickyAncestorIO(super.bundle);
+  @override
+  Future<ProcessResult> run(
+    String executable,
+    List<String> arguments, {
+    required Duration timeout,
+    String? workingDirectory,
+    Map<String, String> environment = const {},
+    String? input,
+  }) async {
+    // `stat -f %Mp%Lp` keeps the sticky digit: /private/tmp prints 1777.
+    if (executable == '/usr/bin/stat' && arguments.last == '/tmp') {
+      return ProcessResult(1, 0, '0:0:1777:Directory\n', '');
+    }
+    return super.run(
+      executable,
+      arguments,
+      timeout: timeout,
+      workingDirectory: workingDirectory,
+      environment: environment,
+      input: input,
+    );
+  }
+}
+
+class _WorldWritableAncestorIO extends _ValidBundleIO {
+  _WorldWritableAncestorIO(super.bundle);
+  @override
+  Future<ProcessResult> run(
+    String executable,
+    List<String> arguments, {
+    required Duration timeout,
+    String? workingDirectory,
+    Map<String, String> environment = const {},
+    String? input,
+  }) async {
+    // A root-owned 0777 directory without the sticky bit is untrusted.
+    if (executable == '/usr/bin/stat' && arguments.last == '/tmp') {
+      return ProcessResult(1, 0, '0:0:0777:Directory\n', '');
+    }
+    return super.run(
+      executable,
+      arguments,
+      timeout: timeout,
+      workingDirectory: workingDirectory,
+      environment: environment,
+      input: input,
+    );
+  }
+}
+
+class _DenyAclIO extends _ValidBundleIO {
+  _DenyAclIO(super.bundle);
+  @override
+  Future<ProcessResult> run(
+    String executable,
+    List<String> arguments, {
+    required Duration timeout,
+    String? workingDirectory,
+    Map<String, String> environment = const {},
+    String? input,
+  }) async {
+    // Standard macOS home directories carry `group:everyone deny delete`.
+    if (executable == '/bin/ls' &&
+        arguments.length == 2 &&
+        arguments.last == '/tmp') {
+      return ProcessResult(
+        1,
+        0,
+        'drwxr-xr-x+ 0 root wheel path\n 0: group:everyone deny delete\n',
+        '',
+      );
+    }
+    return super.run(
+      executable,
+      arguments,
+      timeout: timeout,
+      workingDirectory: workingDirectory,
+      environment: environment,
+      input: input,
+    );
+  }
+}
+
+class _OfficialModesIO extends _ValidBundleIO {
+  _OfficialModesIO(super.bundle);
+  @override
+  Future<ProcessResult> run(
+    String executable,
+    List<String> arguments, {
+    required Duration timeout,
+    String? workingDirectory,
+    Map<String, String> environment = const {},
+    String? input,
+  }) async {
+    // The official 0.7.0 bundle ships 1158x0o664 CPython files and 48x0o775
+    // entries; a foreign bundle in that state must still be rejected.
+    if (executable == '/usr/bin/stat' && arguments.length > 3) {
+      return ProcessResult(
+        1,
+        0,
+        List.filled(
+          arguments.length - 2,
+          '501:20:0664:Regular File',
+        ).join('\n'),
+        '',
+      );
+    }
+    return super.run(
+      executable,
+      arguments,
+      timeout: timeout,
+      workingDirectory: workingDirectory,
+      environment: environment,
+      input: input,
+    );
+  }
+}
+
 Future<Directory> _bundle(Directory root) async {
   final app = Directory('${root.path}/foreign.app');
   for (final name in [
@@ -330,6 +450,92 @@ void main() {
       },
     );
   }
+
+  test(
+    'trusted sticky root-owned world-writable ancestor is accepted',
+    () async {
+      final root = await Directory.systemTemp.createTemp('gmd-omlx-sticky-');
+      addTearDown(() => root.delete(recursive: true));
+      final app = await _bundle(root);
+      final io = _StickyAncestorIO(app);
+      final engine = OmlxEngine(
+        installationDirectory: Directory('${root.path}/owned'),
+        io: io,
+      );
+      addTearDown(engine.close);
+      final receipt = await engine.inspectLinked(app);
+      expect(receipt.releaseLabel, '0.7.0');
+      expect(io.pythonLaunches, 2);
+    },
+  );
+
+  test(
+    'world-writable root ancestor without the sticky bit still fails closed',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'gmd-omlx-world-writable-',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      final app = await _bundle(root);
+      final io = _WorldWritableAncestorIO(app);
+      final engine = OmlxEngine(
+        installationDirectory: Directory('${root.path}/owned'),
+        io: io,
+      );
+      addTearDown(engine.close);
+      await expectLater(
+        engine.inspectLinked(app),
+        throwsA(isA<OmlxException>()),
+      );
+      expect(io.pythonLaunches, 0);
+      expect(engine.state.receipt, isNull);
+    },
+  );
+
+  test(
+    'deny-only ACL on an ancestor is classified safe before Python',
+    () async {
+      final root = await Directory.systemTemp.createTemp('gmd-omlx-deny-acl-');
+      addTearDown(() => root.delete(recursive: true));
+      final app = await _bundle(root);
+      final io = _DenyAclIO(app);
+      final engine = OmlxEngine(
+        installationDirectory: Directory('${root.path}/owned'),
+        io: io,
+      );
+      addTearDown(engine.close);
+      final receipt = await engine.inspectLinked(app);
+      expect(receipt.releaseLabel, '0.7.0');
+      expect(io.pythonLaunches, 2);
+    },
+  );
+
+  test(
+    'foreign bundle with official group-writable modes still fails closed',
+    () async {
+      final root = await Directory.systemTemp.createTemp('gmd-omlx-official-');
+      addTearDown(() => root.delete(recursive: true));
+      final app = await _bundle(root);
+      final io = _OfficialModesIO(app);
+      final engine = OmlxEngine(
+        installationDirectory: Directory('${root.path}/owned'),
+        io: io,
+      );
+      addTearDown(engine.close);
+      await expectLater(
+        engine.inspectLinked(app),
+        throwsA(
+          isA<OmlxException>().having(
+            (e) => e.message,
+            'ownership gate',
+            contains('可由其他本地用户修改'),
+          ),
+        ),
+      );
+      expect(io.pythonLaunches, 0);
+      expect(engine.state.receipt, isNull);
+    },
+  );
 
   test('private inspection cleanup never follows foreign link and aggregate stop retains retryable residual', () async {
     final root = await Directory.systemTemp.createTemp('gmd-omlx-cleanup-');
