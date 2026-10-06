@@ -1,0 +1,411 @@
+{
+  "scope": "Production structural scanner plus independent physical hashes and final online gate source binding; no model execution or Ready",
+  "observed_at": "2026-10-06T05:32:38.319793+00:00",
+  "source_revision": "1bb8f6d7d67c7f31415bb38df8dd4c9898bd5d40",
+  "raw_sha256": "037c5feb487c22b3f7181c2248ecd3de86857571831c5d66baf3ac6cbd024cc4",
+  "raw": {
+    "observed_at": "2026-10-06T05:27:14.618697Z",
+    "source_revision": "1bb8f6d7d67c7f31415bb38df8dd4c9898bd5d40",
+    "repository": "mlx-community/Qwen2.5-0.5B-Instruct-4bit",
+    "revision": "a5339a4131f135d0fdc6a5c8b5bbed2753bbe0f3",
+    "canonical_library": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-mlx-r42-p0rh2W",
+    "scope": "Existing fixed nine-file package, production scan/verify and physical hashes only; no download, engine, model execution, Ready, GUI or Release acceptance",
+    "success": true,
+    "actual_assets": [
+      {
+        "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-mlx-r42-p0rh2W/mlx-community/Qwen2.5-0.5B-Instruct-4bit/model.safetensors",
+        "bytes": 278064920,
+        "sha256": "ddffab9cbc7bf6dde941c6724841eeca8981fcfa81ca20ff8efff1396326d153",
+        "git_blob": null,
+        "stat_before": {
+          "bytes": 278064920,
+          "mode": 33188,
+          "modified": "2026-10-05T19:46:29.580110Z",
+          "changed": "2026-10-05T19:46:31.357719Z",
+          "type": "file"
+        },
+        "stat_after": {
+          "bytes": 278064920,
+          "mode": 33188,
+          "modified": "2026-10-05T19:46:29.580110Z",
+          "changed": "2026-10-05T19:46:31.357719Z",
+          "type": "file"
+        }
+      },
+      {
+        "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-mlx-r42-p0rh2W/mlx-community/Qwen2.5-0.5B-Instruct-4bit/config.json",
+        "bytes": 783,
+        "sha256": "b045e57ea90b8f1b35f89f954b176a5c1faa02bd0af2c89bcec191239d66cef4",
+        "git_blob": "e3c0e76e4e54c951f36d49e3042347b58382136e",
+        "stat_before": {
+          "bytes": 783,
+          "mode": 33188,
+          "modified": "2026-10-05T19:41:43.157106Z",
+          "changed": "2026-10-05T19:46:31.358117Z",
+          "type": "file"
+        },
+        "stat_after": {
+          "bytes": 783,
+          "mode": 33188,
+          "modified": "2026-10-05T19:41:43.157106Z",
+          "changed": "2026-10-05T19:46:31.358117Z",
+          "type": "file"
+        }
+      },
+      {
+        "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-mlx-r42-p0rh2W/mlx-community/Qwen2.5-0.5B-Instruct-4bit/model.safetensors.index.json",
+        "bytes": 44209,
+        "sha256": "54001cb4c11197119c206dde28e7be08e5872aab6c6d271aed339ec77e84f870",
+        "git_blob": "8831428421e282132532f717fcaba43f8c7f5445",
+        "stat_before": {
+          "bytes": 44209,
+          "mode": 33188,
+          "modified": "2026-10-05T19:41:45.955449Z",
+          "changed": "2026-10-05T19:46:31.357805Z",
+          "type": "file"
+        },
+        "stat_after": {
+          "bytes": 44209,
+          "mode": 33188,
+          "modified": "2026-10-05T19:41:45.955449Z",
+          "changed": "2026-10-05T19:46:31.357805Z",
+          "type": "file"
+        }
+      },
+      {
+        "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-mlx-r42-p0rh2W/mlx-community/Qwen2.5-0.5B-Instruct-4bit/tokenizer.json",
+        "bytes": 7031673,
+        "sha256": "a8506e7111b80c6d8635951a02eab0f4e1a8e4e5772da83846579e97b16f61bf",
+        "git_blob": "d24314ef7f0afd1b678c2e24c767e19f24f86b0e",
+        "stat_before": {
+          "bytes": 7031673,
+          "mode": 33188,
+          "modified": "2026-10-05T19:41:53.853447Z",
+          "changed": "2026-10-05T19:46:31.357870Z",
+          "type": "file"
+        },
+        "stat_after": {
+          "bytes": 7031673,
+          "mode": 33188,
+          "modified": "2026-10-05T19:41:53.853447Z",
+          "changed": "2026-10-05T19:46:31.357870Z",
+          "type": "file"
+        }
+      },
+      {
+        "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-mlx-r42-p0rh2W/mlx-community/Qwen2.5-0.5B-Instruct-4bit/tokenizer_config.json",
+        "bytes": 7308,
+        "sha256": "f7c61e32b7a17d19bf8e7037dcb74079a833e53ea9801f24008cac68458f03b7",
+        "git_blob": "482ccbc1096b0e9400e86e33f189681c2aebdab9",
+        "stat_before": {
+          "bytes": 7308,
+          "mode": 33188,
+          "modified": "2026-10-05T19:41:54.636029Z",
+          "changed": "2026-10-05T19:46:31.358323Z",
+          "type": "file"
+        },
+        "stat_after": {
+          "bytes": 7308,
+          "mode": 33188,
+          "modified": "2026-10-05T19:41:54.636029Z",
+          "changed": "2026-10-05T19:46:31.358323Z",
+          "type": "file"
+        }
+      },
+      {
+        "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-mlx-r42-p0rh2W/mlx-community/Qwen2.5-0.5B-Instruct-4bit/special_tokens_map.json",
+        "bytes": 613,
+        "sha256": "76862e765266b85aa9459767e33cbaf13970f327a0e88d1c65846c2ddd3a1ecd",
+        "git_blob": "ac23c0aaa2434523c494330aeb79c58395378103",
+        "stat_before": {
+          "bytes": 613,
+          "mode": 33188,
+          "modified": "2026-10-05T19:41:46.750333Z",
+          "changed": "2026-10-05T19:46:31.358415Z",
+          "type": "file"
+        },
+        "stat_after": {
+          "bytes": 613,
+          "mode": 33188,
+          "modified": "2026-10-05T19:41:46.750333Z",
+          "changed": "2026-10-05T19:46:31.358415Z",
+          "type": "file"
+        }
+      },
+      {
+        "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-mlx-r42-p0rh2W/mlx-community/Qwen2.5-0.5B-Instruct-4bit/added_tokens.json",
+        "bytes": 605,
+        "sha256": "58b54bbe36fc752f79a24a271ef66a0a0830054b4dfad94bde757d851968060b",
+        "git_blob": "482ced4679301bf287ebb310bdd1790eb4514232",
+        "stat_before": {
+          "bytes": 605,
+          "mode": 33188,
+          "modified": "2026-10-05T19:41:42.558966Z",
+          "changed": "2026-10-05T19:46:31.358215Z",
+          "type": "file"
+        },
+        "stat_after": {
+          "bytes": 605,
+          "mode": 33188,
+          "modified": "2026-10-05T19:41:42.558966Z",
+          "changed": "2026-10-05T19:46:31.358215Z",
+          "type": "file"
+        }
+      },
+      {
+        "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-mlx-r42-p0rh2W/mlx-community/Qwen2.5-0.5B-Instruct-4bit/vocab.json",
+        "bytes": 2776833,
+        "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910",
+        "git_blob": "4783fe10ac3adce15ac8f358ef5462739852c569",
+        "stat_before": {
+          "bytes": 2776833,
+          "mode": 33188,
+          "modified": "2026-10-05T19:41:57.958122Z",
+          "changed": "2026-10-05T19:46:31.358033Z",
+          "type": "file"
+        },
+        "stat_after": {
+          "bytes": 2776833,
+          "mode": 33188,
+          "modified": "2026-10-05T19:41:57.958122Z",
+          "changed": "2026-10-05T19:46:31.358033Z",
+          "type": "file"
+        }
+      },
+      {
+        "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-mlx-r42-p0rh2W/mlx-community/Qwen2.5-0.5B-Instruct-4bit/merges.txt",
+        "bytes": 1671853,
+        "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5",
+        "git_blob": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7",
+        "stat_before": {
+          "bytes": 1671853,
+          "mode": 33188,
+          "modified": "2026-10-05T19:41:45.334739Z",
+          "changed": "2026-10-05T19:46:31.357941Z",
+          "type": "file"
+        },
+        "stat_after": {
+          "bytes": 1671853,
+          "mode": 33188,
+          "modified": "2026-10-05T19:41:45.334739Z",
+          "changed": "2026-10-05T19:46:31.357941Z",
+          "type": "file"
+        }
+      }
+    ],
+    "artifact": {
+      "id": "e97a5c0b85551f8f4da39fd7e033974bbb9ea1f0a7585ff6dd482e0c5a24d63b",
+      "format": "Safetensors",
+      "kind": "chat",
+      "architecture": "qwen2",
+      "quantization": "4bit · group 64",
+      "integrity": "complete",
+      "source_verified": true,
+      "fingerprints_verified": true,
+      "engine_capability": "awaitingVerification",
+      "diagnostics": [],
+      "repository": "mlx-community/Qwen2.5-0.5B-Instruct-4bit",
+      "revision": "a5339a4131f135d0fdc6a5c8b5bbed2753bbe0f3",
+      "files": [
+        {
+          "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-mlx-r42-p0rh2W/mlx-community/Qwen2.5-0.5B-Instruct-4bit/model.safetensors",
+          "bytes": 278064920,
+          "sha256": "ddffab9cbc7bf6dde941c6724841eeca8981fcfa81ca20ff8efff1396326d153"
+        },
+        {
+          "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-mlx-r42-p0rh2W/mlx-community/Qwen2.5-0.5B-Instruct-4bit/model.safetensors.index.json",
+          "bytes": 44209,
+          "sha256": "54001cb4c11197119c206dde28e7be08e5872aab6c6d271aed339ec77e84f870"
+        },
+        {
+          "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-mlx-r42-p0rh2W/mlx-community/Qwen2.5-0.5B-Instruct-4bit/config.json",
+          "bytes": 783,
+          "sha256": "b045e57ea90b8f1b35f89f954b176a5c1faa02bd0af2c89bcec191239d66cef4"
+        },
+        {
+          "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-mlx-r42-p0rh2W/mlx-community/Qwen2.5-0.5B-Instruct-4bit/tokenizer.json",
+          "bytes": 7031673,
+          "sha256": "a8506e7111b80c6d8635951a02eab0f4e1a8e4e5772da83846579e97b16f61bf"
+        },
+        {
+          "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-mlx-r42-p0rh2W/mlx-community/Qwen2.5-0.5B-Instruct-4bit/tokenizer_config.json",
+          "bytes": 7308,
+          "sha256": "f7c61e32b7a17d19bf8e7037dcb74079a833e53ea9801f24008cac68458f03b7"
+        },
+        {
+          "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-mlx-r42-p0rh2W/mlx-community/Qwen2.5-0.5B-Instruct-4bit/special_tokens_map.json",
+          "bytes": 613,
+          "sha256": "76862e765266b85aa9459767e33cbaf13970f327a0e88d1c65846c2ddd3a1ecd"
+        },
+        {
+          "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-mlx-r42-p0rh2W/mlx-community/Qwen2.5-0.5B-Instruct-4bit/added_tokens.json",
+          "bytes": 605,
+          "sha256": "58b54bbe36fc752f79a24a271ef66a0a0830054b4dfad94bde757d851968060b"
+        },
+        {
+          "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-mlx-r42-p0rh2W/mlx-community/Qwen2.5-0.5B-Instruct-4bit/vocab.json",
+          "bytes": 2776833,
+          "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+        },
+        {
+          "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-mlx-r42-p0rh2W/mlx-community/Qwen2.5-0.5B-Instruct-4bit/merges.txt",
+          "bytes": 1671853,
+          "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"
+        }
+      ]
+    }
+  },
+  "independent_gates": [
+    {
+      "gate": "format",
+      "archive_sha256": "e5e056126f0e1209311230803b4c4836232c7b08a41e110399e7e50826485bea",
+      "tracked_files": 68,
+      "preserved_ignored_files": 2,
+      "exit": 0
+    },
+    {
+      "gate": "analyze",
+      "archive_sha256": "8e86d2ffded52ee33d603a4be3d7e801867d7b4063ae2be70e377536bd06c685",
+      "tracked_files": 68,
+      "preserved_ignored_files": 2,
+      "exit": 0
+    },
+    {
+      "gate": "test",
+      "archive_sha256": "d3006a3e233075617fdc84dedf1c5b1e361f7723950854485bd9150888b154d5",
+      "tracked_files": 68,
+      "preserved_ignored_files": 2,
+      "exit": 0
+    }
+  ],
+  "independent_physical_files": [
+    {
+      "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-mlx-r42-p0rh2W/mlx-community/Qwen2.5-0.5B-Instruct-4bit/model.safetensors",
+      "bytes": 278064920,
+      "sha256": "ddffab9cbc7bf6dde941c6724841eeca8981fcfa81ca20ff8efff1396326d153",
+      "git_blob": null,
+      "stable_stat": [
+        16777230,
+        16677357,
+        278064920,
+        33188,
+        1791229589580110101,
+        1791229591357719719
+      ]
+    },
+    {
+      "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-mlx-r42-p0rh2W/mlx-community/Qwen2.5-0.5B-Instruct-4bit/config.json",
+      "bytes": 783,
+      "sha256": "b045e57ea90b8f1b35f89f954b176a5c1faa02bd0af2c89bcec191239d66cef4",
+      "git_blob": "e3c0e76e4e54c951f36d49e3042347b58382136e",
+      "stable_stat": [
+        16777230,
+        16677293,
+        783,
+        33188,
+        1791229303157106110,
+        1791229591358117636
+      ]
+    },
+    {
+      "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-mlx-r42-p0rh2W/mlx-community/Qwen2.5-0.5B-Instruct-4bit/model.safetensors.index.json",
+      "bytes": 44209,
+      "sha256": "54001cb4c11197119c206dde28e7be08e5872aab6c6d271aed339ec77e84f870",
+      "git_blob": "8831428421e282132532f717fcaba43f8c7f5445",
+      "stable_stat": [
+        16777230,
+        16677307,
+        44209,
+        33188,
+        1791229305955449816,
+        1791229591357805427
+      ]
+    },
+    {
+      "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-mlx-r42-p0rh2W/mlx-community/Qwen2.5-0.5B-Instruct-4bit/tokenizer.json",
+      "bytes": 7031673,
+      "sha256": "a8506e7111b80c6d8635951a02eab0f4e1a8e4e5772da83846579e97b16f61bf",
+      "git_blob": "d24314ef7f0afd1b678c2e24c767e19f24f86b0e",
+      "stable_stat": [
+        16777230,
+        16677314,
+        7031673,
+        33188,
+        1791229313853447281,
+        1791229591357870802
+      ]
+    },
+    {
+      "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-mlx-r42-p0rh2W/mlx-community/Qwen2.5-0.5B-Instruct-4bit/tokenizer_config.json",
+      "bytes": 7308,
+      "sha256": "f7c61e32b7a17d19bf8e7037dcb74079a833e53ea9801f24008cac68458f03b7",
+      "git_blob": "482ccbc1096b0e9400e86e33f189681c2aebdab9",
+      "stable_stat": [
+        16777230,
+        16677337,
+        7308,
+        33188,
+        1791229314636029707,
+        1791229591358323511
+      ]
+    },
+    {
+      "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-mlx-r42-p0rh2W/mlx-community/Qwen2.5-0.5B-Instruct-4bit/special_tokens_map.json",
+      "bytes": 613,
+      "sha256": "76862e765266b85aa9459767e33cbaf13970f327a0e88d1c65846c2ddd3a1ecd",
+      "git_blob": "ac23c0aaa2434523c494330aeb79c58395378103",
+      "stable_stat": [
+        16777230,
+        16677310,
+        613,
+        33188,
+        1791229306750333285,
+        1791229591358415803
+      ]
+    },
+    {
+      "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-mlx-r42-p0rh2W/mlx-community/Qwen2.5-0.5B-Instruct-4bit/added_tokens.json",
+      "bytes": 605,
+      "sha256": "58b54bbe36fc752f79a24a271ef66a0a0830054b4dfad94bde757d851968060b",
+      "git_blob": "482ced4679301bf287ebb310bdd1790eb4514232",
+      "stable_stat": [
+        16777230,
+        16677288,
+        605,
+        33188,
+        1791229302558966968,
+        1791229591358215761
+      ]
+    },
+    {
+      "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-mlx-r42-p0rh2W/mlx-community/Qwen2.5-0.5B-Instruct-4bit/vocab.json",
+      "bytes": 2776833,
+      "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910",
+      "git_blob": "4783fe10ac3adce15ac8f358ef5462739852c569",
+      "stable_stat": [
+        16777230,
+        16677341,
+        2776833,
+        33188,
+        1791229317958122823,
+        1791229591358033011
+      ]
+    },
+    {
+      "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-mlx-r42-p0rh2W/mlx-community/Qwen2.5-0.5B-Instruct-4bit/merges.txt",
+      "bytes": 1671853,
+      "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5",
+      "git_blob": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7",
+      "stable_stat": [
+        16777230,
+        16677296,
+        1671853,
+        33188,
+        1791229305334739799,
+        1791229591357941386
+      ]
+    }
+  ],
+  "runtime_ready_claimed": false,
+  "native_generation_tested": false
+}
