@@ -1480,7 +1480,13 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
       final signingSecret = _poolSecret('s');
       final settings = <String, Object?>{
         'version': '1.0',
-        'server': {'host': '127.0.0.1', 'port': port},
+        'server': {
+          'host': '127.0.0.1',
+          'port': port,
+          // Real default 'chunk' emits keepalive frames whose model is the
+          // literal string 'keepalive', breaking decoder binding (#23).
+          'sse_keepalive_mode': 'off',
+        },
         'model': {
           'model_dirs': [modelRoot],
           'model_fallback': false,

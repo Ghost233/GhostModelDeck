@@ -155,12 +155,17 @@ class _FakeServer {
     required this.modelRoot,
     required this.apiKey,
     required this.signingSecret,
+    this.keepaliveMode = 'chunk',
     this._preloaded = const {},
   });
 
   final String modelRoot;
   final String apiKey;
   final String signingSecret;
+
+  /// Real 0.7.0 default is 'chunk' (settings.py:198); 'off' disables the
+  /// keepalive frames whose model is the literal string 'keepalive'.
+  final String keepaliveMode;
   final Set<String> _preloaded;
   final String cookieValue = _token('session');
   final Map<String, _ServerModel> models = {};
@@ -519,6 +524,23 @@ class _FakeServer {
     }
 
     try {
+      // Real 0.7.0 behavior (server.py _chat_keepalive_chunk, 2521–2546):
+      // with the default sse_keepalive_mode='chunk' every streaming chat
+      // unconditionally begins with a keepalive frame whose model is the
+      // literal string 'keepalive'.
+      if (keepaliveMode == 'chunk') {
+        frame({
+          'id': 'c1',
+          'model': 'keepalive',
+          'choices': [
+            {
+              'index': 0,
+              'delta': {'role': 'assistant', 'content': ''},
+              'finish_reason': null,
+            },
+          ],
+        });
+      }
       frame({
         'id': 'c1',
         'model': model,
@@ -672,6 +694,9 @@ class _FakePoolIO implements OmlxPoolIO {
       modelRoot: arguments[arguments.indexOf('--model-dir') + 1],
       apiKey: auth['api_key'] as String,
       signingSecret: auth['secret_key'] as String,
+      keepaliveMode:
+          (settings['server'] as Map?)?['sse_keepalive_mode'] as String? ??
+          'chunk',
       preloaded: preloaded,
     );
     onServerCreated?.call(server);
@@ -1041,6 +1066,13 @@ void main() {
       final secondAuth = secondSettings['auth'] as Map<String, dynamic>;
       expect(secondAuth['api_key'], isNot(apiKey));
       expect(secondAuth['secret_key'], isNot(signingSecret));
+      // SSE keepalive must be disabled: the real 'chunk' default emits frames
+      // whose model is 'keepalive', breaking decoder binding (issue #23).
+      expect(
+        (secondSettings['server']
+            as Map<String, dynamic>)['sse_keepalive_mode'],
+        'off',
+      );
       expect(fixture.server.loginCount, 1);
     },
   );
