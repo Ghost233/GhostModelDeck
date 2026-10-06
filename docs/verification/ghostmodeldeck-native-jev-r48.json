@@ -1,0 +1,1255 @@
+{
+  "verification": "REAL native JEV r48 bounded sample",
+  "issue_15": "OPEN",
+  "source_revision": "fff82a36792f4baadf497dbd468e2cbf2c7411f9",
+  "observed_head": "fff82a36792f4baadf497dbd468e2cbf2c7411f9",
+  "precommit_head": "055be54387332f69250c13fe295700c024db3c3a",
+  "concurrent_commit_scope": "055be54387332f69250c13fe295700c024db3c3a changed only parent native-text-sse-r48.md/json; production/test/dependency content remains exactly fff82a36792f4baadf497dbd468e2cbf2c7411f9",
+  "deterministic_curation": "21 typed answer checks plus aggregate/spread, raw DTO parity, identity, selected physical hashes, source diff and cleanup checks passed; first KeyError: 'k' curator log preserved, corrected validation counts actual seats",
+  "observed_at": "2026-10-06T01:08:48.260973+00:00",
+  "raw_evidence": [
+    {
+      "path": ".tooling/gmd-native-jev-r48.dart",
+      "bytes": 10461,
+      "sha256": "616c7c8618fbdea00ac28f4fefe3f6956dc9710168604865f1377603c2f9d58e"
+    },
+    {
+      "path": ".tooling/gmd-native-jev-r48.log",
+      "bytes": 411707,
+      "sha256": "54aac02e9e33a7b08256aa3b694ed9843618649237784702b5ceb87db800c582"
+    },
+    {
+      "path": ".tooling/gmd-native-jev-r48.json",
+      "bytes": 72274,
+      "sha256": "8ec537b27e2a96d0cf5f124d8795682102ee3bdf81aea1f32191892dcac116c6"
+    },
+    {
+      "path": ".tooling/gmd-native-jev-r48-physical-before.txt",
+      "bytes": 256,
+      "sha256": "af64bae286473dcfa9007c101c8505cf83a18c81dd8767078711a554db9eab69"
+    },
+    {
+      "path": ".tooling/gmd-native-jev-r48-physical-after.txt",
+      "bytes": 256,
+      "sha256": "af64bae286473dcfa9007c101c8505cf83a18c81dd8767078711a554db9eab69"
+    },
+    {
+      "path": ".tooling/gmd-native-jev-r48-curator.py",
+      "bytes": 7234,
+      "sha256": "7b2bc8d7d2e6cc1bf2522b338fffded47329ca775652f331d3e56850df1f3876"
+    },
+    {
+      "path": ".tooling/gmd_native_dual_install_r45.dart",
+      "bytes": 7114,
+      "sha256": "5c80562dc45564e85ce2a5f64d54e0de1cd7fb910ec98f6765ccc5fb56407242"
+    },
+    {
+      "path": "docs/verification/ghostmodeldeck-native-dual-https-install-r47.md",
+      "bytes": 4527,
+      "sha256": "18a316061afa30d92b361ad5d7cd4b7853036eb72aafed4df7ec75ecdf041267"
+    },
+    {
+      "path": "docs/verification/ghostmodeldeck-native-dual-https-install-r47.json",
+      "bytes": 57743,
+      "sha256": "645d54dfaa3c9f82a50ed03ee45e21676a708b326d69fe92faab03619eb2ae92"
+    },
+    {
+      "path": "docs/verification/ghostmodeldeck-shared-jev-assets-r43.md",
+      "bytes": 3270,
+      "sha256": "48900b05ac03f1dfd4060ee7a505c81ac923df2c3d9a9e78738f90f0e019450b"
+    },
+    {
+      "path": "docs/verification/ghostmodeldeck-shared-jev-assets-r43.json",
+      "bytes": 3926,
+      "sha256": "f7fa9fb5f5bdacd08c9601b184ef48e7d73a2ddf3bc7e8fd273e7b035bc577e8"
+    },
+    {
+      "path": "docs/verification/ghostmodeldeck-jev-three-primitives-r46.md",
+      "bytes": 10481,
+      "sha256": "e1f066d72ee5a88e664cf8c43d2f5d56e6b3f5fefd00e8f5befca9cb4cd8746e"
+    }
+  ],
+  "checks": [
+    {
+      "where": "startup0/choice",
+      "type": "choice",
+      "probability_sum": 1.0,
+      "finite": true,
+      "expected_index_verified": false
+    },
+    {
+      "where": "startup0/score/capability_probe",
+      "type": "score",
+      "probability_sum": 1.0,
+      "finite": true,
+      "expected_index_verified": true
+    },
+    {
+      "where": "startup0/noul/capability_probe",
+      "type": "noul",
+      "finite_bounded_scalar": true
+    },
+    {
+      "where": "startup1/choice",
+      "type": "choice",
+      "probability_sum": 0.9999999999999999,
+      "finite": true,
+      "expected_index_verified": false
+    },
+    {
+      "where": "startup1/score/capability_probe",
+      "type": "score",
+      "probability_sum": 1.0,
+      "finite": true,
+      "expected_index_verified": true
+    },
+    {
+      "where": "startup1/noul/capability_probe",
+      "type": "noul",
+      "finite_bounded_scalar": true
+    },
+    {
+      "where": "jev-785d3de36b8b2967afeba2a2a6f84e7250e10e96a760b049/action",
+      "type": "choice",
+      "probability_sum": 1.0,
+      "finite": true,
+      "expected_index_verified": false
+    },
+    {
+      "where": "jev-785d3de36b8b2967afeba2a2a6f84e7250e10e96a760b049/applicability",
+      "type": "score",
+      "probability_sum": 1.0,
+      "finite": true,
+      "expected_index_verified": true
+    },
+    {
+      "where": "jev-785d3de36b8b2967afeba2a2a6f84e7250e10e96a760b049/requested",
+      "type": "noul",
+      "finite_bounded_scalar": true
+    },
+    {
+      "where": "jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b/action",
+      "type": "choice",
+      "probability_sum": 1.0,
+      "finite": true,
+      "expected_index_verified": false
+    },
+    {
+      "where": "jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b/applicability",
+      "type": "score",
+      "probability_sum": 1.0,
+      "finite": true,
+      "expected_index_verified": true
+    },
+    {
+      "where": "jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b/requested",
+      "type": "noul",
+      "finite_bounded_scalar": true
+    },
+    {
+      "where": "peer_callable/action",
+      "type": "choice",
+      "probability_sum": 1.0,
+      "finite": true,
+      "expected_index_verified": false
+    },
+    {
+      "where": "peer_callable/applicability",
+      "type": "score",
+      "probability_sum": 1.0,
+      "finite": true,
+      "expected_index_verified": true
+    },
+    {
+      "where": "peer_callable/requested",
+      "type": "noul",
+      "finite_bounded_scalar": true
+    },
+    {
+      "where": "council/official-llama-b11381/jev-785d3de36b8b2967afeba2a2a6f84e7250e10e96a760b049/action",
+      "type": "choice",
+      "probability_sum": 1.0,
+      "finite": true,
+      "expected_index_verified": false
+    },
+    {
+      "where": "council/official-llama-b11381/jev-785d3de36b8b2967afeba2a2a6f84e7250e10e96a760b049/applicability",
+      "type": "score",
+      "probability_sum": 1.0,
+      "finite": true,
+      "expected_index_verified": true
+    },
+    {
+      "where": "council/official-llama-b11381/jev-785d3de36b8b2967afeba2a2a6f84e7250e10e96a760b049/requested",
+      "type": "noul",
+      "finite_bounded_scalar": true
+    },
+    {
+      "where": "council/official-llama-b11381/jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b/action",
+      "type": "choice",
+      "probability_sum": 1.0,
+      "finite": true,
+      "expected_index_verified": false
+    },
+    {
+      "where": "council/official-llama-b11381/jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b/applicability",
+      "type": "score",
+      "probability_sum": 1.0,
+      "finite": true,
+      "expected_index_verified": true
+    },
+    {
+      "where": "council/official-llama-b11381/jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b/requested",
+      "type": "noul",
+      "finite_bounded_scalar": true
+    }
+  ],
+  "physical_selected_weights": [
+    {
+      "path": "/Users/ghost233/.lmstudio/models/ggml-org/Kev-0.8B-GGUF/Kev-0.8B-Q8_0.gguf",
+      "realpath": "/Users/ghost233/.lmstudio/models/ggml-org/Kev-0.8B-GGUF/Kev-0.8B-Q8_0.gguf",
+      "device": 16777230,
+      "inode": 13672562,
+      "bytes": 812406304,
+      "mode": 33188,
+      "modified_ns": 1791103642262556737,
+      "changed_ns": 1791103646956407750,
+      "sha256": "27278f34eb3273bceea4c053dc50dd61a5161da21a718c4aacdf8fd5830771d0"
+    },
+    {
+      "path": "/Users/ghost233/.lmstudio/models/ggml-org/Laya-GGUF/Laya-Q8_0.gguf",
+      "realpath": "/Users/ghost233/.lmstudio/models/ggml-org/Laya-GGUF/Laya-Q8_0.gguf",
+      "device": 16777230,
+      "inode": 13721988,
+      "bytes": 449397600,
+      "mode": 33188,
+      "modified_ns": 1791104139967681116,
+      "changed_ns": 1791104142712991146,
+      "sha256": "c06528c5746d3bb8baa72a27938be95abbfd0b226f8471e8a9e365ed0bb066d2"
+    }
+  ],
+  "installations": [
+    {
+      "installation_id": "official-llama-v0.5.0",
+      "status": "installed",
+      "executable": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r47-8buXBF/engines/v0.5.0/llama-server",
+      "binary_sha256": "41df13c126456f8e5fab2057c86a790067a85ea1dfd8fbc0071cc45fbba56262",
+      "observed_version": "0.00.000.072 I srv  llama_server: initializing ...\nversion: 0.5.0-dev (build 11146, commit 7fe450e19)\nbuilt with AppleClang 21.0.0.21000101 for Darwin arm64",
+      "archive_sha256": "1ad3f9eff80edb9dbef4259ad564d1720612ef7eea48fa4afed0e54f5f3d5711",
+      "archive_bytes": 11189714,
+      "commit": "7fe450e19305b828c199d602c23a8337aaa1f03b"
+    },
+    {
+      "installation_id": "official-llama-b11381",
+      "status": "installed",
+      "executable": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r47-8buXBF/engines/b11381/llama-server",
+      "binary_sha256": "6a072f8bf308ea28144476441d25760ee01b84ed102f86be4662d21ace8d72a6",
+      "observed_version": "version: 0.5.0-dev (build 11381, commit 836d57176)\nbuilt with AppleClang 21.0.0.21000101 for Darwin arm64",
+      "archive_sha256": "ea92f83904a1a1d76752581acbb87c7099ae1a3ac37cc6a634b1648d707dc341",
+      "archive_bytes": 11925693,
+      "commit": "836d57176dc699a726c55418e4f96b8ca628e1bf"
+    }
+  ],
+  "started_at": "2026-10-06T01:06:40.092476Z",
+  "completed_at": "2026-10-06T01:07:03.479803Z",
+  "budget_ms": {
+    "load": 120000,
+    "request": 10000,
+    "whole": 480000
+  },
+  "instances": [
+    {
+      "id": "jev-785d3de36b8b2967afeba2a2a6f84e7250e10e96a760b049",
+      "asset_id": "716b7180cc1f3edee55fc48795aa6371ff89cf654a17ac0aa47857742940c1a4",
+      "path": [
+        "/Users/ghost233/.lmstudio/models/ggml-org/Kev-0.8B-GGUF/Kev-0.8B-Q8_0.gguf"
+      ],
+      "status": "ready",
+      "pid": 21560,
+      "endpoint": "http://127.0.0.1:52588",
+      "generation": 1,
+      "native_alias": "jev-785d3de36b8b2967afeba2a2a6f84e7250e10e96a760b049",
+      "installation_id": "official-llama-b11381",
+      "engine_service_id": "llama-service-jev-785d3de36b8b2967afeba2a2a6f84e7250e10e96a760b049",
+      "model_inference_instance_id": "jev-785d3de36b8b2967afeba2a2a6f84e7250e10e96a760b049",
+      "process_environment": {
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "HOME": "/Users/ghost233",
+        "TMPDIR": "/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/"
+      },
+      "binary_sha256": "6a072f8bf308ea28144476441d25760ee01b84ed102f86be4662d21ace8d72a6",
+      "properties": {
+        "default_generation_settings": {
+          "params": {
+            "seed": 4294967295,
+            "temperature": 0.800000011920929,
+            "dynatemp_range": 0.0,
+            "dynatemp_exponent": 1.0,
+            "top_k": 40,
+            "top_p": 0.949999988079071,
+            "min_p": 0.05000000074505806,
+            "top_n_sigma": -1.0,
+            "xtc_probability": 0.0,
+            "xtc_threshold": 0.10000000149011612,
+            "typical_p": 1.0,
+            "repeat_last_n": 64,
+            "repeat_penalty": 1.0,
+            "presence_penalty": 0.0,
+            "frequency_penalty": 0.0,
+            "dry_multiplier": 0.0,
+            "dry_base": 1.75,
+            "dry_allowed_length": 2,
+            "dry_penalty_last_n": 64,
+            "mirostat": 0,
+            "mirostat_tau": 5.0,
+            "mirostat_eta": 0.10000000149011612,
+            "adaptive_target": -1.0,
+            "adaptive_decay": 0.8999999761581421,
+            "max_tokens": -1,
+            "n_predict": -1,
+            "n_keep": 0,
+            "n_discard": 0,
+            "ignore_eos": false,
+            "stream": false,
+            "n_probs": 0,
+            "min_keep": 0,
+            "chat_format": "Content-only",
+            "reasoning_format": "none",
+            "reasoning_in_content": false,
+            "generation_prompt": "",
+            "samplers": [
+              "penalties",
+              "dry",
+              "top_n_sigma",
+              "top_k",
+              "typ_p",
+              "top_p",
+              "min_p",
+              "xtc",
+              "temperature"
+            ],
+            "speculative.types": "none",
+            "timings_per_token": false,
+            "post_sampling_probs": false,
+            "backend_sampling": false,
+            "lora": []
+          },
+          "n_ctx": 4096
+        },
+        "total_slots": 1,
+        "model_alias": "jev-785d3de36b8b2967afeba2a2a6f84e7250e10e96a760b049",
+        "model_ftype": "Q8_0",
+        "model_path": "/Users/ghost233/.lmstudio/models/ggml-org/Kev-0.8B-GGUF/Kev-0.8B-Q8_0.gguf",
+        "modalities": {
+          "vision": false,
+          "video": false,
+          "audio": false
+        },
+        "media_marker": "<__media_jDxBodxc9ih9JVvpXQhtXsQNd0vKzAdE__>",
+        "endpoint_slots": true,
+        "endpoint_props": false,
+        "endpoint_metrics": false,
+        "ui": true,
+        "ui_settings": {},
+        "chat_template": "{%- set image_count = namespace(value=0) %}\n{%- set video_count = namespace(value=0) %}\n{%- macro render_content(content, do_vision_count, is_system_content=false) %}\n    {%- if content is string %}\n        {{- content }}\n    {%- elif content is iterable and content is not mapping %}\n        {%- for item in content %}\n            {%- if 'image' in item or 'image_url' in item or item.type == 'image' %}\n                {%- if is_system_content %}\n                    {{- raise_exception('System message cannot contain images.') }}\n                {%- endif %}\n                {%- if do_vision_count %}\n                    {%- set image_count.value = image_count.value + 1 %}\n                {%- endif %}\n                {%- if add_vision_id %}\n                    {{- 'Picture ' ~ image_count.value ~ ': ' }}\n                {%- endif %}\n                {{- '<|vision_start|><|image_pad|><|vision_end|>' }}\n            {%- elif 'video' in item or item.type == 'video' %}\n                {%- if is_system_content %}\n                    {{- raise_exception('System message cannot contain videos.') }}\n                {%- endif %}\n                {%- if do_vision_count %}\n                    {%- set video_count.value = video_count.value + 1 %}\n                {%- endif %}\n                {%- if add_vision_id %}\n                    {{- 'Video ' ~ video_count.value ~ ': ' }}\n                {%- endif %}\n                {{- '<|vision_start|><|video_pad|><|vision_end|>' }}\n            {%- elif 'text' in item %}\n                {{- item.text }}\n            {%- else %}\n                {{- raise_exception('Unexpected item type in content.') }}\n            {%- endif %}\n        {%- endfor %}\n    {%- elif content is none or content is undefined %}\n        {{- '' }}\n    {%- else %}\n        {{- raise_exception('Unexpected content type.') }}\n    {%- endif %}\n{%- endmacro %}\n{%- if not messages %}\n    {{- raise_exception('No messages provided.') }}\n{%- endif %}\n{%- if tools and tools is iterable and tools is not mapping %}\n    {{- '<|im_start|>system\\n' }}\n    {{- \"# Tools\\n\\nYou have access to the following functions:\\n\\n<tools>\" }}\n    {%- for tool in tools %}\n        {{- \"\\n\" }}\n        {{- tool | tojson }}\n    {%- endfor %}\n    {{- \"\\n</tools>\" }}\n    {{- '\\n\\nIf you choose to call a function ONLY reply in the following format with NO suffix:\\n\\n<tool_call>\\n<function=example_function_name>\\n<parameter=example_parameter_1>\\nvalue_1\\n</parameter>\\n<parameter=example_parameter_2>\\nThis is the value for the second parameter\\nthat can span\\nmultiple lines\\n</parameter>\\n</function>\\n</tool_call>\\n\\n<IMPORTANT>\\nReminder:\\n- Function calls MUST follow the specified format: an inner <function=...></function> block must be nested within <tool_call></tool_call> XML tags\\n- Required parameters MUST be specified\\n- You may provide optional reasoning for your function call in natural language BEFORE the function call, but NOT after\\n- If there is no function call available, answer the question like normal with your current knowledge and do not tell the user about function calls\\n</IMPORTANT>' }}\n    {%- if messages[0].role == 'system' %}\n        {%- set content = render_content(messages[0].content, false, true)|trim %}\n        {%- if content %}\n            {{- '\\n\\n' + content }}\n        {%- endif %}\n    {%- endif %}\n    {{- '<|im_end|>\\n' }}\n{%- else %}\n    {%- if messages[0].role == 'system' %}\n        {%- set content = render_content(messages[0].content, false, true)|trim %}\n        {{- '<|im_start|>system\\n' + content + '<|im_end|>\\n' }}\n    {%- endif %}\n{%- endif %}\n{%- set ns = namespace(multi_step_tool=true, last_query_index=messages|length - 1) %}\n{%- for message in messages[::-1] %}\n    {%- set index = (messages|length - 1) - loop.index0 %}\n    {%- if ns.multi_step_tool and message.role == \"user\" %}\n        {%- set content = render_content(message.content, false)|trim %}\n        {%- if not(content.startswith('<tool_response>') and content.endswith('</tool_response>')) %}\n            {%- set ns.multi_step_tool = false %}\n            {%- set ns.last_query_index = index %}\n        {%- endif %}\n    {%- endif %}\n{%- endfor %}\n{%- if ns.multi_step_tool %}\n    {{- raise_exception('No user query found in messages.') }}\n{%- endif %}\n{%- for message in messages %}\n    {%- set content = render_content(message.content, true)|trim %}\n    {%- if message.role == \"system\" %}\n        {%- if not loop.first %}\n            {{- raise_exception('System message must be at the beginning.') }}\n        {%- endif %}\n    {%- elif message.role == \"user\" %}\n        {{- '<|im_start|>' + message.role + '\\n' + content + '<|im_end|>' + '\\n' }}\n    {%- elif message.role == \"assistant\" %}\n        {%- set reasoning_content = '' %}\n        {%- if message.reasoning_content is string %}\n            {%- set reasoning_content = message.reasoning_content %}\n        {%- else %}\n            {%- if '</think>' in content %}\n                {%- set reasoning_content = content.split('</think>')[0].rstrip('\\n').split('<think>')[-1].lstrip('\\n') %}\n                {%- set content = content.split('</think>')[-1].lstrip('\\n') %}\n            {%- endif %}\n        {%- endif %}\n        {%- set reasoning_content = reasoning_content|trim %}\n        {%- if loop.index0 > ns.last_query_index %}\n            {{- '<|im_start|>' + message.role + '\\n<think>\\n' + reasoning_content + '\\n</think>\\n\\n' + content }}\n        {%- else %}\n            {{- '<|im_start|>' + message.role + '\\n' + content }}\n        {%- endif %}\n        {%- if message.tool_calls and message.tool_calls is iterable and message.tool_calls is not mapping %}\n            {%- for tool_call in message.tool_calls %}\n                {%- if tool_call.function is defined %}\n                    {%- set tool_call = tool_call.function %}\n                {%- endif %}\n                {%- if loop.first %}\n                    {%- if content|trim %}\n                        {{- '\\n\\n<tool_call>\\n<function=' + tool_call.name + '>\\n' }}\n                    {%- else %}\n                        {{- '<tool_call>\\n<function=' + tool_call.name + '>\\n' }}\n                    {%- endif %}\n                {%- else %}\n                    {{- '\\n<tool_call>\\n<function=' + tool_call.name + '>\\n' }}\n                {%- endif %}\n                {%- if tool_call.arguments is defined %}\n                    {%- for args_name, args_value in tool_call.arguments|items %}\n                        {{- '<parameter=' + args_name + '>\\n' }}\n                        {%- set args_value = args_value | tojson | safe if args_value is mapping or (args_value is sequence and args_value is not string) else args_value | string %}\n                        {{- args_value }}\n                        {{- '\\n</parameter>\\n' }}\n                    {%- endfor %}\n                {%- endif %}\n                {{- '</function>\\n</tool_call>' }}\n            {%- endfor %}\n        {%- endif %}\n        {{- '<|im_end|>\\n' }}\n    {%- elif message.role == \"tool\" %}\n        {%- if loop.previtem and loop.previtem.role != \"tool\" %}\n            {{- '<|im_start|>user' }}\n        {%- endif %}\n        {{- '\\n<tool_response>\\n' }}\n        {{- content }}\n        {{- '\\n</tool_response>' }}\n        {%- if not loop.last and loop.nextitem.role != \"tool\" %}\n            {{- '<|im_end|>\\n' }}\n        {%- elif loop.last %}\n            {{- '<|im_end|>\\n' }}\n        {%- endif %}\n    {%- else %}\n        {{- raise_exception('Unexpected message role.') }}\n    {%- endif %}\n{%- endfor %}\n{%- if add_generation_prompt %}\n    {{- '<|im_start|>assistant\\n' }}\n    {%- if enable_thinking is defined and enable_thinking is true %}\n        {{- '<think>\\n' }}\n    {%- else %}\n        {{- '<think>\\n\\n</think>\\n\\n' }}\n    {%- endif %}\n{%- endif %}",
+        "chat_template_caps": {
+          "supports_object_arguments": true,
+          "supports_parallel_tool_calls": true,
+          "supports_preserve_reasoning": false,
+          "supports_reasoning_effort": false,
+          "supports_string_content": true,
+          "supports_system_role": true,
+          "supports_tool_calls": true,
+          "supports_tools": true,
+          "supports_typed_content": true
+        },
+        "bos_token": ",",
+        "eos_token": "<|endoftext|>",
+        "build_info": "b11381-836d57176",
+        "is_sleeping": false,
+        "cors_proxy_enabled": false
+      },
+      "capabilities": [
+        "choiceProbability",
+        "scoreProbability",
+        "noulScalar"
+      ],
+      "typed_evidence": {
+        "score": {
+          "model": "jev-785d3de36b8b2967afeba2a2a6f84e7250e10e96a760b049",
+          "input_tokens": 22,
+          "elapsed_us": 16934,
+          "answers": {
+            "capability_probe": {
+              "type": "score",
+              "score": 0.6136336068518257,
+              "legend": {
+                "0": "Not applicable",
+                "1": "Applicable"
+              },
+              "probabilities": {
+                "0": 0.38636639314817445,
+                "1": 0.6136336068518257
+              }
+            }
+          },
+          "raw_response": "{\"model\":\"jev-785d3de36b8b2967afeba2a2a6f84e7250e10e96a760b049\",\"answers\":{\"capability_probe\":{\"type\":\"score\",\"score\":0.6136336068518257,\"legend\":{\"0\":\"Not applicable\",\"1\":\"Applicable\"},\"probabilities\":{\"0\":0.38636639314817445,\"1\":0.6136336068518257},\"confidence\":0.2272672137036511}},\"usage\":{\"input_tokens\":22,\"output_tokens\":0}}"
+        },
+        "noul": {
+          "model": "jev-785d3de36b8b2967afeba2a2a6f84e7250e10e96a760b049",
+          "input_tokens": 30,
+          "elapsed_us": 17656,
+          "answers": {
+            "capability_probe": {
+              "type": "noul",
+              "noul": 0.9343789874655036
+            }
+          },
+          "raw_response": "{\"model\":\"jev-785d3de36b8b2967afeba2a2a6f84e7250e10e96a760b049\",\"answers\":{\"capability_probe\":{\"type\":\"noul\",\"noul\":0.9343789874655036}},\"usage\":{\"input_tokens\":30,\"output_tokens\":0}}"
+        }
+      },
+      "startup_choice_raw": "{\"model\":\"jev-785d3de36b8b2967afeba2a2a6f84e7250e10e96a760b049\",\"answers\":{\"council_choice\":{\"type\":\"choice\",\"choice\":\"change\",\"probabilities\":{\"keep\":0.4162846900013498,\"change\":0.5837153099986502},\"confidence\":0.16743061999730036}},\"usage\":{\"input_tokens\":31,\"output_tokens\":0}}",
+      "has_live_process": true,
+      "accepting_requests": true,
+      "active_requests": 0,
+      "error": null
+    },
+    {
+      "id": "jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b",
+      "asset_id": "dfbd29e122e9a78d3c66996972e9ebef163b91970cb60970174ab39413f07903",
+      "path": [
+        "/Users/ghost233/.lmstudio/models/ggml-org/Laya-GGUF/Laya-Q8_0.gguf"
+      ],
+      "status": "ready",
+      "pid": 21589,
+      "endpoint": "http://127.0.0.1:52658",
+      "generation": 2,
+      "native_alias": "jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b",
+      "installation_id": "official-llama-b11381",
+      "engine_service_id": "llama-service-jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b",
+      "model_inference_instance_id": "jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b",
+      "process_environment": {
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "HOME": "/Users/ghost233",
+        "TMPDIR": "/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/"
+      },
+      "binary_sha256": "6a072f8bf308ea28144476441d25760ee01b84ed102f86be4662d21ace8d72a6",
+      "properties": {
+        "default_generation_settings": {
+          "params": {
+            "seed": 4294967295,
+            "temperature": 0.800000011920929,
+            "dynatemp_range": 0.0,
+            "dynatemp_exponent": 1.0,
+            "top_k": 40,
+            "top_p": 0.949999988079071,
+            "min_p": 0.05000000074505806,
+            "top_n_sigma": -1.0,
+            "xtc_probability": 0.0,
+            "xtc_threshold": 0.10000000149011612,
+            "typical_p": 1.0,
+            "repeat_last_n": 64,
+            "repeat_penalty": 1.0,
+            "presence_penalty": 0.0,
+            "frequency_penalty": 0.0,
+            "dry_multiplier": 0.0,
+            "dry_base": 1.75,
+            "dry_allowed_length": 2,
+            "dry_penalty_last_n": 64,
+            "mirostat": 0,
+            "mirostat_tau": 5.0,
+            "mirostat_eta": 0.10000000149011612,
+            "adaptive_target": -1.0,
+            "adaptive_decay": 0.8999999761581421,
+            "max_tokens": -1,
+            "n_predict": -1,
+            "n_keep": 0,
+            "n_discard": 0,
+            "ignore_eos": false,
+            "stream": false,
+            "n_probs": 0,
+            "min_keep": 0,
+            "chat_format": "Content-only",
+            "reasoning_format": "none",
+            "reasoning_in_content": false,
+            "generation_prompt": "",
+            "samplers": [
+              "penalties",
+              "dry",
+              "top_n_sigma",
+              "top_k",
+              "typ_p",
+              "top_p",
+              "min_p",
+              "xtc",
+              "temperature"
+            ],
+            "speculative.types": "none",
+            "timings_per_token": false,
+            "post_sampling_probs": false,
+            "backend_sampling": false,
+            "lora": []
+          },
+          "n_ctx": 4096
+        },
+        "total_slots": 1,
+        "model_alias": "jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b",
+        "model_ftype": "Q8_0",
+        "model_path": "/Users/ghost233/.lmstudio/models/ggml-org/Laya-GGUF/Laya-Q8_0.gguf",
+        "modalities": {
+          "vision": false,
+          "video": false,
+          "audio": false
+        },
+        "media_marker": "<__media_XCgZ3epCyJPvyZZp8p5xZSq5pKj3OE7m__>",
+        "endpoint_slots": true,
+        "endpoint_props": false,
+        "endpoint_metrics": false,
+        "ui": true,
+        "ui_settings": {},
+        "chat_template": "{%- for message in messages -%}\n  {{- '<|im_start|>' + message.role + '\n' + message.content + '<|im_end|>\n' -}}\n{%- endfor -%}\n{%- if add_generation_prompt -%}\n  {{- '<|im_start|>assistant\n' -}}\n{%- endif -%}",
+        "chat_template_caps": {
+          "supports_object_arguments": false,
+          "supports_parallel_tool_calls": false,
+          "supports_preserve_reasoning": false,
+          "supports_reasoning_effort": false,
+          "supports_string_content": true,
+          "supports_system_role": true,
+          "supports_tool_calls": false,
+          "supports_tools": false,
+          "supports_typed_content": false
+        },
+        "bos_token": "[CLS]",
+        "eos_token": "[SEP]",
+        "build_info": "b11381-836d57176",
+        "is_sleeping": false,
+        "cors_proxy_enabled": false
+      },
+      "capabilities": [
+        "choiceProbability",
+        "scoreProbability",
+        "noulScalar"
+      ],
+      "typed_evidence": {
+        "score": {
+          "model": "jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b",
+          "input_tokens": 30,
+          "elapsed_us": 12621,
+          "answers": {
+            "capability_probe": {
+              "type": "score",
+              "score": 0.9662690078148077,
+              "legend": {
+                "0": "Not applicable",
+                "1": "Applicable"
+              },
+              "probabilities": {
+                "0": 0.03373099218519238,
+                "1": 0.9662690078148077
+              }
+            }
+          },
+          "raw_response": "{\"model\":\"jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b\",\"answers\":{\"capability_probe\":{\"type\":\"score\",\"score\":0.9662690078148077,\"legend\":{\"0\":\"Not applicable\",\"1\":\"Applicable\"},\"probabilities\":{\"0\":0.03373099218519238,\"1\":0.9662690078148077},\"confidence\":0.9325380156296152}},\"usage\":{\"input_tokens\":30,\"output_tokens\":0}}"
+        },
+        "noul": {
+          "model": "jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b",
+          "input_tokens": 33,
+          "elapsed_us": 11951,
+          "answers": {
+            "capability_probe": {
+              "type": "noul",
+              "noul": 0.717509393244549
+            }
+          },
+          "raw_response": "{\"model\":\"jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b\",\"answers\":{\"capability_probe\":{\"type\":\"noul\",\"noul\":0.717509393244549}},\"usage\":{\"input_tokens\":33,\"output_tokens\":0}}"
+        }
+      },
+      "startup_choice_raw": "{\"model\":\"jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b\",\"answers\":{\"council_choice\":{\"type\":\"choice\",\"choice\":\"change\",\"probabilities\":{\"keep\":0.01258926943932897,\"change\":0.987410730560671},\"confidence\":0.9748214611213419}},\"usage\":{\"input_tokens\":33,\"output_tokens\":0}}",
+      "has_live_process": true,
+      "accepting_requests": true,
+      "active_requests": 0,
+      "error": null
+    }
+  ],
+  "mixed_request": {
+    "state": "A user explicitly requests changing the interface color from blue to green. The change is small and reversible.",
+    "questions": {
+      "action": {
+        "type": "choice",
+        "instructions": "Choose the action consistent with the request.",
+        "criteria": {
+          "keep": "Keep the interface blue.",
+          "change": "Change the interface to green."
+        }
+      },
+      "applicability": {
+        "type": "score",
+        "instructions": "Rate how applicable the requested change is.",
+        "criteria": [
+          "Not applicable",
+          "Somewhat applicable",
+          "Fully applicable"
+        ]
+      },
+      "requested": {
+        "type": "noul",
+        "instructions": "Is a change explicitly requested?",
+        "criteria": {
+          "false": "No change is requested.",
+          "true": "A change is requested."
+        }
+      }
+    }
+  },
+  "mixed_results": [
+    {
+      "stage": "decide_batch",
+      "instance_id": "jev-785d3de36b8b2967afeba2a2a6f84e7250e10e96a760b049",
+      "result": {
+        "model": "jev-785d3de36b8b2967afeba2a2a6f84e7250e10e96a760b049",
+        "input_tokens": 141,
+        "elapsed_us": 60859,
+        "answers": {
+          "action": {
+            "type": "choice",
+            "choice": "change",
+            "probabilities": {
+              "keep": 0.00987674269221938,
+              "change": 0.9901232573077807
+            }
+          },
+          "applicability": {
+            "type": "score",
+            "score": 1.4252074100719276,
+            "legend": {
+              "0": "Not applicable",
+              "1": "Somewhat applicable",
+              "2": "Fully applicable"
+            },
+            "probabilities": {
+              "0": 0.06942476133592969,
+              "1": 0.43594306725621296,
+              "2": 0.4946321714078573
+            }
+          },
+          "requested": {
+            "type": "noul",
+            "noul": 0.9571139060787113
+          }
+        },
+        "raw_response": "{\"model\":\"jev-785d3de36b8b2967afeba2a2a6f84e7250e10e96a760b049\",\"answers\":{\"action\":{\"type\":\"choice\",\"choice\":\"change\",\"probabilities\":{\"keep\":0.00987674269221938,\"change\":0.9901232573077807},\"confidence\":0.9802465146155614},\"applicability\":{\"type\":\"score\",\"score\":1.4252074100719276,\"legend\":{\"0\":\"Not applicable\",\"1\":\"Somewhat applicable\",\"2\":\"Fully applicable\"},\"probabilities\":{\"0\":0.06942476133592969,\"1\":0.43594306725621296,\"2\":0.4946321714078573},\"confidence\":0.13781111510789146},\"requested\":{\"type\":\"noul\",\"noul\":0.9571139060787113}},\"usage\":{\"input_tokens\":141,\"output_tokens\":0}}"
+      }
+    },
+    {
+      "stage": "decide_batch",
+      "instance_id": "jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b",
+      "result": {
+        "model": "jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b",
+        "input_tokens": 157,
+        "elapsed_us": 39387,
+        "answers": {
+          "action": {
+            "type": "choice",
+            "choice": "change",
+            "probabilities": {
+              "keep": 0.3304109243674458,
+              "change": 0.6695890756325542
+            }
+          },
+          "applicability": {
+            "type": "score",
+            "score": 1.7102217626935645,
+            "legend": {
+              "0": "Not applicable",
+              "1": "Somewhat applicable",
+              "2": "Fully applicable"
+            },
+            "probabilities": {
+              "0": 0.0398040434019779,
+              "1": 0.21017015050247992,
+              "2": 0.7500258060955423
+            }
+          },
+          "requested": {
+            "type": "noul",
+            "noul": 0.968557651959086
+          }
+        },
+        "raw_response": "{\"model\":\"jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b\",\"answers\":{\"action\":{\"type\":\"choice\",\"choice\":\"change\",\"probabilities\":{\"keep\":0.3304109243674458,\"change\":0.6695890756325542},\"confidence\":0.3391781512651084},\"applicability\":{\"type\":\"score\",\"score\":1.7102217626935645,\"legend\":{\"0\":\"Not applicable\",\"1\":\"Somewhat applicable\",\"2\":\"Fully applicable\"},\"probabilities\":{\"0\":0.0398040434019779,\"1\":0.21017015050247992,\"2\":0.7500258060955423},\"confidence\":0.5653326440403464},\"requested\":{\"type\":\"noul\",\"noul\":0.968557651959086}},\"usage\":{\"input_tokens\":157,\"output_tokens\":0}}"
+      }
+    }
+  ],
+  "council": {
+    "schema_version": 1,
+    "request_id": "9cd022ec3e70a494ec3d24f38f3a421a",
+    "status": "ok",
+    "scope": "ensemble",
+    "request": {
+      "state": "A user explicitly requests changing the interface color from blue to green. The change is small and reversible.",
+      "questions": {
+        "action": {
+          "type": "choice",
+          "instructions": "Choose the action consistent with the request.",
+          "criteria": {
+            "keep": "Keep the interface blue.",
+            "change": "Change the interface to green."
+          }
+        },
+        "applicability": {
+          "type": "score",
+          "instructions": "Rate how applicable the requested change is.",
+          "criteria": [
+            "Not applicable",
+            "Somewhat applicable",
+            "Fully applicable"
+          ]
+        },
+        "requested": {
+          "type": "noul",
+          "instructions": "Is a change explicitly requested?",
+          "criteria": {
+            "false": "No change is requested.",
+            "true": "A change is requested."
+          }
+        }
+      }
+    },
+    "started_at": "2026-10-06T01:07:03.306340Z",
+    "completed_at": "2026-10-06T01:07:03.371071Z",
+    "elapsed_us": 64729,
+    "seats": [
+      {
+        "seat_id": "official-llama-b11381/jev-785d3de36b8b2967afeba2a2a6f84e7250e10e96a760b049",
+        "status": "ok",
+        "engine": {
+          "id": "official-llama-b11381",
+          "name": "llama.cpp · JEV b11381",
+          "source": "managed",
+          "version": "version: 0.5.0-dev (build 11381, commit 836d57176)\nbuilt with AppleClang 21.0.0.21000101 for Darwin arm64",
+          "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r47-8buXBF/engines/b11381/llama-server",
+          "sha256": "ea92f83904a1a1d76752581acbb87c7099ae1a3ac37cc6a634b1648d707dc341"
+        },
+        "instance": {
+          "id": "jev-785d3de36b8b2967afeba2a2a6f84e7250e10e96a760b049",
+          "endpoint": "http://127.0.0.1:52588",
+          "pid": 21560,
+          "ownership": "managed"
+        },
+        "model": {
+          "asset_id": "716b7180cc1f3edee55fc48795aa6371ff89cf654a17ac0aa47857742940c1a4",
+          "name": "Kev-0.8B-Q8_0.gguf",
+          "architecture": "qwen35",
+          "repository": null,
+          "revision": null,
+          "source_verified": false,
+          "files": [
+            {
+              "path": "/Users/ghost233/.lmstudio/models/ggml-org/Kev-0.8B-GGUF/Kev-0.8B-Q8_0.gguf",
+              "size_bytes": 812406304,
+              "sha256": "27278f34eb3273bceea4c053dc50dd61a5161da21a718c4aacdf8fd5830771d0"
+            }
+          ]
+        },
+        "dispatched_at": "2026-10-06T01:07:03.306577Z",
+        "completed_at": "2026-10-06T01:07:03.370548Z",
+        "dispatched_after_us": 237,
+        "completed_after_us": 64206,
+        "elapsed_us": 63969,
+        "answers": {
+          "action": {
+            "type": "choice",
+            "choice": "change",
+            "probabilities": {
+              "keep": 0.00987674269221938,
+              "change": 0.9901232573077807
+            }
+          },
+          "applicability": {
+            "type": "score",
+            "score": 1.4252074100719276,
+            "legend": {
+              "0": "Not applicable",
+              "1": "Somewhat applicable",
+              "2": "Fully applicable"
+            },
+            "probabilities": {
+              "0": 0.06942476133592969,
+              "1": 0.43594306725621296,
+              "2": 0.4946321714078573
+            }
+          },
+          "requested": {
+            "type": "noul",
+            "noul": 0.9571139060787113
+          }
+        },
+        "raw_response": "{\"model\":\"jev-785d3de36b8b2967afeba2a2a6f84e7250e10e96a760b049\",\"answers\":{\"action\":{\"type\":\"choice\",\"choice\":\"change\",\"probabilities\":{\"keep\":0.00987674269221938,\"change\":0.9901232573077807},\"confidence\":0.9802465146155614},\"applicability\":{\"type\":\"score\",\"score\":1.4252074100719276,\"legend\":{\"0\":\"Not applicable\",\"1\":\"Somewhat applicable\",\"2\":\"Fully applicable\"},\"probabilities\":{\"0\":0.06942476133592969,\"1\":0.43594306725621296,\"2\":0.4946321714078573},\"confidence\":0.13781111510789146},\"requested\":{\"type\":\"noul\",\"noul\":0.9571139060787113}},\"usage\":{\"input_tokens\":141,\"output_tokens\":0}}",
+        "error": null
+      },
+      {
+        "seat_id": "official-llama-b11381/jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b",
+        "status": "ok",
+        "engine": {
+          "id": "official-llama-b11381",
+          "name": "llama.cpp · JEV b11381",
+          "source": "managed",
+          "version": "version: 0.5.0-dev (build 11381, commit 836d57176)\nbuilt with AppleClang 21.0.0.21000101 for Darwin arm64",
+          "path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r47-8buXBF/engines/b11381/llama-server",
+          "sha256": "ea92f83904a1a1d76752581acbb87c7099ae1a3ac37cc6a634b1648d707dc341"
+        },
+        "instance": {
+          "id": "jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b",
+          "endpoint": "http://127.0.0.1:52658",
+          "pid": 21589,
+          "ownership": "managed"
+        },
+        "model": {
+          "asset_id": "dfbd29e122e9a78d3c66996972e9ebef163b91970cb60970174ab39413f07903",
+          "name": "Laya-Q8_0.gguf",
+          "architecture": "modern-bert",
+          "repository": null,
+          "revision": null,
+          "source_verified": false,
+          "files": [
+            {
+              "path": "/Users/ghost233/.lmstudio/models/ggml-org/Laya-GGUF/Laya-Q8_0.gguf",
+              "size_bytes": 449397600,
+              "sha256": "c06528c5746d3bb8baa72a27938be95abbfd0b226f8471e8a9e365ed0bb066d2"
+            }
+          ]
+        },
+        "dispatched_at": "2026-10-06T01:07:03.306786Z",
+        "completed_at": "2026-10-06T01:07:03.365315Z",
+        "dispatched_after_us": 444,
+        "completed_after_us": 58983,
+        "elapsed_us": 58539,
+        "answers": {
+          "action": {
+            "type": "choice",
+            "choice": "change",
+            "probabilities": {
+              "keep": 0.3304109243674458,
+              "change": 0.6695890756325542
+            }
+          },
+          "applicability": {
+            "type": "score",
+            "score": 1.7102217626935645,
+            "legend": {
+              "0": "Not applicable",
+              "1": "Somewhat applicable",
+              "2": "Fully applicable"
+            },
+            "probabilities": {
+              "0": 0.0398040434019779,
+              "1": 0.21017015050247992,
+              "2": 0.7500258060955423
+            }
+          },
+          "requested": {
+            "type": "noul",
+            "noul": 0.968557651959086
+          }
+        },
+        "raw_response": "{\"model\":\"jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b\",\"answers\":{\"action\":{\"type\":\"choice\",\"choice\":\"change\",\"probabilities\":{\"keep\":0.3304109243674458,\"change\":0.6695890756325542},\"confidence\":0.3391781512651084},\"applicability\":{\"type\":\"score\",\"score\":1.7102217626935645,\"legend\":{\"0\":\"Not applicable\",\"1\":\"Somewhat applicable\",\"2\":\"Fully applicable\"},\"probabilities\":{\"0\":0.0398040434019779,\"1\":0.21017015050247992,\"2\":0.7500258060955423},\"confidence\":0.5653326440403464},\"requested\":{\"type\":\"noul\",\"noul\":0.968557651959086}},\"usage\":{\"input_tokens\":157,\"output_tokens\":0}}",
+        "error": null
+      }
+    ],
+    "aggregates": {
+      "action": {
+        "type": "choice",
+        "probabilities": {
+          "keep": 0.1701438335298326,
+          "change": 0.8298561664701675
+        },
+        "top_choices": [
+          "change"
+        ],
+        "votes": {
+          "keep": 0,
+          "change": 2
+        },
+        "disagreement": 0.0
+      },
+      "applicability": {
+        "type": "score",
+        "legend": {
+          "0": "Not applicable",
+          "1": "Somewhat applicable",
+          "2": "Fully applicable"
+        },
+        "probabilities": {
+          "0": 0.05461440236895379,
+          "1": 0.32305660887934645,
+          "2": 0.6223289887516998
+        },
+        "score": 1.5677145863827462,
+        "ordinal_spread": 0.2850143526216369
+      },
+      "requested": {
+        "type": "noul",
+        "noul": 0.9628357790188986,
+        "scalar_spread": 0.011443745880374778
+      }
+    }
+  },
+  "peer_after_stop": {
+    "instance": {
+      "id": "jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b",
+      "asset_id": "dfbd29e122e9a78d3c66996972e9ebef163b91970cb60970174ab39413f07903",
+      "path": [
+        "/Users/ghost233/.lmstudio/models/ggml-org/Laya-GGUF/Laya-Q8_0.gguf"
+      ],
+      "status": "ready",
+      "pid": 21589,
+      "endpoint": "http://127.0.0.1:52658",
+      "generation": 2,
+      "native_alias": "jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b",
+      "installation_id": "official-llama-b11381",
+      "engine_service_id": "llama-service-jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b",
+      "model_inference_instance_id": "jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b",
+      "process_environment": {
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "HOME": "/Users/ghost233",
+        "TMPDIR": "/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/"
+      },
+      "binary_sha256": "6a072f8bf308ea28144476441d25760ee01b84ed102f86be4662d21ace8d72a6",
+      "properties": {
+        "default_generation_settings": {
+          "params": {
+            "seed": 4294967295,
+            "temperature": 0.800000011920929,
+            "dynatemp_range": 0.0,
+            "dynatemp_exponent": 1.0,
+            "top_k": 40,
+            "top_p": 0.949999988079071,
+            "min_p": 0.05000000074505806,
+            "top_n_sigma": -1.0,
+            "xtc_probability": 0.0,
+            "xtc_threshold": 0.10000000149011612,
+            "typical_p": 1.0,
+            "repeat_last_n": 64,
+            "repeat_penalty": 1.0,
+            "presence_penalty": 0.0,
+            "frequency_penalty": 0.0,
+            "dry_multiplier": 0.0,
+            "dry_base": 1.75,
+            "dry_allowed_length": 2,
+            "dry_penalty_last_n": 64,
+            "mirostat": 0,
+            "mirostat_tau": 5.0,
+            "mirostat_eta": 0.10000000149011612,
+            "adaptive_target": -1.0,
+            "adaptive_decay": 0.8999999761581421,
+            "max_tokens": -1,
+            "n_predict": -1,
+            "n_keep": 0,
+            "n_discard": 0,
+            "ignore_eos": false,
+            "stream": false,
+            "n_probs": 0,
+            "min_keep": 0,
+            "chat_format": "Content-only",
+            "reasoning_format": "none",
+            "reasoning_in_content": false,
+            "generation_prompt": "",
+            "samplers": [
+              "penalties",
+              "dry",
+              "top_n_sigma",
+              "top_k",
+              "typ_p",
+              "top_p",
+              "min_p",
+              "xtc",
+              "temperature"
+            ],
+            "speculative.types": "none",
+            "timings_per_token": false,
+            "post_sampling_probs": false,
+            "backend_sampling": false,
+            "lora": []
+          },
+          "n_ctx": 4096
+        },
+        "total_slots": 1,
+        "model_alias": "jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b",
+        "model_ftype": "Q8_0",
+        "model_path": "/Users/ghost233/.lmstudio/models/ggml-org/Laya-GGUF/Laya-Q8_0.gguf",
+        "modalities": {
+          "vision": false,
+          "video": false,
+          "audio": false
+        },
+        "media_marker": "<__media_XCgZ3epCyJPvyZZp8p5xZSq5pKj3OE7m__>",
+        "endpoint_slots": true,
+        "endpoint_props": false,
+        "endpoint_metrics": false,
+        "ui": true,
+        "ui_settings": {},
+        "chat_template": "{%- for message in messages -%}\n  {{- '<|im_start|>' + message.role + '\n' + message.content + '<|im_end|>\n' -}}\n{%- endfor -%}\n{%- if add_generation_prompt -%}\n  {{- '<|im_start|>assistant\n' -}}\n{%- endif -%}",
+        "chat_template_caps": {
+          "supports_object_arguments": false,
+          "supports_parallel_tool_calls": false,
+          "supports_preserve_reasoning": false,
+          "supports_reasoning_effort": false,
+          "supports_string_content": true,
+          "supports_system_role": true,
+          "supports_tool_calls": false,
+          "supports_tools": false,
+          "supports_typed_content": false
+        },
+        "bos_token": "[CLS]",
+        "eos_token": "[SEP]",
+        "build_info": "b11381-836d57176",
+        "is_sleeping": false,
+        "cors_proxy_enabled": false
+      },
+      "capabilities": [
+        "choiceProbability",
+        "scoreProbability",
+        "noulScalar"
+      ],
+      "typed_evidence": {
+        "score": {
+          "model": "jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b",
+          "input_tokens": 30,
+          "elapsed_us": 12621,
+          "answers": {
+            "capability_probe": {
+              "type": "score",
+              "score": 0.9662690078148077,
+              "legend": {
+                "0": "Not applicable",
+                "1": "Applicable"
+              },
+              "probabilities": {
+                "0": 0.03373099218519238,
+                "1": 0.9662690078148077
+              }
+            }
+          },
+          "raw_response": "{\"model\":\"jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b\",\"answers\":{\"capability_probe\":{\"type\":\"score\",\"score\":0.9662690078148077,\"legend\":{\"0\":\"Not applicable\",\"1\":\"Applicable\"},\"probabilities\":{\"0\":0.03373099218519238,\"1\":0.9662690078148077},\"confidence\":0.9325380156296152}},\"usage\":{\"input_tokens\":30,\"output_tokens\":0}}"
+        },
+        "noul": {
+          "model": "jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b",
+          "input_tokens": 33,
+          "elapsed_us": 11951,
+          "answers": {
+            "capability_probe": {
+              "type": "noul",
+              "noul": 0.717509393244549
+            }
+          },
+          "raw_response": "{\"model\":\"jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b\",\"answers\":{\"capability_probe\":{\"type\":\"noul\",\"noul\":0.717509393244549}},\"usage\":{\"input_tokens\":33,\"output_tokens\":0}}"
+        }
+      },
+      "startup_choice_raw": "{\"model\":\"jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b\",\"answers\":{\"council_choice\":{\"type\":\"choice\",\"choice\":\"change\",\"probabilities\":{\"keep\":0.01258926943932897,\"change\":0.987410730560671},\"confidence\":0.9748214611213419}},\"usage\":{\"input_tokens\":33,\"output_tokens\":0}}",
+      "has_live_process": true,
+      "accepting_requests": true,
+      "active_requests": 0,
+      "error": null
+    },
+    "pid_check_exit": 0,
+    "pid_check_stdout": "21589 /private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r47-8buXBF/engines/b11381/llama-server\n",
+    "a_port_reclaimed": true,
+    "b_port_reclaimed": false,
+    "protection": {
+      "blocked": true,
+      "error": "文件仍在使用，请先停止实例: /Users/ghost233/.lmstudio/models/ggml-org/Laya-GGUF/Laya-Q8_0.gguf"
+    }
+  },
+  "peer_callable": {
+    "model": "jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b",
+    "input_tokens": 157,
+    "elapsed_us": 37826,
+    "answers": {
+      "action": {
+        "type": "choice",
+        "choice": "change",
+        "probabilities": {
+          "keep": 0.3304109243674458,
+          "change": 0.6695890756325542
+        }
+      },
+      "applicability": {
+        "type": "score",
+        "score": 1.7102217626935645,
+        "legend": {
+          "0": "Not applicable",
+          "1": "Somewhat applicable",
+          "2": "Fully applicable"
+        },
+        "probabilities": {
+          "0": 0.0398040434019779,
+          "1": 0.21017015050247992,
+          "2": 0.7500258060955423
+        }
+      },
+      "requested": {
+        "type": "noul",
+        "noul": 0.968557651959086
+      }
+    },
+    "raw_response": "{\"model\":\"jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b\",\"answers\":{\"action\":{\"type\":\"choice\",\"choice\":\"change\",\"probabilities\":{\"keep\":0.3304109243674458,\"change\":0.6695890756325542},\"confidence\":0.3391781512651084},\"applicability\":{\"type\":\"score\",\"score\":1.7102217626935645,\"legend\":{\"0\":\"Not applicable\",\"1\":\"Somewhat applicable\",\"2\":\"Fully applicable\"},\"probabilities\":{\"0\":0.0398040434019779,\"1\":0.21017015050247992,\"2\":0.7500258060955423},\"confidence\":0.5653326440403464},\"requested\":{\"type\":\"noul\",\"noul\":0.968557651959086}},\"usage\":{\"input_tokens\":157,\"output_tokens\":0}}"
+  },
+  "owned_children": [
+    {
+      "pid": 21515,
+      "executable": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r47-8buXBF/engines/b11381/llama-server",
+      "arguments": [
+        "--version"
+      ],
+      "started_at": "2026-10-06T01:06:40.330629Z",
+      "exit_code": 0,
+      "exited_at": "2026-10-06T01:06:40.379348Z"
+    },
+    {
+      "pid": 21516,
+      "executable": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r47-8buXBF/engines/v0.5.0/llama-server",
+      "arguments": [
+        "--version"
+      ],
+      "started_at": "2026-10-06T01:06:40.567676Z",
+      "exit_code": 0,
+      "exited_at": "2026-10-06T01:06:40.614540Z"
+    },
+    {
+      "pid": 21539,
+      "executable": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r47-8buXBF/engines/b11381/llama-server",
+      "arguments": [
+        "--version"
+      ],
+      "started_at": "2026-10-06T01:06:48.532420Z",
+      "exit_code": 0,
+      "exited_at": "2026-10-06T01:06:48.543250Z"
+    },
+    {
+      "pid": 21560,
+      "executable": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r47-8buXBF/engines/b11381/llama-server",
+      "arguments": [
+        "--model",
+        "/Users/ghost233/.lmstudio/models/ggml-org/Kev-0.8B-GGUF/Kev-0.8B-Q8_0.gguf",
+        "--alias",
+        "jev-785d3de36b8b2967afeba2a2a6f84e7250e10e96a760b049",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "52588",
+        "--ctx-size",
+        "4096",
+        "--batch-size",
+        "4096",
+        "--ubatch-size",
+        "4096",
+        "--parallel",
+        "1",
+        "--n-gpu-layers",
+        "99",
+        "--device",
+        "MTL0"
+      ],
+      "started_at": "2026-10-06T01:06:53.465972Z",
+      "exit_code": 0,
+      "exited_at": "2026-10-06T01:07:03.418547Z"
+    },
+    {
+      "pid": 21576,
+      "executable": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r47-8buXBF/engines/b11381/llama-server",
+      "arguments": [
+        "--version"
+      ],
+      "started_at": "2026-10-06T01:06:57.204446Z",
+      "exit_code": 0,
+      "exited_at": "2026-10-06T01:06:57.215058Z"
+    },
+    {
+      "pid": 21589,
+      "executable": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r47-8buXBF/engines/b11381/llama-server",
+      "arguments": [
+        "--model",
+        "/Users/ghost233/.lmstudio/models/ggml-org/Laya-GGUF/Laya-Q8_0.gguf",
+        "--alias",
+        "jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "52658",
+        "--ctx-size",
+        "4096",
+        "--batch-size",
+        "4096",
+        "--ubatch-size",
+        "4096",
+        "--parallel",
+        "1",
+        "--n-gpu-layers",
+        "99",
+        "--device",
+        "MTL0"
+      ],
+      "started_at": "2026-10-06T01:06:59.820418Z",
+      "exit_code": 0,
+      "exited_at": "2026-10-06T01:07:03.478820Z"
+    }
+  ],
+  "ports_reclaimed": [
+    {
+      "instance_id": "jev-785d3de36b8b2967afeba2a2a6f84e7250e10e96a760b049",
+      "port": 52588,
+      "reclaimed": true
+    },
+    {
+      "instance_id": "jev-d93c5477eb80e913adad445da3a25a7dce506ee55477175b",
+      "port": 52658,
+      "reclaimed": true
+    }
+  ],
+  "before": [
+    {
+      "path": "/Users/ghost233/.lmstudio/models/ggml-org/Kev-0.8B-GGUF/Kev-0.8B-Q8_0.gguf",
+      "bytes": 812406304,
+      "mode": 33188,
+      "modified_at": "2026-10-04T08:47:22.262556Z",
+      "changed_at": "2026-10-04T08:47:26.956407Z",
+      "type": "file"
+    },
+    {
+      "path": "/Users/ghost233/.lmstudio/models/ggml-org/Laya-GGUF/Laya-Q8_0.gguf",
+      "bytes": 449397600,
+      "mode": 33188,
+      "modified_at": "2026-10-04T08:55:39.967681Z",
+      "changed_at": "2026-10-04T08:55:42.712991Z",
+      "type": "file"
+    }
+  ],
+  "after": [
+    {
+      "path": "/Users/ghost233/.lmstudio/models/ggml-org/Kev-0.8B-GGUF/Kev-0.8B-Q8_0.gguf",
+      "bytes": 812406304,
+      "mode": 33188,
+      "modified_at": "2026-10-04T08:47:22.262556Z",
+      "changed_at": "2026-10-04T08:47:26.956407Z",
+      "type": "file"
+    },
+    {
+      "path": "/Users/ghost233/.lmstudio/models/ggml-org/Laya-GGUF/Laya-Q8_0.gguf",
+      "bytes": 449397600,
+      "mode": 33188,
+      "modified_at": "2026-10-04T08:55:39.967681Z",
+      "changed_at": "2026-10-04T08:55:42.712991Z",
+      "type": "file"
+    }
+  ],
+  "errors": [],
+  "source_verified": false,
+  "physical_inode_baseline_scope": "Shell device/inode baseline captured during native run, before final cross-check; Dart FileStat size/mode/mtime/ctime/type baseline captured before scan/start. No stronger prelaunch inode claim.",
+  "mcp_listener": "NOT EXERCISED in native r48; controller consultBatch only, no fake listener",
+  "limits": [
+    "No model-quality, probability-calibration, speed, Release or whole-spec claim",
+    "No container, offline mode, environment/profile/DNS changes or source edits",
+    "No unselected weight verification or activation",
+    "No deletion; prepareDeletion only",
+    "Shared GPU/compiler resources possible with parent Qwen probe"
+  ]
+}
