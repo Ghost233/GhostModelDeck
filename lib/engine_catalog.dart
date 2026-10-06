@@ -110,6 +110,9 @@ class EngineCatalog {
   bool _loaded = false;
   bool _shuttingDown = false;
   Future<void>? _shutdown;
+  bool _recycling = false;
+  Future<void>? _recycle;
+  final _admissionReleases = <LlamaEngine, void Function()>{};
   bool _busy = false;
   String? _error;
   Stream<EngineCatalogState> get changes => _changes.stream;
@@ -151,6 +154,9 @@ class EngineCatalog {
   );
   Future<T> _serial<T>(Future<T> Function() work) {
     if (_shuttingDown) return Future.error(StateError('引擎管理器正在退出'));
+    if (_recycling) {
+      return Future.error(const LlamaEngineException('引擎管理器正在回收'));
+    }
     final result = _operations.then((_) async {
       if (_shuttingDown) throw StateError('引擎管理器正在退出');
       _busy = true;
@@ -227,6 +233,9 @@ class EngineCatalog {
       installationId: id,
     );
     if (_shuttingDown) provider.beginShutdown();
+    if (_recycling) {
+      _admissionReleases[provider] = provider.holdStartAdmission();
+    }
     _linked[id] = provider;
     _names[id] = name;
     _subscriptions.add(provider.changes.listen((_) => _publish()));
@@ -361,22 +370,43 @@ class EngineCatalog {
     ];
   }
 
-  Future<void> stopManaged() async {
-    final errors = <Object>[];
-    // Start every recycle before awaiting, so every provider seals admission.
-    final stops = [for (final provider in _providers) provider.stopManaged()];
-    await Future.wait(
-      stops.map((stop) async {
-        try {
-          await stop;
-        } catch (error) {
-          errors.add(error);
-        }
-      }),
-    );
-    if (errors.isNotEmpty) {
-      throw LlamaEngineException('引擎回收未完成：${errors.join('; ')}');
+  Future<void> stopManaged() {
+    if (_recycle != null) return _recycle!;
+    _recycling = true;
+    final initial = _providers.toSet();
+    for (final provider in initial) {
+      _admissionReleases[provider] = provider.holdStartAdmission();
     }
+    final errors = <Object>[];
+    Future<void> stop(LlamaEngine provider) async {
+      try {
+        await provider.stopManaged();
+      } catch (error) {
+        errors.add(error);
+      }
+    }
+
+    // Cancel accepted starts immediately, but keep admission held after each
+    // provider finishes. Drain preaccepted catalog work before late enrollment.
+    final stops = initial.map(stop).toList();
+    final accepted = _operations;
+    final operation = () async {
+      await accepted;
+      stops.addAll(_providers.where((p) => !initial.contains(p)).map(stop));
+      await Future.wait(stops);
+      if (errors.isNotEmpty) {
+        throw LlamaEngineException('引擎回收未完成：${errors.join('; ')}');
+      }
+    }();
+    _recycle = operation.whenComplete(() {
+      for (final release in _admissionReleases.values) {
+        release();
+      }
+      _admissionReleases.clear();
+      _recycling = false;
+      _recycle = null;
+    });
+    return _recycle!;
   }
 
   void beginShutdown() {

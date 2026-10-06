@@ -16,6 +16,166 @@ import 'fixtures/decision_gguf.dart';
 import 'fixtures/engine_archive.dart';
 
 void main() {
+  for (final lateLink in [false, true]) {
+    test(
+      'catalog recycle holds ${lateLink ? 'late linked' : 'captured'} provider admission until every child exits',
+      () async {
+        final root = await Directory.systemTemp.createTemp(
+          'gmd-aggregate-recycle-',
+        );
+        final library = ModelLibrary();
+        final use = ModelUseRegistry(library);
+        final ios = [_RuntimeIO(), _RuntimeIO(standard: true), _RuntimeIO()];
+        final providers = <LlamaEngine>[];
+        late EngineCatalog catalog;
+        addTearDown(() async {
+          if (ios[1].stopRelease != null && !ios[1].stopRelease!.isCompleted) {
+            ios[1].stopRelease!.complete();
+          }
+          await catalog.stopManaged();
+          catalog.close();
+          for (final provider in providers) {
+            provider.close();
+          }
+          library.close();
+          await root.delete(recursive: true);
+        });
+        final models = Directory('${root.path}/models');
+        await writeDecisionKev(models, ordinaryChat: true);
+        final asset = (await library.scan(models, verifyFiles: true)).single;
+        final archives = <File>[];
+        for (var index = 0; index < 2; index++) {
+          final standard = index == 1;
+          final data = engineArchive(
+            artifactTag: standard ? 'b11146' : 'b11381',
+          );
+          archives.add(
+            await File('${root.path}/$index.tar.gz').writeAsBytes(data),
+          );
+          providers.add(
+            LlamaEngine(
+              library: library,
+              useRegistry: use,
+              installationDirectory: Directory('${root.path}/engines'),
+              io: ios[index],
+              release: LlamaRelease(
+                tag: standard ? 'v0.5.0' : 'b11381',
+                artifactTag: standard ? 'b11146' : 'b11381',
+                expectedBuild: standard ? 11146 : 11381,
+                supportsSystemone: !standard,
+                expectedBinaryVersion: '0.5.0-dev',
+                commit: standard
+                    ? '7fe450e19305b828c199d602c23a8337aaa1f03b'
+                    : '836d57176',
+                url: Uri.parse('https://github.com/fixture/$index'),
+                sha256: sha256.convert(data).toString(),
+                sizeBytes: data.length,
+              ),
+            ),
+          );
+        }
+        catalog = EngineCatalog(
+          library: library,
+          officialEngine: providers[0],
+          standardEngine: providers[1],
+          useRegistry: use,
+          registryFile: File('${root.path}/registry.json'),
+          io: ios[2],
+        );
+        await catalog.installOfficial(verifiedArchive: archives[0]);
+        await catalog.installManaged(
+          EngineCatalog.standardId,
+          verifiedArchive: archives[1],
+        );
+        await HttpOverrides.runWithHttpOverrides(() async {
+          final capturedA = catalog.providerFor(EngineCatalog.officialId);
+          final a = await capturedA.start(asset.id);
+          await providers[1].start(asset.id);
+          Future<EngineRegistration>? linking;
+          if (lateLink) {
+            final external = await File('${root.path}/external/llama-server')
+                .create(recursive: true);
+            await external.writeAsString('external native fixture');
+            expect(
+              (await Process.run('/bin/chmod', ['+x', external.path])).exitCode,
+              0,
+            );
+            ios[2].inspectionRequested = Completer<void>();
+            ios[2].inspectionRelease = Completer<void>();
+            linking = catalog.link(external.path);
+            await ios[2].inspectionRequested!.future.timeout(
+              const Duration(seconds: 3),
+            );
+          }
+          ios[1].stopRelease = Completer<void>();
+          ios[1].stopRequested = Completer<void>();
+          final aStopped = capturedA.changes.firstWhere(
+            (s) => s.instances.single.status == LlamaInstanceStatus.stopped,
+          );
+          var recycled = false;
+          final recycle = catalog.stopManaged().then((_) => recycled = true);
+          try {
+            await ios[1].stopRequested!.future.timeout(
+              const Duration(seconds: 3),
+            );
+            await aStopped.timeout(const Duration(seconds: 3));
+            await expectLater(
+              capturedA.start(asset.id),
+              throwsA(isA<LlamaEngineException>()),
+            );
+            await expectLater(
+              providers[1].start(asset.id),
+              throwsA(isA<LlamaEngineException>()),
+            );
+            if (linking != null) {
+              final bStopped = providers[1].changes.firstWhere(
+                (s) => s.instances.single.status == LlamaInstanceStatus.stopped,
+              );
+              ios[1].stopRelease!.complete();
+              await bStopped.timeout(const Duration(seconds: 3));
+              // One event-loop turn settles the completed child futures, while the
+              // preaccepted link remains held at its real command I/O seam.
+              await Future<void>.delayed(Duration.zero);
+              expect(
+                recycled,
+                isFalse,
+                reason: 'catalog must drain preaccepted enrollment',
+              );
+              ios[2].inspectionRelease!.complete();
+              final linked = await linking.timeout(const Duration(seconds: 3));
+              final lateProvider = catalog.providerFor(linked.id);
+              await expectLater(
+                lateProvider.start(asset.id),
+                throwsA(isA<LlamaEngineException>()),
+              );
+              expect(lateProvider.state.instances, isEmpty);
+            }
+            expect(ios.map((io) => io.startedExecutables.length), [1, 1, 0]);
+          } finally {
+            if (ios[2].inspectionRelease != null &&
+                !ios[2].inspectionRelease!.isCompleted) {
+              ios[2].inspectionRelease!.complete();
+            }
+            if (!ios[1].stopRelease!.isCompleted) {
+              ios[1].stopRelease!.complete();
+            }
+            await recycle;
+          }
+          expect(
+            providers.every(
+              (p) => p.state.instances.every((i) => !i.hasLiveProcess),
+            ),
+            isTrue,
+          );
+          final next = await capturedA.start(asset.id);
+          expect(next.generation, greaterThan(a.generation));
+          await capturedA.stopManaged();
+          final standalone = await capturedA.start(asset.id);
+          expect(standalone.generation, greaterThan(next.generation));
+        }, _NetworkBoundary());
+      },
+    );
+  }
   test('dual managed and linked process identities recycle and seal together while removal owns only selected scope', () async {
     final root = await Directory.systemTemp.createTemp('gmd-three-providers-');
     final library = ModelLibrary();
@@ -485,6 +645,8 @@ class _RuntimeIO implements EngineProcessIO {
   int stopAttempts = 0;
   Completer<void>? stopRelease;
   Completer<void>? stopRequested;
+  Completer<void>? inspectionRequested;
+  Completer<void>? inspectionRelease;
   @override
   Future<EngineCommandResult> run(
     String executable,
@@ -502,6 +664,10 @@ class _RuntimeIO implements EngineProcessIO {
       );
     }
     if (arguments.singleOrNull == '--version') {
+      if (inspectionRequested != null && !inspectionRequested!.isCompleted) {
+        inspectionRequested!.complete();
+        await inspectionRelease!.future;
+      }
       return EngineCommandResult(
         0,
         standard

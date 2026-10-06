@@ -542,8 +542,22 @@ class LlamaEngine {
   bool _recycling = false;
   Future<void>? _recycle;
 
+  int _startAdmissionHolds = 0;
+
+  /// Hold new starts during an owning catalog's aggregate recycle.
+  /// Already accepted starts remain owned by [stopManaged].
+  void Function() holdStartAdmission() {
+    _startAdmissionHolds++;
+    var released = false;
+    return () {
+      if (released) return;
+      released = true;
+      _startAdmissionHolds--;
+    };
+  }
+
   Future<LlamaInstance> start(String artifactId) {
-    if (_recycling) {
+    if (_recycling || _startAdmissionHolds > 0) {
       return Future.error(const LlamaEngineException('受管引擎正在回收'));
     }
     final generation = _generation;
