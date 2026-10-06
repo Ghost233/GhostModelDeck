@@ -32,3 +32,4 @@
 
 - 修改 Dart、Flutter、原生桥接或检查脚本前，读取 [工程规范](docs/engineering.md)，执行与改动相关的检查并报告实际结果。
 - 审查时以工程规范核对代码标准，以 `docs/spec.md` 和来源工单核对产品行为；例外必须说明适用规则、原因及验证结果。
+- 涉及版本号 bump、tag、GitHub Release 或检查更新行为前，读取 [发布版本号规则](docs/release-versioning.md)；版本号只按该文档的递增与 rollover 规则由人手动修改，禁止自动推导或重用。
