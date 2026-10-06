@@ -131,6 +131,15 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "6.1.0"
+  maclauncher_sdk:
+    dependency: "direct main"
+    description:
+      path: "packages/maclauncher_sdk"
+      ref: bc7262f4047e81f55922c203948ac64d9e0e2d13
+      resolved-ref: bc7262f4047e81f55922c203948ac64d9e0e2d13
+      url: "https://github.com/Ghost233/MacLauncher.git"
+    source: git
+    version: "0.1.0"
   matcher:
     dependency: transitive
     description:

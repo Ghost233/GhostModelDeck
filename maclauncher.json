@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "id": "com.ghost233.ghostmodeldeck",
+    "name": "GhostModelDeck"
+  },
+  "services": [
+    {
+      "id": "inference",
+      "name": "推理服务"
+    }
+  ],
+  "entry": {
+    "kind": "app",
+    "path": "build/macos/Build/Products/Release/GhostModelDeck.app"
+  }
+}
