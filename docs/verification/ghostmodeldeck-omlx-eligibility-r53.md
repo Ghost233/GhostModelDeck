@@ -64,7 +64,7 @@ Final original ONLINE gates passed **serially** on the same final source:
 | `analyze` | exit0, **0 issues** | `run-aJs1EF` |
 | `test` | exit0, **311/311** (249 original baseline plus 62 new public cases) | `run-RiksGa` |
 
-All 70 archived regular files (source/test/benchmarks plus pubspec/config/lock) match the final committed Git blobs and working files byte-for-byte; archived path sets are also checked, not merely modified files. The dependency/config/runner and old F32 fixture bytes remain identical to the initial commit. Documentation is outside the runner archive. Gate archive hashes differ because tar metadata differs; exact file-content/path equality is the source binding.
+All **68 Git-tracked** archived files (source/test/benchmarks plus pubspec/config/lock) match the final committed Git blobs and working files byte-for-byte; exact tracked path sets are also checked, not merely modified files. The original runner additionally includes two pre-existing ignored Finder metadata files, [benchmark Finder metadata](<../../benchmarks/.DS_Store>) and [test Finder metadata](<../../test/.DS_Store>) (6,148 B each): all three archives contain the same unchanged bytes, also matching the first M0 RED archive. They are preserved and explicitly allowlisted as non-source metadata, not falsely claimed to be committed code. Thus each archive has 70 regular files, with no unexplained extra source/config/dependency file. The dependency/config/runner and old F32 fixture bytes remain identical to the initial commit. Documentation is outside the runner archive. Gate archive hashes differ because tar metadata differs; exact file-content/path equality is the source binding.
 
 | Archive | SHA-256 |
 |---|---|
