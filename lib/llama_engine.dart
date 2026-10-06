@@ -22,6 +22,7 @@ class LlamaRelease {
     this.supportsSystemone = true,
     this.expectedBinaryVersion,
     this.expectedPlatform = 'Darwin arm64',
+    this.installationVersionTimeout = const Duration(seconds: 10),
   });
 
   /// Curated release label, not an observed binary semantic version.
@@ -33,6 +34,10 @@ class LlamaRelease {
   final bool supportsSystemone;
   final String? expectedBinaryVersion;
   final String expectedPlatform;
+
+  /// Budget only for the managed installation's native identity command.
+  /// Not a model startup, capability, request, or cancellation budget.
+  final Duration installationVersionTimeout;
   String get archiveRoot => 'llama-${artifactTag ?? tag}';
   int get buildNumber {
     if (expectedBuild != null) return expectedBuild!;
@@ -191,6 +196,7 @@ final standardLlamaRelease = LlamaRelease(
   expectedBuild: 11146,
   expectedBinaryVersion: '0.5.0-dev',
   supportsSystemone: false,
+  installationVersionTimeout: const Duration(seconds: 60),
   commit: '7fe450e19305b828c199d602c23a8337aaa1f03b',
   url: Uri.parse(
     'https://github.com/ggml-org/llama.cpp/releases/download/b11146/llama-b11146-bin-macos-arm64.tar.gz',
@@ -2198,13 +2204,16 @@ class LlamaEngine {
   }
 
   Future<String> _version(File binary) async {
+    if (release.installationVersionTimeout <= Duration.zero) {
+      throw const LlamaEngineException('安装版本命令预算必须为正时长');
+    }
     if (await FileSystemEntity.type(binary.path, followLinks: false) !=
         FileSystemEntityType.file) {
       throw const LlamaEngineException('引擎 executable 类型不符');
     }
     final result = await io.run(binary.path, [
       '--version',
-    ], timeout: const Duration(seconds: 10));
+    ], timeout: release.installationVersionTimeout);
     final version = '${result.stdout}\n${result.stderr}'.trim();
     final commit = release.commit.substring(0, min(9, release.commit.length));
     final observed = LlamaBinaryVersion.parse(version);

@@ -13,9 +13,187 @@ import 'package:ghost_model_deck/llama_engine.dart';
 import 'package:ghost_model_deck/model_library.dart';
 
 import 'fixtures/decision_gguf.dart';
+import 'fixtures/engine_archive.dart';
 import 'fixtures/typed_answers.dart';
 
 void main() {
+  test('installation version budget rejects nonpositive explicit durations before native version execution', () async {
+    for (final timeout in [Duration.zero, const Duration(microseconds: -1)]) {
+      final root = await Directory.systemTemp.createTemp('gmd-invalid-budget-');
+      addTearDown(() => root.delete(recursive: true));
+      final archive = await File('${root.path}/release.tar.gz')
+          .writeAsBytes(_archive());
+      final library = ModelLibrary();
+      addTearDown(library.close);
+      final io = _InstallIO();
+      final engine = LlamaEngine(
+        library: library,
+        installationDirectory: Directory('${root.path}/engines'),
+        io: io,
+        release: LlamaRelease(
+          tag: 'b11381',
+          commit: '836d57176',
+          url: Uri.parse('https://github.com/fixture'),
+          sha256: sha256.convert(await archive.readAsBytes()).toString(),
+          sizeBytes: await archive.length(),
+          installationVersionTimeout: timeout,
+        ),
+      );
+      addTearDown(engine.close);
+      await expectLater(
+        engine.install(verifiedArchive: archive),
+        throwsA(isA<LlamaEngineException>()),
+      );
+      expect(engine.state.installation, LlamaInstallationStatus.failed);
+      expect(engine.state.error, contains('版本命令预算必须为正时长'));
+      expect(io.versions, 0);
+      expect(engine.executablePath, isNull);
+      expect(await Directory('${root.path}/engines/b11381').exists(), isFalse);
+    }
+  });
+
+  test('installation version budget is standard60 JEV10 and legacy10 on install and refresh', () async {
+    for (final candidate in [
+      standardLlamaRelease,
+      officialLlamaRelease,
+      null,
+    ]) {
+      final root = await Directory.systemTemp.createTemp('gmd-version-budget-');
+      addTearDown(() => root.delete(recursive: true));
+      final bytes = engineArchive(
+        artifactTag: candidate?.artifactTag ?? 'b11381',
+      );
+      final archive = await File('${root.path}/release.tar.gz')
+          .writeAsBytes(bytes);
+      // Substitute only archive bytes/source; retain the curated identity and
+      // release budget. Legacy callers omit all new descriptor options.
+      final release = candidate == null
+          ? LlamaRelease(
+              tag: 'b11381',
+              commit: '836d57176',
+              url: Uri.parse('https://github.com/fixture'),
+              sha256: sha256.convert(bytes).toString(),
+              sizeBytes: bytes.length,
+            )
+          : LlamaRelease(
+              tag: candidate.tag,
+              artifactTag: candidate.artifactTag,
+              expectedBuild: candidate.expectedBuild,
+              expectedBinaryVersion: candidate.expectedBinaryVersion,
+              expectedPlatform: candidate.expectedPlatform,
+              supportsSystemone: candidate.supportsSystemone,
+              installationVersionTimeout: candidate.installationVersionTimeout,
+              commit: candidate.commit,
+              url: Uri.parse('https://github.com/fixture'),
+              sha256: sha256.convert(bytes).toString(),
+              sizeBytes: bytes.length,
+            );
+      final library = ModelLibrary();
+      addTearDown(library.close);
+      final io = _InstallIO()
+        ..versionResponse = candidate == standardLlamaRelease
+            ? const EngineCommandResult(
+                0,
+                'version: 0.5.0-dev (build 11146, commit 7fe450e19)\nbuilt with AppleClang for Darwin arm64',
+                '',
+              )
+            : null;
+      final directory = Directory('${root.path}/engines');
+      final engine = LlamaEngine(
+        library: library,
+        installationDirectory: directory,
+        release: release,
+        io: io,
+      );
+      addTearDown(engine.close);
+      await engine.install(verifiedArchive: archive);
+      expect(engine.state.installation, LlamaInstallationStatus.installed);
+      final reopened = LlamaEngine(
+        library: library,
+        installationDirectory: directory,
+        release: release,
+        io: io,
+      );
+      addTearDown(reopened.close);
+      await reopened.refreshInstallation();
+      expect(reopened.state.installation, LlamaInstallationStatus.installed);
+      final expected = Duration(
+        seconds: candidate == standardLlamaRelease ? 60 : 10,
+      );
+      expect(
+        io.commandTimeouts
+            .where((c) => c.arguments.singleOrNull == '--version')
+            .map((c) => c.timeout),
+        [expected, expected],
+        reason: candidate?.tag ?? 'legacy custom release',
+      );
+      expect(
+        io.commandTimeouts
+            .where((c) => c.executable == '/usr/bin/tar')
+            .map((c) => c.timeout),
+        [const Duration(seconds: 30), const Duration(seconds: 30)],
+      );
+      expect(reopened.state.instances, isEmpty);
+      // A larger command budget never relaxes identity or exit validation.
+      final validResponse = io.versionResponse;
+      for (final invalid in [
+        const EngineCommandResult(1, '', 'native version failed'),
+        const EngineCommandResult(
+          0,
+          'version: 0.4.0 (build 11146, commit 7fe450e19)\nfor Darwin arm64',
+          '',
+        ),
+        const EngineCommandResult(
+          0,
+          'version: 0.5.0-dev (build 1, commit 7fe450e19)\nfor Darwin arm64',
+          '',
+        ),
+        const EngineCommandResult(
+          0,
+          'version: 0.5.0-dev (build 11146, commit deadbeef0)\nfor Darwin arm64',
+          '',
+        ),
+        const EngineCommandResult(
+          0,
+          'version: 0.5.0-dev (build 11146, commit 7fe450e19)\nfor Linux x86_64',
+          '',
+        ),
+      ]) {
+        if (candidate != standardLlamaRelease) break;
+        io.versionResponse = invalid;
+        await reopened.refreshInstallation();
+        expect(reopened.state.installation, LlamaInstallationStatus.failed);
+        expect(reopened.executablePath, isNull);
+      }
+      io.versionResponse = validResponse;
+      io.versionFailure = TimeoutException(
+        'native version exceeded budget',
+        expected,
+      );
+      await reopened.refreshInstallation();
+      expect(reopened.state.installation, LlamaInstallationStatus.failed);
+      expect(reopened.executablePath, isNull);
+      final failedInstall = LlamaEngine(
+        library: library,
+        installationDirectory: Directory('${root.path}/failed-engines'),
+        release: release,
+        io: io,
+      );
+      addTearDown(failedInstall.close);
+      await expectLater(
+        failedInstall.install(verifiedArchive: archive),
+        throwsA(isA<LlamaEngineException>()),
+      );
+      expect(failedInstall.state.installation, LlamaInstallationStatus.failed);
+      expect(failedInstall.executablePath, isNull);
+      expect(
+        await Directory('${root.path}/failed-engines/${release.tag}').exists(),
+        isFalse,
+      );
+      expect(failedInstall.state.instances, isEmpty);
+    }
+  });
+
   test(
     'choice readiness never implies a failed score or noul capability',
     () async {
@@ -1582,6 +1760,10 @@ class _Fixture {
 
 class _InstallIO implements EngineProcessIO {
   int versions = 0;
+  EngineCommandResult? versionResponse;
+  TimeoutException? versionFailure;
+  final commandTimeouts =
+      <({String executable, List<String> arguments, Duration timeout})>[];
   int textRequests = 0;
   String? textResponseOverride;
   int decisionRequests = 0;
@@ -1720,13 +1902,20 @@ class _InstallIO implements EngineProcessIO {
     List<String> arguments, {
     required Duration timeout,
   }) async {
+    commandTimeouts.add((
+      executable: executable,
+      arguments: List.unmodifiable(arguments),
+      timeout: timeout,
+    ));
     if (arguments.singleOrNull == '--version') {
       versions++;
-      return const EngineCommandResult(
-        0,
-        'version: 0.5.0-dev (build 11381, commit 836d57176)\nbuilt with AppleClang for Darwin arm64',
-        '',
-      );
+      if (versionFailure != null) throw versionFailure!;
+      return versionResponse ??
+          const EngineCommandResult(
+            0,
+            'version: 0.5.0-dev (build 11381, commit 836d57176)\nbuilt with AppleClang for Darwin arm64',
+            '',
+          );
     }
     final result = await Process.run(executable, arguments);
     return EngineCommandResult(
