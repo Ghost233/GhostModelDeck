@@ -25,6 +25,7 @@ import 'model_search_page.dart';
 import 'mcp_page.dart';
 import 'manager_lifecycle.dart';
 import 'model_use_registry.dart';
+import 'sdk_service.dart';
 import 'settings_page.dart';
 
 void main() => runApp(const GhostModelDeckApp());
@@ -64,6 +65,8 @@ class _ManagerShellState extends State<_ManagerShell> {
   late final CouncilMcpServer _mcp;
   late final PublicModelRoutes _publicRoutes;
   late final PublicGatewayServer _publicGateway;
+  final _startupSet = StartupModelSet.user();
+  late final LauncherInferenceService _launcherService;
   late final ManagerLifecycle _lifecycle;
   String? _libraryPath;
   String? _settingsError;
@@ -116,12 +119,23 @@ class _ManagerShellState extends State<_ManagerShell> {
       registryFile: File('${_settings.file.parent.path}/public_models.json'),
     );
     _publicGateway = PublicGatewayServer(routes: _publicRoutes);
+    _launcherService = LauncherInferenceService(
+      library: _library,
+      engines: _engines,
+      gateway: _publicGateway,
+      mcp: _mcp,
+      startupSet: _startupSet,
+      // 窗口激活最小原生 seam；原生窗口行为验证属 #19 范围。原生未实现时
+      // MissingPluginException 真实上抛，不假装窗口已激活。
+      onOpenWindow: () => _native.invokeMethod<void>('activateMainWindow'),
+    );
     _lifecycle = ManagerLifecycle(
       council: _council,
       mcp: _mcp,
       engines: _engines,
       downloader: _downloader,
       gateway: _publicGateway,
+      launcher: _launcherService,
     );
     _native.setMethodCallHandler((call) async {
       if (call.method != 'prepareToQuit') throw MissingPluginException();
@@ -138,6 +152,8 @@ class _ManagerShellState extends State<_ManagerShell> {
     unawaited(_mcp.start().catchError((Object _) {}));
     // 启动失败（含公开端口冲突）保留在网关状态机中显式呈现，不影响其余服务。
     unawaited(_publicGateway.start().catchError((Object _) {}));
+    // SDK 连接立即返回，握手与重连在后台维持；启动器不在场不影响独立使用。
+    _launcherService.connect();
     _loadSettings();
   }
 
@@ -145,6 +161,7 @@ class _ManagerShellState extends State<_ManagerShell> {
     try {
       final path = await _settings.load();
       await _preferences.load();
+      await _startupSet.load();
       if (mounted) setState(() => _libraryPath = path);
     } catch (_) {
       if (mounted) setState(() => _settingsError = '设置读取失败');
@@ -174,6 +191,8 @@ class _ManagerShellState extends State<_ManagerShell> {
   @override
   void dispose() {
     _native.setMethodCallHandler(null);
+    // 只关闭 SDK 通信，不回收业务；明确退出的完整收尾走 ManagerLifecycle。
+    unawaited(_launcherService.dispose().catchError((Object _) {}));
     _browser.close();
     // Explicit native shutdown awaits the original failure via ManagerLifecycle.
     unawaited(_downloader.close().catchError((Object _) {}));
@@ -350,6 +369,7 @@ class _ManagerShellState extends State<_ManagerShell> {
                         engines: _engines,
                         publicRoutes: _publicRoutes,
                         publicGateway: _publicGateway,
+                        startupSet: _startupSet,
                       )
                     else
                       const SizedBox.shrink(),

@@ -11,6 +11,7 @@ import 'engine_catalog.dart';
 import 'engine_runtime.dart';
 import 'model_run_dialog.dart';
 import 'public_gateway.dart';
+import 'sdk_service.dart';
 
 class LibraryPage extends StatefulWidget {
   const LibraryPage({
@@ -20,6 +21,7 @@ class LibraryPage extends StatefulWidget {
     this.engines,
     this.publicRoutes,
     this.publicGateway,
+    this.startupSet,
   });
 
   final ModelLibrary library;
@@ -27,6 +29,9 @@ class LibraryPage extends StatefulWidget {
   final EngineCatalog? engines;
   final PublicModelRoutes? publicRoutes;
   final PublicGatewayServer? publicGateway;
+
+  /// 启动模型集合配置：用户把某个运行组合显式设为推理服务启动时加载。
+  final StartupModelSet? startupSet;
 
   @override
   State<LibraryPage> createState() => _LibraryPageState();
@@ -696,6 +701,34 @@ class _LibraryPageState extends State<LibraryPage> {
     }
   }
 
+  /// 启动模型集合开关：把该行对应的（引擎登记 id + 模型资产 id）运行组合
+  /// 显式加入/移出集合；集合只记录用户选择，加载发生在推理服务 onStart。
+  Widget _startupSetToggle(EngineRun run, ThemeData theme) {
+    final set = widget.startupSet!;
+    final inSet = set.contains(run.engine.id, run.instance.artifactId);
+    return IconButton(
+      tooltip: inSet ? '从启动模型集合移除' : '加入启动模型集合（推理服务启动时加载）',
+      iconSize: 16,
+      padding: EdgeInsets.zero,
+      onPressed: () async {
+        try {
+          if (inSet) {
+            await set.remove(run.engine.id, run.instance.artifactId);
+          } else {
+            await set.add(run.engine.id, run.instance.artifactId);
+          }
+          if (mounted) setState(() => _operationError = null);
+        } catch (error) {
+          if (mounted) setState(() => _operationError = error.toString());
+        }
+      },
+      icon: Icon(
+        inSet ? Icons.rocket_launch : Icons.rocket_launch_outlined,
+        color: inSet ? theme.colorScheme.primary : null,
+      ),
+    );
+  }
+
   Widget _runRow(EngineRun run, bool busy) {
     final instance = run.instance;
     final legacy = run.engine.family == EngineFamily.llamaCpp
@@ -746,6 +779,7 @@ class _LibraryPageState extends State<LibraryPage> {
                     : JevStatusTone.neutral,
               ),
               const Spacer(),
+              if (widget.startupSet != null) _startupSetToggle(run, theme),
               if (active)
                 TextButton(
                   onPressed: busy || stopping

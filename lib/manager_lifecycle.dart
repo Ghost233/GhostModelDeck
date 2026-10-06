@@ -3,6 +3,7 @@ import 'council_mcp.dart';
 import 'engine_catalog.dart';
 import 'model_downloader.dart';
 import 'public_gateway.dart';
+import 'sdk_service.dart';
 
 enum ManagerLifecycleState { running, stopping, stopped, failed }
 
@@ -13,12 +14,16 @@ class ManagerLifecycle {
     required this.engines,
     required this.downloader,
     this.gateway,
+    this.launcher,
   });
   final CouncilController council;
   final CouncilMcpServer mcp;
   final EngineCatalog engines;
   final ModelDownloader downloader;
   final PublicGatewayServer? gateway;
+
+  /// MacLauncher SDK 连接：仅明确退出时收尾（dispose 只关通信不回收业务）。
+  final LauncherInferenceService? launcher;
   ManagerLifecycleState state = ManagerLifecycleState.running;
   String? error;
   Future<void>? _shutdown;
@@ -44,6 +49,8 @@ class ManagerLifecycle {
       ('公开 API', () => gateway?.stop() ?? Future<void>.value()),
       ('委员会', council.shutdown),
       ('引擎', engines.shutdown),
+      // 业务全部收尾后才交还启动器入口并断开 SDK；SDK dispose 本身从不回收业务。
+      ('启动器连接', () => launcher?.dispose() ?? Future<void>.value()),
       ('下载', () => downloads),
     ]) {
       try {
