@@ -57,7 +57,7 @@ class CouncilMcpServer {
   );
   String get codexConfig => endpoint == null
       ? ''
-      : '[mcp_servers.ghostmodeldeck]\nurl = "${endpoint!}"\nenabled = true\nenabled_tools = ["$toolName"]\nstartup_timeout_sec = 10\ntool_timeout_sec = 20';
+      : '[mcp_servers.ghostmodeldeck]\nurl = "${endpoint!}"\nenabled = true\nenabled_tools = ["$toolName", "$batchToolName"]\nstartup_timeout_sec = 10\ntool_timeout_sec = 20';
 
   Future<void> _serial(Future<void> Function() action) {
     final result = _operations.then((_) => action());

@@ -55,6 +55,32 @@ Future<(int, dynamic)> _http(
 }
 
 void main() {
+  test('emitted Codex config enables both tools at the actual listener', () async {
+    final runtime = await CouncilRuntime.create();
+    addTearDown(runtime.close);
+    final council = CouncilController(catalog: runtime.catalog);
+    addTearDown(council.close);
+    final server = CouncilMcpServer(controller: council, port: 0);
+    addTearDown(server.close);
+    expect(server.codexConfig, isEmpty);
+    final running = server.changes.firstWhere(
+      (s) => s.status == CouncilMcpStatus.running,
+    );
+    await server.start();
+    expect((await running).endpoint, server.endpoint);
+    expect(
+      server.codexConfig,
+      '[mcp_servers.ghostmodeldeck]\nurl = "${server.endpoint}"\nenabled = true\nenabled_tools = ["consult_jev_council", "consult_jev_council_batch"]\nstartup_timeout_sec = 10\ntool_timeout_sec = 20',
+    );
+    final client = await _connect(server.endpoint!);
+    addTearDown(client.close);
+    expect(
+      (await client.listTools()).tools.map((tool) => tool.name),
+      containsAll(['consult_jev_council', 'consult_jev_council_batch']),
+    );
+    await server.stop();
+    expect(server.codexConfig, isEmpty);
+  });
   test('existing MCP discovers typed batches and renders the same computed mixed DTO', () async {
     final runtime = await CouncilRuntime.create();
     addTearDown(runtime.close);
