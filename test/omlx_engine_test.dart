@@ -97,6 +97,24 @@ class _ValidBundleIO extends _BuilderIO {
       if (executable.endsWith('/omlx-cli')) {
         return ProcessResult(1, 0, '0.7.0\n', '');
       }
+      // The official artifact ships omlx as a source package with
+      // `_version.py` and no dist-info: a probe asking importlib.metadata
+      // for omlx dies exactly like the frozen r62 native stderr, while
+      // reading `omlx.__version__` succeeds.
+      final script = arguments.contains('-c')
+          ? arguments[arguments.indexOf('-c') + 1]
+          : '';
+      if (!script.contains('omlx.__version__')) {
+        return ProcessResult(
+          1,
+          1,
+          '',
+          'Traceback (most recent call last):\n'
+              '  File "<string>", line 12, in <module>\n'
+              'importlib.metadata.PackageNotFoundError: '
+              'No package metadata was found for omlx\n',
+        );
+      }
       return ProcessResult(
         1,
         0,

@@ -623,7 +623,8 @@ with mx.stream(mx.gpu):
 print(json.dumps({"python": platform.python_version(), "architecture": platform.machine(),
  "prefix": sys.prefix, "paths": sys.path,
  "origins": sorted(set(m.__file__ for m in sys.modules.values() if getattr(m, "__file__", None))),
- "versions": {n: md.version(n) for n in ["omlx", "mlx", "mlx-lm", "fastapi", "transformers"]}, "gpu": c.tolist()}))
+ "versions": {"omlx": omlx.__version__,
+  **{n: md.version(n) for n in ["mlx", "mlx-lm", "fastapi", "transformers"]}}, "gpu": c.tolist()}))
 ''';
   Future<OmlxReceipt> _inspect(
     Directory app,
