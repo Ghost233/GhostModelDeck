@@ -1008,6 +1008,62 @@ void main() {
       expect(fixture.io.children.last.exited.isCompleted, isFalse);
     },
   );
+  test('nonstream completion respects public cancellation before response and after success', () async {
+    final fixture = await _Fixture.create(ordinaryChat: true);
+    addTearDown(fixture.close);
+    final instance = await fixture.engine.start(fixture.asset.id);
+    final arrived = Completer<void>();
+    final release = Completer<void>();
+    addTearDown(() {
+      if (!release.isCompleted) release.complete();
+    });
+    fixture.io.holdText = (body) async {
+      if ((body['messages'] as List).single['content'] == 'held completion') {
+        arrived.complete();
+        await release.future;
+      }
+    };
+    final cancelled = DecisionCancellation();
+    final outcome = fixture.engine
+        .generateText(
+          instance.id,
+          TextRequest(prompt: 'held completion'),
+          cancellation: cancelled,
+        )
+        .then<Object>((value) => value, onError: (Object error) => error);
+    await arrived.future.timeout(const Duration(seconds: 3));
+    cancelled.cancel();
+    expect(
+      await outcome.timeout(const Duration(seconds: 3)),
+      isA<LlamaRequestException>().having(
+        (e) => e.kind,
+        'kind',
+        DecisionFailureKind.cancelled,
+      ),
+    );
+    release.complete();
+    expect(
+      fixture.engine.state.instances.single.lastTextResult,
+      same(instance.lastTextResult),
+    );
+    final afterSuccess = DecisionCancellation();
+    final completed = await fixture.engine.generateText(
+      instance.id,
+      TextRequest(prompt: 'completed'),
+      cancellation: afterSuccess,
+    );
+    expect(completed.text, 'Hello.');
+    afterSuccess.cancel();
+    expect(
+      fixture.engine.state.instances.single.lastTextResult,
+      same(completed),
+    );
+    expect(fixture.engine.state.instances.single.activeRequests, 0);
+    expect(
+      fixture.engine.state.instances.single.status,
+      LlamaInstanceStatus.ready,
+    );
+  });
   test('stopping one instance drains its request before kill and preserves its peer', () async {
     final fixture = await _Fixture.create(ordinaryChat: true);
     addTearDown(fixture.close);
