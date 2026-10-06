@@ -40,6 +40,17 @@
 3. 发布后在 GitHub Releases 页面核对三件套资产与版本号。
 4. 如需撤回，按上述回滚流程执行。
 
+## workflow 行为
+
+发布由 `.github/workflows/release.yml` 在 **push 到 main** 时触发，行为如下：
+
+- **no-op 判断**：workflow 读取 `pubspec.yaml` 的 semver 部分（`+` 之前），检查对应 `v<x.y.z>` tag 是否已存在。已存在视为该版本已发布，直接成功退出，不构建、不重复发布。
+- **新发布**：tag 不存在时，workflow 在 macos-15 上用固定 Flutter 3.47.6（stable）构建，调用 `scripts/build-release.sh` 产出 DMG 与清单。
+- **tag↔pubspec 强制一致**：发布前断言将创建的 tag 与 pubspec semver 部分严格相等，不一致即失败，不允许人工绕过。`gh release create` 基于当前提交原子地创建 tag 与正式（非 prerelease）GitHub Release。
+- **发布资产（三件套）**：`GhostModelDeck-<x.y.z>.dmg`、`manifest.json`（含版本、tag、DMG 的 sha256 与字节数，供检查更新使用）、`SHA256SUMS`（覆盖 DMG 与 manifest.json）。
+- **本地复现**：`scripts/build-release.sh` 可在本机直接执行同样的构建与打包；`--app-path <已构建的.app>` 可跳过 flutter build 只验证打包环节。
+- **手动回滚**：错误发布按上文「回滚规则」执行（删除 Release → 删除 tag → 版本号作废 → 以下一个版本号重新发布）。
+
 ## 首发基线
 
 首个正式 Release 为 `0.1.0`，对应首期收尾的 main HEAD。首次真实发布的执行不属于 workflow 工单范围，需单独确认。

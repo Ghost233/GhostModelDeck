@@ -12,3 +12,6 @@ macos/**/xcuserdata/
 # Apple original downloads: local reference only
 /docs/design/apple-macos/snapshots/
 /docs/design/apple-macos/assets/
+
+# 发布构建产物（scripts/build-release.sh）
+dist/
