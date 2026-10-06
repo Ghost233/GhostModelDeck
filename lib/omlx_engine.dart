@@ -1,8 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:crypto/crypto.dart';
+
+import 'chat_protocol.dart';
+import 'engine_runtime.dart';
+import 'model_library.dart';
+import 'model_use_registry.dart';
 
 class OmlxException implements Exception {
   const OmlxException(this.message);
@@ -186,10 +192,99 @@ class _Manifest {
   final int bytes;
 }
 
-/// Owns only native installation/protocol validation. No callable model runtime.
-class OmlxEngine {
-  OmlxEngine({required this.installationDirectory, OmlxProcessIO? io})
-    : io = io ?? NativeOmlxProcessIO();
+/// Injectable seam for launching the owned front-end `serve` process. The
+/// production adapter uses Process.start; tests hand out boundary doubles.
+abstract class OmlxPoolIO {
+  Future<OmlxPoolChild> start(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+    Map<String, String> environment = const {},
+  });
+}
+
+abstract class OmlxPoolChild {
+  int get pid;
+  Future<int> get exitCode;
+  Stream<List<int>> get stdout;
+  Stream<List<int>> get stderr;
+  void kill([ProcessSignal signal = ProcessSignal.sigterm]);
+}
+
+class _NativeOmlxPoolChild implements OmlxPoolChild {
+  _NativeOmlxPoolChild(this._process);
+  final Process _process;
+  @override
+  int get pid => _process.pid;
+  @override
+  Future<int> get exitCode => _process.exitCode;
+  @override
+  Stream<List<int>> get stdout => _process.stdout;
+  @override
+  Stream<List<int>> get stderr => _process.stderr;
+  @override
+  void kill([ProcessSignal signal = ProcessSignal.sigterm]) =>
+      _process.kill(signal);
+}
+
+class NativeOmlxPoolIO implements OmlxPoolIO {
+  const NativeOmlxPoolIO();
+  @override
+  Future<OmlxPoolChild> start(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+    Map<String, String> environment = const {},
+  }) async {
+    final process = await Process.start(
+      executable,
+      arguments,
+      workingDirectory: workingDirectory,
+      environment: environment,
+      includeParentEnvironment: false,
+    );
+    return _NativeOmlxPoolChild(process);
+  }
+}
+
+/// Last path segment after the final separator (model id from its directory).
+String _baseName(String path) => path.substring(path.lastIndexOf('/') + 1);
+
+/// Everything before the final separator (the owning model directory).
+String _dirName(String path) => path.substring(0, path.lastIndexOf('/'));
+
+/// Request-facing failures of the owned pool. [notReady] is a fence verdict,
+/// never a hidden retry or background load.
+enum OmlxRequestKind {
+  notReady,
+  cancelled,
+  serviceFailed,
+  invalidResponse,
+  timeout,
+}
+
+class OmlxRequestException implements Exception {
+  const OmlxRequestException(this.kind, this.message);
+  final OmlxRequestKind kind;
+  final String message;
+  @override
+  String toString() => message;
+}
+
+/// Owns the native oMLX installation, its exact validation lifecycle, and the
+/// owned front-end model pool: one supervised serve process per generation,
+/// pin-only enablement, fenced routing, and exact stop/recycle semantics.
+class OmlxEngine implements EngineRuntime {
+  OmlxEngine({
+    required this.installationDirectory,
+    OmlxProcessIO? io,
+    this._library,
+    OmlxPoolIO? poolIo,
+    this._useRegistry,
+    this._poolLoadTimeout = const Duration(seconds: 120),
+    this._poolStopTimeout = const Duration(seconds: 20),
+  }) : io = io ?? NativeOmlxProcessIO(),
+       _poolIo = poolIo ?? const NativeOmlxPoolIO();
   static const dmgDigest =
       '2e3bb06ac6ee7f50986ba1417e909d432ccd2be471db752a4a2d3b5651e3bce0';
   static const artifactUrl =
@@ -210,6 +305,17 @@ class OmlxEngine {
   bool _closed = false;
   bool _held = false;
   int _admissionHolds = 0;
+  final ModelLibrary? _library;
+  final OmlxPoolIO _poolIo;
+  final ModelUseRegistry? _useRegistry;
+  final Duration _poolLoadTimeout;
+  final Duration _poolStopTimeout;
+  final List<_OmlxRun> _runs = <_OmlxRun>[];
+  _OmlxPool? _pool;
+  Future<void> _poolQueue = Future<void>.value();
+  int _runtimeIds = 0;
+  int _poolGeneration = 0;
+  int _startHolds = 0;
   void Function() holdInstallationAdmission() {
     _admissionHolds++;
     _epoch++;
@@ -1200,21 +1306,891 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
     }
   }
 
+  // ---------------------------------------------------------------------
+  // Owned oMLX model pool (docs/spec.md A04/A05/A07).
+  //
+  // Installed ≠ Started ≠ Ready. One owned front-end serve process per pool
+  // generation; enablement is pin-only settings + fallback-false readback +
+  // physical load + physical-row reconciliation + a short real probe. The
+  // request fence rejects unknown/cold/disabled/drifted selections without
+  // hidden retries or background loads.
+  // ---------------------------------------------------------------------
+
+  Future<T> _poolSerial<T>(Future<T> Function() work) {
+    final result = _poolQueue.then((_) => work());
+    _poolQueue = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return result;
+  }
+
+  @override
+  List<RuntimeInstance> get runtimeInstances =>
+      List.unmodifiable(_runs.map((run) => run.snapshot()));
+
+  @override
+  void Function() holdStartAdmission() {
+    if (_closed || _held || _admissionHolds != 0) {
+      throw const OmlxException('oMLX 安装管理正在退出或回收');
+    }
+    _startHolds++;
+    var released = false;
+    return () {
+      if (!released) {
+        released = true;
+        _startHolds--;
+      }
+    };
+  }
+
+  @override
+  Future<RuntimeInstance> startRuntime(String artifactId) {
+    if (_closed || _held || _admissionHolds != 0 || _startHolds != 0) {
+      return Future.error(const OmlxException('oMLX 安装管理正在退出或回收'));
+    }
+    return _poolSerial(() => _startRuntime(artifactId));
+  }
+
+  Future<RuntimeInstance> _startRuntime(String artifactId) async {
+    if (_state.status != OmlxInstallationStatus.installed ||
+        _state.receipt == null) {
+      throw const OmlxException('oMLX 尚未通过安装核验，模型池不可用');
+    }
+    final library = _library;
+    if (library == null) {
+      throw const OmlxException('oMLX 模型池需要已扫描的模型库');
+    }
+    final List<LibraryArtifact> verified;
+    try {
+      verified = await library.verify([artifactId]);
+    } on LibraryException catch (error) {
+      throw OmlxException('oMLX 资产核验失败：${error.message}');
+    }
+    if (verified.length != 1) {
+      throw const OmlxException('oMLX 资产核验已变化，请重新选择并核验');
+    }
+    final artifact = verified.single;
+    if (artifact.kind != AssetKind.chat ||
+        artifact.integrity != AssetIntegrity.complete) {
+      throw const OmlxException('oMLX 池只启用完整核验的聊天资产');
+    }
+    final directory = await _modelDirectory(artifact);
+    final modelId = _baseName(directory);
+    for (final run in _runs.toList()) {
+      if (run.artifactId != artifactId) continue;
+      if (run.status == RuntimeInstanceStatus.ready) {
+        return run.snapshot();
+      }
+      if (run.status == RuntimeInstanceStatus.stopped ||
+          (run.status == RuntimeInstanceStatus.failed && !run.hasLiveProcess)) {
+        // A terminal run without a live process is replaced, keeping one
+        // visible run per enabled artifact.
+        _runs.remove(run);
+        continue;
+      }
+      throw const OmlxException('oMLX 实例正在停止或回收，请稍后重试');
+    }
+    final pool = await _ensurePool();
+    final run = _OmlxRun(
+      id: 'omlx-${++_runtimeIds}',
+      artifactId: artifactId,
+      modelId: modelId,
+      directory: directory,
+      filePaths: artifact.files.map((file) => file.path).toSet(),
+      pool: pool,
+    );
+    _runs.add(run);
+    var loaded = false;
+    try {
+      await _pin(pool, modelId, true);
+      await _load(pool, modelId);
+      loaded = true;
+      await _checkPhysicalRow(pool, run);
+      await _probe(pool, run);
+      run.status = RuntimeInstanceStatus.ready;
+      run.acceptingRequests = true;
+      await _syncUseRegistration();
+      return run.snapshot();
+    } catch (error) {
+      if (loaded) {
+        try {
+          await _unload(pool, modelId);
+        } catch (_) {
+          // Best-effort rollback; the failure verdict below stands.
+        }
+      }
+      run.status = RuntimeInstanceStatus.failed;
+      run.acceptingRequests = false;
+      run.hasLiveProcess = false;
+      run.error = pool.redact(error.toString());
+      throw OmlxException(run.error!);
+    }
+  }
+
+  Future<String> _modelDirectory(LibraryArtifact artifact) async {
+    if (artifact.files.isEmpty) {
+      throw const OmlxException('oMLX 资产没有可核验文件');
+    }
+    final directories = <String>{};
+    for (final file in artifact.files) {
+      final resolved = await File(file.path).resolveSymbolicLinks();
+      directories.add(_dirName(resolved));
+    }
+    if (directories.length != 1) {
+      throw const OmlxException('oMLX 资产文件组不符合单目录冻结形态');
+    }
+    return directories.single;
+  }
+
+  Future<_OmlxPool> _ensurePool() async {
+    final existing = _pool;
+    if (existing != null && !existing.dead) return existing;
+    if (existing != null) {
+      existing.child.kill(ProcessSignal.sigkill);
+      existing.client.close(force: true);
+      await _retirePoolBase(existing);
+      _pool = null;
+    }
+    final pool = await _spawnPool();
+    _pool = pool;
+    return pool;
+  }
+
+  Future<_OmlxPool> _spawnPool() async {
+    final rootPath = _library?.state.rootPath;
+    if (rootPath == null) {
+      throw const OmlxException('oMLX 模型库尚未扫描');
+    }
+    final modelRoot = await Directory(rootPath).resolveSymbolicLinks();
+    final generation = ++_poolGeneration;
+
+    // Reserve an owned loopback port, then hand it to the service.
+    final reservation = await ServerSocket.bind(
+      InternetAddress.loopbackIPv4,
+      0,
+    );
+    final port = reservation.port;
+    await reservation.close();
+
+    final base = await _privateDirectory('.pool-');
+    OmlxPoolChild? child;
+    try {
+      final apiKey = _poolSecret('k');
+      final signingSecret = _poolSecret('s');
+      final settings = <String, Object?>{
+        'version': '1.0',
+        'server': {'host': '127.0.0.1', 'port': port},
+        'model': {
+          'model_dirs': [modelRoot],
+          'model_fallback': false,
+        },
+        'auth': {
+          'api_key': apiKey,
+          'secret_key': signingSecret,
+          'skip_api_key_verification': false,
+          'allow_unauthenticated_inference': false,
+          'sub_keys': <Object?>[],
+        },
+      };
+      final settingsFile = File('${base.path}/settings.json');
+      await settingsFile.writeAsString(jsonEncode(settings));
+      await _run('/bin/chmod', [
+        '600',
+        settingsFile.path,
+      ], timeout: const Duration(seconds: 10));
+
+      child = await _poolIo.start(
+        '${bundle.path}/Contents/MacOS/omlx-cli',
+        [
+          'serve',
+          '--model-dir',
+          modelRoot,
+          '--host',
+          '127.0.0.1',
+          '--port',
+          '$port',
+          '--base-path',
+          base.path,
+          '--no-hf-cache',
+        ],
+        workingDirectory: base.path,
+        environment: {
+          'PATH': '/usr/bin:/bin:/usr/sbin:/sbin',
+          'HOME': base.path,
+          'LC_ALL': 'C',
+        },
+      );
+      final pool = _OmlxPool(
+        generation: generation,
+        child: child,
+        base: base,
+        port: port,
+        apiKey: apiKey,
+        signingSecret: signingSecret,
+        client: HttpClient(),
+      );
+      // Watch natural exit before any traffic; stdout/stderr are drained, not
+      // logged, so credentials can never reach logs through the child.
+      unawaited(child.exitCode.then((code) => _onPoolExit(pool, code)));
+      unawaited(child.stdout.drain<void>());
+      unawaited(child.stderr.drain<void>());
+      await _awaitHealth(pool);
+      pool.cookie = await _login(pool);
+      await _enforceFallback(pool);
+      await _reconcileStale(pool);
+      return pool;
+    } catch (_) {
+      child?.kill(ProcessSignal.sigkill);
+      try {
+        await base.delete(recursive: true);
+      } catch (_) {
+        // An owned residual base is safe; the next spawn uses a fresh one.
+      }
+      rethrow;
+    }
+  }
+
+  static String _poolSecret(String prefix) {
+    final random = Random.secure();
+    final bytes = List<int>.generate(24, (_) => random.nextInt(256));
+    return '$prefix-${bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}';
+  }
+
+  Future<void> _onPoolExit(_OmlxPool pool, int code) async {
+    if (pool.retired || pool.dead) return;
+    await _poolSerial(() async {
+      if (pool.retired || pool.dead || !identical(_pool, pool)) return;
+      pool.dead = true;
+      for (final run in _runs) {
+        if (!identical(run.pool, pool) ||
+            (run.status != RuntimeInstanceStatus.ready &&
+                run.status != RuntimeInstanceStatus.starting)) {
+          continue;
+        }
+        run.status = RuntimeInstanceStatus.failed;
+        run.acceptingRequests = false;
+        run.hasLiveProcess = false;
+        run.error = 'oMLX 服务进程意外退出';
+        for (final op in run.inFlight.toList()) {
+          op.cancel(
+            const OmlxRequestException(
+              OmlxRequestKind.serviceFailed,
+              'oMLX 服务进程意外退出',
+            ),
+          );
+        }
+      }
+      await _syncUseRegistration();
+    });
+  }
+
+  Future<void> _awaitHealth(_OmlxPool pool) async {
+    final deadline = DateTime.now().add(_poolLoadTimeout);
+    while (true) {
+      if (pool.dead) {
+        throw const OmlxException('oMLX 服务进程在启动期退出');
+      }
+      try {
+        final request = await pool.client.getUrl(pool.uri('/health'));
+        final response = await request.close().timeout(
+          const Duration(seconds: 2),
+        );
+        await response.drain<void>();
+        if (response.statusCode == 200) return;
+      } catch (_) {
+        // Not up yet; keep polling until the deadline.
+      }
+      if (DateTime.now().isAfter(deadline)) {
+        throw const OmlxException('oMLX 服务健康检查超时');
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+  }
+
+  Future<String> _login(_OmlxPool pool) async {
+    final request = await pool.client.postUrl(pool.uri('/admin/api/login'));
+    request.headers.contentType = ContentType.json;
+    request.write(jsonEncode({'api_key': pool.apiKey, 'remember': false}));
+    final response = await request.close().timeout(_poolLoadTimeout);
+    final body = await utf8.decoder.bind(response).join();
+    if (response.statusCode != 200) {
+      throw OmlxException('oMLX 管理会话登录失败：${pool.redact(body)}');
+    }
+    for (final header in response.headers['set-cookie'] ?? const <String>[]) {
+      final match = RegExp(r'omlx_admin_session=([^;\s]+)').firstMatch(header);
+      if (match != null) return match.group(1)!;
+    }
+    throw const OmlxException('oMLX 管理会话缺少登录凭据');
+  }
+
+  Future<Map<String, Object?>> _admin(
+    _OmlxPool pool,
+    String method,
+    String path,
+    Map<String, Object?> body,
+  ) async {
+    final request = await pool.client.openUrl(method, pool.uri(path));
+    request.headers.contentType = ContentType.json;
+    request.headers.set('cookie', 'omlx_admin_session=${pool.cookie}');
+    request.write(jsonEncode(body));
+    final response = await request.close().timeout(_poolLoadTimeout);
+    final text = await utf8.decoder.bind(response).join();
+    if (response.statusCode != 200) {
+      throw OmlxException('oMLX 管理请求失败：${pool.redact(text)}');
+    }
+    final decoded = jsonDecode(text);
+    if (decoded is! Map) {
+      throw const OmlxException('oMLX 管理响应无法投影');
+    }
+    return Map<String, Object?>.from(decoded);
+  }
+
+  Future<String> _bearer(
+    _OmlxPool pool,
+    String method,
+    String path,
+    Map<String, Object?>? body, {
+    Duration? timeout,
+  }) async {
+    final request = await pool.client.openUrl(method, pool.uri(path));
+    request.headers.set('authorization', 'Bearer ${pool.apiKey}');
+    if (body != null) {
+      request.headers.contentType = ContentType.json;
+      request.write(jsonEncode(body));
+    }
+    final response = await request.close().timeout(timeout ?? _poolLoadTimeout);
+    final text = await utf8.decoder.bind(response).join();
+    if (response.statusCode != 200) {
+      throw OmlxException('oMLX 服务请求失败：${pool.redact(text)}');
+    }
+    return text;
+  }
+
+  Future<void> _pin(_OmlxPool pool, String modelId, bool pinned) async {
+    final response = await _admin(
+      pool,
+      'PUT',
+      '/admin/api/models/$modelId/settings',
+      {'is_pinned': pinned},
+    );
+    final settings = response['settings'];
+    if (settings is! Map || settings['is_pinned'] != pinned) {
+      throw const OmlxException('oMLX 模型 pin 设置读回失败');
+    }
+  }
+
+  Future<void> _enforceFallback(_OmlxPool pool) async {
+    final response = await _admin(pool, 'POST', '/admin/api/global-settings', {
+      'model_fallback': false,
+    });
+    final model = response['model'];
+    if (model is! Map || model['model_fallback'] != false) {
+      throw const OmlxException('oMLX model_fallback 读回失败');
+    }
+  }
+
+  /// A resurrected pin or load from a previous service state is unwound
+  /// before any enablement work of this generation.
+  Future<void> _reconcileStale(_OmlxPool pool) async {
+    final text = await _bearer(pool, 'GET', '/v1/models/status', null);
+    final decoded = jsonDecode(text);
+    if (decoded is! Map || decoded['models'] is! List) {
+      throw const OmlxException('oMLX 状态响应无法投影');
+    }
+    for (final row in decoded['models'] as List) {
+      if (row is! Map || row['source_model_id'] != null) continue;
+      final id = row['id'];
+      if (id is! String) continue;
+      if (row['pinned'] == true) await _pin(pool, id, false);
+      if (row['loaded'] == true) await _unload(pool, id);
+    }
+  }
+
+  Future<void> _load(_OmlxPool pool, String modelId) async {
+    try {
+      await _bearer(pool, 'POST', '/v1/models/$modelId/load', const {});
+    } on OmlxException catch (error) {
+      throw OmlxException('oMLX 模型物理装载失败：${pool.redact(error.message)}');
+    }
+  }
+
+  Future<void> _unload(_OmlxPool pool, String modelId) async {
+    try {
+      await _bearer(pool, 'POST', '/v1/models/$modelId/unload', const {});
+    } on OmlxException catch (error) {
+      // An unload rejected because the row is already unloaded still
+      // satisfies the exact lifecycle; anything else keeps evidence.
+      final row = await _physicalRow(pool, modelId);
+      if (row['loaded'] != false) {
+        throw OmlxException('oMLX 模型卸载失败：${pool.redact(error.message)}');
+      }
+    }
+  }
+
+  Future<Map<String, Object?>> _physicalRow(
+    _OmlxPool pool,
+    String modelId,
+  ) async {
+    final text = await _bearer(pool, 'GET', '/v1/models/status', null);
+    final decoded = jsonDecode(text);
+    if (decoded is! Map || decoded['models'] is! List) {
+      throw const OmlxException('oMLX 状态响应无法投影');
+    }
+    for (final row in decoded['models'] as List) {
+      if (row is Map &&
+          row['id'] == modelId &&
+          row['source_model_id'] == null) {
+        return Map<String, Object?>.from(row);
+      }
+    }
+    throw const OmlxException('oMLX 状态缺少所选模型的物理行');
+  }
+
+  Future<void> _checkPhysicalRow(_OmlxPool pool, _OmlxRun run) async {
+    final row = await _physicalRow(pool, run.modelId);
+    final path = row['model_path'];
+    String? canonical;
+    if (path is String) {
+      try {
+        canonical = await File(path).resolveSymbolicLinks();
+      } catch (_) {
+        canonical = null;
+      }
+    }
+    if (row['loaded'] != true ||
+        row['is_loading'] != false ||
+        row['pinned'] != true ||
+        canonical == null ||
+        canonical != run.directory) {
+      throw const OmlxException('oMLX 物理行与冻结构造不一致');
+    }
+  }
+
+  Future<void> _probe(_OmlxPool pool, _OmlxRun run) async {
+    final probe = TextRequest(prompt: 'ping', maxTokens: 8);
+    final String text;
+    try {
+      text = await _bearer(
+        pool,
+        'POST',
+        '/v1/chat/completions',
+        probe.toChat(model: run.modelId),
+      );
+    } on OmlxException catch (error) {
+      throw OmlxException('oMLX 短文本探测失败：${error.message}');
+    }
+    try {
+      TextResult.parse(text, expectedModel: run.modelId);
+    } on TextProtocolException catch (error) {
+      throw OmlxException('oMLX 短文本探测未通过：${error.message}');
+    }
+  }
+
+  _OmlxRun _admitRun(String instanceId) {
+    if (_closed) {
+      throw const OmlxRequestException(OmlxRequestKind.notReady, 'oMLX 引擎已关闭');
+    }
+    for (final run in _runs) {
+      if (run.id != instanceId) continue;
+      final pool = run.pool;
+      if (run.status != RuntimeInstanceStatus.ready ||
+          !run.acceptingRequests ||
+          !identical(_pool, pool) ||
+          pool.dead ||
+          pool.retired) {
+        throw const OmlxRequestException(
+          OmlxRequestKind.notReady,
+          'oMLX 实例未就绪或已回收',
+        );
+      }
+      return run;
+    }
+    throw const OmlxRequestException(OmlxRequestKind.notReady, '未知 oMLX 实例');
+  }
+
+  void _release(_OmlxRun run, _OmlxInFlight op) {
+    run.inFlight.remove(op);
+    if (!op.done.isCompleted) op.done.complete();
+  }
+
+  @override
+  Future<TextResult> generateText(
+    String instanceId,
+    TextRequest request, {
+    Duration timeout = const Duration(seconds: 30),
+    DecisionCancellation? cancellation,
+  }) async {
+    final run = _admitRun(instanceId);
+    final pool = run.pool;
+    final op = _OmlxInFlight();
+    run.inFlight.add(op);
+    final unlisten = cancellation?.listen(
+      () => op.cancel(
+        const OmlxRequestException(OmlxRequestKind.cancelled, '请求已取消'),
+      ),
+    );
+    try {
+      final text = await _inFlightCall(
+        pool,
+        op,
+        '/v1/chat/completions',
+        jsonEncode(request.toChat(model: run.modelId)),
+        timeout,
+      );
+      if (op.cancelled) throw op.terminal!;
+      try {
+        return TextResult.parse(text, expectedModel: run.modelId);
+      } on TextProtocolException catch (error) {
+        throw OmlxRequestException(
+          OmlxRequestKind.invalidResponse,
+          'oMLX 响应无效：${error.message}',
+        );
+      }
+    } finally {
+      unlisten?.call();
+      _release(run, op);
+    }
+  }
+
+  Future<String> _inFlightCall(
+    _OmlxPool pool,
+    _OmlxInFlight op,
+    String path,
+    String body,
+    Duration timeout,
+  ) async {
+    HttpClientRequest? request;
+    try {
+      request = await pool.client.postUrl(pool.uri(path));
+      request.headers.set('authorization', 'Bearer ${pool.apiKey}');
+      request.headers.contentType = ContentType.json;
+      op.abort = () => request?.abort();
+      if (op.cancelled) request.abort();
+      request.write(body);
+      final response = await request.close().timeout(timeout);
+      final text = await utf8.decoder.bind(response).join();
+      if (op.cancelled) throw op.terminal!;
+      if (response.statusCode != 200) {
+        throw OmlxRequestException(
+          OmlxRequestKind.serviceFailed,
+          'oMLX 服务拒绝请求：${pool.redact(text)}',
+        );
+      }
+      return text;
+    } on TimeoutException {
+      request?.abort();
+      throw const OmlxRequestException(OmlxRequestKind.timeout, 'oMLX 请求超时');
+    } on OmlxRequestException {
+      rethrow;
+    } catch (_) {
+      if (op.cancelled) throw op.terminal!;
+      throw const OmlxRequestException(
+        OmlxRequestKind.serviceFailed,
+        'oMLX 服务连接失败',
+      );
+    }
+  }
+
+  /// Real SSE over the same fenced path: genuine finish/usage/[DONE], abort
+  /// on cancellation, never a fabricated terminal frame.
+  Stream<TextStreamEvent> streamText(
+    String instanceId,
+    TextRequest request, {
+    DecisionCancellation? cancellation,
+  }) async* {
+    final run = _admitRun(instanceId);
+    final pool = run.pool;
+    final op = _OmlxInFlight();
+    run.inFlight.add(op);
+    final unlisten = cancellation?.listen(
+      () => op.cancel(
+        const OmlxRequestException(OmlxRequestKind.cancelled, '请求已取消'),
+      ),
+    );
+    HttpClientRequest? nativeRequest;
+    try {
+      nativeRequest = await pool.client.postUrl(
+        pool.uri('/v1/chat/completions'),
+      );
+      nativeRequest.headers.set('authorization', 'Bearer ${pool.apiKey}');
+      nativeRequest.headers.contentType = ContentType.json;
+      op.abort = () => nativeRequest?.abort();
+      if (op.cancelled) nativeRequest.abort();
+      nativeRequest.write(
+        jsonEncode(request.toChat(model: run.modelId, stream: true)),
+      );
+      final response = await nativeRequest.close();
+      if (op.cancelled) throw op.terminal!;
+      if (response.statusCode != 200) {
+        final text = await utf8.decoder.bind(response).join();
+        throw OmlxRequestException(
+          OmlxRequestKind.serviceFailed,
+          'oMLX 服务拒绝请求：${pool.redact(text)}',
+        );
+      }
+      final decoder = TextStreamDecoder(expectedModel: run.modelId);
+      var done = false;
+      var buffer = '';
+      await for (final chunk in utf8.decoder.bind(response)) {
+        buffer += chunk;
+        int boundary;
+        while ((boundary = buffer.indexOf('\n\n')) >= 0) {
+          final block = buffer.substring(0, boundary);
+          buffer = buffer.substring(boundary + 2);
+          for (final line in block.split('\n')) {
+            if (!line.startsWith('data:')) continue;
+            final data = line.substring(5).trim();
+            if (data.isEmpty) continue;
+            TextStreamEvent? event;
+            try {
+              event = decoder.add(data);
+            } on TextProtocolException catch (error) {
+              throw OmlxRequestException(
+                OmlxRequestKind.invalidResponse,
+                'oMLX 流无效：${error.message}',
+              );
+            }
+            if (data == '[DONE]') {
+              done = true;
+            } else if (event != null) {
+              yield event;
+            }
+          }
+        }
+      }
+      if (op.cancelled) throw op.terminal!;
+      if (!done) {
+        throw const OmlxRequestException(
+          OmlxRequestKind.invalidResponse,
+          'oMLX 流缺少终止帧',
+        );
+      }
+      yield TextStreamEvent.complete(decoder.finish());
+    } on OmlxRequestException {
+      rethrow;
+    } catch (_) {
+      if (op.cancelled) throw op.terminal!;
+      throw const OmlxRequestException(
+        OmlxRequestKind.serviceFailed,
+        'oMLX 流连接失败',
+      );
+    } finally {
+      op.abort = null;
+      unlisten?.call();
+      _release(run, op);
+    }
+  }
+
+  @override
+  Future<void> stop(String instanceId) {
+    _OmlxRun? target;
+    for (final run in _runs) {
+      if (run.id == instanceId) target = run;
+    }
+    if (target == null) {
+      return Future.error(
+        const OmlxRequestException(OmlxRequestKind.notReady, '未知 oMLX 实例'),
+      );
+    }
+    // Seal admission synchronously: late work is rejected immediately, before
+    // the drain of already-admitted work completes.
+    target.acceptingRequests = false;
+    if (target.status == RuntimeInstanceStatus.ready) {
+      target.status = RuntimeInstanceStatus.stopping;
+    }
+    return _poolSerial(() => _stopRun(target!));
+  }
+
+  Future<void> _stopRun(_OmlxRun run) async {
+    if (run.status == RuntimeInstanceStatus.stopped) return;
+    for (final op in run.inFlight.toList()) {
+      op.cancel(
+        const OmlxRequestException(OmlxRequestKind.cancelled, 'oMLX 实例已停止'),
+      );
+    }
+    while (run.inFlight.isNotEmpty) {
+      await Future.wait(run.inFlight.map((op) => op.done.future));
+    }
+    if (run.status == RuntimeInstanceStatus.failed && !run.hasLiveProcess) {
+      run.status = RuntimeInstanceStatus.stopped;
+      await _syncUseRegistration();
+      return;
+    }
+    final pool = _pool;
+    if (pool == null ||
+        pool.dead ||
+        !identical(pool, run.pool) ||
+        pool.retired) {
+      run.status = RuntimeInstanceStatus.stopped;
+      run.hasLiveProcess = false;
+      run.unloadPending = false;
+      await _syncUseRegistration();
+      return;
+    }
+    try {
+      await _unload(pool, run.modelId);
+      run.status = RuntimeInstanceStatus.stopped;
+      run.hasLiveProcess = false;
+      run.unloadPending = false;
+      run.error = null;
+    } on OmlxException catch (error) {
+      run.status = RuntimeInstanceStatus.failed;
+      run.hasLiveProcess = true;
+      run.unloadPending = true;
+      run.error = error.message;
+      await _syncUseRegistration();
+      rethrow;
+    }
+    await _syncUseRegistration();
+  }
+
+  Future<void> _recyclePool() async {
+    final live = <_OmlxRun>[];
+    for (final run in _runs) {
+      if (run.status == RuntimeInstanceStatus.ready ||
+          run.status == RuntimeInstanceStatus.starting) {
+        run.acceptingRequests = false;
+        run.status = RuntimeInstanceStatus.stopping;
+      }
+      if (run.status == RuntimeInstanceStatus.stopping ||
+          (run.status == RuntimeInstanceStatus.failed && run.hasLiveProcess)) {
+        live.add(run);
+      }
+    }
+    for (final run in live) {
+      for (final op in run.inFlight.toList()) {
+        op.cancel(
+          const OmlxRequestException(OmlxRequestKind.cancelled, 'oMLX 池正在回收'),
+        );
+      }
+    }
+    await _poolSerial(() => _recyclePoolNative(live));
+  }
+
+  Future<void> _recyclePoolNative(List<_OmlxRun> live) async {
+    final pool = _pool;
+    for (final run in live) {
+      while (run.inFlight.isNotEmpty) {
+        await Future.wait(run.inFlight.map((op) => op.done.future));
+      }
+    }
+    if (pool == null) {
+      for (final run in live) {
+        run.status = RuntimeInstanceStatus.stopped;
+        run.hasLiveProcess = false;
+        run.unloadPending = false;
+      }
+      await _syncUseRegistration();
+      return;
+    }
+    var failed = false;
+    if (!pool.dead) {
+      for (final run in live) {
+        if (!identical(run.pool, pool)) continue;
+        try {
+          await _unload(pool, run.modelId);
+        } catch (_) {
+          failed = true;
+          run.status = RuntimeInstanceStatus.failed;
+          run.hasLiveProcess = true;
+          run.unloadPending = true;
+          run.error = 'oMLX 池回收未完成：模型仍可能驻留';
+        }
+      }
+    }
+    var exited = pool.dead;
+    if (!pool.dead) {
+      pool.child.kill(ProcessSignal.sigterm);
+      exited = await _awaitExit(pool, _poolStopTimeout);
+      if (!exited) {
+        pool.child.kill(ProcessSignal.sigkill);
+        exited = await _awaitExit(pool, _poolStopTimeout);
+      }
+    }
+    if (!exited) failed = true;
+    if (failed) {
+      // Failed-live residue stays visible and retryable; the owned process
+      // and its base are kept as evidence for the next stopManaged.
+      for (final run in live) {
+        run.status = RuntimeInstanceStatus.failed;
+        run.hasLiveProcess = true;
+        run.error = 'oMLX 池回收未完成，请重试';
+      }
+      await _syncUseRegistration();
+      throw const OmlxException('oMLX 池回收未完成，请重试');
+    }
+    pool.retired = true;
+    _pool = null;
+    pool.client.close(force: true);
+    await _retirePoolBase(pool);
+    for (final run in live) {
+      run.status = RuntimeInstanceStatus.stopped;
+      run.hasLiveProcess = false;
+      run.unloadPending = false;
+    }
+    await _syncUseRegistration();
+  }
+
+  Future<bool> _awaitExit(_OmlxPool pool, Duration timeout) async {
+    try {
+      await pool.child.exitCode.timeout(timeout);
+      return true;
+    } on TimeoutException {
+      return false;
+    }
+  }
+
+  Future<void> _retirePoolBase(_OmlxPool pool) async {
+    try {
+      final base = pool.base;
+      if (await base.resolveSymbolicLinks() != base.path) return;
+      final parent = await base.parent.resolveSymbolicLinks();
+      if (parent != await installationDirectory.resolveSymbolicLinks()) {
+        return;
+      }
+      await base.delete(recursive: true);
+    } catch (_) {
+      // An owned residual base is safe; the next spawn uses a fresh one.
+    }
+  }
+
+  Future<void> _syncUseRegistration() async {
+    final registry = _useRegistry;
+    if (registry == null) return;
+    final paths = <String>{};
+    for (final run in _runs) {
+      final inUse =
+          run.status == RuntimeInstanceStatus.ready ||
+          run.status == RuntimeInstanceStatus.stopping ||
+          (run.status == RuntimeInstanceStatus.failed && run.hasLiveProcess);
+      if (inUse) paths.addAll(run.filePaths);
+    }
+    await registry.update(this, paths);
+  }
+
   void beginShutdown() {
     _closed = true;
     _epoch++;
   }
 
+  @override
   Future<void> shutdown() async {
     beginShutdown();
-    await _operations;
-    await _retryResidualCleanup();
+    try {
+      await _recyclePool();
+    } finally {
+      await _operations;
+      await _retryResidualCleanup();
+    }
   }
 
+  @override
   Future<void> stopManaged() async {
     _held = true;
     _epoch++;
     try {
+      await _recyclePool();
       await _operations;
       await _retryResidualCleanup();
     } finally {
@@ -1225,5 +2201,96 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
   void close() {
     beginShutdown();
     _changes.close();
+  }
+}
+
+/// One enabled model instance inside the owned pool generation.
+final class _OmlxRun {
+  _OmlxRun({
+    required this.id,
+    required this.artifactId,
+    required this.modelId,
+    required this.directory,
+    required this.filePaths,
+    required this.pool,
+  });
+
+  final String id;
+  final String artifactId;
+  final String modelId;
+  final String directory;
+  final Set<String> filePaths;
+  final _OmlxPool pool;
+  final Set<_OmlxInFlight> inFlight = <_OmlxInFlight>{};
+  RuntimeInstanceStatus status = RuntimeInstanceStatus.starting;
+  bool acceptingRequests = false;
+  bool hasLiveProcess = true;
+  bool unloadPending = false;
+  String? error;
+
+  RuntimeInstance snapshot() => RuntimeInstance(
+    id: id,
+    artifactId: artifactId,
+    status: status,
+    generation: pool.generation,
+    activeRequests: inFlight.length,
+    acceptingRequests: acceptingRequests,
+    hasLiveProcess: hasLiveProcess,
+    capabilities: status == RuntimeInstanceStatus.ready
+        ? const {RuntimeCapability.textGeneration}
+        : const {},
+    error: error,
+  );
+}
+
+/// One owned front-end serve process plus its admin session. The
+/// [redact] projection is applied before any service text reaches an
+/// error message so credentials never leak.
+final class _OmlxPool {
+  _OmlxPool({
+    required this.generation,
+    required this.child,
+    required this.base,
+    required this.port,
+    required this.apiKey,
+    required this.signingSecret,
+    required this.client,
+  });
+
+  final int generation;
+  final OmlxPoolChild child;
+  final Directory base;
+  final int port;
+  final String apiKey;
+  final String signingSecret;
+  final HttpClient client;
+  String? cookie;
+  bool dead = false;
+  bool retired = false;
+
+  Uri uri(String path) => Uri.parse('http://127.0.0.1:$port$path');
+
+  String redact(String text) =>
+      text.replaceAll(apiKey, '***').replaceAll(signingSecret, '***');
+}
+
+/// In-flight request handle: stop/recycle cancellation and admission
+/// cancellation both flow through [cancel]; [abort] is wired to the live
+/// HTTP request as soon as it exists.
+final class _OmlxInFlight {
+  void Function()? abort;
+  OmlxRequestException? terminal;
+  final Completer<void> done = Completer<void>();
+
+  bool get cancelled => terminal != null;
+
+  void cancel(OmlxRequestException reason) {
+    if (terminal != null) return;
+    terminal = reason;
+    try {
+      abort?.call();
+    } catch (_) {
+      // Aborting a closed request is harmless.
+    }
   }
 }

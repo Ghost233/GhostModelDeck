@@ -746,7 +746,7 @@ void main() {
     expect(await app.exists(), isTrue);
   });
 
-  test('same catalog links, reopens and unlinks full app without a callable pool or deleting foreign bytes', () async {
+  test('same catalog links, reopens and unlinks full app with a callable pool and without deleting foreign bytes', () async {
     final root = await Directory.systemTemp.createTemp('gmd-omlx-catalog-');
     addTearDown(() => root.delete(recursive: true));
     final bundle = await _bundle(root);
@@ -781,7 +781,7 @@ void main() {
     expect(entry.omlxReceipt?.releaseLabel, '0.7.0');
     expect(entry.release, isNull);
     expect(entry.binaryVersion, isNull);
-    expect(() => first.runtimeFor(entry.id), throwsA(isA<OmlxException>()));
+    expect(first.runtimeFor(entry.id), isA<EngineRuntime>());
     expect(first.runsFor(['model']), isEmpty);
     final registryFile = File('${root.path}/engines.json');
     final validRegistry = await registryFile.readAsString();

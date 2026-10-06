@@ -545,7 +545,11 @@ class EngineCatalog {
       });
   EngineRuntime runtimeFor(String id) {
     if (id == omlxId || _linkedOmlx.containsKey(id)) {
-      throw const OmlxException('oMLX 安装已登记；模型池尚未实现，没有可调用模型能力');
+      final pool = omlxEngine;
+      if (pool == null) {
+        throw const OmlxException('oMLX 未安装或未登记，没有可调用模型能力');
+      }
+      return pool;
     }
     return providerFor(id);
   }
