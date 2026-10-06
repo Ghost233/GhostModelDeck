@@ -42,7 +42,12 @@ void main() {
           ),
         ),
       );
-      for (final primitive in ['Score · 有序评分', 'Noul · true-head']) {
+      for (final primitive in [
+        'Score · 有序评分',
+        'Choice · 候选选择',
+        'Noul · true-head',
+        'Choice · 候选选择',
+      ]) {
         await tester.tap(find.byKey(const Key('council-primitive')));
         await tester.pumpAndSettle();
         await tester.tap(find.text(primitive).last);
@@ -55,29 +60,64 @@ void main() {
           find.byKey(const Key('council-option-2')),
           '高 / 成立',
         );
+        if (primitive.startsWith('Choice')) {
+          await tester.enterText(
+            find.byKey(const Key('council-id-1')),
+            'accept',
+          );
+          await tester.enterText(
+            find.byKey(const Key('council-id-2')),
+            'reject',
+          );
+          await tester.enterText(
+            find.byKey(const Key('council-context')),
+            'latest choice',
+          );
+        }
         await tester.pump();
         final button = find.widgetWithText(FilledButton, '咨询');
         await tester.ensureVisible(button);
         await tester.runAsync(
           () => HttpOverrides.runWithHttpOverrides(() async {
-            final previous = council.state.lastBatchResult;
+            final previous = council.state;
             final done = council.changes.firstWhere(
-              (s) =>
-                  s.lastBatchResult != null &&
-                  !identical(previous, s.lastBatchResult),
+              (s) => primitive.startsWith('Choice')
+                  ? s.lastResult != null &&
+                        !identical(previous.lastResult, s.lastResult)
+                  : s.lastBatchResult != null &&
+                        !identical(previous.lastBatchResult, s.lastBatchResult),
             );
             await tester.tap(button);
             await done.timeout(const Duration(seconds: 3));
           }, _NetworkBoundary()),
         );
         await tester.pumpAndSettle();
-        expect(council.state.lastBatchResult!.scope, CouncilScope.ensemble);
-        final expected = primitive.startsWith('Score')
-            ? '期望索引 0.7500'
-            : 'true-head scalar 0.8000';
-        expect(find.textContaining(expected), findsOneWidget);
+        if (primitive.startsWith('Choice')) {
+          expect(council.state.lastResult!.aggregateScores, {
+            'accept': 0.5,
+            'reject': 0.5,
+          });
+          expect(council.state.lastResult!.request.state, 'latest choice');
+          expect(
+            council.state.lastBatchResult,
+            isNotNull,
+            reason: 'typed history is retained',
+          );
+          expect(find.text('综合评分'), findsOneWidget);
+          expect(find.textContaining('期望索引'), findsNothing);
+          expect(find.textContaining('true-head scalar'), findsNothing);
+        } else {
+          expect(council.state.lastBatchResult!.scope, CouncilScope.ensemble);
+          final expected = primitive.startsWith('Score')
+              ? '期望索引 0.7500'
+              : 'true-head scalar 0.8000';
+          expect(find.textContaining(expected), findsOneWidget);
+          expect(find.text('综合评分'), findsNothing);
+        }
         expect(tester.takeException(), isNull);
-        tester.view.physicalSize = const Size(400, 800);
+        tester.view.physicalSize = primitive.startsWith('Choice')
+            ? const Size(1200, 900)
+            : const Size(400, 800);
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
         tester.view.physicalSize = const Size(1200, 900);

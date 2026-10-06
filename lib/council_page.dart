@@ -163,11 +163,17 @@ class _CouncilPageState extends State<CouncilPage> {
                 final state = snapshot.data!;
                 final result = state.lastResult;
                 final batch = state.lastBatchResult;
-                final output = batch != null
-                    ? _batchResult(context, batch)
-                    : result != null
-                    ? _result(context, result)
-                    : null;
+                final output = switch (state.latestResultKind) {
+                  CouncilResultKind.batch when batch != null => _batchResult(
+                    context,
+                    batch,
+                  ),
+                  CouncilResultKind.choice when result != null => _result(
+                    context,
+                    result,
+                  ),
+                  _ => null,
+                };
                 final input = _input(context, state);
                 return SingleChildScrollView(
                   child: output != null && constraints.maxWidth >= 880

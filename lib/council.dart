@@ -11,6 +11,8 @@ enum CouncilStatus { ok, partial, failed }
 
 enum CouncilScope { ensemble, singleModel, none }
 
+enum CouncilResultKind { choice, batch }
+
 enum CouncilSeatStatus {
   ok,
   notReady,
@@ -215,7 +217,9 @@ class CouncilState {
     this.busy = false,
     this.lastResult,
     this.lastBatchResult,
+    this.latestResultKind,
   });
+  final CouncilResultKind? latestResultKind;
   final bool busy;
   final CouncilConsultation? lastResult;
   final CouncilBatchConsultation? lastBatchResult;
@@ -236,11 +240,13 @@ class CouncilController {
   final _active = <DecisionCancellation, Completer<void>>{};
   CouncilConsultation? _lastResult;
   CouncilBatchConsultation? _lastBatchResult;
+  CouncilResultKind? _latestResultKind;
   Stream<CouncilState> get changes => _changes.stream;
   CouncilState get state => CouncilState(
     busy: _pending > 0,
     lastResult: _lastResult,
     lastBatchResult: _lastBatchResult,
+    latestResultKind: _latestResultKind,
   );
   List<String> get selectedSeatIds =>
       List.unmodifiable(_selected.map((seat) => seat.id));
@@ -361,6 +367,7 @@ class CouncilController {
             : 1 - votes.values.reduce(max) / successful.length,
       );
       _lastResult = result;
+      _latestResultKind = CouncilResultKind.choice;
       return result;
     } finally {
       removeCancellation?.call();
@@ -435,6 +442,7 @@ class CouncilController {
         },
       );
       _lastBatchResult = result;
+      _latestResultKind = CouncilResultKind.batch;
       return result;
     } finally {
       removeCancellation?.call();
