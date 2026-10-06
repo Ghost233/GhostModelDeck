@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "approval": "Human selected measurement-first bounded installation-command budget adjustment (question standard-version-remediation, m02939–m02940); no source derivative or Ready loosening authorized.",
+  "scope": "Diagnostic native --version only; not installation or model acceptance.",
+  "raw_sha256": "95b66e77a49bd89e07026ab0a0f87c23dd753570de7418b6ecce7fdd8612a4d8",
+  "raw": {
+    "scope": "User approved representative bounded native VERSION-ONLY diagnostic measurements before an explicit installation-command budget decision; unchanged official bytes; not production installation/model/Ready acceptance",
+    "observed_at": "2026-10-06T00:39:39.894106+00:00",
+    "source_revision": "c09910348fe00739c33239eb99ad98a5dd8b5ef2",
+    "archive_sha256": "1ad3f9eff80edb9dbef4259ad564d1720612ef7eea48fa4afed0e54f5f3d5711",
+    "archive_bytes": 11189714,
+    "root": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-version-measure-r47-jphs8gwn",
+    "diagnostic_timeout_seconds": 60,
+    "environment_keys_only": [
+      "HOME",
+      "PATH",
+      "TMPDIR"
+    ],
+    "cache_condition": "Three distinct fresh complete extraction paths; first/repeat refer to each path, NOT cold OS/Metal/compiler caches. Previous native attempts are known.",
+    "attempts": [
+      {
+        "extraction": 1,
+        "use": "first_at_this_path",
+        "pid": 4559,
+        "binary": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-version-measure-r47-jphs8gwn/bundle-1/llama-b11146/llama-server",
+        "binary_sha256": "41df13c126456f8e5fab2057c86a790067a85ea1dfd8fbc0071cc45fbba56262",
+        "timeout_seconds": 60,
+        "elapsed_seconds": 33.084519249998266,
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout": "",
+        "stderr": "0.00.000.128 I srv  llama_server: initializing ...\nversion: 0.5.0-dev (build 11146, commit 7fe450e19)\nbuilt with AppleClang 21.0.0.21000101 for Darwin arm64\n",
+        "identity_matches": true
+      },
+      {
+        "extraction": 1,
+        "use": "repeat_at_this_path",
+        "pid": 5353,
+        "binary": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-version-measure-r47-jphs8gwn/bundle-1/llama-b11146/llama-server",
+        "binary_sha256": "41df13c126456f8e5fab2057c86a790067a85ea1dfd8fbc0071cc45fbba56262",
+        "timeout_seconds": 60,
+        "elapsed_seconds": 0.08753070898819715,
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout": "",
+        "stderr": "0.00.000.137 I srv  llama_server: initializing ...\nversion: 0.5.0-dev (build 11146, commit 7fe450e19)\nbuilt with AppleClang 21.0.0.21000101 for Darwin arm64\n",
+        "identity_matches": true
+      },
+      {
+        "extraction": 2,
+        "use": "first_at_this_path",
+        "pid": 5359,
+        "binary": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-version-measure-r47-jphs8gwn/bundle-2/llama-b11146/llama-server",
+        "binary_sha256": "41df13c126456f8e5fab2057c86a790067a85ea1dfd8fbc0071cc45fbba56262",
+        "timeout_seconds": 60,
+        "elapsed_seconds": 1.5444360420224257,
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout": "",
+        "stderr": "0.00.000.260 I srv  llama_server: initializing ...\nversion: 0.5.0-dev (build 11146, commit 7fe450e19)\nbuilt with AppleClang 21.0.0.21000101 for Darwin arm64\n",
+        "identity_matches": true
+      },
+      {
+        "extraction": 2,
+        "use": "repeat_at_this_path",
+        "pid": 5424,
+        "binary": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-version-measure-r47-jphs8gwn/bundle-2/llama-b11146/llama-server",
+        "binary_sha256": "41df13c126456f8e5fab2057c86a790067a85ea1dfd8fbc0071cc45fbba56262",
+        "timeout_seconds": 60,
+        "elapsed_seconds": 0.16903654098859988,
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout": "",
+        "stderr": "0.00.000.290 I srv  llama_server: initializing ...\nversion: 0.5.0-dev (build 11146, commit 7fe450e19)\nbuilt with AppleClang 21.0.0.21000101 for Darwin arm64\n",
+        "identity_matches": true
+      },
+      {
+        "extraction": 3,
+        "use": "first_at_this_path",
+        "pid": 5449,
+        "binary": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-version-measure-r47-jphs8gwn/bundle-3/llama-b11146/llama-server",
+        "binary_sha256": "41df13c126456f8e5fab2057c86a790067a85ea1dfd8fbc0071cc45fbba56262",
+        "timeout_seconds": 60,
+        "elapsed_seconds": 1.205266291013686,
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout": "",
+        "stderr": "0.00.000.224 I srv  llama_server: initializing ...\nversion: 0.5.0-dev (build 11146, commit 7fe450e19)\nbuilt with AppleClang 21.0.0.21000101 for Darwin arm64\n",
+        "identity_matches": true
+      },
+      {
+        "extraction": 3,
+        "use": "repeat_at_this_path",
+        "pid": 5471,
+        "binary": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-version-measure-r47-jphs8gwn/bundle-3/llama-b11146/llama-server",
+        "binary_sha256": "41df13c126456f8e5fab2057c86a790067a85ea1dfd8fbc0071cc45fbba56262",
+        "timeout_seconds": 60,
+        "elapsed_seconds": 0.11729008401744068,
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout": "",
+        "stderr": "0.00.000.143 I srv  llama_server: initializing ...\nversion: 0.5.0-dev (build 11146, commit 7fe450e19)\nbuilt with AppleClang 21.0.0.21000101 for Darwin arm64\n",
+        "identity_matches": true
+      }
+    ],
+    "diagnostic_success": true
+  },
+  "decision": {
+    "curated_standard_installation_version_seconds": 60,
+    "other_release_default_seconds": 10,
+    "diagnostic_sample_max_seconds": 33.084519249998266,
+    "rationale": "Observed maximum33.0845s exceeds10s; all six returned correct identity within finite60s diagnostic budget. Reuse60s as explicit standard-only version-command bound, approximately1.81x observed maximum; sample is small and not a reliability/SLO guarantee. Actual production install/reopen/cleanup must be rerun after public tests. No change to model startup/request/Ready evidence."
+  }
+}
