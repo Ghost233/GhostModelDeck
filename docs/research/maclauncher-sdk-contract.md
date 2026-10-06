@@ -50,6 +50,16 @@
 2. **去重不是按参数，也不是 LRU。** [SDK 指南](https://github.com/Ghost233/MacLauncher/blob/bc7262f4047e81f55922c203948ac64d9e0e2d13/docs/SDK_INTEGRATION.md) 的“参数相同”和“LRU”表述，与按 id 查表、命中不更新次序的 [RequestDedup](https://github.com/Ghost233/MacLauncher/blob/bc7262f4047e81f55922c203948ac64d9e0e2d13/packages/maclauncher_sdk/lib/src/request_dedup.dart#L39-L59) 不一致。验收采用源码实际语义，不能期望两次新 id 的相同操作被复用。
 3. **服务集合不一致不一定握手拒绝。** SDK 指南的笼统表述应以 [关联指南](https://github.com/Ghost233/MacLauncher/blob/bc7262f4047e81f55922c203948ac64d9e0e2d13/docs/PROJECT_ASSOCIATION.md#L24-L26) 和源码细化：hello 只检查 service 声明格式与唯一性，不比对绑定服务集合；额外服务可登记但不会在绑定范围外路由，绑定服务缺少能力则 unavailable/unsupported。[hello 校验](https://github.com/Ghost233/MacLauncher/blob/bc7262f4047e81f55922c203948ac64d9e0e2d13/packages/launcher_core/lib/src/server.dart#L242-L277)、[路由交集](https://github.com/Ghost233/MacLauncher/blob/bc7262f4047e81f55922c203948ac64d9e0e2d13/packages/launcher_core/lib/src/operations.dart#L294-L309)。接入仍应保持配置与预期服务声明一致。
 
+## 版本状况查询（#28 接入，SDK 基线提升）
+
+2026-10-07 增补：上文契约的证据基线为固定提交 `bc7262f4047e81f55922c203948ac64d9e0e2d13`，各节链接保持该基线不变。工单 [#28](https://github.com/Ghost233/GhostModelDeck/issues/28)（提交 `e9bdb77`）把应用锁定的 SDK ref 提升到 `5d81583bf07e3a97160259435809662a303e9908`（含版本状况能力），本节以该提交为事实基线：
+
+- `AppCallbacks.onVersionStatus → Future<VersionStatus>` 声明版本状况能力；`VersionStatus` 字段为 `state`（`success|failure|unsupported`）、`currentVersion`、`hasUpdate`、`latestVersion`、`downloadUrl`、`sha256`、`failureReason`。[应用回调](https://github.com/Ghost233/MacLauncher/blob/5d81583bf07e3a97160259435809662a303e9908/packages/maclauncher_sdk/lib/src/client.dart)、[消息模型](https://github.com/Ghost233/MacLauncher/blob/5d81583bf07e3a97160259435809662a303e9908/packages/maclauncher_sdk/lib/src/protocol/messages.dart)
+- 未注册回调时 SDK 自动应答 `unsupported`；回调抛异常由 SDK 兜底为 `failure`——应用侧回调仍应自身不抛（双层防御）。
+- 本应用映射（`lib/version_status_bridge.dart`，复用 `lib/update_checker.dart` 单一查询接缝）：有更新 → success + hasUpdate + latestVersion/downloadUrl/sha256 透传；已最新 → success + hasUpdate=false；仓库尚无正式 Release → unsupported（如实：当前无更新渠道）；查询异常 → failure 携带真实原因。当前版本来自 Info.plist（package_info_plus），不硬编码。
+- 验收证据：socket 级测试实证能力声明、未注册自动 unsupported、异常兜底 failure；容器串行门禁 run-XKnfQi/run-usANPK/run-5uhoQJ 全绿（450/450）。
+- 已知边界：unsupported 状态的原因经 `failureReason` 字段透传（SDK 文档称该字段语义上属 failure，字段本身原样透传）；`SDK_INTEGRATION.md@5d81583` 另有「解除绑定表现」一节（persistent rejected=未关联，应提示重新关联而非无限等待），尚未集成，留作跟进。
+
 ## 建议的最小联调验收门槛
 
 以下是据上述契约提出的验收建议，本次未执行，不是已通过结果。
