@@ -1114,9 +1114,20 @@ Future<_SafetensorsGroups> _groupSafetensors(
         if (!allFiles.containsKey(path)) continue;
         final relative = path.substring(directory.length + 1);
         final conventional = await companion(relative);
+        final mapping = conventional?['weight_map'];
+        // Every entry must reference this weight's own discovered file and
+        // name one of its tensors; a fully valid mapping is always consumed
+        // by the indexed grouping above before this fallback runs.
         if (conventional != null &&
-            (conventional['weight_map'] is! Map ||
-                (conventional['weight_map'] as Map).isEmpty)) {
+            (mapping is! Map ||
+                mapping.isEmpty ||
+                mapping.entries.any((entry) {
+                  final target = entry.value is String
+                      ? _relativeFile(directory, entry.value as String)
+                      : null;
+                  return target != weight.file.path ||
+                      !weight.inspection.tensors.containsKey(entry.key);
+                }))) {
           integrity = AssetIntegrity.corrupt;
           diagnostics.add('$relative 索引映射无效');
         }

@@ -268,6 +268,137 @@ void main() {
       },
     );
   }
+  final allInvalidIndexCases = <String, Object?>{
+    'numeric value': 42,
+    'missing shard': 'absent.safetensors',
+    'traversal escape': '../outside.safetensors',
+  };
+  for (final entry in allInvalidIndexCases.entries) {
+    test(
+      'Qwen2 nonempty index with ${entry.key} cannot complete the real weight',
+      () async {
+        final root = await Directory.systemTemp.createTemp('gmd-qwen2-index-');
+        addTearDown(() => root.delete(recursive: true));
+        final bytes = Qwen2MlxFixture().bytes();
+        bytes['model.safetensors.index.json'] = utf8.encode(
+          jsonEncode({
+            'weight_map': {'model.norm.weight': entry.value},
+          }),
+        );
+        for (final file in bytes.entries) {
+          await File('${root.path}/${file.key}').writeAsBytes(file.value);
+        }
+        final library = ModelLibrary();
+        addTearDown(library.close);
+        final artifacts = await library.scan(root, verifyFiles: true);
+        final weight = await File('${root.path}/model.safetensors')
+            .resolveSymbolicLinks();
+        expect(artifacts, hasLength(2));
+        final affected = artifacts.where(
+          (asset) => asset.files.any((file) => file.path == weight),
+        );
+        expect(affected, hasLength(1));
+        final asset = affected.single;
+        // The invalid index stays attached as evidence, never laundered
+        // into a complete artifact carrying the real weight.
+        expect(asset.integrity, AssetIntegrity.corrupt);
+        expect(
+          asset.diagnostics,
+          contains('model.safetensors.index.json 索引映射无效'),
+        );
+        expect(
+          asset.files.any((file) => file.path.endsWith('.index.json')),
+          isTrue,
+        );
+        expect(asset.engineCapability, EngineCapability.awaitingVerification);
+        final phantom = artifacts.singleWhere(
+          (candidate) =>
+              candidate.files.every((file) => file.path != weight) &&
+              candidate.files.any((file) => file.path.endsWith('.index.json')),
+        );
+        expect(phantom.integrity, AssetIntegrity.incomplete);
+        expect(phantom.diagnostics, contains('索引引用的权重文件缺失'));
+        expect(phantom.engineCapability, EngineCapability.awaitingVerification);
+      },
+    );
+  }
+  test(
+    'Qwen2 index mixing valid and invalid references stays incomplete',
+    () async {
+      final root = await Directory.systemTemp.createTemp('gmd-qwen2-mixedmap-');
+      addTearDown(() => root.delete(recursive: true));
+      final bytes = Qwen2MlxFixture().bytes();
+      bytes['model.safetensors.index.json'] = utf8.encode(
+        jsonEncode({
+          'weight_map': {
+            'model.norm.weight': 'model.safetensors',
+            'model.embed_tokens.weight': 42,
+          },
+        }),
+      );
+      for (final file in bytes.entries) {
+        await File('${root.path}/${file.key}').writeAsBytes(file.value);
+      }
+      final library = ModelLibrary();
+      addTearDown(library.close);
+      final artifacts = await library.scan(root, verifyFiles: true);
+      expect(artifacts, hasLength(1));
+      final asset = artifacts.single;
+      expect(asset.integrity, AssetIntegrity.incomplete);
+      expect(asset.diagnostics, contains('索引引用的权重文件缺失'));
+      expect(asset.engineCapability, EngineCapability.awaitingVerification);
+    },
+  );
+  test(
+    'conventional index naming only another weight keeps variants separate',
+    () async {
+      final root = await Directory.systemTemp.createTemp('gmd-qwen2-variant-');
+      addTearDown(() => root.delete(recursive: true));
+      final bytes = Qwen2MlxFixture().bytes();
+      bytes['model.safetensors.index.json'] = utf8.encode(
+        jsonEncode({
+          'weight_map': {'extra.weight': 'extra.safetensors'},
+        }),
+      );
+      for (final file in bytes.entries) {
+        await File('${root.path}/${file.key}').writeAsBytes(file.value);
+      }
+      await _writeSafetensors(root, 'extra.safetensors', {
+        'extra.weight': [1],
+      });
+      final library = ModelLibrary();
+      addTearDown(library.close);
+      final artifacts = await library.scan(root, verifyFiles: true);
+      final weight = await File('${root.path}/model.safetensors')
+          .resolveSymbolicLinks();
+      final affected = artifacts.where(
+        (asset) => asset.files.any((file) => file.path == weight),
+      );
+      expect(affected, hasLength(1));
+      // A valid weight is not completed by an index describing other files.
+      expect(affected.single.integrity, AssetIntegrity.corrupt);
+      expect(
+        affected.single.diagnostics,
+        contains('model.safetensors.index.json 索引映射无效'),
+      );
+      final other = artifacts.singleWhere(
+        (asset) =>
+            asset.files.any((file) => file.path.endsWith('/extra.safetensors')),
+      );
+      expect(other.integrity, isNot(AssetIntegrity.complete));
+      expect(
+        other.files.any((file) => file.path.endsWith('.index.json')),
+        isTrue,
+      );
+      expect(
+        artifacts.every(
+          (asset) =>
+              asset.engineCapability == EngineCapability.awaitingVerification,
+        ),
+        isTrue,
+      );
+    },
+  );
   test(
     'explicit affine mode with 628 tensors needs no universal nine companions',
     () async {
