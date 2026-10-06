@@ -10,7 +10,7 @@ import 'fixtures/council_runtime.dart';
 
 void main() {
   testWidgets(
-    'existing Council controls submit score and noul through the shared public engine path',
+    'existing Council controls display the latest Score Choice Noul Choice publication',
     (tester) async {
       late CouncilRuntime runtime;
       late CouncilController council;
