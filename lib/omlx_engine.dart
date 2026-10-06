@@ -1628,12 +1628,12 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
     _OmlxPool pool,
     String method,
     String path,
-    Map<String, Object?> body,
+    Map<String, Object?>? body,
   ) async {
     final request = await pool.client.openUrl(method, pool.uri(path));
     request.headers.contentType = ContentType.json;
     request.headers.set('cookie', 'omlx_admin_session=${pool.cookie}');
-    request.write(jsonEncode(body));
+    if (body != null) request.write(jsonEncode(body));
     final response = await request.close().timeout(_poolLoadTimeout);
     final text = await utf8.decoder.bind(response).join();
     if (response.statusCode != 200) {
@@ -1684,7 +1684,24 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
     final response = await _admin(pool, 'POST', '/admin/api/global-settings', {
       'model_fallback': false,
     });
-    final model = response['model'];
+    // Real packaged 0.7.0 acknowledges with {success, runtime_applied} and
+    // does not echo the settings (issue #22); a settings echo is absent.
+    final applied = response['runtime_applied'];
+    if (response['success'] != true ||
+        applied is! List ||
+        !applied.contains('model_fallback')) {
+      throw const OmlxException('oMLX model_fallback 设置未被接受');
+    }
+    // Read back via GET. The raw body carries live credentials, so only the
+    // nested flag is projected in memory; the body never reaches exceptions,
+    // logs, snapshots, or evidence.
+    final readback = await _admin(
+      pool,
+      'GET',
+      '/admin/api/global-settings',
+      null,
+    );
+    final model = readback['model'];
     if (model is! Map || model['model_fallback'] != false) {
       throw const OmlxException('oMLX model_fallback 读回失败');
     }

@@ -276,9 +276,12 @@ class _FakeServer {
           return;
         }
         if (request.method == 'GET') {
-          // Raw projection, including secrets; the pool must never fetch this.
+          // Real 0.7.0 shape: nested readback plus raw secrets. The pool may
+          // project model_fallback in memory but must never leak this body.
           await _json(request, 200, {
-            'model': {'model_fallback': fallbackDisabled},
+            'model': {
+              'model_fallback': fallbackLies ? true : !fallbackDisabled,
+            },
             'auth': {
               'api_key': apiKey,
               'secret_key': signingSecret,
@@ -291,9 +294,10 @@ class _FakeServer {
           final payload = jsonDecode(body);
           if (payload is Map && payload['model_fallback'] == false) {
             fallbackDisabled = true;
+            // Real packaged 0.7.0 response: no settings echo (issue #22).
             await _json(request, 200, {
               'success': true,
-              'model': {'model_fallback': fallbackLies},
+              'runtime_applied': ['model_fallback'],
             });
           } else {
             await _json(request, 400, {'error': 'unsupported change'});
@@ -1065,12 +1069,13 @@ void main() {
       expect(failed.error, isNot(contains(server.apiKey)));
       expect(failed.error, isNot(contains(server.signingSecret)));
       expect(failed.error, isNot(contains(server.cookieValue)));
-      // Whitelist projection only: the raw settings document is never fetched.
+      // Whitelist projection: the raw settings document is fetched once for
+      // the fallback readback, but its decoy secrets never reach error text.
       expect(
         server.requests.where(
           (r) => r.method == 'GET' && r.path == '/admin/api/global-settings',
         ),
-        isEmpty,
+        hasLength(1),
       );
     },
   );
