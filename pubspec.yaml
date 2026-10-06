@@ -10,10 +10,12 @@ dependencies:
   crypto: 3.0.7
   ffi: 2.2.0
   mcp_dart: 2.4.2
+  package_info_plus: 8.3.1
+  pub_semver: 2.2.0
   maclauncher_sdk:
     git:
       url: https://github.com/Ghost233/MacLauncher.git
-      ref: bc7262f4047e81f55922c203948ac64d9e0e2d13
+      ref: 5d81583bf07e3a97160259435809662a303e9908
       path: packages/maclauncher_sdk
   flutter:
     sdk: flutter

@@ -1,0 +1,111 @@
+name: Release
+
+# push 到 main 触发（issue #26）：
+# 1. 读取 pubspec.yaml 的 semver 部分（+ 之前的 x.y.z），检查对应 v<x.y.z> tag；
+#    tag 已存在则视为已发布，直接成功退出（no-op），不构建。
+# 2. 新版本：运行 scripts/build-release.sh 构建 DMG、manifest.json、SHA256SUMS。
+# 3. 严格断言 tag 与 pubspec semver 部分一致，然后 gh release create 原子地
+#    创建 tag 与正式（非 prerelease）GitHub Release 并上传三件套资产。
+#
+# 版本号只由人按 docs/release-versioning.md 手动递增，本 workflow 不推导版本。
+#
+# 第三方 action 引入说明（工程规范 E12）：subosito/flutter-action 解决 CI 中
+# Flutter SDK 精确固定与缓存问题；版本严格固定为 3.47.6 stable，
+# 与本机 ~/flutter 开发基线一致，不使用浮动版本。
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    # 钉 macos-15：与 Flutter 3.47.6 钉版本同理，避免 *-latest 漂移导致 CI 结果不可复现。
+    runs-on: macos-15
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    env:
+      FLUTTER_VERSION: "3.47.6"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # 需要完整历史以检查已存在的 tag。
+          fetch-depth: 0
+
+      - name: Detect new version
+        id: version
+        run: |
+          set -euo pipefail
+          full_version="$(awk '/^version:/{print $2; exit}' pubspec.yaml)"
+          semver="${full_version%%+*}"
+          tag="v${semver}"
+          echo "pubspec version: ${full_version}（semver: ${semver}）"
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            echo "tag ${tag} 已存在：版本 ${semver} 已发布，本次为 no-op。"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag ${tag} 不存在：将构建并发布 ${semver}。"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=${semver}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Flutter
+        if: steps.version.outputs.exists == 'false'
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        if: steps.version.outputs.exists == 'false'
+        run: flutter pub get
+
+      - name: Build DMG and manifests
+        if: steps.version.outputs.exists == 'false'
+        run: scripts/build-release.sh
+
+      - name: Assert tag matches pubspec semver
+        if: steps.version.outputs.exists == 'false'
+        # 发布纪律（docs/release-versioning.md）：tag 与 pubspec semver 部分必须
+        # 严格相等，不一致即失败，不允许绕过。
+        run: |
+          set -euo pipefail
+          full_version="$(awk '/^version:/{print $2; exit}' pubspec.yaml)"
+          expected="v${full_version%%+*}"
+          actual="${{ steps.version.outputs.tag }}"
+          echo "期望 tag: ${expected}"
+          echo "实际 tag: ${actual}"
+          if [ "${actual}" != "${expected}" ]; then
+            echo "::error::tag '${actual}' 与 pubspec.yaml semver 部分 '${expected}' 不一致。"
+            exit 1
+          fi
+
+      - name: Render release notes
+        if: steps.version.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          sed \
+            -e "s/{{VERSION}}/${{ steps.version.outputs.version }}/g" \
+            -e "s/{{TAG}}/${{ steps.version.outputs.tag }}/g" \
+            docs/release-notes-template.md > dist/release-notes.md
+
+      - name: Create GitHub Release
+        if: steps.version.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        # gh release create 在 tag 不存在时基于当前提交原子地创建 tag 与 Release。
+        run: |
+          set -euo pipefail
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --title "GhostModelDeck ${{ steps.version.outputs.version }}" \
+            --notes-file dist/release-notes.md \
+            "dist/GhostModelDeck-${{ steps.version.outputs.version }}.dmg" \
+            dist/manifest.json \
+            dist/SHA256SUMS

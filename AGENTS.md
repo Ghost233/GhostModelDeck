@@ -2,7 +2,7 @@
 
 ## 当前实施阶段
 
-已完成固定 JevManager 源码迁入与新项目身份基线（#13）及完整模型包支持（#14），正在按 `docs/spec.md` 和依赖工单实施首期。首期范围是 llama.cpp/oMLX 的标准文本 LLM 与保留的 JEV 能力；图像生成、视频生成、OCR 等仍属后续方向，不因此扩入本次实施。来源规格、术语与验收记录仅是来源资料，不代表 GhostModelDeck 当前功能或验收已通过。实际完成范围以本项目工单和 `docs/verification/` 的新证据为准；构建、回归测试、发行包预检不能代替真实模型与完整 Release 验收。
+首期规格（llama.cpp/oMLX 标准文本 LLM 与保留的 JEV 能力，#13–#24）已完成实施与验收并合入 main；发布与更新功能（#25–#28：DMG 发布 workflow、设置页软件更新、SDK 版本状况桥接）已完成开发。图像生成、视频生成、OCR 等仍属后续方向。实际完成范围以本项目工单和 `docs/verification/` 的新证据为准；构建、回归测试、发行包预检不能代替真实模型与完整 Release 验收。
 
 
 ## GitHub 账户（强制）
@@ -32,3 +32,4 @@
 
 - 修改 Dart、Flutter、原生桥接或检查脚本前，读取 [工程规范](docs/engineering.md)，执行与改动相关的检查并报告实际结果。
 - 审查时以工程规范核对代码标准，以 `docs/spec.md` 和来源工单核对产品行为；例外必须说明适用规则、原因及验证结果。
+- 涉及版本号 bump、tag、GitHub Release 或检查更新行为前，读取 [发布版本号规则](docs/release-versioning.md)；版本号只按该文档的递增与 rollover 规则由人手动修改，禁止自动推导或重用。

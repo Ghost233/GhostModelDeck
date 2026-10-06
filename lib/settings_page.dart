@@ -3,7 +3,10 @@ import 'package:flutter/material.dart';
 import 'app_theme.dart';
 import 'download_preferences.dart';
 import 'model_downloader.dart';
+import 'software_update_pane.dart';
 
+/// 设置页（Q4E 双栏布局）：左侧分类导航，右侧内容面板。
+/// 原有下载来源/模型库设置归入「常规」，新增「软件更新」。
 class SettingsPage extends StatefulWidget {
   const SettingsPage({
     super.key,
@@ -11,12 +14,16 @@ class SettingsPage extends StatefulWidget {
     required this.libraryPath,
     required this.onLibraryPathChanged,
     required this.pickLibraryDirectory,
+    this.softwareUpdate,
   });
 
   final DownloadPreferences preferences;
   final String libraryPath;
   final Future<String> Function(String) onLibraryPathChanged;
   final Future<String?> Function() pickLibraryDirectory;
+
+  /// 软件更新面板依赖；为 null（如测试夹具未注入）时面板降级为只读。
+  final SoftwareUpdateConfig? softwareUpdate;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -25,6 +32,7 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   bool _saving = false;
   String? _error;
+  int _pane = 0;
 
   Future<void> _saveSource(DownloadSource? source) async {
     if (source == null) return;
@@ -53,8 +61,88 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Widget _navItem(String label, IconData icon, int index, Key key_) {
+    final scheme = Theme.of(context).colorScheme;
+    final selected = _pane == index;
+    return Padding(
+      key: key_,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+      child: Material(
+        color: selected
+            ? scheme.onSurface.withValues(alpha: .06)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        child: ListTile(
+          selected: selected,
+          dense: true,
+          minTileHeight: 42,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+          horizontalTitleGap: 11,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          leading: Icon(
+            icon,
+            size: 18,
+            color: selected ? scheme.onSurface : scheme.onSurfaceVariant,
+          ),
+          title: Text(
+            label,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+              color: selected ? scheme.onSurface : scheme.onSurfaceVariant,
+            ),
+          ),
+          onTap: () => setState(() => _pane = index),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          width: 168,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 4, 12, 16),
+                child: Text(
+                  '设置',
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+              ),
+              _navItem(
+                '常规',
+                Icons.tune_rounded,
+                0,
+                const ValueKey('settings-nav-general'),
+              ),
+              _navItem(
+                '软件更新',
+                Icons.system_update_alt_rounded,
+                1,
+                const ValueKey('settings-nav-update'),
+              ),
+            ],
+          ),
+        ),
+        VerticalDivider(width: 1, color: scheme.outlineVariant),
+        const SizedBox(width: 24),
+        Expanded(
+          child: _pane == 0
+              ? _buildGeneralPane(context)
+              : SoftwareUpdatePane(config: widget.softwareUpdate),
+        ),
+      ],
+    );
+  }
+
+  /// 「常规」面板：原有设置内容，行为与结构保持不变。
+  Widget _buildGeneralPane(BuildContext context) {
     final theme = Theme.of(context);
     return Align(
       alignment: Alignment.topLeft,
@@ -62,7 +150,6 @@ class _SettingsPageState extends State<SettingsPage> {
         constraints: const BoxConstraints(maxWidth: 760),
         child: ListView(
           children: [
-            const JevPageHeader(title: '设置'),
             Text('下载', style: theme.textTheme.titleMedium),
             const SizedBox(height: 12),
             JevSurface(

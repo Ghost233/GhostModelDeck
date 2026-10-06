@@ -147,6 +147,7 @@ class LauncherInferenceService {
     required this.mcp,
     required this.startupSet,
     this.onOpenWindow,
+    this.onVersionStatus,
     String? socketPath,
   }) : _socketPath = socketPath ?? MacLauncherSdk.defaultSocketPath();
 
@@ -166,6 +167,11 @@ class LauncherInferenceService {
   /// 窗口激活最小 seam：由应用壳注入（原生 MethodChannel）；原生窗口行为
   /// 验证属 #19 范围。未配置时 openWindow 请求真实失败，不假装成功。
   final Future<void> Function()? onOpenWindow;
+
+  /// 版本状况查询 seam（#28）：由应用壳注入 VersionStatusBridge.query。
+  /// 未配置时不声明该能力；若启动器仍查询，SDK 自动应答「不支持更新」。
+  /// 回调抛异常由 SDK 兜底为 failure，桥本身也不抛。
+  final Future<VersionStatus> Function()? onVersionStatus;
 
   final String _socketPath;
   final _logBuffer = <LogEntry>[];
@@ -199,7 +205,10 @@ class LauncherInferenceService {
           onLogs: _logs,
         ),
       },
-      app: AppCallbacks(onOpenWindow: _openWindow),
+      app: AppCallbacks(
+        onOpenWindow: _openWindow,
+        onVersionStatus: onVersionStatus,
+      ),
     );
     _sdk = sdk;
     _subscriptions.add(

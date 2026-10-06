@@ -37,9 +37,13 @@
 ./scripts/test-container.sh test
 ```
 
+改动 `scripts/` 下的 shell 脚本时，必须先 `bash -n` 静态检查；含副作用的脚本（打包、发布、环境准备）合并前必须完成一次真实干跑并核验产物。变量展开紧邻非 ASCII 字符时必须加花括号（macOS 自带 bash 3.2 会把全角字符字节并入变量名）；依赖 `trap` 清理的脚本须在 trap 内保存并恢复退出码。
+
 脚本在 Socktainer 内解析依赖并检查隔离源码副本；`format --output=none` 只检查，不改写工作区文件。使用新项目容器名称与 `GMD_TEST_CONTAINER`，不覆盖来源测试工作区。应用代码与脚本已迁入；具体已执行范围及限制见 [迁入验证](verification/ghostmodeldeck-migration-validation.md) 和各切片验证记录，不以来源旧测试记录替代本项目结果。
 
 检查按联网模式执行；用户明确要求不使用离线模式。外网故障应保留具体请求、超时阶段与失败结果，诊断恢复后重跑，不以缓存离线结果替代正式检查。
+
+容器已知限制（2026-10-07 实测）：容器无法直连 github.com（git fetch 134s 超时），新增 git 依赖或提升 git ref 后，需先从宿主 `~/.pub-cache` 暖容器内 bare pub git 缓存再跑门禁；容器内 `format` 的改写不会传回宿主工作区，容器格式化后必须在宿重复跑 format/analyze；经 Socktainer `docker cp` 单文件可能截断为 0 字节，文件传输改用 base64 over `docker exec`。
 
 通用 Dart/widget 检查在容器执行。Mac 构建、桌面交互、原生引擎和应用内 MCP 的联调按 [规格中的开发边界](spec.md#开发与交付边界) 在 Mac 执行。
 
