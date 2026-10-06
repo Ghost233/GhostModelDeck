@@ -530,11 +530,13 @@ class _CouncilPageState extends State<CouncilPage> {
                     const SizedBox(height: 6),
                     Row(
                       children: [
-                        Text(
-                          '${option.key} · ${result.votes![option.key]} 票',
-                          style: theme.textTheme.bodySmall,
+                        Expanded(
+                          child: Text(
+                            '${option.key} · ${result.votes![option.key]} 票',
+                            style: theme.textTheme.bodySmall,
+                          ),
                         ),
-                        const Spacer(),
+                        const SizedBox(width: 8),
                         if (result.topChoices!.contains(option.key))
                           JevStatusChip(
                             label: result.topChoices!.length > 1

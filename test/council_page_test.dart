@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/app_theme.dart';
 import 'package:ghost_model_deck/council.dart';
@@ -9,6 +11,139 @@ import 'package:ghost_model_deck/council_page.dart';
 import 'fixtures/council_runtime.dart';
 
 void main() {
+  const layoutFont = 'Council Noto CJK';
+  setUpAll(() async {
+    final font = File(
+      Platform.environment['JEV_LAYOUT_FONT'] ??
+          '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+    );
+    // These geometry regressions must not silently fall back to Ahem.
+    expect(await font.exists(), isTrue, reason: 'Noto CJK font is required');
+    final loader = FontLoader(layoutFont)
+      ..addFont(Future.value(ByteData.sublistView(await font.readAsBytes())));
+    await loader.load();
+  });
+
+  for (final rejectId in [
+    'reject',
+    'reject_with_a_long_public_choice_identifier',
+  ]) {
+    for (final geometry in [
+      for (final width in [647.0, 879.0, 880.0])
+        for (final scale in [1.0, 1.5, 2.0]) (width: width, scale: scale),
+      (width: 400.0, scale: 2.0),
+    ]) {
+      testWidgets(
+        'public tied Choice fits page ${geometry.width} at ${geometry.scale}x with $rejectId',
+        (tester) async {
+          late CouncilRuntime runtime;
+          late CouncilController council;
+          await tester.runAsync(
+            () => HttpOverrides.runWithHttpOverrides(() async {
+              runtime = await CouncilRuntime.create();
+              // Adapt only the external HTTP response to the submitted ID.
+              runtime.io.respond = (request, response) async {
+                final body = jsonDecode(response) as Map<String, dynamic>;
+                final answer = body['answers']['council_choice'] as Map;
+                if (answer['choice'] == 'reject') answer['choice'] = rejectId;
+                final probabilities = answer['probabilities'] as Map;
+                probabilities[rejectId] = probabilities.remove('reject');
+                return jsonEncode(body);
+              };
+              council = CouncilController(catalog: runtime.catalog);
+              council.selectSeats(
+                council.availableSeats.map((seat) => seat.id),
+              );
+            }, _NetworkBoundary()),
+          );
+          addTearDown(() async {
+            council.close();
+            await tester.runAsync(runtime.close);
+          });
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
+          tester.view.devicePixelRatio = 1;
+          tester.view.physicalSize = Size(geometry.width, 900);
+          final theme = buildJevTheme(Brightness.light);
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: theme.copyWith(
+                textTheme: theme.textTheme.apply(fontFamily: layoutFont),
+                primaryTextTheme: theme.primaryTextTheme.apply(
+                  fontFamily: layoutFont,
+                ),
+              ),
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(context)
+                    .copyWith(textScaler: TextScaler.linear(geometry.scale)),
+                child: child!,
+              ),
+              home: Scaffold(
+                body: CouncilPage(controller: council, onOpenLibrary: () {}),
+              ),
+            ),
+          );
+          expect(tester.takeException(), isNull, reason: 'input before result');
+          await tester.enterText(
+            find.byKey(const Key('council-id-1')),
+            'accept',
+          );
+          await tester.enterText(
+            find.byKey(const Key('council-id-2')),
+            rejectId,
+          );
+          await tester.enterText(
+            find.byKey(const Key('council-option-1')),
+            '低 / 不成立',
+          );
+          await tester.enterText(
+            find.byKey(const Key('council-option-2')),
+            '高 / 成立',
+          );
+          await tester.pump();
+          final button = find.widgetWithText(FilledButton, '咨询');
+          await tester.ensureVisible(button);
+          expect(
+            tester.takeException(),
+            isNull,
+            reason: 'input before request',
+          );
+          await tester.runAsync(
+            () => HttpOverrides.runWithHttpOverrides(() async {
+              final done = council.changes.firstWhere(
+                (state) => state.lastResult != null,
+              );
+              await tester.tap(button);
+              await done.timeout(const Duration(seconds: 3));
+            }, _NetworkBoundary()),
+          );
+          await tester.pumpAndSettle();
+          expect(council.state.lastResult!.aggregateScores, {
+            'accept': 0.5,
+            rejectId: 0.5,
+          });
+          expect(council.state.lastResult!.topChoices, ['accept', rejectId]);
+          expect(runtime.io.requests, hasLength(2));
+          expect(find.text('综合评分'), findsOneWidget);
+          expect(find.text('并列最高'), findsNWidgets(2));
+          expect(find.text('50.0%'), findsNWidgets(2));
+          expect(find.text('accept · 1 票'), findsOneWidget);
+          expect(find.text('$rejectId · 1 票'), findsOneWidget);
+          for (final label in ['低 / 不成立', '高 / 成立']) {
+            expect(
+              find.byWidgetPredicate(
+                (widget) => widget is Text && widget.data == label,
+              ),
+              findsOneWidget,
+            );
+          }
+          expect(tester.takeException(), isNull, reason: 'published result');
+          expect(runtime.io.killedChildren, 0);
+        },
+      );
+    }
+  }
+
   testWidgets(
     'existing Council controls display the latest Score Choice Noul Choice publication',
     (tester) async {
