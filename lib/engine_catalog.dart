@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'llama_engine.dart';
+import 'engine_runtime.dart';
 import 'model_library.dart';
 import 'model_use_registry.dart';
 
@@ -15,6 +16,7 @@ class EngineRegistration {
     required this.name,
     required this.source,
     required this.status,
+    this.family = EngineFamily.llamaCpp,
     this.version,
     this.path,
     this.sha256,
@@ -27,6 +29,7 @@ class EngineRegistration {
   final String id;
   final String name;
   final EngineSource source;
+  final EngineFamily family;
   final LlamaInstallationStatus status;
   final String? version;
   final String? path;
@@ -55,7 +58,7 @@ class EngineCatalogState {
 class EngineRun {
   const EngineRun(this.engine, this.instance);
   final EngineRegistration engine;
-  final LlamaInstance instance;
+  final RuntimeInstance instance;
 }
 
 class EngineRemovalPlan {
@@ -355,6 +358,8 @@ class EngineCatalog {
         _names.remove(plan.entry.id);
         provider.close();
       });
+  EngineRuntime runtimeFor(String id) => providerFor(id);
+
   LlamaEngine providerFor(String id) {
     final provider = _managed[id] ?? _linked[id];
     if (provider == null) throw const LlamaEngineException('引擎登记已变化');
@@ -365,8 +370,8 @@ class EngineCatalog {
     final ids = artifactIds.toSet();
     return [
       for (final entry in state.entries)
-        for (final instance in providerFor(entry.id).state.instances)
-          if (ids.contains(instance.asset.id)) EngineRun(entry, instance),
+        for (final instance in runtimeFor(entry.id).runtimeInstances)
+          if (ids.contains(instance.artifactId)) EngineRun(entry, instance),
     ];
   }
 

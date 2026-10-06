@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/app_theme.dart';
 import 'package:ghost_model_deck/engine_catalog.dart';
+import 'package:ghost_model_deck/engine_runtime.dart';
 import 'package:ghost_model_deck/library_page.dart';
 import 'package:ghost_model_deck/llama_engine.dart';
 import 'package:ghost_model_deck/model_library.dart';
@@ -89,7 +90,17 @@ void main() {
         );
         await HttpOverrides.runWithHttpOverrides(() async {
           final capturedA = catalog.providerFor(EngineCatalog.officialId);
-          final a = await capturedA.start(asset.id);
+          final runtimeA = catalog.runtimeFor(EngineCatalog.officialId);
+          expect(runtimeA, same(capturedA));
+          expect(catalog.state.entries.first.family, EngineFamily.llamaCpp);
+          final a = await runtimeA.startRuntime(asset.id);
+          expect(a.status, RuntimeInstanceStatus.ready);
+          expect(a.capabilities, contains(RuntimeCapability.textGeneration));
+          expect(
+            a.capabilities,
+            isNot(contains(RuntimeCapability.choiceProbability)),
+          );
+          expect(catalog.runsFor([asset.id]).single.instance.id, a.id);
           await providers[1].start(asset.id);
           Future<EngineRegistration>? linking;
           if (lateLink) {

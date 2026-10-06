@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'decision_protocol.dart';
 import 'engine_catalog.dart';
+import 'engine_runtime.dart';
 import 'llama_engine.dart';
 
 export 'llama_engine.dart' show DecisionCancellation;
@@ -253,10 +254,11 @@ class CouncilController {
   List<CouncilSeat> get selectedSeats => _selected;
   List<CouncilSeat> get availableSeats => List.unmodifiable([
     for (final entry in catalog.state.entries)
-      for (final instance in catalog.providerFor(entry.id).state.instances)
-        if (instance.status == LlamaInstanceStatus.ready &&
-            instance.capabilities.contains(LlamaCapability.choiceProbability))
-          CouncilSeat(engine: entry, instance: instance),
+      if (entry.family == EngineFamily.llamaCpp)
+        for (final instance in catalog.providerFor(entry.id).state.instances)
+          if (instance.status == LlamaInstanceStatus.ready &&
+              instance.capabilities.contains(LlamaCapability.choiceProbability))
+            CouncilSeat(engine: entry, instance: instance),
   ]);
 
   void selectSeats(Iterable<String> ids) {

@@ -7,6 +7,9 @@ import 'package:crypto/crypto.dart';
 
 import 'chat_protocol.dart';
 import 'decision_protocol.dart';
+import 'engine_runtime.dart';
+
+export 'engine_runtime.dart' show DecisionCancellation;
 import 'model_library.dart';
 import 'model_use_registry.dart';
 
@@ -461,37 +464,11 @@ class LlamaRequestException extends LlamaEngineException {
   final String? rawResponse;
 }
 
-class DecisionCancellation {
-  final _cancelled = Completer<void>();
-  final _listeners = <Object, void Function()>{};
-  bool get isCancelled => _cancelled.isCompleted;
-  Future<void> get whenCancelled => _cancelled.future;
-  void cancel() {
-    if (isCancelled) return;
-    _cancelled.complete();
-    final callbacks = _listeners.values.toList();
-    _listeners.clear();
-    for (final callback in callbacks) {
-      callback();
-    }
-  }
-
-  void Function() listen(void Function() callback) {
-    if (isCancelled) {
-      callback();
-      return () {};
-    }
-    final key = Object();
-    _listeners[key] = callback;
-    return () => _listeners.remove(key);
-  }
-}
-
 class _InstanceIdentityException extends LlamaEngineException {
   const _InstanceIdentityException(super.message);
 }
 
-class LlamaEngine {
+class LlamaEngine implements EngineRuntime {
   LlamaEngine({
     required this.library,
     required this.installationDirectory,
@@ -521,6 +498,42 @@ class LlamaEngine {
   LlamaEngineState _state = const LlamaEngineState();
   LlamaEngineState get state => _state;
   Stream<LlamaEngineState> get changes => _changes.stream;
+  @override
+  List<RuntimeInstance> get runtimeInstances =>
+      List.unmodifiable(state.instances.map(_runtimeInstance));
+
+  RuntimeInstance _runtimeInstance(LlamaInstance instance) => RuntimeInstance(
+    id: instance.id,
+    artifactId: instance.asset.id,
+    status: switch (instance.status) {
+      LlamaInstanceStatus.starting => RuntimeInstanceStatus.starting,
+      LlamaInstanceStatus.ready => RuntimeInstanceStatus.ready,
+      LlamaInstanceStatus.stopping => RuntimeInstanceStatus.stopping,
+      LlamaInstanceStatus.stopped => RuntimeInstanceStatus.stopped,
+      LlamaInstanceStatus.failed => RuntimeInstanceStatus.failed,
+    },
+    generation: instance.generation,
+    activeRequests: instance.activeRequests,
+    acceptingRequests: instance.acceptingRequests,
+    hasLiveProcess: instance.hasLiveProcess,
+    capabilities: {
+      for (final capability in instance.capabilities)
+        switch (capability) {
+          LlamaCapability.choiceProbability =>
+            RuntimeCapability.choiceProbability,
+          LlamaCapability.scoreProbability =>
+            RuntimeCapability.scoreProbability,
+          LlamaCapability.noulScalar => RuntimeCapability.noulScalar,
+          LlamaCapability.textGeneration => RuntimeCapability.textGeneration,
+        },
+    },
+    error: instance.error,
+  );
+
+  @override
+  Future<RuntimeInstance> startRuntime(String artifactId) async =>
+      _runtimeInstance(await start(artifactId));
+
   Future<void> _operations = Future.value();
   String? executablePath;
   String? observedVersion;

@@ -7,6 +7,7 @@ import 'app_theme.dart';
 import 'model_library.dart';
 import 'local_model_package.dart';
 import 'engine_catalog.dart';
+import 'engine_runtime.dart';
 import 'llama_engine.dart';
 import 'model_run_dialog.dart';
 
@@ -589,18 +590,26 @@ class _LibraryPageState extends State<LibraryPage> {
 
   Widget _runRow(EngineRun run, bool busy) {
     final instance = run.instance;
+    final legacy = run.engine.family == EngineFamily.llamaCpp
+        ? widget.engines!
+              .providerFor(run.engine.id)
+              .state
+              .instances
+              .where((value) => value.id == instance.id)
+              .firstOrNull
+        : null;
     final stopKey = '${run.engine.id}:${instance.id}';
     final stopping =
         _stopping.contains(stopKey) ||
-        instance.status == LlamaInstanceStatus.stopping;
+        instance.status == RuntimeInstanceStatus.stopping;
     final active =
-        instance.status == LlamaInstanceStatus.ready ||
-        instance.status == LlamaInstanceStatus.starting ||
-        instance.status == LlamaInstanceStatus.stopping ||
-        (instance.status == LlamaInstanceStatus.failed &&
+        instance.status == RuntimeInstanceStatus.ready ||
+        instance.status == RuntimeInstanceStatus.starting ||
+        instance.status == RuntimeInstanceStatus.stopping ||
+        (instance.status == RuntimeInstanceStatus.failed &&
             instance.hasLiveProcess);
     final theme = Theme.of(context);
-    final failure = instance.status == LlamaInstanceStatus.failed;
+    final failure = instance.status == RuntimeInstanceStatus.failed;
     return Padding(
       padding: const EdgeInsets.fromLTRB(44, 4, 32, 8),
       child: Column(
@@ -614,17 +623,17 @@ class _LibraryPageState extends State<LibraryPage> {
                 label: stopping
                     ? '停止中'
                     : switch (instance.status) {
-                        LlamaInstanceStatus.starting => '启动中',
-                        LlamaInstanceStatus.ready => '运行中',
-                        LlamaInstanceStatus.stopping => '停止中',
-                        LlamaInstanceStatus.stopped => '已停止',
-                        LlamaInstanceStatus.failed => '失败',
+                        RuntimeInstanceStatus.starting => '启动中',
+                        RuntimeInstanceStatus.ready => '运行中',
+                        RuntimeInstanceStatus.stopping => '停止中',
+                        RuntimeInstanceStatus.stopped => '已停止',
+                        RuntimeInstanceStatus.failed => '失败',
                       },
                 tone: stopping
                     ? JevStatusTone.neutral
                     : failure
                     ? JevStatusTone.error
-                    : instance.status == LlamaInstanceStatus.ready
+                    : instance.status == RuntimeInstanceStatus.ready
                     ? JevStatusTone.success
                     : JevStatusTone.neutral,
               ),
@@ -640,7 +649,7 @@ class _LibraryPageState extends State<LibraryPage> {
                           });
                           try {
                             await widget.engines!
-                                .providerFor(run.engine.id)
+                                .runtimeFor(run.engine.id)
                                 .stop(instance.id);
                           } catch (error) {
                             if (mounted) {
@@ -665,19 +674,19 @@ class _LibraryPageState extends State<LibraryPage> {
                 color: theme.colorScheme.error,
               ),
             ),
-          if (instance.lastResult != null)
+          if (legacy?.lastResult != null)
             ExpansionTile(
               dense: true,
               tilePadding: EdgeInsets.zero,
               title: Text(
-                '结果 · ${instance.lastResult!.choice}',
+                '结果 · ${legacy!.lastResult!.choice}',
                 style: theme.textTheme.bodySmall,
               ),
               children: [
                 Align(
                   alignment: Alignment.centerLeft,
                   child: SelectableText(
-                    instance.lastResult!.rawResponse,
+                    legacy!.lastResult!.rawResponse,
                     style: theme.textTheme.bodySmall,
                   ),
                 ),
