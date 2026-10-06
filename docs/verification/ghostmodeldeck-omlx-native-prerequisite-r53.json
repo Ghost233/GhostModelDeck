@@ -1,0 +1,1209 @@
+{
+  "source_head": "b339190eacec57965a898bdaacfb7fdee8035499",
+  "commands": [
+    {
+      "label": "attach",
+      "argv": [
+        "/usr/bin/hdiutil",
+        "attach",
+        "-readonly",
+        "-noautoopen",
+        "-nobrowse",
+        "-plist",
+        "-mountpoint",
+        "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/readonly-mount",
+        "/Users/ghost233/Ghost233Code/GhostModelDeck/.tooling/engine-artifacts/oMLX-0.7.0-macos26-27.dmg"
+      ],
+      "pid": 85053,
+      "timeout_seconds": 120,
+      "timed_out": false,
+      "exit_code": 0,
+      "elapsed_seconds": 0.291,
+      "stdout": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n\t<key>system-entities</key>\n\t<array>\n\t\t<dict>\n\t\t\t<key>content-hint</key>\n\t\t\t<string>EFI</string>\n\t\t\t<key>dev-entry</key>\n\t\t\t<string>/dev/disk12s1</string>\n\t\t\t<key>potentially-mountable</key>\n\t\t\t<true/>\n\t\t\t<key>unmapped-content-hint</key>\n\t\t\t<string>C12A7328-F81F-11D2-BA4B-00A0C93EC93B</string>\n\t\t\t<key>volume-kind</key>\n\t\t\t<string>msdos</string>\n\t\t</dict>\n\t\t<dict>\n\t\t\t<key>content-hint</key>\n\t\t\t<string>41504653-0000-11AA-AA11-00306543ECAC</string>\n\t\t\t<key>dev-entry</key>\n\t\t\t<string>/dev/disk13s1</string>\n\t\t\t<key>mount-point</key>\n\t\t\t<string>/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/readonly-mount</string>\n\t\t\t<key>potentially-mountable</key>\n\t\t\t<true/>\n\t\t\t<key>unmapped-content-hint</key>\n\t\t\t<string>41504653-0000-11AA-AA11-00306543ECAC</string>\n\t\t\t<key>volume-kind</key>\n\t\t\t<string>apfs</string>\n\t\t</dict>\n\t\t<dict>\n\t\t\t<key>content-hint</key>\n\t\t\t<string>Apple_APFS</string>\n\t\t\t<key>dev-entry</key>\n\t\t\t<string>/dev/disk12s2</string>\n\t\t\t<key>potentially-mountable</key>\n\t\t\t<false/>\n\t\t\t<key>unmapped-content-hint</key>\n\t\t\t<string>7C3457EF-0000-11AA-AA11-00306543ECAC</string>\n\t\t</dict>\n\t\t<dict>\n\t\t\t<key>content-hint</key>\n\t\t\t<string>EF57347C-0000-11AA-AA11-00306543ECAC</string>\n\t\t\t<key>dev-entry</key>\n\t\t\t<string>/dev/disk13</string>\n\t\t\t<key>potentially-mountable</key>\n\t\t\t<false/>\n\t\t\t<key>unmapped-content-hint</key>\n\t\t\t<string>EF57347C-0000-11AA-AA11-00306543ECAC</string>\n\t\t</dict>\n\t\t<dict>\n\t\t\t<key>content-hint</key>\n\t\t\t<string>GUID_partition_scheme</string>\n\t\t\t<key>dev-entry</key>\n\t\t\t<string>/dev/disk12</string>\n\t\t\t<key>potentially-mountable</key>\n\t\t\t<false/>\n\t\t\t<key>unmapped-content-hint</key>\n\t\t\t<string>GUID_partition_scheme</string>\n\t\t</dict>\n\t</array>\n</dict>\n</plist>\n",
+      "stderr": "hdiutil: WARNING: 'hdiutil attach -readonly -nobrowse -mountpoint ...' is deprecated. Please use 'diskutil image attach --readOnly --mountOptions nobrowse --mountPoint ...' instead.\n"
+    },
+    {
+      "label": "source_codesign_verify",
+      "argv": [
+        "/usr/bin/codesign",
+        "--verify",
+        "--deep",
+        "--strict",
+        "--verbose=2",
+        "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/readonly-mount/oMLX.app"
+      ],
+      "pid": 85068,
+      "timeout_seconds": 120,
+      "timed_out": false,
+      "exit_code": 0,
+      "elapsed_seconds": 9.17,
+      "stdout": "",
+      "stderr": "--prepared:/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/readonly-mount/oMLX.app/Contents/MacOS/omlx-cluster-python\n--validated:/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/readonly-mount/oMLX.app/Contents/MacOS/omlx-cluster-python\n--prepared:/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/readonly-mount/oMLX.app/Contents/MacOS/omlx-cli\n--validated:/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/readonly-mount/oMLX.app/Contents/MacOS/omlx-cli\n/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/readonly-mount/oMLX.app: valid on disk\n/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/readonly-mount/oMLX.app: satisfies its Designated Requirement\n"
+    },
+    {
+      "label": "source_codesign_identity",
+      "argv": [
+        "/usr/bin/codesign",
+        "-dv",
+        "--verbose=4",
+        "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/readonly-mount/oMLX.app"
+      ],
+      "pid": 85087,
+      "timeout_seconds": 120,
+      "timed_out": false,
+      "exit_code": 0,
+      "elapsed_seconds": 0.247,
+      "stdout": "",
+      "stderr": "Executable=/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/readonly-mount/oMLX.app/Contents/MacOS/oMLX\nIdentifier=app.omlx\nFormat=app bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20500 size=29460 flags=0x10000(runtime) hashes=910+7 location=embedded\nVersionPlatform=1\nVersionMin=983040\nVersionSDK=1705216\nHash type=sha256 size=32\nCandidateCDHash sha256=6925baa4248464e90483a94431a06363520c3008\nCandidateCDHashFull sha256=6925baa4248464e90483a94431a06363520c3008b16ed0bec409b2ec2ddf6037\nHash choices=sha256\nCMSDigest=6925baa4248464e90483a94431a06363520c3008b16ed0bec409b2ec2ddf6037\nCMSDigestType=2\nExecutable Segment base=0\nExecutable Segment limit=5586944\nExecutable Segment flags=0x1\nPage size=16384\nCDHash=6925baa4248464e90483a94431a06363520c3008\nSignature size=8971\nAuthority=Developer ID Application: Heejun Kim (PSK5Q5T46L)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nTimestamp=30 Sep 2026 at 22:57:57\nInfo.plist entries=27\nTeamIdentifier=PSK5Q5T46L\nRuntime Version=26.5.0\nSealed Resources version=2 rules=13 files=42228\nInternal requirements count=1 size=168\nTotal signatures=1\nChosen signature=1\n"
+    },
+    {
+      "label": "source_spctl",
+      "argv": [
+        "/usr/sbin/spctl",
+        "--assess",
+        "--type",
+        "execute",
+        "--verbose=4",
+        "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/readonly-mount/oMLX.app"
+      ],
+      "pid": 85090,
+      "timeout_seconds": 120,
+      "timed_out": false,
+      "exit_code": 0,
+      "elapsed_seconds": 4.325,
+      "stdout": "",
+      "stderr": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/readonly-mount/oMLX.app: accepted\nsource=Notarized Developer ID\n"
+    },
+    {
+      "label": "native_full_copy",
+      "argv": [
+        "/usr/bin/ditto",
+        "--rsrc",
+        "--extattr",
+        "--acl",
+        "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/readonly-mount/oMLX.app",
+        "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app"
+      ],
+      "pid": 85099,
+      "timeout_seconds": 180,
+      "timed_out": false,
+      "exit_code": 0,
+      "elapsed_seconds": 14.085,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "label": "relocated_codesign_verify",
+      "argv": [
+        "/usr/bin/codesign",
+        "--verify",
+        "--deep",
+        "--strict",
+        "--verbose=2",
+        "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app"
+      ],
+      "pid": 85184,
+      "timeout_seconds": 120,
+      "timed_out": false,
+      "exit_code": 0,
+      "elapsed_seconds": 2.052,
+      "stdout": "",
+      "stderr": "--prepared:/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/MacOS/omlx-cli\n--validated:/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/MacOS/omlx-cli\n--prepared:/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/MacOS/omlx-cluster-python\n--validated:/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/MacOS/omlx-cluster-python\n/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app: valid on disk\n/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app: satisfies its Designated Requirement\n"
+    },
+    {
+      "label": "relocated_codesign_identity",
+      "argv": [
+        "/usr/bin/codesign",
+        "-dv",
+        "--verbose=4",
+        "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app"
+      ],
+      "pid": 85189,
+      "timeout_seconds": 120,
+      "timed_out": false,
+      "exit_code": 0,
+      "elapsed_seconds": 0.246,
+      "stdout": "",
+      "stderr": "Executable=/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/MacOS/oMLX\nIdentifier=app.omlx\nFormat=app bundle with Mach-O universal (x86_64 arm64)\nCodeDirectory v=20500 size=29460 flags=0x10000(runtime) hashes=910+7 location=embedded\nVersionPlatform=1\nVersionMin=983040\nVersionSDK=1705216\nHash type=sha256 size=32\nCandidateCDHash sha256=6925baa4248464e90483a94431a06363520c3008\nCandidateCDHashFull sha256=6925baa4248464e90483a94431a06363520c3008b16ed0bec409b2ec2ddf6037\nHash choices=sha256\nCMSDigest=6925baa4248464e90483a94431a06363520c3008b16ed0bec409b2ec2ddf6037\nCMSDigestType=2\nExecutable Segment base=0\nExecutable Segment limit=5586944\nExecutable Segment flags=0x1\nPage size=16384\nCDHash=6925baa4248464e90483a94431a06363520c3008\nSignature size=8971\nAuthority=Developer ID Application: Heejun Kim (PSK5Q5T46L)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nTimestamp=30 Sep 2026 at 22:57:57\nInfo.plist entries=27\nTeamIdentifier=PSK5Q5T46L\nRuntime Version=26.5.0\nSealed Resources version=2 rules=13 files=42228\nInternal requirements count=1 size=168\nTotal signatures=1\nChosen signature=1\n"
+    },
+    {
+      "label": "relocated_spctl",
+      "argv": [
+        "/usr/sbin/spctl",
+        "--assess",
+        "--type",
+        "execute",
+        "--verbose=4",
+        "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app"
+      ],
+      "pid": 85190,
+      "timeout_seconds": 120,
+      "timed_out": false,
+      "exit_code": 0,
+      "elapsed_seconds": 1.59,
+      "stdout": "",
+      "stderr": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app: accepted\nsource=Notarized Developer ID\n"
+    },
+    {
+      "label": "relocated_architecture",
+      "argv": [
+        "/usr/bin/file",
+        "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/MacOS/oMLX",
+        "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/bin/python3"
+      ],
+      "pid": 85199,
+      "timeout_seconds": 120,
+      "timed_out": false,
+      "exit_code": 0,
+      "elapsed_seconds": 0.007,
+      "stdout": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/MacOS/oMLX:                                Mach-O universal binary with 2 architectures: [x86_64:Mach-O 64-bit executable x86_64] [arm64]\n/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/MacOS/oMLX (for architecture x86_64):\tMach-O 64-bit executable x86_64\n/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/MacOS/oMLX (for architecture arm64):\tMach-O 64-bit executable arm64\n/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/bin/python3: Mach-O 64-bit executable arm64\n",
+      "stderr": ""
+    },
+    {
+      "label": "relocated_space",
+      "argv": [
+        "/usr/bin/du",
+        "-sk",
+        "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app"
+      ],
+      "pid": 85200,
+      "timeout_seconds": 120,
+      "timed_out": false,
+      "exit_code": 0,
+      "elapsed_seconds": 0.404,
+      "stdout": "1695676\t/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app\n",
+      "stderr": ""
+    },
+    {
+      "label": "copied_wrapper_help",
+      "argv": [
+        "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/MacOS/omlx-cli",
+        "--help"
+      ],
+      "pid": 86016,
+      "timeout_seconds": 60,
+      "timed_out": false,
+      "exit_code": 0,
+      "elapsed_seconds": 2.565,
+      "stdout": "usage: cli.py [-h] [--version]\n              {start,stop,restart,serve,launch,diagnose,cluster} ...\n\nomlx: Production-ready LLM server for Apple Silicon\n\npositional arguments:\n  {start,stop,restart,serve,launch,diagnose,cluster}\n                        Commands\n    start               Start oMLX as a managed background server\n    stop                Stop the managed background oMLX server\n    restart             Restart the managed background oMLX server\n    serve               Start multi-model OpenAI-compatible server\n    launch              Launch an external tool with oMLX integration\n    diagnose            Diagnose installation or runtime issues\n    cluster             Inspect distributed-node readiness and exercise a\n                        local worker\n\noptions:\n  -h, --help            show this help message and exit\n  --version             Print the oMLX version and exit\n\nExamples:\n  omlx serve mlx-community/Llama-3.2-3B-Instruct-4bit --port 8000\n  omlx launch codex --model qwen3.5\n        \n",
+      "stderr": ""
+    },
+    {
+      "label": "copied_wrapper_version",
+      "argv": [
+        "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/MacOS/omlx-cli",
+        "--version"
+      ],
+      "pid": 86024,
+      "timeout_seconds": 60,
+      "timed_out": false,
+      "exit_code": 0,
+      "elapsed_seconds": 0.047,
+      "stdout": "0.7.0\n",
+      "stderr": ""
+    },
+    {
+      "label": "copied_wrapper_serve_help",
+      "argv": [
+        "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/MacOS/omlx-cli",
+        "serve",
+        "--help"
+      ],
+      "pid": 86029,
+      "timeout_seconds": 60,
+      "timed_out": false,
+      "exit_code": 0,
+      "elapsed_seconds": 0.053,
+      "stdout": "usage: cli.py serve [-h] [--model-dir MODEL_DIR] [--host HOST] [--port PORT]\n                    [--log-level {trace,debug,info,warning,error}]\n                    [--sse-keepalive-mode {chunk,comment,off}]\n                    [--max-audio-upload-size MAX_AUDIO_UPLOAD_SIZE]\n                    [--max-image-upload-size MAX_IMAGE_UPLOAD_SIZE]\n                    [--max-image-side-length MAX_IMAGE_SIDE_LENGTH]\n                    [--max-concurrent-requests MAX_CONCURRENT_REQUESTS]\n                    [--embedding-batch-size EMBEDDING_BATCH_SIZE]\n                    [--memory-guard {off,safe,balanced,aggressive}]\n                    [--memory-guard-gb MEMORY_GUARD_GB]\n                    [--paged-ssd-cache-dir PAGED_SSD_CACHE_DIR]\n                    [--paged-ssd-cache-max-size PAGED_SSD_CACHE_MAX_SIZE]\n                    [--hot-cache-max-size HOT_CACHE_MAX_SIZE]\n                    [--hot-cache-write-through] [--no-cache]\n                    [--initial-cache-blocks INITIAL_CACHE_BLOCKS]\n                    [--mcp-config MCP_CONFIG] [--hf-endpoint HF_ENDPOINT]\n                    [--hf-cache | --no-hf-cache] [--ms-endpoint MS_ENDPOINT]\n                    [--http-proxy HTTP_PROXY] [--https-proxy HTTPS_PROXY]\n                    [--no-proxy NO_PROXY] [--ca-bundle CA_BUNDLE]\n                    [--base-path BASE_PATH] [--api-key API_KEY]\n\nStart a multi-model inference server with LRU-based memory management.\n\nModels are discovered from subdirectories of --model-dir. Each subdirectory\nshould contain a valid model with config.json and *.safetensors files.\n\nExample directory structure:\n  /path/to/models/\n  ├── llama-3b/           → model_id: \"llama-3b\"\n  │   ├── config.json\n  │   └── model.safetensors\n  ├── qwen-7b/            → model_id: \"qwen-7b\"\n  └── mistral-7b/         → model_id: \"mistral-7b\"\n\noptions:\n  -h, --help            show this help message and exit\n  --model-dir MODEL_DIR\n                        Directory containing model subdirectories (default:\n                        ~/.omlx/models)\n  --host HOST           Host to bind (default: 127.0.0.1)\n  --port PORT           Port to bind (default: 8000)\n  --log-level {trace,debug,info,warning,error}\n                        Log level (default: info). trace includes full message\n                        content\n  --sse-keepalive-mode {chunk,comment,off}\n                        SSE keepalive emission mode (default: chunk). 'chunk'\n                        emits protocol-aware no-op events compatible with\n                        strict clients like OpenClaw / WorkBuddy; 'comment'\n                        emits the legacy ': keep-alive' SSE comment; 'off'\n                        disables keepalive entirely\n  --max-audio-upload-size MAX_AUDIO_UPLOAD_SIZE\n                        Maximum audio upload size for /v1/audio/transcriptions\n                        and /v1/audio/process (e.g. '100MB', '500MB').\n                        Overrides the value in settings.json (built-in\n                        default: 100MB). Uploads are buffered in memory, so\n                        this is also a per-request RAM cap\n  --max-image-upload-size MAX_IMAGE_UPLOAD_SIZE\n                        Maximum image payload size for VLM inputs (e.g.\n                        '50MB', '100MB'). Overrides the value in settings.json\n                        (built-in default: 50MB).\n  --max-image-side-length MAX_IMAGE_SIDE_LENGTH\n                        Maximum side length in pixels for VLM input images.\n                        Images exceeding this limit are downscaled preserving\n                        aspect ratio (built-in default: 2048, 0 to disable).\n  --max-concurrent-requests MAX_CONCURRENT_REQUESTS\n                        Max requests processed simultaneously. Higher values\n                        increase throughput but use more memory. (default: 8)\n  --embedding-batch-size EMBEDDING_BATCH_SIZE\n                        Max embedding inputs processed in one forward pass.\n                        Higher values increase throughput but use more memory.\n                        (default: 32)\n  --memory-guard {off,safe,balanced,aggressive}\n                        Memory guard tier, or 'off' to disable the guard. The\n                        tier sets how much memory stays free for other apps:\n                        safe keeps about 20% of RAM (6-16 GB), balanced about\n                        8% (3-8 GB), aggressive 2% (1.5-4 GB) and may compress\n                        other apps' memory. Passing a tier also turns the\n                        guard on. (default: balanced)\n  --memory-guard-gb MEMORY_GUARD_GB\n                        Custom memory guard ceiling in GB. Sets memory guard\n                        tier to custom and turns the guard on.\n  --paged-ssd-cache-dir PAGED_SSD_CACHE_DIR\n                        Directory for paged SSD cache storage (enables oMLX\n                        prefix cache)\n  --paged-ssd-cache-max-size PAGED_SSD_CACHE_MAX_SIZE\n                        Maximum paged SSD cache size (e.g., '100GB', '50GB').\n                        Default: 100GB\n  --hot-cache-max-size HOT_CACHE_MAX_SIZE\n                        Maximum in-memory hot cache size (e.g., '8GB', '4GB').\n                        Default: 0 (disabled)\n  --hot-cache-write-through\n                        Persist every hot-cache block to SSD immediately\n                        (write-through). Keeps RAM-speed resume while\n                        retaining SSD durability for all sessions.\n  --no-cache            Disable oMLX paged SSD cache. mlx-lm BatchGenerator\n                        still manages KV states internally.\n  --initial-cache-blocks INITIAL_CACHE_BLOCKS\n                        Number of cache blocks to pre-allocate at startup\n                        (default: 256). Higher values reduce dynamic\n                        allocation overhead for large contexts.\n  --mcp-config MCP_CONFIG\n                        Path to MCP configuration file (JSON/YAML) for tool\n                        integration\n  --hf-endpoint HF_ENDPOINT\n                        Custom HuggingFace Hub endpoint URL (e.g., https://hf-\n                        mirror.com)\n  --hf-cache, --no-hf-cache\n                        Discover models from the standard HuggingFace Hub\n                        local cache (default: enabled)\n  --ms-endpoint MS_ENDPOINT\n                        Custom ModelScope Hub endpoint URL\n  --http-proxy HTTP_PROXY\n                        HTTP proxy URL (e.g., http://proxy.company.com:8080)\n  --https-proxy HTTPS_PROXY\n                        HTTPS proxy URL (e.g., http://proxy.company.com:8080)\n  --no-proxy NO_PROXY   Comma-separated hosts/IPs to bypass proxy (e.g.,\n                        localhost,127.0.0.1)\n  --ca-bundle CA_BUNDLE\n                        Path to CA bundle PEM file for TLS interception\n                        environments\n  --base-path BASE_PATH\n                        Base directory for oMLX data (default: ~/.omlx)\n  --api-key API_KEY     API key for authentication (required for non-loopback\n                        binds)\n",
+      "stderr": ""
+    },
+    {
+      "label": "embedded_python_and_metal",
+      "argv": [
+        "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/bin/python3",
+        "-s",
+        "-c",
+        "import sys,os,json,pathlib,platform,importlib,importlib.metadata as md\nroot=pathlib.Path(sys.argv[1]).resolve()\nmodules={}\nfor name in ['omlx','mlx.core','mlx_lm','fastapi','transformers']:\n m=importlib.import_module(name);p=pathlib.Path(m.__file__).resolve();modules[name]={'file':str(p),'inside_bundle':p.is_relative_to(root)};assert p.is_relative_to(root),(name,str(p))\nprint(json.dumps({'python':sys.version,'executable':sys.executable,'machine':platform.machine(),'prefix':sys.prefix,'base_prefix':sys.base_prefix,'sys_path':sys.path,'modules':modules,'versions':{n:md.version(n) for n in ['mlx','mlx-lm','fastapi','transformers']}},indent=2),flush=True)\nimport mlx.core as mx\nassert mx.metal.is_available(),'Metal unavailable'\ngpu=mx.default_stream(mx.gpu);assert gpu.device.type==mx.gpu\nmx.set_default_device(mx.gpu)\nwith mx.stream(gpu):\n a=mx.array([[1.,2.],[3.,4.]],dtype=mx.float32);b=mx.array([[5.,6.],[7.,8.]],dtype=mx.float32);c=mx.matmul(a,b,stream=gpu);mx.eval(c);mx.synchronize(gpu);value=c.tolist()\nassert value==[[19.,22.],[43.,50.]],value\nprint(json.dumps({'metal_available':mx.metal.is_available(),'gpu_stream':str(gpu),'gpu_stream_device':str(gpu.device),'default_device':str(mx.default_device()),'device_info':mx.metal.device_info(),'operation':'2x2 float32 matmul explicitly stream=gpu then eval and synchronize(gpu)','actual':value,'expected':[[19.,22.],[43.,50.]],'passed':True},indent=2),flush=True)\n",
+        "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app"
+      ],
+      "pid": 86035,
+      "timeout_seconds": 120,
+      "timed_out": false,
+      "exit_code": 0,
+      "elapsed_seconds": 2.421,
+      "stdout": "{\n  \"python\": \"3.11.10 (main, Oct 16 2024, 08:56:36) [Clang 18.1.8 ]\",\n  \"executable\": \"/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/bin/python3\",\n  \"machine\": \"arm64\",\n  \"prefix\": \"/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11\",\n  \"base_prefix\": \"/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11\",\n  \"sys_path\": [\n    \"\",\n    \"/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources\",\n    \"/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/framework-mlx-base/lib/python3.11/site-packages\",\n    \"/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/lib/python311.zip\",\n    \"/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/lib/python3.11\",\n    \"/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/lib/python3.11/lib-dynload\",\n    \"/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/lib/python3.11/site-packages\",\n    \"/Users/cryingneko/Workspace/omlx/omlx/packaging/_export/cpython-3.11/lib/python3.11/site-packages\"\n  ],\n  \"modules\": {\n    \"omlx\": {\n      \"file\": \"/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/omlx/__init__.py\",\n      \"inside_bundle\": true\n    },\n    \"mlx.core\": {\n      \"file\": \"/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/framework-mlx-base/lib/python3.11/site-packages/mlx/core.cpython-311-darwin.so\",\n      \"inside_bundle\": true\n    },\n    \"mlx_lm\": {\n      \"file\": \"/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/framework-mlx-base/lib/python3.11/site-packages/mlx_lm/__init__.py\",\n      \"inside_bundle\": true\n    },\n    \"fastapi\": {\n      \"file\": \"/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/framework-mlx-base/lib/python3.11/site-packages/fastapi/__init__.py\",\n      \"inside_bundle\": true\n    },\n    \"transformers\": {\n      \"file\": \"/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/framework-mlx-base/lib/python3.11/site-packages/transformers/__init__.py\",\n      \"inside_bundle\": true\n    }\n  },\n  \"versions\": {\n    \"mlx\": \"0.32.2\",\n    \"mlx-lm\": \"0.31.4.dev132+g94cdcae13\",\n    \"fastapi\": \"0.142.2\",\n    \"transformers\": \"5.17.0\"\n  }\n}\n{\n  \"metal_available\": true,\n  \"gpu_stream\": \"Stream(Device(gpu, 0), 0)\",\n  \"gpu_stream_device\": \"Device(gpu, 0)\",\n  \"default_device\": \"Device(gpu, 0)\",\n  \"device_info\": {\n    \"device_name\": \"Apple M5 Pro\",\n    \"max_recommended_working_set_size\": 62277025792,\n    \"memory_size\": 68719476736,\n    \"architecture\": \"applegpu_g17s\",\n    \"max_buffer_length\": 41747087360,\n    \"resource_limit\": 499000\n  },\n  \"operation\": \"2x2 float32 matmul explicitly stream=gpu then eval and synchronize(gpu)\",\n  \"actual\": [\n    [\n      19.0,\n      22.0\n    ],\n    [\n      43.0,\n      50.0\n    ]\n  ],\n  \"expected\": [\n    [\n      19.0,\n      22.0\n    ],\n    [\n      43.0,\n      50.0\n    ]\n  ],\n  \"passed\": true\n}\n",
+      "stderr": "mx.metal.device_info is deprecated and will be removed in a future version. Use mx.device_info instead.\n"
+    },
+    {
+      "label": "post_runtime_codesign",
+      "argv": [
+        "/usr/bin/codesign",
+        "--verify",
+        "--deep",
+        "--strict",
+        "--verbose=2",
+        "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app"
+      ],
+      "pid": 86091,
+      "timeout_seconds": 120,
+      "timed_out": false,
+      "exit_code": 0,
+      "elapsed_seconds": 2.199,
+      "stdout": "",
+      "stderr": "--prepared:/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/MacOS/omlx-cluster-python\n--validated:/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/MacOS/omlx-cluster-python\n--prepared:/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/MacOS/omlx-cli\n--validated:/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/MacOS/omlx-cli\n/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app: valid on disk\n/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app: satisfies its Designated Requirement\n"
+    },
+    {
+      "label": "host_os",
+      "argv": [
+        "/usr/bin/sw_vers"
+      ],
+      "pid": 86099,
+      "timeout_seconds": 60,
+      "timed_out": false,
+      "exit_code": 0,
+      "elapsed_seconds": 0.014,
+      "stdout": "ProductName:\t\tmacOS\nProductVersion:\t\t27.0.1\nBuildVersion:\t\t26A434\n",
+      "stderr": ""
+    },
+    {
+      "label": "host_arch",
+      "argv": [
+        "/usr/bin/uname",
+        "-m"
+      ],
+      "pid": 86100,
+      "timeout_seconds": 60,
+      "timed_out": false,
+      "exit_code": 0,
+      "elapsed_seconds": 0.004,
+      "stdout": "arm64\n",
+      "stderr": ""
+    },
+    {
+      "label": "mount_identity_before_detach",
+      "argv": [
+        "/usr/sbin/diskutil",
+        "info",
+        "-plist",
+        "/dev/disk13s1"
+      ],
+      "pid": 86101,
+      "timeout_seconds": 60,
+      "timed_out": false,
+      "exit_code": 0,
+      "elapsed_seconds": 0.215,
+      "stdout": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n\t<key>APFSContainerFree</key>\n\t<integer>509353984</integer>\n\t<key>APFSContainerReference</key>\n\t<string>disk13</string>\n\t<key>APFSContainerSize</key>\n\t<integer>2274283520</integer>\n\t<key>APFSPhysicalStores</key>\n\t<array>\n\t\t<dict>\n\t\t\t<key>APFSPhysicalStore</key>\n\t\t\t<string>disk12s2</string>\n\t\t</dict>\n\t</array>\n\t<key>APFSSnapshot</key>\n\t<false/>\n\t<key>Bootable</key>\n\t<true/>\n\t<key>BusProtocol</key>\n\t<string>Disk Image</string>\n\t<key>CanBeMadeBootable</key>\n\t<false/>\n\t<key>CanBeMadeBootableRequiresDestroy</key>\n\t<false/>\n\t<key>CapacityInUse</key>\n\t<integer>1755189248</integer>\n\t<key>Content</key>\n\t<string>41504653-0000-11AA-AA11-00306543ECAC</string>\n\t<key>DeviceBlockSize</key>\n\t<integer>4096</integer>\n\t<key>DeviceIdentifier</key>\n\t<string>disk13s1</string>\n\t<key>DeviceNode</key>\n\t<string>/dev/disk13s1</string>\n\t<key>DeviceTreePath</key>\n\t<string>IODeviceTree:/</string>\n\t<key>DiskUUID</key>\n\t<string>3350714A-AC59-41DB-9783-82E726165D46</string>\n\t<key>Ejectable</key>\n\t<true/>\n\t<key>EjectableMediaAutomaticUnderSoftwareControl</key>\n\t<true/>\n\t<key>EjectableOnly</key>\n\t<true/>\n\t<key>Encryption</key>\n\t<false/>\n\t<key>EncryptionThisVolumeProper</key>\n\t<false/>\n\t<key>FileVault</key>\n\t<false/>\n\t<key>FilesystemName</key>\n\t<string>APFS</string>\n\t<key>FilesystemType</key>\n\t<string>apfs</string>\n\t<key>FilesystemUserVisibleName</key>\n\t<string>APFS</string>\n\t<key>FreeSpace</key>\n\t<integer>0</integer>\n\t<key>GlobalPermissionsEnabled</key>\n\t<false/>\n\t<key>IOKitSize</key>\n\t<integer>2274283520</integer>\n\t<key>IORegistryEntryName</key>\n\t<string>oMLX</string>\n\t<key>Internal</key>\n\t<false/>\n\t<key>Locked</key>\n\t<false/>\n\t<key>MediaName</key>\n\t<string></string>\n\t<key>MediaType</key>\n\t<string>通用</string>\n\t<key>MountPoint</key>\n\t<string>/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/readonly-mount</string>\n\t<key>OSInternalMedia</key>\n\t<false/>\n\t<key>ParentWholeDisk</key>\n\t<string>disk13</string>\n\t<key>PartitionMapPartition</key>\n\t<false/>\n\t<key>RAIDMaster</key>\n\t<false/>\n\t<key>RAIDSlice</key>\n\t<false/>\n\t<key>Removable</key>\n\t<true/>\n\t<key>RemovableMedia</key>\n\t<true/>\n\t<key>RemovableMediaOrExternalDevice</key>\n\t<true/>\n\t<key>SMARTDeviceSpecificKeysMayVaryNotGuaranteed</key>\n\t<dict/>\n\t<key>SMARTStatus</key>\n\t<string>Not Supported</string>\n\t<key>Sealed</key>\n\t<string>No</string>\n\t<key>Size</key>\n\t<integer>2274283520</integer>\n\t<key>SupportsGlobalPermissionsDisable</key>\n\t<true/>\n\t<key>SystemImage</key>\n\t<false/>\n\t<key>TotalSize</key>\n\t<integer>2274283520</integer>\n\t<key>VolumeAllocationBlockSize</key>\n\t<integer>4096</integer>\n\t<key>VolumeName</key>\n\t<string>oMLX</string>\n\t<key>VolumeSize</key>\n\t<integer>0</integer>\n\t<key>VolumeUUID</key>\n\t<string>3350714A-AC59-41DB-9783-82E726165D46</string>\n\t<key>WholeDisk</key>\n\t<false/>\n\t<key>Writable</key>\n\t<false/>\n\t<key>WritableMedia</key>\n\t<false/>\n\t<key>WritableVolume</key>\n\t<false/>\n</dict>\n</plist>\n",
+      "stderr": ""
+    },
+    {
+      "label": "detach_exact_owned_device",
+      "argv": [
+        "/usr/bin/hdiutil",
+        "detach",
+        "/dev/disk12"
+      ],
+      "pid": 86140,
+      "timeout_seconds": 60,
+      "timed_out": false,
+      "exit_code": 0,
+      "elapsed_seconds": 10.799,
+      "stdout": "\"disk12\" ejected.\n",
+      "stderr": "hdiutil: WARNING: 'hdiutil detach ...' is deprecated. Please use 'diskutil eject ...' instead.\n"
+    },
+    {
+      "label": "embedded_all_imports_containment",
+      "argv": [
+        "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/bin/python3",
+        "-s",
+        "-c",
+        "import sys,json,pathlib,importlib\nroot=pathlib.Path(sys.argv[1]).resolve()\nfor name in ['omlx','mlx.core','mlx_lm','fastapi','transformers']:importlib.import_module(name)\nrows=[]\nfor name,m in sorted(sys.modules.items()):\n f=getattr(m,'__file__',None)\n if not f:continue\n p=pathlib.Path(f).resolve();rows.append({'module':name,'file':str(p),'inside_bundle':p.is_relative_to(root)})\nexternal=[r for r in rows if not r['inside_bundle']]\nprint(json.dumps({'module_file_count':len(rows),'outside_bundle':external,'all_file_modules_inside':not external,'sys_path':[{'path':p,'resolved':str(pathlib.Path(p).resolve()),'exists':pathlib.Path(p).exists(),'inside_bundle':pathlib.Path(p).resolve().is_relative_to(root)} for p in sys.path],'sitecustomize':str(pathlib.Path(sys.modules['sitecustomize'].__file__).resolve())},indent=2))\nassert not external,external\n",
+        "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app"
+      ],
+      "pid": 87566,
+      "timeout_seconds": 120,
+      "timed_out": false,
+      "exit_code": 0,
+      "elapsed_seconds": 1.644,
+      "stdout": "{\n  \"module_file_count\": 850,\n  \"outside_bundle\": [],\n  \"all_file_modules_inside\": true,\n  \"sys_path\": [\n    {\n      \"path\": \"\",\n      \"resolved\": \"/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_\",\n      \"exists\": true,\n      \"inside_bundle\": false\n    },\n    {\n      \"path\": \"/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources\",\n      \"resolved\": \"/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources\",\n      \"exists\": true,\n      \"inside_bundle\": true\n    },\n    {\n      \"path\": \"/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/framework-mlx-base/lib/python3.11/site-packages\",\n      \"resolved\": \"/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/framework-mlx-base/lib/python3.11/site-packages\",\n      \"exists\": true,\n      \"inside_bundle\": true\n    },\n    {\n      \"path\": \"/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/lib/python311.zip\",\n      \"resolved\": \"/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/lib/python311.zip\",\n      \"exists\": false,\n      \"inside_bundle\": true\n    },\n    {\n      \"path\": \"/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/lib/python3.11\",\n      \"resolved\": \"/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/lib/python3.11\",\n      \"exists\": true,\n      \"inside_bundle\": true\n    },\n    {\n      \"path\": \"/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/lib/python3.11/lib-dynload\",\n      \"resolved\": \"/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/lib/python3.11/lib-dynload\",\n      \"exists\": true,\n      \"inside_bundle\": true\n    },\n    {\n      \"path\": \"/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/lib/python3.11/site-packages\",\n      \"resolved\": \"/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/lib/python3.11/site-packages\",\n      \"exists\": true,\n      \"inside_bundle\": true\n    },\n    {\n      \"path\": \"/Users/cryingneko/Workspace/omlx/omlx/packaging/_export/cpython-3.11/lib/python3.11/site-packages\",\n      \"resolved\": \"/Users/cryingneko/Workspace/omlx/omlx/packaging/_export/cpython-3.11/lib/python3.11/site-packages\",\n      \"exists\": false,\n      \"inside_bundle\": false\n    }\n  ],\n  \"sitecustomize\": \"/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/framework-mlx-base/lib/python3.11/site-packages/sitecustomize.py\"\n}\n",
+      "stderr": ""
+    },
+    {
+      "label": "final_codesign",
+      "argv": [
+        "/usr/bin/codesign",
+        "--verify",
+        "--deep",
+        "--strict",
+        "--verbose=2",
+        "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app"
+      ],
+      "pid": 87741,
+      "timeout_seconds": 120,
+      "timed_out": false,
+      "exit_code": 0,
+      "elapsed_seconds": 2.352,
+      "stdout": "",
+      "stderr": "--prepared:/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/MacOS/omlx-cli\n--validated:/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/MacOS/omlx-cli\n--prepared:/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/MacOS/omlx-cluster-python\n--validated:/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/MacOS/omlx-cluster-python\n/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app: valid on disk\n/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app: satisfies its Designated Requirement\n"
+    },
+    {
+      "label": "final_spctl",
+      "argv": [
+        "/usr/sbin/spctl",
+        "--assess",
+        "--type",
+        "execute",
+        "--verbose=4",
+        "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app"
+      ],
+      "pid": 87770,
+      "timeout_seconds": 120,
+      "timed_out": false,
+      "exit_code": 0,
+      "elapsed_seconds": 2.694,
+      "stdout": "",
+      "stderr": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app: accepted\nsource=Notarized Developer ID\n"
+    }
+  ],
+  "dmg": {
+    "path": "/Users/ghost233/Ghost233Code/GhostModelDeck/.tooling/engine-artifacts/oMLX-0.7.0-macos26-27.dmg",
+    "before": {
+      "device": 16777230,
+      "inode": 16052927,
+      "size": 830879938,
+      "mtime_ns": 1791213707870559831
+    },
+    "after": {
+      "device": 16777230,
+      "inode": 16052927,
+      "size": 830879938,
+      "mtime_ns": 1791213707870559831
+    },
+    "sha256": "2e3bb06ac6ee7f50986ba1417e909d432ccd2be471db752a4a2d3b5651e3bce0",
+    "stable": true
+  },
+  "root": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_",
+  "mount": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/readonly-mount",
+  "private": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private",
+  "attached": {
+    "system-entities": [
+      {
+        "content-hint": "EFI",
+        "dev-entry": "/dev/disk12s1",
+        "potentially-mountable": true,
+        "unmapped-content-hint": "C12A7328-F81F-11D2-BA4B-00A0C93EC93B",
+        "volume-kind": "msdos"
+      },
+      {
+        "content-hint": "41504653-0000-11AA-AA11-00306543ECAC",
+        "dev-entry": "/dev/disk13s1",
+        "mount-point": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/readonly-mount",
+        "potentially-mountable": true,
+        "unmapped-content-hint": "41504653-0000-11AA-AA11-00306543ECAC",
+        "volume-kind": "apfs"
+      },
+      {
+        "content-hint": "Apple_APFS",
+        "dev-entry": "/dev/disk12s2",
+        "potentially-mountable": false,
+        "unmapped-content-hint": "7C3457EF-0000-11AA-AA11-00306543ECAC"
+      },
+      {
+        "content-hint": "EF57347C-0000-11AA-AA11-00306543ECAC",
+        "dev-entry": "/dev/disk13",
+        "potentially-mountable": false,
+        "unmapped-content-hint": "EF57347C-0000-11AA-AA11-00306543ECAC"
+      },
+      {
+        "content-hint": "GUID_partition_scheme",
+        "dev-entry": "/dev/disk12",
+        "potentially-mountable": false,
+        "unmapped-content-hint": "GUID_partition_scheme"
+      }
+    ]
+  },
+  "mounted_device": "/dev/disk13s1",
+  "detach_device": "/dev/disk12",
+  "source_bundle": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/readonly-mount/oMLX.app",
+  "relocated_bundle": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app",
+  "plist": {
+    "BuildMachineOSBuild": "25F71",
+    "CFBundleDevelopmentRegion": "en",
+    "CFBundleDisplayName": "oMLX",
+    "CFBundleExecutable": "oMLX",
+    "CFBundleIconFile": "AppIcon",
+    "CFBundleIconName": "AppIcon",
+    "CFBundleIdentifier": "app.omlx",
+    "CFBundleInfoDictionaryVersion": "6.0",
+    "CFBundleLocalizations": [
+      "en",
+      "zh-Hans",
+      "zh-Hant",
+      "ja",
+      "ko",
+      "ru"
+    ],
+    "CFBundleName": "oMLX",
+    "CFBundlePackageType": "APPL",
+    "CFBundleShortVersionString": "0.7.0",
+    "CFBundleSupportedPlatforms": [
+      "MacOSX"
+    ],
+    "CFBundleURLTypes": [
+      {
+        "CFBundleURLName": "app.omlx.url",
+        "CFBundleURLSchemes": [
+          "omlxapp"
+        ]
+      }
+    ],
+    "CFBundleVersion": "2987",
+    "DTCompiler": "com.apple.compilers.llvm.clang.1_0",
+    "DTPlatformBuild": "25F70",
+    "DTPlatformName": "macosx",
+    "DTPlatformVersion": "26.5",
+    "DTSDKBuild": "25F70",
+    "DTSDKName": "macosx26.5",
+    "DTXcode": "2650",
+    "DTXcodeBuild": "17F42",
+    "LSMinimumSystemVersion": "15.0",
+    "NSHumanReadableCopyright": "Copyright © 2026 oMLX. All rights reserved.",
+    "NSSupportsAutomaticTermination": true,
+    "NSSupportsSuddenTermination": false
+  },
+  "inventory": {
+    "source_entries": 48734,
+    "relocated_entries": 48734,
+    "equivalent": true,
+    "source_escapes": [],
+    "relocated_escapes": [],
+    "source_sha256": "5f064a2c0b40c8195d2c1137477eb8d22757103982f24c4f2602b6de81aff688",
+    "relocated_sha256": "5f064a2c0b40c8195d2c1137477eb8d22757103982f24c4f2602b6de81aff688"
+  },
+  "sanitized_environment": {
+    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+    "HOME": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/home",
+    "TMPDIR": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/tmp",
+    "XDG_CACHE_HOME": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/cache",
+    "XDG_CONFIG_HOME": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/config",
+    "XDG_DATA_HOME": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/data",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "PYTHONNOUSERSITE": "1",
+    "LANG": "en_US.UTF-8"
+  },
+  "wrapper_text": "#!/bin/sh\nset -eu\n\nREAL_PATH=\"$(realpath \"$0\")\"\nAPP_ROOT=\"$(CDPATH= cd -- \"$(dirname -- \"$REAL_PATH\")/..\" && pwd)\"\nRESOURCES=\"$APP_ROOT/Resources\"\nPYROOT=\"$RESOURCES/Python\"\nCPYTHON=\"$PYROOT/cpython-3.11\"\nPYTHON=\"$CPYTHON/bin/python3\"\nMLX_SITE=\"$PYROOT/framework-mlx-base/lib/python3.11/site-packages\"\n\nexport PYTHONHOME=\"$CPYTHON\"\nexport PYTHONDONTWRITEBYTECODE=1\nif [ -n \"${PYTHONPATH:-}\" ]; then\n    export PYTHONPATH=\"$RESOURCES:$MLX_SITE:$PYTHONPATH\"\nelse\n    export PYTHONPATH=\"$RESOURCES:$MLX_SITE\"\nfi\n\nexec \"$PYTHON\" -m omlx.cli \"$@\"\n",
+  "embedded_environment": {
+    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+    "HOME": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/home",
+    "TMPDIR": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/tmp",
+    "XDG_CACHE_HOME": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/cache",
+    "XDG_CONFIG_HOME": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/config",
+    "XDG_DATA_HOME": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/data",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "PYTHONNOUSERSITE": "1",
+    "LANG": "en_US.UTF-8",
+    "PYTHONHOME": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11",
+    "PYTHONPATH": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources:/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/framework-mlx-base/lib/python3.11/site-packages"
+  },
+  "fixed_source_comparison": {
+    "url": "https://api.github.com/repos/jundot/omlx/git/trees/4d4f5a280bc1739ba2cf39c1cee44fd5cc89cb40?recursive=1",
+    "commit": "4d4f5a280bc1739ba2cf39c1cee44fd5cc89cb40",
+    "tree_sha": "4d4f5a280bc1739ba2cf39c1cee44fd5cc89cb40",
+    "truncated": false,
+    "tracked_package_files": 770,
+    "equal": 693,
+    "differences": [
+      {
+        "path": "omlx/custom_kernels/bonsai/csrc/CMakeLists.txt",
+        "fixed_git_blob": "7ec8429d5cf35be7df0e8533274e099eb1eda018",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/bonsai/csrc/bindings.cpp",
+        "fixed_git_blob": "31a746888b255614b04dcd7e2546ed490bc51e18",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/bonsai/csrc/bonsai_kernels.cpp",
+        "fixed_git_blob": "67cdad694afd50b5ea1b982cfc7395e17de023ff",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/bonsai/csrc/bonsai_kernels.h",
+        "fixed_git_blob": "44a651ce4aa082217bf3a2e4d19fea32be6b8612",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/bonsai/csrc/bonsai_quantized.metal",
+        "fixed_git_blob": "71a7de8016615d9cb969f967a4190abfbe8d3e5c",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/bonsai/csrc/quantized.h",
+        "fixed_git_blob": "b52c9fee876420bf2e1cc22dcc75960dba7ddb46",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/bonsai/csrc/spec_decode.metal",
+        "fixed_git_blob": "bf613531498b26e86a5be9cfa413b365eb23eed6",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/common/csrc/kernels/quantized_moe.h",
+        "fixed_git_blob": "2ae4fc97c84272785e26a092fc5a138cbb11db7e",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/common/csrc/kernels/steel_attention_block_token.h",
+        "fixed_git_blob": "05f97e46fb017a05cca6a26801407a39ad300b6c",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/common/csrc/mlx/backend/metal/kernels/steel/attn/params.h",
+        "fixed_git_blob": "7894276ae96c6ea3bbf4745ea95dcabeb54fde7d",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/decode_fast/csrc/CMakeLists.txt",
+        "fixed_git_blob": "1aca23a68d8504eaf46e63427821de88b7dabcd3",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/decode_fast/csrc/MLX_LICENSE.txt",
+        "fixed_git_blob": "98ff47b9ef9d4ac9f1a4bde3db13dd27456c5ea1",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/decode_fast/csrc/bindings.cpp",
+        "fixed_git_blob": "f587eb0697467576c7f0ff25845aa1f8fbd9d43c",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/decode_fast/csrc/sdpa_decode.cpp",
+        "fixed_git_blob": "9ce561505bacae17f81070a1bddd01b44778e19a",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/decode_fast/csrc/sdpa_decode.h",
+        "fixed_git_blob": "8038732b585772d46bdad4d332e631ff4e68fba2",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/decode_fast/csrc/sdpa_decode.metal",
+        "fixed_git_blob": "e51da855504584a698710c0bd49599945c436444",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/decode_fast/csrc/sdpa_decode_kernels.h",
+        "fixed_git_blob": "7d8235d4c55158e10c991c09d7c25eedeb2f3876",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/CMakeLists.txt",
+        "fixed_git_blob": "fd35ad70b49e520f4f2d944899ed90502de9c9c7",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/MLX_LICENSE.txt",
+        "fixed_git_blob": "98ff47b9ef9d4ac9f1a4bde3db13dd27456c5ea1",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/MLX_SERVE_LICENSE.txt",
+        "fixed_git_blob": "fa6c781bf4ad462d965a429bd1c1c33475d3905a",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/bindings.cpp",
+        "fixed_git_blob": "526b53410f95ac37e9008753b08dc7721cce77d3",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/deepseek_moe.metal",
+        "fixed_git_blob": "b888b1f0a3158f74287a3cb351fc071d03797dcd",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/deepseek_v41_grouped_expert.cpp",
+        "fixed_git_blob": "ca39d8043a046d2eaa673dccddba703a252d2125",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/deepseek_v41_grouped_expert.h",
+        "fixed_git_blob": "a560d70c668128d7858ef7c0da3466da9f3c9645",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/deepseek_v41_packed_attention.cpp",
+        "fixed_git_blob": "32e6f8f18e0a1473dbbe3dee6f89c3e3640b32dc",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/deepseek_v41_packed_attention.h",
+        "fixed_git_blob": "4352a4f567cb0462bbcfe1c151017f4100cdacf7",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/deepseek_v41_packed_attention.metal",
+        "fixed_git_blob": "774848263d03028dc4cf1a571399e49eeb3f51dd",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/deepseek_v4_sparse_attention.cpp",
+        "fixed_git_blob": "c49ec8d462241cbdd8f76967690cd2fabd80355e",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/deepseek_v4_sparse_attention.h",
+        "fixed_git_blob": "6ca45a9547b957b37fb4e48f4c6dcf6daf9711a9",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/deepseek_v4_sparse_attention.metal",
+        "fixed_git_blob": "5f25f2d75060779e5361b37844263b263a09dc99",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/dsa_indexer.cpp",
+        "fixed_git_blob": "239c90a4ef1235679712111719bfd965a4edc6c7",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/dsa_indexer.h",
+        "fixed_git_blob": "acdb83bc8ec0aeb4e9d2bcc2455097aefb6c6236",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/dsa_indexer.metal",
+        "fixed_git_blob": "e3b86da1c333c16ac2c6acd160ee8c1ef6f735e9",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/dspark_gemm.cpp",
+        "fixed_git_blob": "b9660b0136418352f9b7ffded9768cc60c078d12",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/dspark_gemm.h",
+        "fixed_git_blob": "e1bd3dcf01870832a7b59acfc97b604b45029a23",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/dspark_gemm.metal",
+        "fixed_git_blob": "ac9caae7531bfa1a0d5684e43cb5801139eb95e3",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/dspark_qmv.cpp",
+        "fixed_git_blob": "a50adba982f0c043b980dd74855684545cb58e19",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/dspark_qmv.h",
+        "fixed_git_blob": "c626550a03405aee8e4528460009a845721ad871",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/dspark_qmv.metal",
+        "fixed_git_blob": "68ff746a91cd36fbd92743a77319613502ee72ea",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/exact_block_attention.cpp",
+        "fixed_git_blob": "e84f9492f0c383a0ea51da7bb97042f53cda6753",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/exact_block_attention.h",
+        "fixed_git_blob": "27d2ab1454d50c343a89db34c3f064dd16e8d84d",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/exact_block_attention.metal",
+        "fixed_git_blob": "0fa5b3900b93ce3a12f1c4c14c2983a1840670d9",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/fused_moe.cpp",
+        "fixed_git_blob": "44ed011b6196f2cc969add0cf6e003db5a8333bc",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/fused_moe.h",
+        "fixed_git_blob": "4cd06c4bb18f31e00bb5d66bcecb79a886db558d",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/fused_moe.metal",
+        "fixed_git_blob": "df75d4b4d6d94f49dd5b6b4236ad62c22343e336",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/kernels/mma_dsa_indexer_score.h",
+        "fixed_git_blob": "295256fa850be9a391274eed466d350109159dc1",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/kernels/steel_deepseek_v41_packed_attention.h",
+        "fixed_git_blob": "72a109ef77b9b0536ff6cb760a791ab6e204c954",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/kernels/steel_deepseek_v4_sparse_attention.h",
+        "fixed_git_blob": "6560c4d04af4a0fc0a9ca600c7c43849e5a3a22c",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/kernels/steel_dsa_indexer_score.h",
+        "fixed_git_blob": "4781f5fd08815d81ae632ec81c018ed070645b9d",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/kernels/steel_qwen4_qsa_sparse_gqa.h",
+        "fixed_git_blob": "aba4047d8e8c329209bc28358d3fbaa0fb08a40b",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/kernels/steel_sparse_mla.h",
+        "fixed_git_blob": "24ce1422e3f5e01ea0e26a282674c2461f6f1daf",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/qwen4_qsa_sparse_gqa.cpp",
+        "fixed_git_blob": "43ab9a909f9ffbb9e2f895f4e4dd99e51eb29d36",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/qwen4_qsa_sparse_gqa.h",
+        "fixed_git_blob": "b62246f4d2c68380c0754cfa9251e8096359e606",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/qwen4_qsa_sparse_gqa.metal",
+        "fixed_git_blob": "8937e720c0f6d89b38b1d02ffb299730c3e73022",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/sparse_mla.cpp",
+        "fixed_git_blob": "05b14ccde4dfee8f964d532844e56742592a8cea",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/sparse_mla.h",
+        "fixed_git_blob": "070152474b7523325118d3ac236d3de11ff94cfc",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/glm_moe_dsa/csrc/sparse_mla.metal",
+        "fixed_git_blob": "3b7fcdf2fb3059b34dc644914c513f96223b8254",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/minimax_m3/csrc/CMakeLists.txt",
+        "fixed_git_blob": "45e8af9f494bbb05de4c9f54c3620bf73bc3c3de",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/minimax_m3/csrc/bindings.cpp",
+        "fixed_git_blob": "673ca35e0bbc9b6bf59bfc0eccc66ccfb133034d",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/minimax_m3/csrc/minimax_msa.cpp",
+        "fixed_git_blob": "ca050ed3dc3a5f83102f48edd974e3b3b0504ad8",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/minimax_m3/csrc/minimax_msa.h",
+        "fixed_git_blob": "f8569e09f81626110ae889f4f0b7992c970db97a",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/minimax_m3/csrc/minimax_msa.metal",
+        "fixed_git_blob": "325f4366dc4cb1284292bc5ebb738bbea6058262",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/qwen35_prefill/csrc/CMakeLists.txt",
+        "fixed_git_blob": "3c2c681ad357d52a3287ce96d0551ef1b4cde1da",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/qwen35_prefill/csrc/bindings.cpp",
+        "fixed_git_blob": "76bb8a32e4d0a6ac93d0813431535ba2e6cf77a1",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/qwen35_prefill/csrc/oq_a8_decode.h",
+        "fixed_git_blob": "e9bffe3b0e7651f221493571a382fe792c59cce9",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/qwen35_prefill/csrc/qwen35_ane.h",
+        "fixed_git_blob": "47e40ee32e52a838ba879703dff63dedde51b404",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/qwen35_prefill/csrc/qwen35_ane.metal",
+        "fixed_git_blob": "31c9064075aaa1b8abcaa80b52ea3b963622b08c",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/qwen35_prefill/csrc/qwen35_ane.mm",
+        "fixed_git_blob": "39068523bd941b8bbf2a0985265fe5776540535f",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/qwen35_prefill/csrc/qwen35_attention.metal",
+        "fixed_git_blob": "1c2167d2908d5e00dd2720cbb274cff6eb28563e",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/qwen35_prefill/csrc/qwen35_moe_gather_nax.metal",
+        "fixed_git_blob": "c61a9e21dc0d4fb984c329e70f3e9d46b29ba352",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/qwen35_prefill/csrc/qwen35_oq_a8.cpp",
+        "fixed_git_blob": "f1bfb53df3e567106e7c67656ba582a5855d9c84",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/qwen35_prefill/csrc/qwen35_oq_a8.metal",
+        "fixed_git_blob": "e5cd3118d69ca3f7e68daa8c7c4fe87d8c9e0df8",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/qwen35_prefill/csrc/qwen35_oq_a8_nax.metal",
+        "fixed_git_blob": "fc1dc175f052fdca64c92a90dde83b714064b9ad",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/qwen35_prefill/csrc/qwen35_prefill.cpp",
+        "fixed_git_blob": "779590a8fa203ae1fb17dfd0ad39b5599817142f",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/qwen35_prefill/csrc/qwen35_prefill.h",
+        "fixed_git_blob": "6243ea9881c5439551c8267a5eff52d0b495d6f6",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/qwen35_prefill/csrc/qwen35_qmm.metal",
+        "fixed_git_blob": "e69f8ac226a8c986e4418adea2daee42250c0ba3",
+        "present": false
+      },
+      {
+        "path": "omlx/custom_kernels/qwen35_prefill/csrc/qwen35_qmm_nax.metal",
+        "fixed_git_blob": "983f7f8cccefc16f0d5478774726b46ac5a8aafa",
+        "present": false
+      }
+    ],
+    "scope": "all upstream tracked omlx/ blobs; not whole distribution/dependency/binary equivalence"
+  },
+  "mount_identity_before_detach": {
+    "APFSContainerFree": 509353984,
+    "APFSContainerReference": "disk13",
+    "APFSContainerSize": 2274283520,
+    "APFSPhysicalStores": [
+      {
+        "APFSPhysicalStore": "disk12s2"
+      }
+    ],
+    "APFSSnapshot": false,
+    "Bootable": true,
+    "BusProtocol": "Disk Image",
+    "CanBeMadeBootable": false,
+    "CanBeMadeBootableRequiresDestroy": false,
+    "CapacityInUse": 1755189248,
+    "Content": "41504653-0000-11AA-AA11-00306543ECAC",
+    "DeviceBlockSize": 4096,
+    "DeviceIdentifier": "disk13s1",
+    "DeviceNode": "/dev/disk13s1",
+    "DeviceTreePath": "IODeviceTree:/",
+    "DiskUUID": "3350714A-AC59-41DB-9783-82E726165D46",
+    "Ejectable": true,
+    "EjectableMediaAutomaticUnderSoftwareControl": true,
+    "EjectableOnly": true,
+    "Encryption": false,
+    "EncryptionThisVolumeProper": false,
+    "FileVault": false,
+    "FilesystemName": "APFS",
+    "FilesystemType": "apfs",
+    "FilesystemUserVisibleName": "APFS",
+    "FreeSpace": 0,
+    "GlobalPermissionsEnabled": false,
+    "IOKitSize": 2274283520,
+    "IORegistryEntryName": "oMLX",
+    "Internal": false,
+    "Locked": false,
+    "MediaName": "",
+    "MediaType": "通用",
+    "MountPoint": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/readonly-mount",
+    "OSInternalMedia": false,
+    "ParentWholeDisk": "disk13",
+    "PartitionMapPartition": false,
+    "RAIDMaster": false,
+    "RAIDSlice": false,
+    "Removable": true,
+    "RemovableMedia": true,
+    "RemovableMediaOrExternalDevice": true,
+    "SMARTDeviceSpecificKeysMayVaryNotGuaranteed": {},
+    "SMARTStatus": "Not Supported",
+    "Sealed": "No",
+    "Size": 2274283520,
+    "SupportsGlobalPermissionsDisable": true,
+    "SystemImage": false,
+    "TotalSize": 2274283520,
+    "VolumeAllocationBlockSize": 4096,
+    "VolumeName": "oMLX",
+    "VolumeSize": 0,
+    "VolumeUUID": "3350714A-AC59-41DB-9783-82E726165D46",
+    "WholeDisk": false,
+    "Writable": false,
+    "WritableMedia": false,
+    "WritableVolume": false
+  },
+  "cleanup": {
+    "detach_exit": 0,
+    "mount_bundle_absent": true,
+    "private_bundle_preserved": true,
+    "owned_children_waited": true
+  },
+  "builder_path_provenance": {
+    "file": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/framework-mlx-base/lib/python3.11/site-packages/sitecustomize.py",
+    "text": "\"\"\"venvstacks layered environment site customization script\n\n* Calls `site.addsitedir` for any configured Python path entries\n* Calls `os.add_dll_directory` for any configured Windows dynlib paths\n\nThis venv module is automatically generated by the post-installation script.\n\"\"\"\n\n\n# Allow loading modules and packages from linked environments\nfrom site import addsitedir\naddsitedir('/Users/cryingneko/Workspace/omlx/omlx/packaging/_export/cpython-3.11/lib/python3.11/site-packages')\n",
+    "sha256": "1be1ebfc284c54888e72a793aa0d8d014791a2ab422a3fa1bb1a73c3cae76486",
+    "remediation_not_attempted": true
+  },
+  "post_runtime_inventory": {
+    "entries": 48734,
+    "unchanged": true
+  },
+  "schema": "ghostmodeldeck.omlx.native-prerequisite.r53.v1",
+  "curated_at": "2026-10-06T04:41:52.325033+00:00",
+  "scope": "bounded private complete official app relocation prerequisite ONLY; not production installer, model inference or Ready acceptance",
+  "runtime": {
+    "python": "3.11.10 (main, Oct 16 2024, 08:56:36) [Clang 18.1.8 ]",
+    "executable": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/bin/python3",
+    "machine": "arm64",
+    "prefix": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11",
+    "base_prefix": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11",
+    "sys_path": [
+      "",
+      "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources",
+      "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/framework-mlx-base/lib/python3.11/site-packages",
+      "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/lib/python311.zip",
+      "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/lib/python3.11",
+      "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/lib/python3.11/lib-dynload",
+      "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/lib/python3.11/site-packages",
+      "/Users/cryingneko/Workspace/omlx/omlx/packaging/_export/cpython-3.11/lib/python3.11/site-packages"
+    ],
+    "modules": {
+      "omlx": {
+        "file": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/omlx/__init__.py",
+        "inside_bundle": true
+      },
+      "mlx.core": {
+        "file": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/framework-mlx-base/lib/python3.11/site-packages/mlx/core.cpython-311-darwin.so",
+        "inside_bundle": true
+      },
+      "mlx_lm": {
+        "file": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/framework-mlx-base/lib/python3.11/site-packages/mlx_lm/__init__.py",
+        "inside_bundle": true
+      },
+      "fastapi": {
+        "file": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/framework-mlx-base/lib/python3.11/site-packages/fastapi/__init__.py",
+        "inside_bundle": true
+      },
+      "transformers": {
+        "file": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/framework-mlx-base/lib/python3.11/site-packages/transformers/__init__.py",
+        "inside_bundle": true
+      }
+    },
+    "versions": {
+      "mlx": "0.32.2",
+      "mlx-lm": "0.31.4.dev132+g94cdcae13",
+      "fastapi": "0.142.2",
+      "transformers": "5.17.0"
+    }
+  },
+  "metal": {
+    "metal_available": true,
+    "gpu_stream": "Stream(Device(gpu, 0), 0)",
+    "gpu_stream_device": "Device(gpu, 0)",
+    "default_device": "Device(gpu, 0)",
+    "device_info": {
+      "device_name": "Apple M5 Pro",
+      "max_recommended_working_set_size": 62277025792,
+      "memory_size": 68719476736,
+      "architecture": "applegpu_g17s",
+      "max_buffer_length": 41747087360,
+      "resource_limit": 499000
+    },
+    "operation": "2x2 float32 matmul explicitly stream=gpu then eval and synchronize(gpu)",
+    "actual": [
+      [
+        19.0,
+        22.0
+      ],
+      [
+        43.0,
+        50.0
+      ]
+    ],
+    "expected": [
+      [
+        19.0,
+        22.0
+      ],
+      [
+        43.0,
+        50.0
+      ]
+    ],
+    "passed": true
+  },
+  "module_containment": {
+    "module_file_count": 850,
+    "outside_bundle": [],
+    "all_file_modules_inside": true,
+    "sys_path": [
+      {
+        "path": "",
+        "resolved": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_",
+        "exists": true,
+        "inside_bundle": false
+      },
+      {
+        "path": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources",
+        "resolved": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources",
+        "exists": true,
+        "inside_bundle": true
+      },
+      {
+        "path": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/framework-mlx-base/lib/python3.11/site-packages",
+        "resolved": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/framework-mlx-base/lib/python3.11/site-packages",
+        "exists": true,
+        "inside_bundle": true
+      },
+      {
+        "path": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/lib/python311.zip",
+        "resolved": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/lib/python311.zip",
+        "exists": false,
+        "inside_bundle": true
+      },
+      {
+        "path": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/lib/python3.11",
+        "resolved": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/lib/python3.11",
+        "exists": true,
+        "inside_bundle": true
+      },
+      {
+        "path": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/lib/python3.11/lib-dynload",
+        "resolved": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/lib/python3.11/lib-dynload",
+        "exists": true,
+        "inside_bundle": true
+      },
+      {
+        "path": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/lib/python3.11/site-packages",
+        "resolved": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/cpython-3.11/lib/python3.11/site-packages",
+        "exists": true,
+        "inside_bundle": true
+      },
+      {
+        "path": "/Users/cryingneko/Workspace/omlx/omlx/packaging/_export/cpython-3.11/lib/python3.11/site-packages",
+        "resolved": "/Users/cryingneko/Workspace/omlx/omlx/packaging/_export/cpython-3.11/lib/python3.11/site-packages",
+        "exists": false,
+        "inside_bundle": false
+      }
+    ],
+    "sitecustomize": "/private/tmp/gmd_omlx_private_probe_r53-lfvb7ca_/private/oMLX.app/Contents/Resources/Python/framework-mlx-base/lib/python3.11/site-packages/sitecustomize.py"
+  },
+  "outcomes": {
+    "artifact_hash_and_identity": true,
+    "official_signatures_source_relocated_post_runtime": true,
+    "complete_copy_inventory_equivalent": true,
+    "bundle_unchanged_after_runtime": true,
+    "copied_wrapper_help_version_serve_help": true,
+    "embedded_python_assessed_imports_inside": true,
+    "all_observed_file_modules_inside": true,
+    "explicit_metal_tiny_operation": true,
+    "python_search_path_fully_bundle_hermetic": false,
+    "fixed_entire_tracked_package_equivalent": false,
+    "fixed_present_package_files_byte_equivalent": true,
+    "whole_distribution_dependency_binary_fixed_source_equivalent": null,
+    "production_installer_accepted": false,
+    "model_inference_accepted": false,
+    "ready_accepted": false,
+    "own_mount_detached": true,
+    "own_children_collected": true
+  },
+  "source_binding_summary": {
+    "fixed_commit": "4d4f5a280bc1739ba2cf39c1cee44fd5cc89cb40",
+    "tracked_files": 770,
+    "present_equal": 693,
+    "missing": 77,
+    "present_changed": 0,
+    "tracked_python_files": 519,
+    "tracked_python_equal": 519,
+    "comparison_algorithm": "SHA1(\"blob \" + decimal byte length + NUL + bundled bytes), compared to immutable upstream Git blob IDs; no upstream code executed",
+    "scope_limits": "omlx/ tracked Git blobs only; 77 absent custom-kernel build-source files prevent entire-package equivalence; dependency, generated artifact and binary provenance not established"
+  },
+  "raw_evidence_files": [
+    {
+      "path": ".tooling/gmd_omlx_private_probe_r53/embedded-probe.py",
+      "size": 1426,
+      "sha256": "52a8e0e463a2af80dc5c560aa0e9ada141090ea3b36562ff2cf9125d3d48bd2d"
+    },
+    {
+      "path": ".tooling/gmd_omlx_private_probe_r53/evidence.json",
+      "size": 62123,
+      "sha256": "a065cd03dc47a868745793fe02cdcecd422194f9f6b03f077407e771bb21643b"
+    },
+    {
+      "path": ".tooling/gmd_omlx_private_probe_r53/fixed-source-comparison.json",
+      "size": 177120,
+      "sha256": "22194370d8643866945c37f5616a71324432b2f6eded9cfaaf481e47628926bb"
+    },
+    {
+      "path": ".tooling/gmd_omlx_private_probe_r53/fixed-source-tree.json",
+      "size": 406848,
+      "sha256": "bbb4842a42c48243f583fe4aeb1fab85694b0a7967d658d9fa9eb9f641b8802b"
+    },
+    {
+      "path": ".tooling/gmd_omlx_private_probe_r53/post-runtime-inventory.json",
+      "size": 13000181,
+      "sha256": "5f064a2c0b40c8195d2c1137477eb8d22757103982f24c4f2602b6de81aff688"
+    },
+    {
+      "path": ".tooling/gmd_omlx_private_probe_r53/relocated-inventory.json",
+      "size": 13000181,
+      "sha256": "5f064a2c0b40c8195d2c1137477eb8d22757103982f24c4f2602b6de81aff688"
+    },
+    {
+      "path": ".tooling/gmd_omlx_private_probe_r53/source-inventory.json",
+      "size": 13000181,
+      "sha256": "5f064a2c0b40c8195d2c1137477eb8d22757103982f24c4f2602b6de81aff688"
+    },
+    {
+      "path": ".tooling/gmd_omlx_private_probe_r53.py",
+      "size": 4583,
+      "sha256": "f336ac7d72d7be8f5b7337aac042e450d51da4b236639718fe4c5f736cc83d1f"
+    },
+    {
+      "path": ".tooling/gmd_omlx_private_probe_r53_curate.py",
+      "size": 3850,
+      "sha256": "adab06fe185ec123c31636886a386824ea76285db1913ccea6be7a84c875aab0"
+    },
+    {
+      "path": ".tooling/gmd_omlx_private_probe_r53_followup.py",
+      "size": 3544,
+      "sha256": "e49a61c68e9b466ce17509e41b06f21b63c96a442e625341163fffe3147d2c33"
+    },
+    {
+      "path": ".tooling/gmd_omlx_private_probe_r53_runtime.py",
+      "size": 6199,
+      "sha256": "106bf8f0680a94ea45bd2bb9f3f9c7d66319f354e64dea82db5c08931dd1005a"
+    }
+  ]
+}
