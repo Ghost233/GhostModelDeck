@@ -50,4 +50,45 @@ void main() {
       await mouse.removePointer();
     },
   );
+
+  testWidgets('two-pane shell switches between 常规 and 软件更新', (tester) async {
+    tester.view.physicalSize = const Size(900, 560);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final preferences = DownloadPreferences(
+      file: File('/unused-download-preferences.json'),
+    );
+    addTearDown(preferences.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildJevTheme(Brightness.light),
+        home: Scaffold(
+          body: SettingsPage(
+            preferences: preferences,
+            libraryPath: '/tmp/library',
+            onLibraryPathChanged: (value) async => value,
+            pickLibraryDirectory: () async => null,
+          ),
+        ),
+      ),
+    );
+    // 默认落在「常规」面板，原有设置内容保持可见。
+    expect(find.text('默认下载来源'), findsOneWidget);
+    expect(find.text('选择目录'), findsOneWidget);
+    expect(find.byKey(const ValueKey('update-current-version')), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('settings-nav-update')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('update-current-version')),
+      findsOneWidget,
+    );
+    expect(find.text('默认下载来源'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('settings-nav-general')));
+    await tester.pumpAndSettle();
+    expect(find.text('默认下载来源'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

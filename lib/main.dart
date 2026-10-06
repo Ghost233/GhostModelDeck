@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import 'app_theme.dart';
 import 'council.dart';
@@ -27,6 +28,9 @@ import 'manager_lifecycle.dart';
 import 'model_use_registry.dart';
 import 'sdk_service.dart';
 import 'settings_page.dart';
+import 'software_update_pane.dart';
+import 'update_checker.dart';
+import 'update_download_service.dart';
 
 void main() => runApp(const GhostModelDeckApp());
 
@@ -70,6 +74,7 @@ class _ManagerShellState extends State<_ManagerShell> {
   late final ManagerLifecycle _lifecycle;
   String? _libraryPath;
   String? _settingsError;
+  String? _appVersion;
   int _page = 0;
   final _openedPages = <int>{0};
 
@@ -155,6 +160,39 @@ class _ManagerShellState extends State<_ManagerShell> {
     // SDK 连接立即返回，握手与重连在后台维持；启动器不在场不影响独立使用。
     _launcherService.connect();
     _loadSettings();
+    _loadAppVersion();
+  }
+
+  /// 应用内展示的当前版本必须来自包信息（Info.plist），不硬编码。
+  /// 测试环境无插件实现时降级为 null，更新面板显示「不可用」。
+  Future<void> _loadAppVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (mounted) setState(() => _appVersion = info.version);
+    } catch (_) {}
+  }
+
+  SoftwareUpdateConfig? _softwareUpdateConfig() {
+    final version = _appVersion;
+    if (version == null) return null;
+    return SoftwareUpdateConfig(
+      currentVersion: version,
+      checkForUpdates: () => UpdateChecker(currentVersion: version).check(),
+      downloadUpdate: (update, {onProgress, confirmBeforeInstall}) {
+        final sha256 = update.sha256;
+        if (sha256 == null) {
+          return Future.value(const UpdateDownloadFailed('发布缺少校验摘要，无法安全下载'));
+        }
+        return UpdateDownloadService().downloadUpdate(
+          source: update.downloadUrl,
+          version: update.version,
+          expectedSha256: sha256,
+          expectedSizeBytes: update.sizeBytes,
+          onProgress: onProgress,
+          confirmBeforeInstall: confirmBeforeInstall,
+        );
+      },
+    );
   }
 
   Future<void> _loadSettings() async {
@@ -386,6 +424,7 @@ class _ManagerShellState extends State<_ManagerShell> {
                         libraryPath: path,
                         onLibraryPathChanged: _saveDirectory,
                         pickLibraryDirectory: _pickDirectory,
+                        softwareUpdate: _softwareUpdateConfig(),
                       )
                     else
                       const SizedBox.shrink(),
