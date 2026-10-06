@@ -1,0 +1,659 @@
+{
+  "schema_version": 1,
+  "scope": "Real public native text/SSE/cancel/peer evidence, independently validated upstream JSON events/usage/model aliases and rehashed physical GGUF; no gateway/GUI/whole Release proof",
+  "raw_sha256": "26bb5331b4f3f42de66de4f6d3028f16c8876c1f64c13dfa1949d5567bd827cb",
+  "raw": {
+    "scope": "Actual selected fixed GGUF on actual standard native installation; existing public manager text/SSE, consumer cancellation and distinct peer lifecycle; no gateway/GUI/Release or quality calibration claim",
+    "source_revision": "fff82a36792f4baadf497dbd468e2cbf2c7411f9",
+    "observed_at": "2026-10-06T01:06:01.078595Z",
+    "weight_path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-gguf-r38-jqOH7U/Qwen/Qwen2.5-0.5B-Instruct-GGUF/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+    "before": {
+      "size": 491400032,
+      "modified": "2026-10-05T18:54:56.353921Z",
+      "changed": "2026-10-05T18:54:59.795601Z",
+      "mode": 33188
+    },
+    "commands": [
+      {
+        "executable": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r47-8buXBF/engines/v0.5.0/llama-server",
+        "arguments": [
+          "--version"
+        ],
+        "timeout_ms": 60000,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "0.00.000.090 I srv  llama_server: initializing ...\nversion: 0.5.0-dev (build 11146, commit 7fe450e19)\nbuilt with AppleClang 21.0.0.21000101 for Darwin arm64\n",
+        "elapsed_ms": 69
+      },
+      {
+        "executable": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r47-8buXBF/engines/v0.5.0/llama-server",
+        "arguments": [
+          "--version"
+        ],
+        "timeout_ms": 60000,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "0.00.000.066 I srv  llama_server: initializing ...\nversion: 0.5.0-dev (build 11146, commit 7fe450e19)\nbuilt with AppleClang 21.0.0.21000101 for Darwin arm64\n",
+        "elapsed_ms": 45
+      },
+      {
+        "executable": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r47-8buXBF/engines/v0.5.0/llama-server",
+        "arguments": [
+          "--version"
+        ],
+        "timeout_ms": 60000,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "0.00.000.082 I srv  llama_server: initializing ...\nversion: 0.5.0-dev (build 11146, commit 7fe450e19)\nbuilt with AppleClang 21.0.0.21000101 for Darwin arm64\n",
+        "elapsed_ms": 14331
+      }
+    ],
+    "children": [
+      {
+        "pid": 21109,
+        "executable": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r47-8buXBF/engines/v0.5.0/llama-server",
+        "arguments": [
+          "--version"
+        ],
+        "started_at": "2026-10-06T01:06:04.374482Z",
+        "exit_code": 0,
+        "exited_at": "2026-10-06T01:06:04.438398Z"
+      },
+      {
+        "pid": 21111,
+        "executable": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r47-8buXBF/engines/v0.5.0/llama-server",
+        "arguments": [
+          "--version"
+        ],
+        "started_at": "2026-10-06T01:06:04.616921Z",
+        "exit_code": 0,
+        "exited_at": "2026-10-06T01:06:04.658072Z"
+      },
+      {
+        "pid": 21159,
+        "executable": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r47-8buXBF/engines/v0.5.0/llama-server",
+        "arguments": [
+          "--model",
+          "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-gguf-r38-jqOH7U/Qwen/Qwen2.5-0.5B-Instruct-GGUF/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+          "--alias",
+          "jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f",
+          "--host",
+          "127.0.0.1",
+          "--port",
+          "52409",
+          "--ctx-size",
+          "4096",
+          "--batch-size",
+          "4096",
+          "--ubatch-size",
+          "4096",
+          "--parallel",
+          "1",
+          "--n-gpu-layers",
+          "99",
+          "--device",
+          "MTL0"
+        ],
+        "started_at": "2026-10-06T01:06:07.720857Z",
+        "exit_code": 0,
+        "exited_at": "2026-10-06T01:06:26.940429Z"
+      },
+      {
+        "pid": 21164,
+        "executable": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r47-8buXBF/engines/v0.5.0/llama-server",
+        "arguments": [
+          "--version"
+        ],
+        "started_at": "2026-10-06T01:06:08.787265Z",
+        "exit_code": 0,
+        "exited_at": "2026-10-06T01:06:23.115226Z"
+      },
+      {
+        "pid": 21352,
+        "executable": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-native-dual-install-r47-8buXBF/engines/v0.5.0/llama-server",
+        "arguments": [
+          "--model",
+          "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-gguf-r38-jqOH7U/Qwen/Qwen2.5-0.5B-Instruct-GGUF/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+          "--alias",
+          "jev-0e8f04191dd9c6ab2545f86a4ab40ae7ac55a550904529b5",
+          "--host",
+          "127.0.0.1",
+          "--port",
+          "52487",
+          "--ctx-size",
+          "4096",
+          "--batch-size",
+          "4096",
+          "--ubatch-size",
+          "4096",
+          "--parallel",
+          "1",
+          "--n-gpu-layers",
+          "99",
+          "--device",
+          "MTL0"
+        ],
+        "started_at": "2026-10-06T01:06:26.163654Z",
+        "exit_code": 0,
+        "exited_at": "2026-10-06T01:06:27.063482Z"
+      }
+    ],
+    "instances": [
+      {
+        "id": "jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f",
+        "installation_id": "official-llama-v0.5.0",
+        "service_id": "llama-service-jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f",
+        "alias": "jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f",
+        "pid": 21159,
+        "endpoint": "http://127.0.0.1:52409",
+        "generation": 1,
+        "status": "ready",
+        "accepting": true,
+        "live": true,
+        "active": 0,
+        "capabilities": [
+          "textGeneration"
+        ],
+        "binary_sha256": "41df13c126456f8e5fab2057c86a790067a85ea1dfd8fbc0071cc45fbba56262",
+        "props": {
+          "default_generation_settings": {
+            "params": {
+              "seed": 4294967295,
+              "temperature": 0.800000011920929,
+              "dynatemp_range": 0.0,
+              "dynatemp_exponent": 1.0,
+              "top_k": 40,
+              "top_p": 0.949999988079071,
+              "min_p": 0.05000000074505806,
+              "top_n_sigma": -1.0,
+              "xtc_probability": 0.0,
+              "xtc_threshold": 0.10000000149011612,
+              "typical_p": 1.0,
+              "repeat_last_n": 64,
+              "repeat_penalty": 1.0,
+              "presence_penalty": 0.0,
+              "frequency_penalty": 0.0,
+              "dry_multiplier": 0.0,
+              "dry_base": 1.75,
+              "dry_allowed_length": 2,
+              "dry_penalty_last_n": 64,
+              "mirostat": 0,
+              "mirostat_tau": 5.0,
+              "mirostat_eta": 0.10000000149011612,
+              "adaptive_target": -1.0,
+              "adaptive_decay": 0.8999999761581421,
+              "max_tokens": -1,
+              "n_predict": -1,
+              "n_keep": 0,
+              "n_discard": 0,
+              "ignore_eos": false,
+              "stream": false,
+              "n_probs": 0,
+              "min_keep": 0,
+              "chat_format": "Content-only",
+              "reasoning_format": "none",
+              "reasoning_in_content": false,
+              "generation_prompt": "",
+              "samplers": [
+                "penalties",
+                "dry",
+                "top_n_sigma",
+                "top_k",
+                "typ_p",
+                "top_p",
+                "min_p",
+                "xtc",
+                "temperature"
+              ],
+              "speculative.types": "none",
+              "timings_per_token": false,
+              "post_sampling_probs": false,
+              "backend_sampling": false,
+              "lora": []
+            },
+            "n_ctx": 4096
+          },
+          "total_slots": 1,
+          "model_alias": "jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f",
+          "model_ftype": "Q4_K - Medium",
+          "model_path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-gguf-r38-jqOH7U/Qwen/Qwen2.5-0.5B-Instruct-GGUF/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+          "modalities": {
+            "vision": false,
+            "video": false,
+            "audio": false
+          },
+          "media_marker": "<__media_RAvWvNTD8i15so9JXzzWt4BHTyVbNtf7__>",
+          "endpoint_slots": true,
+          "endpoint_props": false,
+          "endpoint_metrics": false,
+          "ui": true,
+          "ui_settings": {},
+          "chat_template": "{%- if tools %}\n    {{- '<|im_start|>system\\n' }}\n    {%- if messages[0]['role'] == 'system' %}\n        {{- messages[0]['content'] }}\n    {%- else %}\n        {{- 'You are Qwen, created by Alibaba Cloud. You are a helpful assistant.' }}\n    {%- endif %}\n    {{- \"\\n\\n# Tools\\n\\nYou may call one or more functions to assist with the user query.\\n\\nYou are provided with function signatures within <tools></tools> XML tags:\\n<tools>\" }}\n    {%- for tool in tools %}\n        {{- \"\\n\" }}\n        {{- tool | tojson }}\n    {%- endfor %}\n    {{- \"\\n</tools>\\n\\nFor each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\\n<tool_call>\\n{{\\\"name\\\": <function-name>, \\\"arguments\\\": <args-json-object>}}\\n</tool_call><|im_end|>\\n\" }}\n{%- else %}\n    {%- if messages[0]['role'] == 'system' %}\n        {{- '<|im_start|>system\\n' + messages[0]['content'] + '<|im_end|>\\n' }}\n    {%- else %}\n        {{- '<|im_start|>system\\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\\n' }}\n    {%- endif %}\n{%- endif %}\n{%- for message in messages %}\n    {%- if (message.role == \"user\") or (message.role == \"system\" and not loop.first) or (message.role == \"assistant\" and not message.tool_calls) %}\n        {{- '<|im_start|>' + message.role + '\\n' + message.content + '<|im_end|>' + '\\n' }}\n    {%- elif message.role == \"assistant\" %}\n        {{- '<|im_start|>' + message.role }}\n        {%- if message.content %}\n            {{- '\\n' + message.content }}\n        {%- endif %}\n        {%- for tool_call in message.tool_calls %}\n            {%- if tool_call.function is defined %}\n                {%- set tool_call = tool_call.function %}\n            {%- endif %}\n            {{- '\\n<tool_call>\\n{\"name\": \"' }}\n            {{- tool_call.name }}\n            {{- '\", \"arguments\": ' }}\n            {{- tool_call.arguments | tojson }}\n            {{- '}\\n</tool_call>' }}\n        {%- endfor %}\n        {{- '<|im_end|>\\n' }}\n    {%- elif message.role == \"tool\" %}\n        {%- if (loop.index0 == 0) or (messages[loop.index0 - 1].role != \"tool\") %}\n            {{- '<|im_start|>user' }}\n        {%- endif %}\n        {{- '\\n<tool_response>\\n' }}\n        {{- message.content }}\n        {{- '\\n</tool_response>' }}\n        {%- if loop.last or (messages[loop.index0 + 1].role != \"tool\") %}\n            {{- '<|im_end|>\\n' }}\n        {%- endif %}\n    {%- endif %}\n{%- endfor %}\n{%- if add_generation_prompt %}\n    {{- '<|im_start|>assistant\\n' }}\n{%- endif %}",
+          "chat_template_caps": {
+            "supports_object_arguments": true,
+            "supports_parallel_tool_calls": true,
+            "supports_preserve_reasoning": false,
+            "supports_reasoning_effort": false,
+            "supports_string_content": true,
+            "supports_system_role": true,
+            "supports_tool_calls": true,
+            "supports_tools": true,
+            "supports_typed_content": false
+          },
+          "bos_token": "<|endoftext|>",
+          "eos_token": "<|im_end|>",
+          "build_info": "b11146-7fe450e19",
+          "is_sleeping": false,
+          "cors_proxy_enabled": false
+        },
+        "environment_keys": [
+          "PATH",
+          "HOME",
+          "TMPDIR"
+        ]
+      },
+      {
+        "id": "jev-0e8f04191dd9c6ab2545f86a4ab40ae7ac55a550904529b5",
+        "installation_id": "official-llama-v0.5.0",
+        "service_id": "llama-service-jev-0e8f04191dd9c6ab2545f86a4ab40ae7ac55a550904529b5",
+        "alias": "jev-0e8f04191dd9c6ab2545f86a4ab40ae7ac55a550904529b5",
+        "pid": 21352,
+        "endpoint": "http://127.0.0.1:52487",
+        "generation": 2,
+        "status": "ready",
+        "accepting": true,
+        "live": true,
+        "active": 0,
+        "capabilities": [
+          "textGeneration"
+        ],
+        "binary_sha256": "41df13c126456f8e5fab2057c86a790067a85ea1dfd8fbc0071cc45fbba56262",
+        "props": {
+          "default_generation_settings": {
+            "params": {
+              "seed": 4294967295,
+              "temperature": 0.800000011920929,
+              "dynatemp_range": 0.0,
+              "dynatemp_exponent": 1.0,
+              "top_k": 40,
+              "top_p": 0.949999988079071,
+              "min_p": 0.05000000074505806,
+              "top_n_sigma": -1.0,
+              "xtc_probability": 0.0,
+              "xtc_threshold": 0.10000000149011612,
+              "typical_p": 1.0,
+              "repeat_last_n": 64,
+              "repeat_penalty": 1.0,
+              "presence_penalty": 0.0,
+              "frequency_penalty": 0.0,
+              "dry_multiplier": 0.0,
+              "dry_base": 1.75,
+              "dry_allowed_length": 2,
+              "dry_penalty_last_n": 64,
+              "mirostat": 0,
+              "mirostat_tau": 5.0,
+              "mirostat_eta": 0.10000000149011612,
+              "adaptive_target": -1.0,
+              "adaptive_decay": 0.8999999761581421,
+              "max_tokens": -1,
+              "n_predict": -1,
+              "n_keep": 0,
+              "n_discard": 0,
+              "ignore_eos": false,
+              "stream": false,
+              "n_probs": 0,
+              "min_keep": 0,
+              "chat_format": "Content-only",
+              "reasoning_format": "none",
+              "reasoning_in_content": false,
+              "generation_prompt": "",
+              "samplers": [
+                "penalties",
+                "dry",
+                "top_n_sigma",
+                "top_k",
+                "typ_p",
+                "top_p",
+                "min_p",
+                "xtc",
+                "temperature"
+              ],
+              "speculative.types": "none",
+              "timings_per_token": false,
+              "post_sampling_probs": false,
+              "backend_sampling": false,
+              "lora": []
+            },
+            "n_ctx": 4096
+          },
+          "total_slots": 1,
+          "model_alias": "jev-0e8f04191dd9c6ab2545f86a4ab40ae7ac55a550904529b5",
+          "model_ftype": "Q4_K - Medium",
+          "model_path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-gguf-r38-jqOH7U/Qwen/Qwen2.5-0.5B-Instruct-GGUF/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+          "modalities": {
+            "vision": false,
+            "video": false,
+            "audio": false
+          },
+          "media_marker": "<__media_hBS0ZnVq9WXnXg6Wv4JZcYlXVm4XFN7y__>",
+          "endpoint_slots": true,
+          "endpoint_props": false,
+          "endpoint_metrics": false,
+          "ui": true,
+          "ui_settings": {},
+          "chat_template": "{%- if tools %}\n    {{- '<|im_start|>system\\n' }}\n    {%- if messages[0]['role'] == 'system' %}\n        {{- messages[0]['content'] }}\n    {%- else %}\n        {{- 'You are Qwen, created by Alibaba Cloud. You are a helpful assistant.' }}\n    {%- endif %}\n    {{- \"\\n\\n# Tools\\n\\nYou may call one or more functions to assist with the user query.\\n\\nYou are provided with function signatures within <tools></tools> XML tags:\\n<tools>\" }}\n    {%- for tool in tools %}\n        {{- \"\\n\" }}\n        {{- tool | tojson }}\n    {%- endfor %}\n    {{- \"\\n</tools>\\n\\nFor each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\\n<tool_call>\\n{{\\\"name\\\": <function-name>, \\\"arguments\\\": <args-json-object>}}\\n</tool_call><|im_end|>\\n\" }}\n{%- else %}\n    {%- if messages[0]['role'] == 'system' %}\n        {{- '<|im_start|>system\\n' + messages[0]['content'] + '<|im_end|>\\n' }}\n    {%- else %}\n        {{- '<|im_start|>system\\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\\n' }}\n    {%- endif %}\n{%- endif %}\n{%- for message in messages %}\n    {%- if (message.role == \"user\") or (message.role == \"system\" and not loop.first) or (message.role == \"assistant\" and not message.tool_calls) %}\n        {{- '<|im_start|>' + message.role + '\\n' + message.content + '<|im_end|>' + '\\n' }}\n    {%- elif message.role == \"assistant\" %}\n        {{- '<|im_start|>' + message.role }}\n        {%- if message.content %}\n            {{- '\\n' + message.content }}\n        {%- endif %}\n        {%- for tool_call in message.tool_calls %}\n            {%- if tool_call.function is defined %}\n                {%- set tool_call = tool_call.function %}\n            {%- endif %}\n            {{- '\\n<tool_call>\\n{\"name\": \"' }}\n            {{- tool_call.name }}\n            {{- '\", \"arguments\": ' }}\n            {{- tool_call.arguments | tojson }}\n            {{- '}\\n</tool_call>' }}\n        {%- endfor %}\n        {{- '<|im_end|>\\n' }}\n    {%- elif message.role == \"tool\" %}\n        {%- if (loop.index0 == 0) or (messages[loop.index0 - 1].role != \"tool\") %}\n            {{- '<|im_start|>user' }}\n        {%- endif %}\n        {{- '\\n<tool_response>\\n' }}\n        {{- message.content }}\n        {{- '\\n</tool_response>' }}\n        {%- if loop.last or (messages[loop.index0 + 1].role != \"tool\") %}\n            {{- '<|im_end|>\\n' }}\n        {%- endif %}\n    {%- endif %}\n{%- endfor %}\n{%- if add_generation_prompt %}\n    {{- '<|im_start|>assistant\\n' }}\n{%- endif %}",
+          "chat_template_caps": {
+            "supports_object_arguments": true,
+            "supports_parallel_tool_calls": true,
+            "supports_preserve_reasoning": false,
+            "supports_reasoning_effort": false,
+            "supports_string_content": true,
+            "supports_system_role": true,
+            "supports_tool_calls": true,
+            "supports_tools": true,
+            "supports_typed_content": false
+          },
+          "bos_token": "<|endoftext|>",
+          "eos_token": "<|im_end|>",
+          "build_info": "b11146-7fe450e19",
+          "is_sleeping": false,
+          "cors_proxy_enabled": false
+        },
+        "environment_keys": [
+          "PATH",
+          "HOME",
+          "TMPDIR"
+        ]
+      }
+    ],
+    "concurrency": "Independent JEV native probe may share GPU compilation resources; not a timing benchmark",
+    "asset": {
+      "id": "de64aa502edd375d325432921be633947b8f7cf626b9217e43d9b93877f4e67a",
+      "sha256": "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db",
+      "bytes": 491400032,
+      "source_verified": true
+    },
+    "text": {
+      "model": "jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f",
+      "text": "Hello! How can I assist you today?",
+      "finish": "stop",
+      "output_tokens": 10,
+      "raw": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"Hello! How can I assist you today?\"}}],\"created\":1791248768,\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":10,\"prompt_tokens\":34,\"total_tokens\":44,\"prompt_tokens_details\":{\"cached_tokens\":24}},\"id\":\"chatcmpl-iRnfcYud3p9cUy5igjIH8ZHMfHrKhD6B\",\"timings\":{\"cache_n\":24,\"prompt_n\":10,\"prompt_ms\":11.213,\"prompt_per_token_ms\":1.1213,\"prompt_per_second\":891.8219923303309,\"predicted_n\":10,\"predicted_ms\":27.281,\"predicted_per_token_ms\":3.031222222222222,\"predicted_per_second\":329.8999303544592}}"
+    },
+    "sse": {
+      "model": "jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f",
+      "text": "The ocean, a vast and boundless body of water, is a source of life and sustenance for countless marine creatures, including fish, whales, and sea",
+      "finish": "length",
+      "output_tokens": 32,
+      "raw": "data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":null}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\"The\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\" ocean\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\",\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\" a\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\" vast\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\" and\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\" bound\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\"less\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\" body\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\" of\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\" water\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\",\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\" is\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\" a\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\" source\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\" of\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\" life\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\" and\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\" sust\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\"enance\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\" for\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\" countless\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\" marine\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\" creatures\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\",\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\" including\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\" fish\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\",\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\" whales\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\",\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\" and\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\" sea\"}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"finish_reason\":\"length\",\"index\":0,\"delta\":{}}],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[],\"created\":1791248768,\"id\":\"chatcmpl-pjhtpyTfjOMxF2XcML8cHBK0WaLVNE9d\",\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion.chunk\",\"usage\":{\"completion_tokens\":32,\"prompt_tokens\":37,\"total_tokens\":69,\"prompt_tokens_details\":{\"cached_tokens\":27}},\"timings\":{\"cache_n\":27,\"prompt_n\":10,\"prompt_ms\":11.867,\"prompt_per_token_ms\":1.1867,\"prompt_per_second\":842.6729586247576,\"predicted_n\":32,\"predicted_ms\":97.198,\"predicted_per_token_ms\":3.1354193548387093,\"predicted_per_second\":318.9366036338197}}\n\ndata: [DONE]\n\n"
+    },
+    "sse_deltas": "The ocean, a vast and boundless body of water, is a source of life and sustenance for countless marine creatures, including fish, whales, and sea",
+    "typed_rejection": "所选受管实例尚未就绪",
+    "consumer_cancel": {
+      "observed_delta": true,
+      "terminal_published": false,
+      "after": {
+        "id": "jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f",
+        "installation_id": "official-llama-v0.5.0",
+        "service_id": "llama-service-jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f",
+        "alias": "jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f",
+        "pid": 21159,
+        "endpoint": "http://127.0.0.1:52409",
+        "generation": 1,
+        "status": "ready",
+        "accepting": true,
+        "live": true,
+        "active": 0,
+        "capabilities": [
+          "textGeneration"
+        ],
+        "binary_sha256": "41df13c126456f8e5fab2057c86a790067a85ea1dfd8fbc0071cc45fbba56262",
+        "props": {
+          "default_generation_settings": {
+            "params": {
+              "seed": 4294967295,
+              "temperature": 0.800000011920929,
+              "dynatemp_range": 0.0,
+              "dynatemp_exponent": 1.0,
+              "top_k": 40,
+              "top_p": 0.949999988079071,
+              "min_p": 0.05000000074505806,
+              "top_n_sigma": -1.0,
+              "xtc_probability": 0.0,
+              "xtc_threshold": 0.10000000149011612,
+              "typical_p": 1.0,
+              "repeat_last_n": 64,
+              "repeat_penalty": 1.0,
+              "presence_penalty": 0.0,
+              "frequency_penalty": 0.0,
+              "dry_multiplier": 0.0,
+              "dry_base": 1.75,
+              "dry_allowed_length": 2,
+              "dry_penalty_last_n": 64,
+              "mirostat": 0,
+              "mirostat_tau": 5.0,
+              "mirostat_eta": 0.10000000149011612,
+              "adaptive_target": -1.0,
+              "adaptive_decay": 0.8999999761581421,
+              "max_tokens": -1,
+              "n_predict": -1,
+              "n_keep": 0,
+              "n_discard": 0,
+              "ignore_eos": false,
+              "stream": false,
+              "n_probs": 0,
+              "min_keep": 0,
+              "chat_format": "Content-only",
+              "reasoning_format": "none",
+              "reasoning_in_content": false,
+              "generation_prompt": "",
+              "samplers": [
+                "penalties",
+                "dry",
+                "top_n_sigma",
+                "top_k",
+                "typ_p",
+                "top_p",
+                "min_p",
+                "xtc",
+                "temperature"
+              ],
+              "speculative.types": "none",
+              "timings_per_token": false,
+              "post_sampling_probs": false,
+              "backend_sampling": false,
+              "lora": []
+            },
+            "n_ctx": 4096
+          },
+          "total_slots": 1,
+          "model_alias": "jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f",
+          "model_ftype": "Q4_K - Medium",
+          "model_path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-gguf-r38-jqOH7U/Qwen/Qwen2.5-0.5B-Instruct-GGUF/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+          "modalities": {
+            "vision": false,
+            "video": false,
+            "audio": false
+          },
+          "media_marker": "<__media_RAvWvNTD8i15so9JXzzWt4BHTyVbNtf7__>",
+          "endpoint_slots": true,
+          "endpoint_props": false,
+          "endpoint_metrics": false,
+          "ui": true,
+          "ui_settings": {},
+          "chat_template": "{%- if tools %}\n    {{- '<|im_start|>system\\n' }}\n    {%- if messages[0]['role'] == 'system' %}\n        {{- messages[0]['content'] }}\n    {%- else %}\n        {{- 'You are Qwen, created by Alibaba Cloud. You are a helpful assistant.' }}\n    {%- endif %}\n    {{- \"\\n\\n# Tools\\n\\nYou may call one or more functions to assist with the user query.\\n\\nYou are provided with function signatures within <tools></tools> XML tags:\\n<tools>\" }}\n    {%- for tool in tools %}\n        {{- \"\\n\" }}\n        {{- tool | tojson }}\n    {%- endfor %}\n    {{- \"\\n</tools>\\n\\nFor each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\\n<tool_call>\\n{{\\\"name\\\": <function-name>, \\\"arguments\\\": <args-json-object>}}\\n</tool_call><|im_end|>\\n\" }}\n{%- else %}\n    {%- if messages[0]['role'] == 'system' %}\n        {{- '<|im_start|>system\\n' + messages[0]['content'] + '<|im_end|>\\n' }}\n    {%- else %}\n        {{- '<|im_start|>system\\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\\n' }}\n    {%- endif %}\n{%- endif %}\n{%- for message in messages %}\n    {%- if (message.role == \"user\") or (message.role == \"system\" and not loop.first) or (message.role == \"assistant\" and not message.tool_calls) %}\n        {{- '<|im_start|>' + message.role + '\\n' + message.content + '<|im_end|>' + '\\n' }}\n    {%- elif message.role == \"assistant\" %}\n        {{- '<|im_start|>' + message.role }}\n        {%- if message.content %}\n            {{- '\\n' + message.content }}\n        {%- endif %}\n        {%- for tool_call in message.tool_calls %}\n            {%- if tool_call.function is defined %}\n                {%- set tool_call = tool_call.function %}\n            {%- endif %}\n            {{- '\\n<tool_call>\\n{\"name\": \"' }}\n            {{- tool_call.name }}\n            {{- '\", \"arguments\": ' }}\n            {{- tool_call.arguments | tojson }}\n            {{- '}\\n</tool_call>' }}\n        {%- endfor %}\n        {{- '<|im_end|>\\n' }}\n    {%- elif message.role == \"tool\" %}\n        {%- if (loop.index0 == 0) or (messages[loop.index0 - 1].role != \"tool\") %}\n            {{- '<|im_start|>user' }}\n        {%- endif %}\n        {{- '\\n<tool_response>\\n' }}\n        {{- message.content }}\n        {{- '\\n</tool_response>' }}\n        {%- if loop.last or (messages[loop.index0 + 1].role != \"tool\") %}\n            {{- '<|im_end|>\\n' }}\n        {%- endif %}\n    {%- endif %}\n{%- endfor %}\n{%- if add_generation_prompt %}\n    {{- '<|im_start|>assistant\\n' }}\n{%- endif %}",
+          "chat_template_caps": {
+            "supports_object_arguments": true,
+            "supports_parallel_tool_calls": true,
+            "supports_preserve_reasoning": false,
+            "supports_reasoning_effort": false,
+            "supports_string_content": true,
+            "supports_system_role": true,
+            "supports_tool_calls": true,
+            "supports_tools": true,
+            "supports_typed_content": false
+          },
+          "bos_token": "<|endoftext|>",
+          "eos_token": "<|im_end|>",
+          "build_info": "b11146-7fe450e19",
+          "is_sleeping": false,
+          "cors_proxy_enabled": false
+        },
+        "environment_keys": [
+          "PATH",
+          "HOME",
+          "TMPDIR"
+        ]
+      }
+    },
+    "after_cancel_text": {
+      "model": "jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f",
+      "text": "Hello! How can I assist you today?",
+      "finish": "stop",
+      "output_tokens": 10,
+      "raw": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"Hello! How can I assist you today?\"}}],\"created\":1791248786,\"model\":\"jev-aa52365e1e085ab5a24ff34a8e55f86423e59a556130bd4f\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":10,\"prompt_tokens\":33,\"total_tokens\":43,\"prompt_tokens_details\":{\"cached_tokens\":24}},\"id\":\"chatcmpl-FDMURn3iNgcsMarfeKF8U98evjzsH6YS\",\"timings\":{\"cache_n\":24,\"prompt_n\":9,\"prompt_ms\":10.678,\"prompt_per_token_ms\":1.1864444444444446,\"prompt_per_second\":842.8544671286758,\"predicted_n\":10,\"predicted_ms\":27.146,\"predicted_per_token_ms\":3.0162222222222224,\"predicted_per_second\":331.5405584616518}}"
+    },
+    "peer_after_a_stop": {
+      "id": "jev-0e8f04191dd9c6ab2545f86a4ab40ae7ac55a550904529b5",
+      "installation_id": "official-llama-v0.5.0",
+      "service_id": "llama-service-jev-0e8f04191dd9c6ab2545f86a4ab40ae7ac55a550904529b5",
+      "alias": "jev-0e8f04191dd9c6ab2545f86a4ab40ae7ac55a550904529b5",
+      "pid": 21352,
+      "endpoint": "http://127.0.0.1:52487",
+      "generation": 2,
+      "status": "ready",
+      "accepting": true,
+      "live": true,
+      "active": 0,
+      "capabilities": [
+        "textGeneration"
+      ],
+      "binary_sha256": "41df13c126456f8e5fab2057c86a790067a85ea1dfd8fbc0071cc45fbba56262",
+      "props": {
+        "default_generation_settings": {
+          "params": {
+            "seed": 4294967295,
+            "temperature": 0.800000011920929,
+            "dynatemp_range": 0.0,
+            "dynatemp_exponent": 1.0,
+            "top_k": 40,
+            "top_p": 0.949999988079071,
+            "min_p": 0.05000000074505806,
+            "top_n_sigma": -1.0,
+            "xtc_probability": 0.0,
+            "xtc_threshold": 0.10000000149011612,
+            "typical_p": 1.0,
+            "repeat_last_n": 64,
+            "repeat_penalty": 1.0,
+            "presence_penalty": 0.0,
+            "frequency_penalty": 0.0,
+            "dry_multiplier": 0.0,
+            "dry_base": 1.75,
+            "dry_allowed_length": 2,
+            "dry_penalty_last_n": 64,
+            "mirostat": 0,
+            "mirostat_tau": 5.0,
+            "mirostat_eta": 0.10000000149011612,
+            "adaptive_target": -1.0,
+            "adaptive_decay": 0.8999999761581421,
+            "max_tokens": -1,
+            "n_predict": -1,
+            "n_keep": 0,
+            "n_discard": 0,
+            "ignore_eos": false,
+            "stream": false,
+            "n_probs": 0,
+            "min_keep": 0,
+            "chat_format": "Content-only",
+            "reasoning_format": "none",
+            "reasoning_in_content": false,
+            "generation_prompt": "",
+            "samplers": [
+              "penalties",
+              "dry",
+              "top_n_sigma",
+              "top_k",
+              "typ_p",
+              "top_p",
+              "min_p",
+              "xtc",
+              "temperature"
+            ],
+            "speculative.types": "none",
+            "timings_per_token": false,
+            "post_sampling_probs": false,
+            "backend_sampling": false,
+            "lora": []
+          },
+          "n_ctx": 4096
+        },
+        "total_slots": 1,
+        "model_alias": "jev-0e8f04191dd9c6ab2545f86a4ab40ae7ac55a550904529b5",
+        "model_ftype": "Q4_K - Medium",
+        "model_path": "/private/var/folders/gz/qn4bw9mn1rd25_61tzh2r7b80000gn/T/gmd-real-gguf-r38-jqOH7U/Qwen/Qwen2.5-0.5B-Instruct-GGUF/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+        "modalities": {
+          "vision": false,
+          "video": false,
+          "audio": false
+        },
+        "media_marker": "<__media_hBS0ZnVq9WXnXg6Wv4JZcYlXVm4XFN7y__>",
+        "endpoint_slots": true,
+        "endpoint_props": false,
+        "endpoint_metrics": false,
+        "ui": true,
+        "ui_settings": {},
+        "chat_template": "{%- if tools %}\n    {{- '<|im_start|>system\\n' }}\n    {%- if messages[0]['role'] == 'system' %}\n        {{- messages[0]['content'] }}\n    {%- else %}\n        {{- 'You are Qwen, created by Alibaba Cloud. You are a helpful assistant.' }}\n    {%- endif %}\n    {{- \"\\n\\n# Tools\\n\\nYou may call one or more functions to assist with the user query.\\n\\nYou are provided with function signatures within <tools></tools> XML tags:\\n<tools>\" }}\n    {%- for tool in tools %}\n        {{- \"\\n\" }}\n        {{- tool | tojson }}\n    {%- endfor %}\n    {{- \"\\n</tools>\\n\\nFor each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\\n<tool_call>\\n{{\\\"name\\\": <function-name>, \\\"arguments\\\": <args-json-object>}}\\n</tool_call><|im_end|>\\n\" }}\n{%- else %}\n    {%- if messages[0]['role'] == 'system' %}\n        {{- '<|im_start|>system\\n' + messages[0]['content'] + '<|im_end|>\\n' }}\n    {%- else %}\n        {{- '<|im_start|>system\\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\\n' }}\n    {%- endif %}\n{%- endif %}\n{%- for message in messages %}\n    {%- if (message.role == \"user\") or (message.role == \"system\" and not loop.first) or (message.role == \"assistant\" and not message.tool_calls) %}\n        {{- '<|im_start|>' + message.role + '\\n' + message.content + '<|im_end|>' + '\\n' }}\n    {%- elif message.role == \"assistant\" %}\n        {{- '<|im_start|>' + message.role }}\n        {%- if message.content %}\n            {{- '\\n' + message.content }}\n        {%- endif %}\n        {%- for tool_call in message.tool_calls %}\n            {%- if tool_call.function is defined %}\n                {%- set tool_call = tool_call.function %}\n            {%- endif %}\n            {{- '\\n<tool_call>\\n{\"name\": \"' }}\n            {{- tool_call.name }}\n            {{- '\", \"arguments\": ' }}\n            {{- tool_call.arguments | tojson }}\n            {{- '}\\n</tool_call>' }}\n        {%- endfor %}\n        {{- '<|im_end|>\\n' }}\n    {%- elif message.role == \"tool\" %}\n        {%- if (loop.index0 == 0) or (messages[loop.index0 - 1].role != \"tool\") %}\n            {{- '<|im_start|>user' }}\n        {%- endif %}\n        {{- '\\n<tool_response>\\n' }}\n        {{- message.content }}\n        {{- '\\n</tool_response>' }}\n        {%- if loop.last or (messages[loop.index0 + 1].role != \"tool\") %}\n            {{- '<|im_end|>\\n' }}\n        {%- endif %}\n    {%- endif %}\n{%- endfor %}\n{%- if add_generation_prompt %}\n    {{- '<|im_start|>assistant\\n' }}\n{%- endif %}",
+        "chat_template_caps": {
+          "supports_object_arguments": true,
+          "supports_parallel_tool_calls": true,
+          "supports_preserve_reasoning": false,
+          "supports_reasoning_effort": false,
+          "supports_string_content": true,
+          "supports_system_role": true,
+          "supports_tool_calls": true,
+          "supports_tools": true,
+          "supports_typed_content": false
+        },
+        "bos_token": "<|endoftext|>",
+        "eos_token": "<|im_end|>",
+        "build_info": "b11146-7fe450e19",
+        "is_sleeping": false,
+        "cors_proxy_enabled": false
+      },
+      "environment_keys": [
+        "PATH",
+        "HOME",
+        "TMPDIR"
+      ]
+    },
+    "peer_text": {
+      "model": "jev-0e8f04191dd9c6ab2545f86a4ab40ae7ac55a550904529b5",
+      "text": "Hello! How can I assist you today?",
+      "finish": "stop",
+      "output_tokens": 10,
+      "raw": "{\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"Hello! How can I assist you today?\"}}],\"created\":1791248787,\"model\":\"jev-0e8f04191dd9c6ab2545f86a4ab40ae7ac55a550904529b5\",\"system_fingerprint\":\"b11146-7fe450e19\",\"object\":\"chat.completion\",\"usage\":{\"completion_tokens\":10,\"prompt_tokens\":33,\"total_tokens\":43,\"prompt_tokens_details\":{\"cached_tokens\":26}},\"id\":\"chatcmpl-ijsHmsaJpLlBXeIVMqshpL7Ja3TXnlQ1\",\"timings\":{\"cache_n\":26,\"prompt_n\":7,\"prompt_ms\":72.557,\"prompt_per_token_ms\":10.365285714285715,\"prompt_per_second\":96.47587414033104,\"predicted_n\":10,\"predicted_ms\":29.962,\"predicted_per_token_ms\":3.329111111111111,\"predicted_per_second\":300.3804819437955}}"
+    },
+    "peer_weight_protected": true,
+    "ports_closed": {
+      "http://127.0.0.1:52409": true,
+      "http://127.0.0.1:52487": true
+    },
+    "after": {
+      "size": 491400032,
+      "modified": "2026-10-05T18:54:56.353921Z",
+      "changed": "2026-10-05T18:54:59.795601Z",
+      "mode": 33188
+    },
+    "weight_unchanged": true,
+    "owned_cleanup_complete": true,
+    "success": true
+  },
+  "physical_rehash": {
+    "sha256": "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db",
+    "bytes": 491400032,
+    "device": 16777230,
+    "inode": 16550698,
+    "stat_unchanged_during_curator": true
+  },
+  "both_ports_refuse_connection_at_curator": true
+}
