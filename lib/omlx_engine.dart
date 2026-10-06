@@ -1917,9 +1917,11 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
 
   /// Real SSE over the same fenced path: genuine finish/usage/[DONE], abort
   /// on cancellation, never a fabricated terminal frame.
+  @override
   Stream<TextStreamEvent> streamText(
     String instanceId,
     TextRequest request, {
+    Duration timeout = const Duration(seconds: 30),
     DecisionCancellation? cancellation,
   }) async* {
     final run = _admitRun(instanceId);
@@ -1943,7 +1945,7 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
       nativeRequest.write(
         jsonEncode(request.toChat(model: run.modelId, stream: true)),
       );
-      final response = await nativeRequest.close();
+      final response = await nativeRequest.close().timeout(timeout);
       if (op.cancelled) throw op.terminal!;
       if (response.statusCode != 200) {
         final text = await utf8.decoder.bind(response).join();
@@ -1992,6 +1994,9 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
       yield TextStreamEvent.complete(decoder.finish());
     } on OmlxRequestException {
       rethrow;
+    } on TimeoutException {
+      if (op.cancelled) throw op.terminal!;
+      throw const OmlxRequestException(OmlxRequestKind.timeout, 'oMLX 请求超时');
     } catch (_) {
       if (op.cancelled) throw op.terminal!;
       throw const OmlxRequestException(

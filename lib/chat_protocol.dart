@@ -1,25 +1,75 @@
 import 'dart:convert';
 
-/// Single-turn text, optionally streamed. Never implicitly loads a model.
+/// One typed message of a public chat request. Roles are closed.
+class TextMessage {
+  TextMessage({required this.role, required this.content}) {
+    if (!_roles.contains(role)) {
+      throw const TextProtocolException('消息角色仅支持 system/user/assistant');
+    }
+    if (content.trim().isEmpty) {
+      throw const TextProtocolException('消息内容不能为空');
+    }
+  }
+  static const _roles = {'system', 'user', 'assistant'};
+  final String role;
+  final String content;
+}
+
+/// Text chat, optionally streamed. Never implicitly loads a model.
 class TextRequest {
-  TextRequest({required this.prompt, this.maxTokens = 32}) {
+  factory TextRequest({required String prompt, int maxTokens = 32}) {
     if (prompt.trim().isEmpty || maxTokens < 1 || maxTokens > 4096) {
       throw const TextProtocolException('需要非空文本与 1–4096 个生成 token 上限');
     }
+    return TextRequest.messages(
+      messages: [TextMessage(role: 'user', content: prompt)],
+      maxTokens: maxTokens,
+      temperature: 0,
+    );
   }
-  final String prompt;
-  final int maxTokens;
 
-  Map<String, Object> toChat({required String model, bool stream = false}) => {
-    'model': model,
-    'messages': [
-      {'role': 'user', 'content': prompt},
-    ],
-    'stream': stream,
-    if (stream) 'stream_options': {'include_usage': true},
-    'temperature': 0,
-    'max_tokens': maxTokens,
-  };
+  TextRequest.messages({
+    required List<TextMessage> messages,
+    this.maxTokens = 32,
+    this.temperature,
+    this.topP,
+  }) : messages = List.unmodifiable(messages) {
+    if (messages.isEmpty) {
+      throw const TextProtocolException('需要至少一条消息');
+    }
+    if (maxTokens < 1 || maxTokens > 4096) {
+      throw const TextProtocolException('需要非空文本与 1–4096 个生成 token 上限');
+    }
+    final temperature = this.temperature;
+    if (temperature != null &&
+        (temperature.isNaN || temperature < 0 || temperature > 2)) {
+      throw const TextProtocolException('temperature 需要在 0 到 2 之间');
+    }
+    final topP = this.topP;
+    if (topP != null && (topP.isNaN || topP <= 0 || topP > 1)) {
+      throw const TextProtocolException('top_p 需要在 (0, 1] 之间');
+    }
+  }
+
+  final List<TextMessage> messages;
+  final int maxTokens;
+  final double? temperature;
+  final double? topP;
+
+  Map<String, Object> toChat({required String model, bool stream = false}) {
+    return {
+      'model': model,
+      'messages': [
+        for (final message in messages)
+          {'role': message.role, 'content': message.content},
+      ],
+      'stream': stream,
+      if (stream) 'stream_options': {'include_usage': true},
+      'temperature': ?temperature,
+      'top_p': ?topP,
+      'max_tokens': maxTokens,
+    };
+  }
 }
 
 class TextResult {

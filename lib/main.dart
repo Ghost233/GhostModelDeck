@@ -15,6 +15,7 @@ import 'engine_catalog.dart';
 import 'engine_page.dart';
 import 'omlx_engine.dart';
 import 'hf_model_browser.dart';
+import 'public_gateway.dart';
 import 'library_directory_settings.dart';
 import 'library_page.dart';
 import 'llama_engine.dart';
@@ -57,9 +58,12 @@ class _ManagerShellState extends State<_ManagerShell> {
   late final ModelUseRegistry _useRegistry;
   late final LlamaEngine _officialEngine;
   late final LlamaEngine _standardEngine;
+  late final OmlxEngine _omlxEngine;
   late final EngineCatalog _engines;
   late final CouncilController _council;
   late final CouncilMcpServer _mcp;
+  late final PublicModelRoutes _publicRoutes;
+  late final PublicGatewayServer _publicGateway;
   late final ManagerLifecycle _lifecycle;
   String? _libraryPath;
   String? _settingsError;
@@ -91,25 +95,33 @@ class _ManagerShellState extends State<_ManagerShell> {
       release: standardLlamaRelease,
       installationId: EngineCatalog.standardId,
     );
+    _omlxEngine = OmlxEngine(
+      installationDirectory: Directory(
+        '${_settings.file.parent.path}/engines/omlx',
+      ),
+    );
     _engines = EngineCatalog(
       library: _library,
       officialEngine: _officialEngine,
       standardEngine: _standardEngine,
-      omlxEngine: OmlxEngine(
-        installationDirectory: Directory(
-          '${_settings.file.parent.path}/engines/omlx',
-        ),
-      ),
+      omlxEngine: _omlxEngine,
       useRegistry: _useRegistry,
       registryFile: File('${_settings.file.parent.path}/engines.json'),
     );
     _council = CouncilController(catalog: _engines);
     _mcp = CouncilMcpServer(controller: _council);
+    _publicRoutes = PublicModelRoutes(
+      library: _library,
+      runtimes: [_officialEngine, _standardEngine, _omlxEngine],
+      registryFile: File('${_settings.file.parent.path}/public_models.json'),
+    );
+    _publicGateway = PublicGatewayServer(routes: _publicRoutes);
     _lifecycle = ManagerLifecycle(
       council: _council,
       mcp: _mcp,
       engines: _engines,
       downloader: _downloader,
+      gateway: _publicGateway,
     );
     _native.setMethodCallHandler((call) async {
       if (call.method != 'prepareToQuit') throw MissingPluginException();
@@ -124,6 +136,8 @@ class _ManagerShellState extends State<_ManagerShell> {
       }
     });
     unawaited(_mcp.start().catchError((Object _) {}));
+    // 启动失败（含公开端口冲突）保留在网关状态机中显式呈现，不影响其余服务。
+    unawaited(_publicGateway.start().catchError((Object _) {}));
     _loadSettings();
   }
 
@@ -164,6 +178,8 @@ class _ManagerShellState extends State<_ManagerShell> {
     // Explicit native shutdown awaits the original failure via ManagerLifecycle.
     unawaited(_downloader.close().catchError((Object _) {}));
     _mcp.close();
+    _publicGateway.close();
+    _publicRoutes.close();
     _council.close();
     _engines.close();
     _officialEngine.close();
@@ -332,6 +348,8 @@ class _ManagerShellState extends State<_ManagerShell> {
                         library: _library,
                         libraryPath: path,
                         engines: _engines,
+                        publicRoutes: _publicRoutes,
+                        publicGateway: _publicGateway,
                       )
                     else
                       const SizedBox.shrink(),

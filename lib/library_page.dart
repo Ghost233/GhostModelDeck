@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'app_theme.dart';
 import 'model_library.dart';
@@ -9,6 +10,7 @@ import 'local_model_package.dart';
 import 'engine_catalog.dart';
 import 'engine_runtime.dart';
 import 'model_run_dialog.dart';
+import 'public_gateway.dart';
 
 class LibraryPage extends StatefulWidget {
   const LibraryPage({
@@ -16,11 +18,15 @@ class LibraryPage extends StatefulWidget {
     required this.library,
     required this.libraryPath,
     this.engines,
+    this.publicRoutes,
+    this.publicGateway,
   });
 
   final ModelLibrary library;
   final String libraryPath;
   final EngineCatalog? engines;
+  final PublicModelRoutes? publicRoutes;
+  final PublicGatewayServer? publicGateway;
 
   @override
   State<LibraryPage> createState() => _LibraryPageState();
@@ -41,11 +47,15 @@ class _LibraryPageState extends State<LibraryPage> {
   bool _awaitingScan = false;
   int _scanGeneration = 0;
   StreamSubscription<EngineCatalogState>? _engineChanges;
+  StreamSubscription<void>? _routeChanges;
 
   @override
   void initState() {
     super.initState();
     _engineChanges = widget.engines?.changes.listen((_) {
+      if (mounted) setState(() {});
+    });
+    _routeChanges = widget.publicRoutes?.changes.listen((_) {
       if (mounted) setState(() {});
     });
     _scan();
@@ -57,6 +67,12 @@ class _LibraryPageState extends State<LibraryPage> {
     if (oldWidget.engines != widget.engines) {
       _engineChanges?.cancel();
       _engineChanges = widget.engines?.changes.listen((_) {
+        if (mounted) setState(() {});
+      });
+    }
+    if (oldWidget.publicRoutes != widget.publicRoutes) {
+      _routeChanges?.cancel();
+      _routeChanges = widget.publicRoutes?.changes.listen((_) {
         if (mounted) setState(() {});
       });
     }
@@ -168,6 +184,7 @@ class _LibraryPageState extends State<LibraryPage> {
   @override
   void dispose() {
     _engineChanges?.cancel();
+    _routeChanges?.cancel();
     _filter.dispose();
     super.dispose();
   }
@@ -523,6 +540,11 @@ class _LibraryPageState extends State<LibraryPage> {
                                         ) ??
                                         <EngineRun>[])
                                   _runRow(run, busy),
+                                if (widget.publicRoutes != null &&
+                                    variant.artifacts.length == 1 &&
+                                    variant.artifacts.single.kind ==
+                                        AssetKind.chat)
+                                  _publicApiRow(variant.artifacts.single),
                                 if (_expanded.contains(package.id))
                                   Padding(
                                     padding: const EdgeInsets.fromLTRB(
@@ -586,6 +608,93 @@ class _LibraryPageState extends State<LibraryPage> {
   void _toggle(String id) => setState(() {
     if (!_selected.add(id)) _selected.remove(id);
   });
+
+  /// Public API exposure is an explicit business operation: enable/disable
+  /// and copy the connection info. Loading never happens implicitly.
+  Widget _publicApiRow(LibraryArtifact artifact) {
+    final routes = widget.publicRoutes!;
+    final gateway = widget.publicGateway;
+    final enabled = routes.isEnabled(artifact.id);
+    final baseUrl = gateway?.baseUrl;
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(44, 0, 32, 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            enabled ? Icons.public : Icons.public_off,
+            size: 15,
+            color: enabled
+                ? theme.colorScheme.primary
+                : theme.colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 8),
+          if (!enabled)
+            TextButton(
+              onPressed: () => _setPublic(artifact, true),
+              child: const Text('启用公开 API'),
+            )
+          else ...[
+            Expanded(
+              child: SelectableText(
+                [
+                  '公开模型 ID  ${routes.publicIdFor(artifact.id)}',
+                  if (baseUrl != null)
+                    'Base URL  $baseUrl/v1'
+                  else
+                    '公开 API 未运行（${gateway?.state.name ?? '未知'}'
+                        '${gateway?.error != null ? '：${gateway!.error}' : ''}）',
+                ].join('\n'),
+                style: theme.textTheme.bodySmall,
+              ),
+            ),
+            IconButton(
+              tooltip: '复制公开模型 ID',
+              iconSize: 16,
+              padding: EdgeInsets.zero,
+              onPressed: () =>
+                  _copy('公开模型 ID', routes.publicIdFor(artifact.id)),
+              icon: const Icon(Icons.copy_outlined),
+            ),
+            if (baseUrl != null)
+              IconButton(
+                tooltip: '复制 Base URL',
+                iconSize: 16,
+                padding: EdgeInsets.zero,
+                onPressed: () => _copy('Base URL', '$baseUrl/v1'),
+                icon: const Icon(Icons.link_outlined),
+              ),
+            TextButton(
+              onPressed: () => _setPublic(artifact, false),
+              child: const Text('停用'),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _setPublic(LibraryArtifact artifact, bool enable) async {
+    try {
+      if (enable) {
+        await widget.publicRoutes!.enable(artifact.id);
+      } else {
+        await widget.publicRoutes!.disable(artifact.id);
+      }
+      _operationError = null;
+    } catch (error) {
+      if (mounted) setState(() => _operationError = error.toString());
+    }
+  }
+
+  Future<void> _copy(String label, String value) async {
+    await Clipboard.setData(ClipboardData(text: value));
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('已复制$label')));
+    }
+  }
 
   Widget _runRow(EngineRun run, bool busy) {
     final instance = run.instance;

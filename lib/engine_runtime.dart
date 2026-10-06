@@ -47,6 +47,12 @@ abstract interface class EngineRuntime {
     Duration timeout = const Duration(seconds: 30),
     DecisionCancellation? cancellation,
   });
+  Stream<TextStreamEvent> streamText(
+    String instanceId,
+    TextRequest request, {
+    Duration timeout = const Duration(seconds: 30),
+    DecisionCancellation? cancellation,
+  });
   Future<void> stop(String instanceId);
   void Function() holdStartAdmission();
   Future<void> stopManaged();

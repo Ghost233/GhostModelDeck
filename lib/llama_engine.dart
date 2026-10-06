@@ -1189,6 +1189,7 @@ class LlamaEngine implements EngineRuntime {
   }
 
   /// Resident-only SSE. Cancellation drains this request, never its peers.
+  @override
   Stream<TextStreamEvent> streamText(
     String instanceId,
     TextRequest request, {
