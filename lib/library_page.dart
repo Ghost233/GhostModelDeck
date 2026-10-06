@@ -8,7 +8,6 @@ import 'model_library.dart';
 import 'local_model_package.dart';
 import 'engine_catalog.dart';
 import 'engine_runtime.dart';
-import 'llama_engine.dart';
 import 'model_run_dialog.dart';
 
 class LibraryPage extends StatefulWidget {
@@ -686,7 +685,7 @@ class _LibraryPageState extends State<LibraryPage> {
                 Align(
                   alignment: Alignment.centerLeft,
                   child: SelectableText(
-                    legacy!.lastResult!.rawResponse,
+                    legacy.lastResult!.rawResponse,
                     style: theme.textTheme.bodySmall,
                   ),
                 ),

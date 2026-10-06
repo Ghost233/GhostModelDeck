@@ -559,6 +559,7 @@ class LlamaEngine implements EngineRuntime {
 
   /// Hold new starts during an owning catalog's aggregate recycle.
   /// Already accepted starts remain owned by [stopManaged].
+  @override
   void Function() holdStartAdmission() {
     _startAdmissionHolds++;
     var released = false;
@@ -1143,6 +1144,7 @@ class LlamaEngine implements EngineRuntime {
     return result;
   }
 
+  @override
   Future<TextResult> generateText(
     String instanceId,
     TextRequest request, {
@@ -1623,6 +1625,7 @@ class LlamaEngine implements EngineRuntime {
     _publishRun(running);
   }
 
+  @override
   Future<void> stop(String instanceId) {
     final running = _running[instanceId];
     if (running == null) {
@@ -1670,6 +1673,7 @@ class LlamaEngine implements EngineRuntime {
     }, cleanup: true);
   }
 
+  @override
   Future<void> stopManaged() {
     if (_recycle != null) return _recycle!;
     _recycling = true;
@@ -1780,6 +1784,7 @@ class LlamaEngine implements EngineRuntime {
     _shutdownCancellation.cancel();
   }
 
+  @override
   Future<void> shutdown() {
     if (_shutdown != null) return _shutdown!;
     beginShutdown();

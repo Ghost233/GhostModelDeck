@@ -8,7 +8,538 @@ import 'package:flutter/foundation.dart' show debugPrintSynchronously;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/model_library.dart';
 
+import 'fixtures/qwen2_mlx_layout.dart';
+
 void main() {
+  test('earlier unknown grouping or bounded companion wins over primary evidence failure', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'gmd-qwen2-primary-precedence-',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final library = ModelLibrary();
+    addTearDown(library.close);
+    for (final largeCompanion in [false, true]) {
+      final directory = await Directory('${root.path}/$largeCompanion')
+          .create();
+      final bytes = Qwen2MlxFixture().bytes(
+        indexed: largeCompanion,
+        shards: largeCompanion ? 1 : 2,
+      );
+      bytes.remove('tokenizer.json');
+      for (final file in bytes.entries) {
+        await File('${directory.path}/${file.key}').writeAsBytes(file.value);
+      }
+      if (largeCompanion) {
+        final file = await File('${directory.path}/tokenizer.json')
+            .open(mode: FileMode.write);
+        await file.truncate(33 * 1024 * 1024);
+        await file.close();
+      }
+      final asset = (await library.scan(directory, verifyFiles: true)).single;
+      expect(asset.integrity, AssetIntegrity.unknown);
+      expect(asset.engineCapability, EngineCapability.awaitingVerification);
+    }
+  });
+  for (final mutation in [
+    'payload truncation',
+    'overlap',
+    'wrong byte width',
+    'out of range',
+    'duplicate shard',
+  ]) {
+    test('Qwen2 structural graph cannot repair low-level $mutation', () async {
+      final root = await Directory.systemTemp.createTemp('gmd-qwen2-bytes-');
+      addTearDown(() => root.delete(recursive: true));
+      final bytes = Qwen2MlxFixture().bytes(
+        shards: mutation == 'duplicate shard' ? 2 : 1,
+      );
+      if (mutation == 'duplicate shard') {
+        bytes['model-1.safetensors'] = bytes['model-0.safetensors']!;
+      } else {
+        final weight = Uint8List.fromList(bytes['model.safetensors']!);
+        final length = ByteData.sublistView(weight).getUint64(0, Endian.little);
+        final header = jsonDecode(
+          utf8.decode(weight.sublist(8, 8 + length)),
+        ) as Map<String, dynamic>;
+        final payload = weight.sublist(8 + length).toList();
+        final norm = header['model.norm.weight'] as Map<String, dynamic>;
+        switch (mutation) {
+          case 'payload truncation':
+            payload.removeLast();
+          case 'overlap':
+            norm['data_offsets'] = [
+              (norm['data_offsets'][0] as int) - 2,
+              (norm['data_offsets'][1] as int) - 2,
+            ];
+          case 'wrong byte width':
+            norm['dtype'] = 'F32';
+          case 'out of range':
+            norm['data_offsets'] = [payload.length, payload.length + 128];
+        }
+        final encoded = utf8.encode(jsonEncode(header));
+        bytes['model.safetensors'] = [
+          ...(ByteData(
+            8,
+          )..setUint64(0, encoded.length, Endian.little)).buffer.asUint8List(),
+          ...encoded,
+          ...payload,
+        ];
+      }
+      for (final file in bytes.entries) {
+        await File('${root.path}/${file.key}').writeAsBytes(file.value);
+      }
+      final library = ModelLibrary();
+      addTearDown(library.close);
+      final asset = (await library.scan(root, verifyFiles: true)).single;
+      expect(asset.integrity, AssetIntegrity.corrupt);
+      expect(asset.engineCapability, EngineCapability.awaitingVerification);
+    });
+  }
+  for (final missing in [false, true]) {
+    test(
+      'nine file Qwen2 receipt missing optional=$missing is authoritative but never Ready',
+      () async {
+        final root = await Directory.systemTemp.createTemp(
+          'gmd-qwen2-receipt-',
+        );
+        addTearDown(() => root.delete(recursive: true));
+        final bytes = Qwen2MlxFixture().bytes();
+        bytes.addAll({
+          'merges.txt': utf8.encode('# text, not JSON'),
+          'added_tokens.json': utf8.encode('{}'),
+          'special_tokens_map.json': utf8.encode('{}'),
+          'generation_config.json': utf8.encode('{}'),
+        });
+        expect(bytes.length, 9);
+        for (final file in bytes.entries) {
+          if (missing && file.key == 'merges.txt') continue;
+          await File('${root.path}/${file.key}').writeAsBytes(file.value);
+        }
+        final receipts = await Directory(
+          '${root.path}/.ghostmodeldeck/installations',
+        ).create(recursive: true);
+        await File('${receipts.path}/fixture.json').writeAsString(
+          jsonEncode({
+            'version': 1,
+            'id': 'fixture',
+            'repoId': 'synthetic/qwen2',
+            'revision': List.filled(40, 'a').join(),
+            'source': 'local',
+            'reusedExisting': true,
+            'sourceTransferPerformed': false,
+            'files': [
+              for (final file in bytes.entries)
+                {
+                  'path': file.key,
+                  'sizeBytes': file.value.length,
+                  'sha256': sha256.convert(file.value).toString(),
+                  'upstreamSha256': sha256.convert(file.value).toString(),
+                },
+            ],
+          }),
+        );
+        final library = ModelLibrary();
+        addTearDown(library.close);
+        final asset = (await library.scan(root, verifyFiles: true)).single;
+        expect(
+          asset.integrity,
+          missing ? AssetIntegrity.incomplete : AssetIntegrity.complete,
+        );
+        // Synthetic receipt tests hash plumbing, not real upstream/model authenticity.
+        expect(asset.sourceVerified, !missing);
+        expect(asset.engineCapability, EngineCapability.awaitingVerification);
+      },
+    );
+  }
+  final packageCases = <String, AssetIntegrity>{
+    'truncated weight': AssetIntegrity.corrupt,
+    'malformed index': AssetIntegrity.corrupt,
+    'missing shard': AssetIntegrity.incomplete,
+    'bad routing': AssetIntegrity.incomplete,
+    'malformed tokenizer': AssetIntegrity.corrupt,
+    'malformed optional companion': AssetIntegrity.corrupt,
+    'missing tokenizer': AssetIntegrity.incomplete,
+    'missing tokenizer config': AssetIntegrity.incomplete,
+    'missing config': AssetIntegrity.incomplete,
+    'missing template': AssetIntegrity.incomplete,
+    'unknown tokenizer': AssetIntegrity.unknown,
+    'unexpected tensor': AssetIntegrity.unknown,
+    'BF16 profile': AssetIntegrity.unknown,
+    'F32 profile': AssetIntegrity.unknown,
+    'receipt digest mismatch': AssetIntegrity.corrupt,
+  };
+  for (final entry in packageCases.entries) {
+    test(
+      'Qwen2 package ${entry.key} wins over structural eligibility',
+      () async {
+        final root = await Directory.systemTemp.createTemp(
+          'gmd-qwen2-package-',
+        );
+        addTearDown(() => root.delete(recursive: true));
+        final fixture = Qwen2MlxFixture();
+        if (entry.key == 'unexpected tensor') {
+          fixture.tensors['lm_head.weight'] = ('F16', [4, 64]);
+        }
+        if (entry.key.endsWith('profile')) {
+          for (final name in fixture.tensors.keys.toList()) {
+            final value = fixture.tensors[name]!;
+            if (value.$1 == 'F16') {
+              fixture.tensors[name] = (entry.key.split(' ').first, value.$2);
+            }
+          }
+        }
+        final bytes = fixture.bytes();
+        switch (entry.key) {
+          case 'truncated weight':
+            bytes['model.safetensors'] = bytes['model.safetensors']!.sublist(
+              0,
+              17,
+            );
+          case 'malformed index':
+            bytes['model.safetensors.index.json'] = utf8.encode('{');
+          case 'missing shard':
+            final index = jsonDecode(
+              utf8.decode(bytes['model.safetensors.index.json']!),
+            ) as Map<String, dynamic>;
+            index['weight_map']['model.norm.weight'] = 'absent.safetensors';
+            bytes['model.safetensors.index.json'] = utf8.encode(
+              jsonEncode(index),
+            );
+          case 'bad routing':
+            final index = jsonDecode(
+              utf8.decode(bytes['model.safetensors.index.json']!),
+            ) as Map<String, dynamic>;
+            index['weight_map'].remove('model.norm.weight');
+            bytes['model.safetensors.index.json'] = utf8.encode(
+              jsonEncode(index),
+            );
+          case 'malformed tokenizer':
+            bytes['tokenizer.json'] = utf8.encode('{');
+          case 'malformed optional companion':
+            bytes['generation_config.json'] = utf8.encode('{');
+          case 'missing tokenizer':
+            bytes.remove('tokenizer.json');
+          case 'missing tokenizer config':
+            bytes.remove('tokenizer_config.json');
+          case 'missing config':
+            bytes.remove('config.json');
+          case 'missing template':
+            bytes['tokenizer_config.json'] = utf8.encode('{}');
+          case 'unknown tokenizer':
+            bytes['tokenizer.json'] = utf8.encode(
+              '{"model":{"type":"Other","vocab":{"hello":0}}}',
+            );
+        }
+        for (final file in bytes.entries) {
+          await File('${root.path}/${file.key}').writeAsBytes(file.value);
+        }
+        if (entry.key == 'receipt digest mismatch') {
+          final receipts = await Directory(
+            '${root.path}/.ghostmodeldeck/installations',
+          ).create(recursive: true);
+          await File('${receipts.path}/fixture.json').writeAsString(
+            jsonEncode({
+              'version': 1,
+              'id': 'fixture',
+              'repoId': 'synthetic/qwen2',
+              'revision': List.filled(40, 'a').join(),
+              'source': 'local',
+              'reusedExisting': true,
+              'sourceTransferPerformed': false,
+              'files': [
+                for (final file in bytes.entries)
+                  {
+                    'path': file.key,
+                    'sizeBytes': file.value.length,
+                    'sha256': file.key == 'model.safetensors'
+                        ? List.filled(64, '0').join()
+                        : sha256.convert(file.value).toString(),
+                  },
+              ],
+            }),
+          );
+        }
+        final library = ModelLibrary();
+        addTearDown(library.close);
+        final asset = (await library.scan(root, verifyFiles: true)).single;
+        expect(asset.integrity, entry.value);
+        expect(asset.sourceVerified, isFalse);
+        expect(asset.engineCapability, EngineCapability.awaitingVerification);
+      },
+    );
+  }
+  test(
+    'explicit affine mode with 628 tensors needs no universal nine companions',
+    () async {
+      final root = await Directory.systemTemp.createTemp('gmd-qwen2-628-');
+      addTearDown(() => root.delete(recursive: true));
+      final fixture = Qwen2MlxFixture(layers: 24);
+      // Real graph count: embedding triplet + final norm + 24 * 26.
+      expect(fixture.tensors.length, 628);
+      expect(
+        fixture.tensors.values.where((value) => value.$1 == 'U32').length,
+        169,
+      );
+      expect(
+        fixture.tensors.values.where((value) => value.$1 == 'F16').length,
+        459,
+      );
+      fixture.config['quantization'] = {
+        'bits': 4,
+        'group_size': 64,
+        'mode': 'affine',
+      };
+      for (final entry in fixture.bytes(indexed: false).entries) {
+        await File('${root.path}/${entry.key}').writeAsBytes(entry.value);
+      }
+      final library = ModelLibrary();
+      addTearDown(library.close);
+      final asset = (await library.scan(root, verifyFiles: true)).single;
+      expect(asset.files.length, 4);
+      expect(asset.integrity, AssetIntegrity.complete);
+      expect(asset.engineCapability, EngineCapability.awaitingVerification);
+      expect(asset.sourceVerified, isFalse);
+    },
+  );
+  test('earlier unknown header or unindexed grouping wins over Qwen2 layout failure', () async {
+    final root = await Directory.systemTemp.createTemp('gmd-qwen2-precedence-');
+    addTearDown(() => root.delete(recursive: true));
+    final library = ModelLibrary();
+    addTearDown(library.close);
+    for (final unknownHeader in [false, true]) {
+      final fixture = Qwen2MlxFixture();
+      fixture.tensors.remove('model.embed_tokens.scales');
+      if (unknownHeader) {
+        fixture.tensors['model.norm.weight'] = ('FUTURE16', [64]);
+      }
+      final directory = await Directory('${root.path}/$unknownHeader').create();
+      for (final entry
+          in fixture
+              .bytes(indexed: false, shards: unknownHeader ? 1 : 2)
+              .entries) {
+        await File('${directory.path}/${entry.key}').writeAsBytes(entry.value);
+      }
+      final asset = (await library.scan(directory, verifyFiles: true)).single;
+      expect(asset.integrity, AssetIntegrity.unknown);
+      expect(asset.engineCapability, EngineCapability.awaitingVerification);
+    }
+  });
+  test('Qwen2 requires every tensor including last layer with exact rank shape dtype', () async {
+    final root = await Directory.systemTemp.createTemp('gmd-qwen2-required-');
+    addTearDown(() => root.delete(recursive: true));
+    final library = ModelLibrary();
+    addTearDown(library.close);
+    final names = Qwen2MlxFixture(layers: 2).tensors.keys.toList();
+    for (final name in names) {
+      for (final mutation in ['missing', 'shape', 'dtype']) {
+        final fixture = Qwen2MlxFixture(layers: 2);
+        final value = fixture.tensors[name]!;
+        switch (mutation) {
+          case 'missing':
+            fixture.tensors.remove(name);
+          case 'shape':
+            fixture.tensors[name] = (value.$1, [...value.$2, 1]);
+          case 'dtype':
+            fixture.tensors[name] = (
+              value.$1 == 'U32' ? 'I32' : 'U16',
+              value.$2,
+            );
+        }
+        final directory = await Directory(
+          '${root.path}/${names.indexOf(name)}-$mutation',
+        ).create();
+        for (final entry in fixture.bytes().entries) {
+          await File('${directory.path}/${entry.key}')
+              .writeAsBytes(entry.value);
+        }
+        final asset = (await library.scan(directory, verifyFiles: true)).single;
+        expect(
+          asset.integrity,
+          AssetIntegrity.incomplete,
+          reason: '$mutation $name',
+        );
+        expect(
+          asset.diagnostics.any((message) => message.contains(name)),
+          isTrue,
+          reason: name,
+        );
+        expect(asset.engineCapability, EngineCapability.awaitingVerification);
+      }
+    }
+  });
+  final configCases = <String, (String, Object?, AssetIntegrity)>{
+    'missing hidden': ('hidden_size', null, AssetIntegrity.incomplete),
+    'string hidden': ('hidden_size', '64', AssetIntegrity.incomplete),
+    'bool layers': ('num_hidden_layers', false, AssetIntegrity.incomplete),
+    'zero layers': ('num_hidden_layers', 0, AssetIntegrity.incomplete),
+    'bounded layers': ('num_hidden_layers', 10001, AssetIntegrity.incomplete),
+    'negative intermediate': (
+      'intermediate_size',
+      -64,
+      AssetIntegrity.incomplete,
+    ),
+    'group dimension': ('intermediate_size', 65, AssetIntegrity.incomplete),
+    'head dimension': ('num_attention_heads', 3, AssetIntegrity.incomplete),
+    'KV division': ('num_key_value_heads', 3, AssetIntegrity.incomplete),
+    'zero vocab': ('vocab_size', 0, AssetIntegrity.incomplete),
+    'missing positions': (
+      'max_position_embeddings',
+      null,
+      AssetIntegrity.incomplete,
+    ),
+    'zero epsilon': ('rms_norm_eps', 0, AssetIntegrity.incomplete),
+    'invalid rope': ('rope_theta', '10000', AssetIntegrity.incomplete),
+    'missing quantization': ('quantization', null, AssetIntegrity.incomplete),
+    'bool bits': (
+      'quantization',
+      {'bits': false, 'group_size': 64},
+      AssetIntegrity.incomplete,
+    ),
+    'zero group': (
+      'quantization',
+      {'bits': 4, 'group_size': 0},
+      AssetIntegrity.incomplete,
+    ),
+    'missing tie': ('tie_word_embeddings', null, AssetIntegrity.incomplete),
+    'untied': ('tie_word_embeddings', false, AssetIntegrity.unknown),
+    'alternate architecture': ('model_type', 'unknown', AssetIntegrity.unknown),
+    'alternate identity': (
+      'architectures',
+      ['OtherForCausalLM'],
+      AssetIntegrity.unknown,
+    ),
+    'alternate bits': (
+      'quantization',
+      {'bits': 8, 'group_size': 64},
+      AssetIntegrity.unknown,
+    ),
+    'alternate group': (
+      'quantization',
+      {'bits': 4, 'group_size': 128},
+      AssetIntegrity.unknown,
+    ),
+    'alternate mode': (
+      'quantization',
+      {'bits': 4, 'group_size': 64, 'mode': 'mxfp4'},
+      AssetIntegrity.unknown,
+    ),
+    'per module quantization': (
+      'quantization',
+      {'bits': 4, 'group_size': 64, 'model.layers.0': {}},
+      AssetIntegrity.unknown,
+    ),
+    'conflicting quantization': (
+      'quantization_config',
+      {},
+      AssetIntegrity.unknown,
+    ),
+    'custom file': ('model_file', 'custom', AssetIntegrity.unknown),
+    'custom rope': ('rope_scaling', {}, AssetIntegrity.unknown),
+    'alternate activation': ('hidden_act', 'relu', AssetIntegrity.unknown),
+    'sliding window': ('use_sliding_window', true, AssetIntegrity.unknown),
+    'quantized activation': (
+      'quantize_activations',
+      true,
+      AssetIntegrity.unknown,
+    ),
+  };
+  for (final entry in configCases.entries) {
+    test(
+      'Qwen2 rejects ${entry.key} without claiming complete or Ready',
+      () async {
+        final root = await Directory.systemTemp.createTemp('gmd-qwen2-config-');
+        addTearDown(() => root.delete(recursive: true));
+        final fixture = Qwen2MlxFixture();
+        fixture.config[entry.value.$1] = entry.value.$2;
+        for (final file in fixture.bytes().entries) {
+          await File('${root.path}/${file.key}').writeAsBytes(file.value);
+        }
+        final library = ModelLibrary();
+        addTearDown(library.close);
+        final asset = (await library.scan(root, verifyFiles: true)).single;
+        expect(asset.integrity, entry.value.$3);
+        expect(asset.engineCapability, EngineCapability.awaitingVerification);
+      },
+    );
+  }
+  for (final indexed in [false, true]) {
+    for (final shards in [1, 2]) {
+      test(
+        'Qwen2 two layers with $shards shards indexed=$indexed retains package ambiguity',
+        () async {
+          final root = await Directory.systemTemp.createTemp(
+            'gmd-qwen2-shards-',
+          );
+          addTearDown(() => root.delete(recursive: true));
+          final fixture = Qwen2MlxFixture(layers: 2);
+          for (final entry
+              in fixture.bytes(indexed: indexed, shards: shards).entries) {
+            await File('${root.path}/${entry.key}').writeAsBytes(entry.value);
+          }
+          final library = ModelLibrary();
+          addTearDown(library.close);
+          final asset = (await library.scan(root, verifyFiles: true)).single;
+          expect(
+            asset.integrity,
+            !indexed && shards == 2
+                ? AssetIntegrity.unknown
+                : AssetIntegrity.complete,
+          );
+          expect(asset.engineCapability, EngineCapability.awaitingVerification);
+        },
+      );
+    }
+  }
+  test(
+    'mixed floating Qwen2 precision remains unknown rather than complete',
+    () async {
+      final root = await Directory.systemTemp.createTemp('gmd-qwen2-mixed-');
+      addTearDown(() => root.delete(recursive: true));
+      final fixture = Qwen2MlxFixture();
+      fixture.tensors['model.norm.weight'] = ('BF16', [64]);
+      for (final entry in fixture.bytes().entries) {
+        await File('${root.path}/${entry.key}').writeAsBytes(entry.value);
+      }
+      final library = ModelLibrary();
+      addTearDown(library.close);
+      final asset = (await library.scan(root, verifyFiles: true)).single;
+      expect(asset.integrity, AssetIntegrity.unknown);
+      expect(asset.engineCapability, EngineCapability.awaitingVerification);
+    },
+  );
+  test(
+    'full mixed U32 F16 Qwen2 graph is structurally complete but never Ready',
+    () async {
+      final root = await Directory.systemTemp.createTemp('gmd-qwen2-layout-');
+      addTearDown(() => root.delete(recursive: true));
+      final fixture = Qwen2MlxFixture();
+      expect(fixture.tensors.length, 30);
+      expect(fixture.tensors.values.where((v) => v.$1 == 'U32').length, 8);
+      final bytes = fixture.bytes();
+      for (final entry in bytes.entries) {
+        await File('${root.path}/${entry.key}').writeAsBytes(entry.value);
+      }
+      final library = ModelLibrary();
+      addTearDown(library.close);
+      final scanned = (await library.scan(root)).single;
+      expect(scanned.integrity, AssetIntegrity.complete);
+      expect(scanned.engineCapability, EngineCapability.awaitingVerification);
+      expect(scanned.fingerprintsVerified, isFalse);
+      final verified = (await library.verify([scanned.id])).single;
+      expect(verified.integrity, AssetIntegrity.complete);
+      expect(verified.kind, AssetKind.chat);
+      expect(verified.architecture, 'qwen2');
+      expect(verified.fingerprintsVerified, isTrue);
+      expect(verified.sourceVerified, isFalse);
+      expect(verified.engineCapability, EngineCapability.awaitingVerification);
+      for (final entry in bytes.entries) {
+        expect(
+          await File('${root.path}/${entry.key}').readAsBytes(),
+          entry.value,
+        );
+      }
+    },
+  );
   test(
     'shared companions never attach another indexed variant receipt',
     () async {

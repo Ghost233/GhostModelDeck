@@ -671,6 +671,7 @@ class _Inspection {
     this.integrity, {
     this.metadata = const {},
     this.tensors = const {},
+    this.tensorDtypes = const {},
     this.diagnostics = const [],
     this.needsMoreBytes = false,
   });
@@ -678,6 +679,7 @@ class _Inspection {
   final AssetIntegrity integrity;
   final Map<String, Object?> metadata;
   final Map<String, List<int>> tensors;
+  final Map<String, String> tensorDtypes;
   final List<String> diagnostics;
   final bool needsMoreBytes;
 }
@@ -752,6 +754,7 @@ _Inspection _readSafetensors(Uint8List bytes, int size) {
     throw const FormatException('Safetensors header 异常');
   }
   final tensors = <String, List<int>>{};
+  final tensorDtypes = <String, String>{};
   final ranges = <(int, int)>[];
   var knownSizes = true;
   final payloadSize = size - 8 - length;
@@ -811,6 +814,7 @@ _Inspection _readSafetensors(Uint8List bytes, int size) {
       throw const FormatException('Safetensors tensor 字节数不符');
     }
     tensors[entry.key] = shape.cast<int>();
+    tensorDtypes[entry.key] = value['dtype'] as String;
     ranges.add((offsets[0] as int, offsets[1] as int));
   }
   ranges.sort((a, b) => a.$1.compareTo(b.$1));
@@ -824,8 +828,150 @@ _Inspection _readSafetensors(Uint8List bytes, int size) {
     'Safetensors',
     knownSizes ? AssetIntegrity.complete : AssetIntegrity.unknown,
     tensors: tensors,
+    tensorDtypes: tensorDtypes,
     diagnostics: knownSizes ? [] : ['未知 tensor dtype'],
   );
+}
+
+enum _QwenLayout { complete, incomplete, unsupported }
+
+/// Only the independently observed tied affine4/G64 U32+F16 Qwen2 graph.
+(_QwenLayout, List<String>) _qwen2Layout(
+  Map<String, dynamic> config,
+  Map<String, List<int>> tensors,
+  Map<String, String> dtypes,
+) {
+  (_QwenLayout, List<String>) invalid(String detail) =>
+      (_QwenLayout.incomplete, ['Qwen2 配置或布局无效: $detail']);
+  (_QwenLayout, List<String>) unsupported(String detail) =>
+      (_QwenLayout.unsupported, ['Qwen2 profile 尚未支持: $detail']);
+  final architectures = config['architectures'];
+  if (config['model_type'] != 'qwen2' ||
+      architectures is! List ||
+      architectures.length != 1 ||
+      architectures.single != 'Qwen2ForCausalLM') {
+    return unsupported('architecture');
+  }
+  // Floating-only weights are not evidence of this packed affine profile.
+  // In particular, old downloader role fixtures must remain non-proof/unknown.
+  if (dtypes.isNotEmpty &&
+      dtypes.values.every((dtype) => dtype == 'F32' || dtype == 'BF16')) {
+    return unsupported('floating-only profile');
+  }
+  final quantization = config['quantization'];
+  if (quantization is! Map ||
+      quantization['bits'] is! int ||
+      quantization['group_size'] is! int ||
+      quantization['bits'] <= 0 ||
+      quantization['group_size'] <= 0) {
+    return invalid('quantization');
+  }
+  if (quantization['bits'] != 4 ||
+      quantization['group_size'] != 64 ||
+      (quantization.containsKey('mode') && quantization['mode'] != 'affine') ||
+      quantization.keys.any(
+        (key) => !['bits', 'group_size', 'mode'].contains(key),
+      ) ||
+      config.containsKey('quantization_config')) {
+    return unsupported('quantization');
+  }
+  if (config['tie_word_embeddings'] is! bool) {
+    return invalid('tie_word_embeddings');
+  }
+  if (config['tie_word_embeddings'] != true) {
+    return unsupported('untied embeddings');
+  }
+  for (final key in ['model_file', 'auto_map', 'rope_scaling']) {
+    if (config[key] != null) return unsupported(key);
+  }
+  if (config['hidden_act'] != 'silu' ||
+      config['use_sliding_window'] == true ||
+      config['quantize_activations'] == true) {
+    return unsupported('alternate graph');
+  }
+  final dimensions = <String, int>{};
+  for (final key in [
+    'num_hidden_layers',
+    'hidden_size',
+    'intermediate_size',
+    'num_attention_heads',
+    'num_key_value_heads',
+    'vocab_size',
+    'max_position_embeddings',
+  ]) {
+    final value = config[key];
+    if (value is! int || value <= 0) return invalid(key);
+    dimensions[key] = value;
+  }
+  for (final key in ['rms_norm_eps', 'rope_theta']) {
+    final value = config[key];
+    if (value is! num || !value.isFinite || value <= 0) return invalid(key);
+  }
+  final layers = dimensions['num_hidden_layers']!;
+  final hidden = dimensions['hidden_size']!;
+  final intermediate = dimensions['intermediate_size']!;
+  final heads = dimensions['num_attention_heads']!;
+  final kvHeads = dimensions['num_key_value_heads']!;
+  final vocab = dimensions['vocab_size']!;
+  // Same bounded layer budget as the existing architecture validators.
+  if (layers > 10000) return invalid('num_hidden_layers 超过扫描上限');
+  if (hidden % heads != 0 ||
+      heads % kvHeads != 0 ||
+      kvHeads > heads ||
+      (hidden ~/ heads) % 2 != 0 ||
+      hidden % 64 != 0 ||
+      intermediate % 64 != 0) {
+    return invalid('维度不可整除');
+  }
+  final kvRows = kvHeads * (hidden ~/ heads);
+  final expected = <String, (String, List<int>)>{};
+  void affine(String name, int rows, int columns) {
+    expected['$name.weight'] = ('U32', [rows, columns ~/ 8]);
+    expected['$name.scales'] = ('F16', [rows, columns ~/ 64]);
+    expected['$name.biases'] = ('F16', [rows, columns ~/ 64]);
+  }
+
+  affine('model.embed_tokens', vocab, hidden);
+  expected['model.norm.weight'] = ('F16', [hidden]);
+  for (var layer = 0; layer < layers; layer++) {
+    final prefix = 'model.layers.$layer';
+    affine('$prefix.self_attn.q_proj', hidden, hidden);
+    affine('$prefix.self_attn.k_proj', kvRows, hidden);
+    affine('$prefix.self_attn.v_proj', kvRows, hidden);
+    affine('$prefix.self_attn.o_proj', hidden, hidden);
+    affine('$prefix.mlp.gate_proj', intermediate, hidden);
+    affine('$prefix.mlp.up_proj', intermediate, hidden);
+    affine('$prefix.mlp.down_proj', hidden, intermediate);
+    expected['$prefix.self_attn.q_proj.bias'] = ('F16', [hidden]);
+    expected['$prefix.self_attn.k_proj.bias'] = ('F16', [kvRows]);
+    expected['$prefix.self_attn.v_proj.bias'] = ('F16', [kvRows]);
+    expected['$prefix.input_layernorm.weight'] = ('F16', [hidden]);
+    expected['$prefix.post_attention_layernorm.weight'] = ('F16', [hidden]);
+  }
+  final problems = <String>[];
+  for (final entry in expected.entries) {
+    if (!_dimensionsMatch(tensors[entry.key], entry.value.$2)) {
+      problems.add('缺少或不匹配 ${entry.key}');
+    }
+  }
+  if (problems.isNotEmpty) return (_QwenLayout.incomplete, problems);
+  if (tensors.keys.any((key) => !expected.containsKey(key))) {
+    return unsupported('unexpected tensor 集合');
+  }
+  final floatNames = expected.entries.where((entry) => entry.value.$1 == 'F16');
+  if (floatNames.any(
+    (entry) => dtypes[entry.key] == 'BF16' || dtypes[entry.key] == 'F32',
+  )) {
+    return unsupported('alternate floating dtype');
+  }
+  for (final entry in expected.entries) {
+    if (dtypes[entry.key] != entry.value.$1) {
+      problems.add('dtype 不匹配 ${entry.key}');
+    }
+  }
+  return problems.isEmpty
+      ? (_QwenLayout.complete, [])
+      : (_QwenLayout.incomplete, problems);
 }
 
 Future<Map<String, dynamic>?> _readJson(File file) async {
@@ -905,6 +1051,7 @@ Future<_SafetensorsGroups> _groupSafetensors(
     }
 
     final tensors = <String, List<int>>{};
+    final tensorDtypes = <String, String>{};
     for (final file in selected) {
       for (final entry in file.inspection.tensors.entries) {
         if (tensors.containsKey(entry.key)) {
@@ -912,6 +1059,8 @@ Future<_SafetensorsGroups> _groupSafetensors(
           diagnostics.add('重复 tensor');
         }
         tensors[entry.key] = entry.value;
+        final dtype = file.inspection.tensorDtypes[entry.key];
+        if (dtype != null) tensorDtypes[entry.key] = dtype;
       }
     }
     if (indexPath != null) {
@@ -957,6 +1106,22 @@ Future<_SafetensorsGroups> _groupSafetensors(
       return null;
     }
 
+    // An invalid conventional index is not permission to accept its weight as an
+    // unindexed complete package. Do not attach unrelated variant index files.
+    if (indexPath == null) {
+      for (final weight in selected) {
+        final path = '${weight.file.path}.index.json';
+        if (!allFiles.containsKey(path)) continue;
+        final relative = path.substring(directory.length + 1);
+        final conventional = await companion(relative);
+        if (conventional != null &&
+            (conventional['weight_map'] is! Map ||
+                (conventional['weight_map'] as Map).isEmpty)) {
+          integrity = AssetIntegrity.corrupt;
+          diagnostics.add('$relative 索引映射无效');
+        }
+      }
+    }
     var kind = AssetKind.unknown;
     String? architecture;
     String? decision;
@@ -1041,13 +1206,32 @@ Future<_SafetensorsGroups> _groupSafetensors(
           )) {
         kind = AssetKind.chat;
       }
-      if (config == null) {
-        missing('缺少可识别的模型配置');
-      } else if (integrity != AssetIntegrity.corrupt &&
-          integrity != AssetIntegrity.incomplete) {
-        integrity = AssetIntegrity.unknown;
+      void primaryMissing(String message) {
+        if (integrity == AssetIntegrity.complete) {
+          integrity = AssetIntegrity.incomplete;
+        }
+        diagnostics.add(message);
       }
-      diagnostics.add('架构必要 tensor 布局尚未核验');
+
+      if (config == null) {
+        primaryMissing('缺少可识别的模型配置');
+      }
+      final layout = config == null
+          ? (_QwenLayout.unsupported, <String>[])
+          : _qwen2Layout(config, tensors, tensorDtypes);
+      if (layout.$1 == _QwenLayout.incomplete) {
+        // Layout evidence cannot replace an earlier ambiguous header/index verdict.
+        if (integrity == AssetIntegrity.complete) {
+          integrity = AssetIntegrity.incomplete;
+        }
+        diagnostics.addAll(layout.$2);
+      } else if (layout.$1 == _QwenLayout.unsupported) {
+        if (integrity == AssetIntegrity.complete) {
+          integrity = AssetIntegrity.unknown;
+        }
+        diagnostics.add('架构必要 tensor 布局尚未核验');
+        diagnostics.addAll(layout.$2);
+      }
       for (final name in [
         'tokenizer.json',
         'tokenizer_config.json',
@@ -1057,6 +1241,30 @@ Future<_SafetensorsGroups> _groupSafetensors(
         'generation_config.json',
       ]) {
         await companion(name);
+      }
+      if (layout.$1 == _QwenLayout.complete) {
+        final tokenizer = await json('$directory/tokenizer.json');
+        final tokenizerConfig = await json('$directory/tokenizer_config.json');
+        if (tokenizer == null || tokenizerConfig == null) {
+          primaryMissing('缺少 Qwen2 tokenizer 主配置');
+        } else {
+          final model = tokenizer['model'];
+          final vocab = model is Map ? model['vocab'] : null;
+          if (model is! Map ||
+              model['type'] != 'BPE' ||
+              vocab is! Map ||
+              vocab.isEmpty ||
+              vocab.values.any((value) => value is! int || value < 0)) {
+            if (integrity == AssetIntegrity.complete) {
+              integrity = AssetIntegrity.unknown;
+            }
+            diagnostics.add('Qwen2 tokenizer 表示尚未核验');
+          }
+          final template = tokenizerConfig['chat_template'];
+          if (template is! String || template.trim().isEmpty) {
+            primaryMissing('缺少 Qwen2 普通 chat_template');
+          }
+        }
       }
       // Text/binary tokenizer fallbacks are assets too, not JSON documents.
       for (final name in [
