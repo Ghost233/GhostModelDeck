@@ -15,6 +15,8 @@
 
 工程 skill 需要读取、创建或发布工单时按其流程执行，标签映射见 [分类标签](triage-labels.md)。已有旧项目链接用于来源引用；没有用户要求时不转移、关闭或重建旧工单。
 
+撰写工单范围与验收标准时，引用仓库文件路径前核验其存在；意图新增文件须明确写「新增」。审查结项时逐条核对验收标准，未覆盖项按缺陷处理。
+
 ## Wayfinding operations / 寻路操作
 
 当前地图：[GhostModelDeck：从 JevManager 扩展为多引擎模型管理器的首期决策地图](https://github.com/Ghost233/GhostModelDeck/issues/1)。它是新项目的规范决策入口；开放子工单和阻塞关系以 GitHub 实时状态为准。
