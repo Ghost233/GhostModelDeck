@@ -459,7 +459,11 @@ void main() {
       expect(choice['index'], 0);
       expect(choice['message'], {'role': 'assistant', 'content': 'Hello.'});
       expect(choice['finish_reason'], 'stop');
-      expect(body['usage'], {'completion_tokens': 2});
+      expect(body['usage'], {
+        'prompt_tokens': 4,
+        'completion_tokens': 2,
+        'total_tokens': 6,
+      });
       // No upstream identity, internals or raw frames leak into the public reply.
       expect(response.body, isNot(contains(fixture.instanceId)));
       expect(response.body, isNot(contains('rawResponse')));
@@ -522,12 +526,116 @@ void main() {
       final terminal = chunks[2]['choices'].single as Map;
       expect(terminal['delta'], isEmpty);
       expect(terminal['finish_reason'], 'stop');
-      expect(chunks[2]['usage'], {'completion_tokens': 2});
+      expect(chunks[2]['usage'], {
+        'prompt_tokens': 4,
+        'completion_tokens': 2,
+        'total_tokens': 6,
+      });
       expect(raw, isNot(contains(fixture.instanceId)));
       // The upstream SSE request carried the identity-bound stream options.
       final upstream = fixture.io.textBodies.single;
       expect(upstream['stream'], true);
       expect(upstream['stream_options'], {'include_usage': true});
+    });
+
+    test(
+      'non-stream chat preserves the full upstream usage verbatim',
+      () async {
+        final fixture = await _GatewayFixture.create();
+        addTearDown(fixture.close);
+        await fixture.enableReady();
+        fixture.io.textUsage = {
+          'prompt_tokens': 10,
+          'completion_tokens': 5,
+          'total_tokens': 15,
+        };
+        final response = await _post(
+          '${fixture.gateway.baseUrl}/v1/chat/completions',
+          {
+            'model': 'gmd-${fixture.asset.id}',
+            'messages': [
+              {'role': 'user', 'content': 'Say hello'},
+            ],
+          },
+        );
+        expect(response.status, 200);
+        final body = jsonDecode(response.body) as Map;
+        expect(body['usage'], {
+          'prompt_tokens': 10,
+          'completion_tokens': 5,
+          'total_tokens': 15,
+        });
+      },
+    );
+
+    test('SSE chat preserves the full upstream usage verbatim in the terminal frame', () async {
+      final fixture = await _GatewayFixture.create();
+      addTearDown(fixture.close);
+      await fixture.enableReady();
+      fixture.io.streamResponse = (response, alias, body) async {
+        for (final frame in [
+          {
+            'model': alias,
+            'choices': [
+              {
+                'index': 0,
+                'delta': {'role': 'assistant', 'content': 'Hi'},
+                'finish_reason': null,
+              },
+            ],
+          },
+          {
+            'model': alias,
+            'choices': [
+              {
+                'index': 0,
+                'delta': <String, Object?>{},
+                'finish_reason': 'stop',
+              },
+            ],
+            'usage': {
+              'prompt_tokens': 10,
+              'completion_tokens': 5,
+              'total_tokens': 15,
+            },
+          },
+        ]) {
+          response.write('data: ${jsonEncode(frame)}\n\n');
+          await response.flush();
+        }
+        response.write('data: [DONE]\n\n');
+      };
+      final client = _SseClient();
+      addTearDown(client.destroy);
+      final status = await client.open(
+        '${fixture.gateway.baseUrl}/v1/chat/completions',
+        {
+          'model': 'gmd-${fixture.asset.id}',
+          'messages': [
+            {'role': 'user', 'content': 'Stream please'},
+          ],
+          'stream': true,
+        },
+      );
+      expect(status, 200);
+      final raw = await client.body();
+      final frames = raw
+          .split('\n\n')
+          .map((f) => f.trim())
+          .where((f) => f.isNotEmpty)
+          .toList();
+      expect(frames.last, 'data: [DONE]');
+      final chunks = frames
+          .sublist(0, frames.length - 1)
+          .map((f) => jsonDecode(f.substring('data: '.length)) as Map)
+          .toList();
+      final terminal = chunks.last;
+      expect(terminal['choices'].single['finish_reason'], 'stop');
+      expect(terminal['usage'], {
+        'prompt_tokens': 10,
+        'completion_tokens': 5,
+        'total_tokens': 15,
+      });
     });
 
     test('unsupported fields and invalid values are rejected with zero upstream forwarding', () async {
@@ -1216,6 +1324,11 @@ class _GatewayIO implements EngineProcessIO {
   int textRequests = 0;
   final textBodies = <Map>[];
   int textStatus = 200;
+  Map<String, Object?> textUsage = {
+    'prompt_tokens': 4,
+    'completion_tokens': 2,
+    'total_tokens': 6,
+  };
   Future<void> Function(HttpResponse response, String alias, Map body)?
   streamResponse;
   final children = <_GatewayChild>[];
@@ -1272,11 +1385,7 @@ class _GatewayIO implements EngineProcessIO {
                   'finish_reason': 'stop',
                 },
               ],
-              'usage': {
-                'prompt_tokens': 4,
-                'completion_tokens': 2,
-                'total_tokens': 6,
-              },
+              'usage': textUsage,
             }),
           );
         }

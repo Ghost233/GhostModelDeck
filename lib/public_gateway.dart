@@ -583,7 +583,7 @@ class PublicGatewayServer {
             'finish_reason': result.finishReason,
           },
         ],
-        'usage': {'completion_tokens': result.outputTokens},
+        'usage': result.usage,
       });
     } on LlamaRequestException catch (error) {
       _sendUpstreamError(request.response, error.kind.name);
@@ -616,16 +616,11 @@ class PublicGatewayServer {
               if (result != null) {
                 final write = started ? _writeSseFrame : _writeSseChunk;
                 started = true;
-                write(
-                  response,
-                  target.publicId,
-                  {
-                    'index': 0,
-                    'delta': <String, Object?>{},
-                    'finish_reason': result.finishReason,
-                  },
-                  usage: {'completion_tokens': result.outputTokens},
-                );
+                write(response, target.publicId, {
+                  'index': 0,
+                  'delta': <String, Object?>{},
+                  'finish_reason': result.finishReason,
+                }, usage: result.usage);
                 response.write('data: [DONE]\n\n');
               } else if (event.delta.isNotEmpty) {
                 final first = !started;

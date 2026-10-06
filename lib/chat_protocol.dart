@@ -78,12 +78,14 @@ class TextResult {
     required this.text,
     required this.finishReason,
     required this.outputTokens,
+    required this.usage,
     required this.rawResponse,
   });
   final String model;
   final String text;
   final String finishReason;
   final int outputTokens;
+  final Map<String, Object?> usage;
   final String rawResponse;
 
   static TextResult parse(String raw, {required String expectedModel}) {
@@ -119,6 +121,7 @@ class TextResult {
         text: message['content'] as String,
         finishReason: finish as String,
         outputTokens: tokens,
+        usage: Map<String, Object?>.from(usage),
         rawResponse: raw,
       );
     } on FormatException {
@@ -143,6 +146,7 @@ class TextStreamDecoder {
   final _raw = StringBuffer();
   String? _finish;
   int? _tokens;
+  Map<String, Object?>? _usage;
   bool _done = false;
   String get rawResponse => _raw.toString();
 
@@ -207,6 +211,7 @@ class TextStreamDecoder {
         throw const TextProtocolException('文本流缺少正整数实际用量或重复用量');
       }
       _tokens = usage['completion_tokens'] as int;
+      _usage = Map<String, Object?>.from(usage);
     } else if (choices.isEmpty) {
       throw const TextProtocolException('文本流空结果帧缺少实际用量');
     }
@@ -222,6 +227,7 @@ class TextStreamDecoder {
       text: _text.toString(),
       finishReason: _finish!,
       outputTokens: _tokens!,
+      usage: _usage!,
       rawResponse: rawResponse,
     );
   }
