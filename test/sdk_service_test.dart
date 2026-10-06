@@ -23,6 +23,8 @@ import 'package:ghost_model_deck/model_library.dart';
 import 'package:ghost_model_deck/model_use_registry.dart';
 import 'package:ghost_model_deck/public_gateway.dart';
 import 'package:ghost_model_deck/sdk_service.dart';
+import 'package:ghost_model_deck/update_checker.dart';
+import 'package:ghost_model_deck/version_status_bridge.dart';
 import 'package:maclauncher_sdk/maclauncher_sdk.dart' as sdk;
 
 import 'fixtures/decision_gguf.dart';
@@ -58,6 +60,68 @@ void main() {
       expect(Set<String>.from(capabilities['app'] as List), {
         'openWindow',
       }, reason: '按契约不声明 onSetEntryManaged');
+    });
+
+    _realNet('注册 onVersionStatus 后声明能力并按桥映射如实应答（#28）', () async {
+      const sha =
+          '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+      final bridge = VersionStatusBridge(
+        currentVersion: () => '0.1.0',
+        checkForUpdates: (_) async => UpdateAvailable(
+          version: '0.2.0',
+          downloadUrl: Uri.parse(
+            'https://github.com/Ghost233/GhostModelDeck/releases/download/v0.2.0/GhostModelDeck-0.2.0.dmg',
+          ),
+          sizeBytes: 41943040,
+          sha256: sha,
+        ),
+      );
+      final fixture = await _SdkFixture.create(onVersionStatus: bridge.query);
+      addTearDown(fixture.close);
+      fixture.service.connect();
+      final hello = await fixture.peer.helloAt(0);
+      final capabilities = (hello['capabilities'] as Map)
+          .cast<String, Object?>();
+      expect(Set<String>.from(capabilities['app'] as List), {
+        'openWindow',
+        'versionStatus',
+      }, reason: '注册回调即声明版本状况能力');
+
+      final answer = await fixture.peer.call('versionStatus', serviceId: null);
+      final result = (answer['result'] as Map).cast<String, Object?>();
+      expect(result['state'], 'success');
+      expect(result['currentVersion'], '0.1.0');
+      expect(result['hasUpdate'], isTrue);
+      expect(result['latestVersion'], '0.2.0');
+      expect(
+        result['downloadUrl'],
+        'https://github.com/Ghost233/GhostModelDeck/releases/download/v0.2.0/GhostModelDeck-0.2.0.dmg',
+      );
+      expect(result['sha256'], sha, reason: 'sha256 非空原样透传');
+      expect(result['failureReason'], isNull);
+    });
+
+    _realNet('未注册 onVersionStatus 时 SDK 自动应答 unsupported 而非错误（#28）', () async {
+      final fixture = await _SdkFixture.create();
+      addTearDown(fixture.close);
+      await fixture.connect();
+      final answer = await fixture.peer.call('versionStatus', serviceId: null);
+      final result = (answer['result'] as Map).cast<String, Object?>();
+      expect(answer['error'], isNull, reason: '未注册回调不是协议错误');
+      expect(result['state'], 'unsupported');
+    });
+
+    _realNet('onVersionStatus 回调抛异常由 SDK 兜底为 failure 应答（#28）', () async {
+      Future<sdk.VersionStatus> throwing() async =>
+          throw StateError('query exploded');
+      final fixture = await _SdkFixture.create(onVersionStatus: throwing);
+      addTearDown(fixture.close);
+      await fixture.connect();
+      final answer = await fixture.peer.call('versionStatus', serviceId: null);
+      final result = (answer['result'] as Map).cast<String, Object?>();
+      expect(answer['error'], isNull, reason: '回调异常不是协议错误');
+      expect(result['state'], 'failure');
+      expect(result['failureReason'] as String, contains('query exploded'));
     });
 
     _realNet('onOpenWindow 缺 seam 时真实失败不虚报成功', () async {
@@ -1286,6 +1350,7 @@ class _SdkFixture {
     bool useAssetEntry = false,
     bool extraMissingEntry = false,
     bool corruptStartupSet = false,
+    Future<sdk.VersionStatus> Function()? onVersionStatus,
   }) async {
     final root = await Directory.systemTemp.createTemp('gmd-sdk-');
     final models = Directory('${root.path}/models');
@@ -1372,6 +1437,7 @@ class _SdkFixture {
         mcp: mcp,
         startupSet: startupSet,
         onOpenWindow: openWindowSeam ? openWindowCounter.increment : null,
+        onVersionStatus: onVersionStatus,
         socketPath: socketPath,
       ),
       events: events,

@@ -31,6 +31,7 @@ import 'settings_page.dart';
 import 'software_update_pane.dart';
 import 'update_checker.dart';
 import 'update_download_service.dart';
+import 'version_status_bridge.dart';
 
 void main() => runApp(const GhostModelDeckApp());
 
@@ -72,6 +73,7 @@ class _ManagerShellState extends State<_ManagerShell> {
   final _startupSet = StartupModelSet.user();
   late final LauncherInferenceService _launcherService;
   late final ManagerLifecycle _lifecycle;
+  late final VersionStatusBridge _versionStatusBridge;
   String? _libraryPath;
   String? _settingsError;
   String? _appVersion;
@@ -124,6 +126,13 @@ class _ManagerShellState extends State<_ManagerShell> {
       registryFile: File('${_settings.file.parent.path}/public_models.json'),
     );
     _publicGateway = PublicGatewayServer(routes: _publicRoutes);
+    // #28 版本状况桥：与设置页共用 UpdateChecker 查询；当前版本读取包信息
+    // 缓存值，未就绪时桥如实按查询失败回报。
+    _versionStatusBridge = VersionStatusBridge(
+      currentVersion: () => _appVersion,
+      checkForUpdates: (version) =>
+          UpdateChecker(currentVersion: version).check(),
+    );
     _launcherService = LauncherInferenceService(
       library: _library,
       engines: _engines,
@@ -133,6 +142,7 @@ class _ManagerShellState extends State<_ManagerShell> {
       // 窗口激活最小原生 seam；原生窗口行为验证属 #19 范围。原生未实现时
       // MissingPluginException 真实上抛，不假装窗口已激活。
       onOpenWindow: () => _native.invokeMethod<void>('activateMainWindow'),
+      onVersionStatus: _versionStatusBridge.query,
     );
     _lifecycle = ManagerLifecycle(
       council: _council,
