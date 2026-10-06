@@ -1,0 +1,118 @@
+{
+  "observed_at": "2026-10-06T03:25:31.379330+00:00",
+  "main_at_curation": "5f3d54dc271b245cae88cba978f9b6fbacb043be",
+  "scope": "Isolated host ONLINE official fixed Git-subpath SDK consumer; no root dependencies/source/SDK edits, no connect/socket/launcher binding/business/native/window or container checks",
+  "git_url": "https://github.com/Ghost233/MacLauncher.git",
+  "requested_ref": "bc7262f4047e81f55922c203948ac64d9e0e2d13",
+  "resolved_ref": "bc7262f4047e81f55922c203948ac64d9e0e2d13",
+  "subpath": "packages/maclauncher_sdk",
+  "sdk_version": "0.1.0",
+  "sdk_source": "/Users/ghost233/Ghost233Code/GhostModelDeck/.tooling/sdk-git-consumer-r51/pub-cache/git/MacLauncher-bc7262f4047e81f55922c203948ac64d9e0e2d13/packages/maclauncher_sdk",
+  "dart_generator_version": "3.13.5",
+  "flutter_version": "3.47.6",
+  "original_fixed_archive_byte_matches": [
+    {
+      "path": "pubspec.yaml",
+      "bytes": 239,
+      "sha256": "60bebb362899aad88bc0f8082fb9793e328312d9f1a7064b35ee4e7dd1e957a1"
+    },
+    {
+      "path": "lib/maclauncher_sdk.dart",
+      "bytes": 355,
+      "sha256": "9c1af303488936b2dcab7cce060ff217f6fb3550287144663ad53cac54305e5b"
+    },
+    {
+      "path": "lib/src/client.dart",
+      "bytes": 15704,
+      "sha256": "bf8ecb2ae894928d7f2251c639ec8ac101d42a01b8a537ba40148ffe7fbb4546"
+    },
+    {
+      "path": "lib/src/protocol/messages.dart",
+      "bytes": 7733,
+      "sha256": "636516d08c790256ea4da39014ffd1bea8d4ceef4786a760fbcfb637b1a75491"
+    }
+  ],
+  "raw_records": [
+    {
+      "path": ".tooling/sdk-git-consumer-r51/pubspec.yaml",
+      "bytes": 262,
+      "sha256": "3dbae7ca659367731dc74fd24deddf79d630fe1660cea11c60f0686ffe87e452"
+    },
+    {
+      "path": ".tooling/sdk-git-consumer-r51/pubspec.lock",
+      "bytes": 424,
+      "sha256": "027a98c5dc55cd955362fe5ffb9c47cad39ba3037966cd1aa7a80263a87333e0"
+    },
+    {
+      "path": ".tooling/sdk-git-consumer-r51/.dart_tool/package_config.json",
+      "bytes": 726,
+      "sha256": "620912f7a69521022109c9bc14f74ce783262dfcc16f51f58e4bc3e67005fb6a"
+    },
+    {
+      "path": ".tooling/sdk-git-consumer-r51/pub-get.log",
+      "bytes": 187,
+      "sha256": "7f05c4c93a60ad590f59bb37ce2207f22a338eba4f8b8c70fb9c0904f9793614"
+    },
+    {
+      "path": ".tooling/sdk-git-consumer-r51/format.log",
+      "bytes": 67,
+      "sha256": "58cb1d6f3355b58dc8141fa8b289fd5f17e2425734bae6fb7d3b5edaff4705d1"
+    },
+    {
+      "path": ".tooling/sdk-git-consumer-r51/analyze.log",
+      "bytes": 41,
+      "sha256": "e9775771aa8a01d360c41d458edd60374fdc62394faf443cd78df3426c7fd547"
+    },
+    {
+      "path": ".tooling/sdk-git-consumer-r51/smoke.json",
+      "bytes": 640,
+      "sha256": "717d8c18d404b0efdee09746c483643d1a311354505fbe04cd34641c548d6036"
+    },
+    {
+      "path": ".tooling/sdk-git-consumer-r51/smoke.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "smoke_result": {
+    "success": true,
+    "scope": "Isolated normal-online fixed Git SDK consumer; public symbols and deterministic DTO behavior ONLY. NO connect, sockets, launcher bindings, business execution or native window.",
+    "protocol_version": 1,
+    "service_methods": [
+      "start",
+      "recycle",
+      "status",
+      "logs"
+    ],
+    "app_methods": [
+      "openWindow"
+    ],
+    "unknown_status": {
+      "state": "unknown",
+      "instanceId": null,
+      "ready": null,
+      "observedAt": null,
+      "message": null
+    },
+    "unknown_log_batch": {
+      "entries": [
+        {
+          "text": "compile-only fixture; no real process log",
+          "timestamp": null,
+          "stream": "unknown"
+        }
+      ],
+      "instanceId": null,
+      "truncated": null,
+      "observedAt": null
+    },
+    "default_log_limit": 200,
+    "maximum_decoded_log_limit": 500
+  },
+  "root_dependencies_unchanged_vs_HEAD": true,
+  "limitations": [
+    "Not production Flutter/container resolution/build acceptance",
+    "No SDK handshake/reconnect/dedup/window/quit/entry tests",
+    "Fixture callbacks are compile-only and do not establish application business capabilities"
+  ]
+}
