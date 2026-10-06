@@ -6,6 +6,7 @@ import 'dart:math';
 import 'llama_engine.dart';
 import 'engine_runtime.dart';
 import 'model_library.dart';
+import 'omlx_engine.dart';
 import 'model_use_registry.dart';
 
 enum EngineSource { managed, linked }
@@ -24,6 +25,7 @@ class EngineRegistration {
     this.binarySha256,
     this.release,
     this.binaryVersion,
+    this.omlxReceipt,
     this.error,
   });
   final String id;
@@ -40,6 +42,7 @@ class EngineRegistration {
   final String? binarySha256;
   final LlamaRelease? release;
   final LlamaBinaryVersion? binaryVersion;
+  final OmlxReceipt? omlxReceipt;
   String get installationId => id;
   final String? error;
 }
@@ -68,12 +71,23 @@ class EngineRemovalPlan {
     required List<String> paths,
     required this.sizeBytes,
     this._managed,
+    this._omlx,
+    this._linkedDigest,
   }) : paths = List.unmodifiable(paths);
   final Object _owner;
   final EngineRegistration entry;
   final List<String> paths;
   final int sizeBytes;
   final LlamaRemovalPlan? _managed;
+  final OmlxRemovalPlan? _omlx;
+  final String? _linkedDigest;
+}
+
+class _LinkedOmlx {
+  const _LinkedOmlx(this.path, this.receipt, {this.error});
+  final String path;
+  final OmlxReceipt receipt;
+  final String? error;
 }
 
 class EngineCatalog {
@@ -81,6 +95,7 @@ class EngineCatalog {
     required this.library,
     required this.officialEngine,
     this.standardEngine,
+    this.omlxEngine,
     required this.useRegistry,
     required this.registryFile,
     EngineProcessIO? io,
@@ -88,7 +103,9 @@ class EngineCatalog {
     for (final provider in _managed.values) {
       _subscriptions.add(provider.changes.listen((_) => _publish()));
     }
+    _omlxSubscription = omlxEngine?.changes.listen((_) => _publish());
   }
+  static const omlxId = 'official-omlx-v0.7.0';
   static const officialId = 'official-llama-b11381';
   static const standardId = 'official-llama-v0.5.0';
   Map<String, LlamaEngine> get _managed => {
@@ -102,6 +119,9 @@ class EngineCatalog {
   final ModelLibrary library;
   final LlamaEngine officialEngine;
   final LlamaEngine? standardEngine;
+  final OmlxEngine? omlxEngine;
+  StreamSubscription<OmlxState>? _omlxSubscription;
+  final _linkedOmlx = <String, _LinkedOmlx>{};
   final ModelUseRegistry useRegistry;
   final File registryFile;
   final EngineProcessIO io;
@@ -123,6 +143,39 @@ class EngineCatalog {
     busy: _busy,
     error: _error,
     entries: List.unmodifiable([
+      if (omlxEngine != null)
+        EngineRegistration(
+          id: omlxId,
+          name: 'oMLX · 官方 0.7.0',
+          source: EngineSource.managed,
+          family: EngineFamily.omlx,
+          status: switch (omlxEngine!.state.status) {
+            OmlxInstallationStatus.notInstalled =>
+              LlamaInstallationStatus.absent,
+            OmlxInstallationStatus.installing =>
+              LlamaInstallationStatus.installing,
+            OmlxInstallationStatus.installed =>
+              LlamaInstallationStatus.installed,
+            OmlxInstallationStatus.failed => LlamaInstallationStatus.failed,
+          },
+          path: omlxEngine!.bundle.path,
+          omlxReceipt: omlxEngine!.state.receipt,
+          archiveSha256: omlxEngine!.state.receipt?.dmgSha256,
+          error: omlxEngine!.state.error,
+        ),
+      for (final row in _linkedOmlx.entries)
+        EngineRegistration(
+          id: row.key,
+          name: 'oMLX · 关联 0.7.0',
+          source: EngineSource.linked,
+          family: EngineFamily.omlx,
+          status: row.value.error == null
+              ? LlamaInstallationStatus.installed
+              : LlamaInstallationStatus.failed,
+          path: row.value.path,
+          omlxReceipt: row.value.receipt,
+          error: row.value.error,
+        ),
       for (final entry in _managed.entries)
         EngineRegistration(
           id: entry.key,
@@ -187,17 +240,69 @@ class EngineCatalog {
     for (final provider in _providers) {
       await provider.refreshInstallation();
     }
+    await omlxEngine?.refreshInstallation();
+    for (final row in _linkedOmlx.entries.toList()) {
+      try {
+        final receipt = await omlxEngine!.inspectLinked(
+          Directory(row.value.path),
+        );
+        if (receipt.bundleManifestSha256 !=
+            row.value.receipt.bundleManifestSha256) {
+          throw const OmlxException('oMLX 关联 app 内容变化');
+        }
+        _linkedOmlx[row.key] = _LinkedOmlx(row.value.path, receipt);
+      } catch (_) {
+        _linkedOmlx[row.key] = _LinkedOmlx(
+          row.value.path,
+          row.value.receipt,
+          error: 'oMLX 关联 app 重新验证失败',
+        );
+      }
+    }
   });
   Future<void> _load() async {
     if (_loaded) return;
     if (await registryFile.exists()) {
-      final value = jsonDecode(await registryFile.readAsString());
-      if (value is! Map || value['schema'] != 1 || value['linked'] is! List) {
+      Object? value;
+      try {
+        value = jsonDecode(await registryFile.readAsString());
+      } catch (_) {
+        // FormatException embeds raw persisted input; never send it to the UI.
         throw const LlamaEngineException('引擎登记文件无效');
       }
+      if (value is! Map ||
+          ![1, 2].contains(value['schema']) ||
+          value['linked'] is! List) {
+        throw const LlamaEngineException('引擎登记文件无效');
+      }
+      // Parse completely before mutating ownership; malformed mixed-family rows
+      // must leave both the existing schema-1 file and catalog unchanged.
+      final cppRows = <String, (String, LinkedLlamaInstallation)>{};
+      final nativeRows = <String, _LinkedOmlx>{};
+      final ids = <String>{officialId, standardId, omlxId};
       for (final row in value['linked'] as List) {
         if (row is! Map ||
             row['id'] is! String ||
+            !ids.add(row['id'] as String)) {
+          throw const LlamaEngineException('关联引擎登记信息无效');
+        }
+        if (row['family'] == 'omlx') {
+          if (value['schema'] != 2 ||
+              omlxEngine == null ||
+              row['path'] is! String ||
+              row['name'] is! String) {
+            throw const OmlxException('oMLX 登记信息无效或安装模块不可用');
+          }
+          nativeRows[row['id'] as String] = _LinkedOmlx(
+            row['path'] as String,
+            OmlxReceipt.fromJson(row['receipt']),
+          );
+          continue;
+        }
+        if (row['family'] != null && row['family'] != 'llamaCpp') {
+          throw const LlamaEngineException('引擎家族登记无效');
+        }
+        if (row['id'] is! String ||
             row['name'] is! String ||
             row['path'] is! String ||
             row['version'] is! String ||
@@ -212,8 +317,7 @@ class EngineCatalog {
         if (!fingerprints.containsKey(row['path'])) {
           throw const LlamaEngineException('关联引擎内容指纹缺失');
         }
-        _register(
-          row['id'] as String,
+        cppRows[row['id'] as String] = (
           row['name'] as String,
           LinkedLlamaInstallation(
             path: row['path'] as String,
@@ -222,6 +326,10 @@ class EngineCatalog {
           ),
         );
       }
+      for (final row in cppRows.entries) {
+        _register(row.key, row.value.$1, row.value.$2);
+      }
+      _linkedOmlx.addAll(nativeRows);
     }
     _loaded = true;
   }
@@ -249,7 +357,7 @@ class EngineCatalog {
     final temporary = File('${registryFile.path}.tmp');
     await temporary.writeAsString(
       jsonEncode({
-        'schema': 1,
+        'schema': _linkedOmlx.keys.any((id) => id != excluding) ? 2 : 1,
         'linked': [
           for (final entry in _linked.entries)
             if (entry.key != excluding)
@@ -259,6 +367,15 @@ class EngineCatalog {
                 'path': entry.value.linkedInstallation!.path,
                 'version': entry.value.linkedInstallation!.version,
                 'fingerprints': entry.value.linkedInstallation!.fingerprints,
+              },
+          for (final row in _linkedOmlx.entries)
+            if (row.key != excluding)
+              {
+                'id': row.key,
+                'name': 'oMLX · 关联 0.7.0',
+                'family': 'omlx',
+                'path': row.value.path,
+                'receipt': row.value.receipt.toJson(),
               },
         ],
       }),
@@ -272,6 +389,10 @@ class EngineCatalog {
   Future<void> installManaged(String id, {File? verifiedArchive}) =>
       _serial(() async {
         await _load();
+        if (id == omlxId && omlxEngine != null) {
+          await omlxEngine!.install(verifiedArtifact: verifiedArchive);
+          return;
+        }
         final provider = _managed[id];
         if (provider == null) throw const LlamaEngineException('请选择受管引擎安装');
         await provider.install(verifiedArchive: verifiedArchive);
@@ -279,6 +400,28 @@ class EngineCatalog {
   Future<EngineRegistration> link(String path) => _serial(() async {
     await _load();
     final type = await FileSystemEntity.type(path);
+    if (path.endsWith('.app') ||
+        await File('$path/Contents/Info.plist').exists()) {
+      final inspector = omlxEngine;
+      if (inspector == null) throw const OmlxException('oMLX 安装模块未配置');
+      final app = Directory(await Directory(path).resolveSymbolicLinks());
+      if (app.path == inspector.bundle.path ||
+          _linkedOmlx.values.any((row) => row.path == app.path)) {
+        throw const OmlxException('该 oMLX app 已登记或由本应用管理');
+      }
+      final receipt = await inspector.inspectLinked(app);
+      if (_shuttingDown || _recycling) throw const OmlxException('oMLX 关联已取消');
+      final id =
+          'omlx-${List.generate(20, (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0')).join()}';
+      _linkedOmlx[id] = _LinkedOmlx(app.path, receipt);
+      try {
+        await _save();
+      } catch (_) {
+        _linkedOmlx.remove(id);
+        rethrow;
+      }
+      return state.entries.singleWhere((entry) => entry.id == id);
+    }
     final binary = type == FileSystemEntityType.directory
         ? File('$path/llama-server')
         : File(path);
@@ -321,6 +464,26 @@ class EngineCatalog {
   });
   Future<EngineRemovalPlan> prepareRemoval(String id) => _serial(() async {
     final entry = state.entries.singleWhere((value) => value.id == id);
+    if (entry.family == EngineFamily.omlx) {
+      if (entry.source == EngineSource.managed) {
+        final plan = await omlxEngine!.prepareRemoval();
+        return EngineRemovalPlan._(
+          this,
+          entry: entry,
+          paths: [plan.bundlePath],
+          sizeBytes: plan.sizeBytes,
+          omlx: plan,
+        );
+      }
+      final digest = await omlxEngine!.linkedDigest(Directory(entry.path!));
+      return EngineRemovalPlan._(
+        this,
+        entry: entry,
+        paths: const [],
+        sizeBytes: 0,
+        linkedDigest: digest,
+      );
+    }
     if (providerFor(id).hasLiveInstances) {
       throw const LlamaEngineException('请先停止该引擎的模型实例');
     }
@@ -347,6 +510,28 @@ class EngineCatalog {
         if (!identical(plan._owner, this)) {
           throw const LlamaEngineException('删除计划不属于当前引擎管理器');
         }
+        if (plan.entry.family == EngineFamily.omlx) {
+          final current = state.entries
+              .where((e) => e.id == plan.entry.id)
+              .firstOrNull;
+          if (current == null ||
+              current.path != plan.entry.path ||
+              current.omlxReceipt?.bundleManifestSha256 !=
+                  plan.entry.omlxReceipt?.bundleManifestSha256) {
+            throw const OmlxException('oMLX 删除计划已失效');
+          }
+          if (plan.entry.source == EngineSource.managed) {
+            await omlxEngine!.removeInstallation(plan._omlx!, confirmed: true);
+          } else {
+            if (await omlxEngine!.linkedDigest(Directory(current.path!)) !=
+                plan._linkedDigest) {
+              throw const OmlxException('oMLX 解除关联前内容变化');
+            }
+            await _save(excluding: current.id);
+            _linkedOmlx.remove(current.id);
+          }
+          return;
+        }
         final provider = providerFor(plan.entry.id);
         if (plan.entry.source == EngineSource.managed) {
           await provider.removeInstallation(plan._managed!, confirmed: true);
@@ -358,7 +543,12 @@ class EngineCatalog {
         _names.remove(plan.entry.id);
         provider.close();
       });
-  EngineRuntime runtimeFor(String id) => providerFor(id);
+  EngineRuntime runtimeFor(String id) {
+    if (id == omlxId || _linkedOmlx.containsKey(id)) {
+      throw const OmlxException('oMLX 安装已登记；模型池尚未实现，没有可调用模型能力');
+    }
+    return providerFor(id);
+  }
 
   LlamaEngine providerFor(String id) {
     final provider = _managed[id] ?? _linked[id];
@@ -370,14 +560,16 @@ class EngineCatalog {
     final ids = artifactIds.toSet();
     return [
       for (final entry in state.entries)
-        for (final instance in runtimeFor(entry.id).runtimeInstances)
-          if (ids.contains(instance.artifactId)) EngineRun(entry, instance),
+        if (entry.family == EngineFamily.llamaCpp)
+          for (final instance in runtimeFor(entry.id).runtimeInstances)
+            if (ids.contains(instance.artifactId)) EngineRun(entry, instance),
     ];
   }
 
   Future<void> stopManaged() {
     if (_recycle != null) return _recycle!;
     _recycling = true;
+    final releaseOmlx = omlxEngine?.holdInstallationAdmission();
     final initial = _providers.toSet();
     for (final provider in initial) {
       _admissionReleases[provider] = provider.holdStartAdmission();
@@ -394,6 +586,13 @@ class EngineCatalog {
     // Cancel accepted starts immediately, but keep admission held after each
     // provider finishes. Drain preaccepted catalog work before late enrollment.
     final stops = initial.map(stop).toList();
+    if (omlxEngine != null) {
+      stops.add(
+        omlxEngine!.stopManaged().catchError((Object error) {
+          errors.add(error);
+        }),
+      );
+    }
     final accepted = _operations;
     final operation = () async {
       await accepted;
@@ -404,6 +603,7 @@ class EngineCatalog {
       }
     }();
     _recycle = operation.whenComplete(() {
+      releaseOmlx?.call();
       for (final release in _admissionReleases.values) {
         release();
       }
@@ -416,6 +616,7 @@ class EngineCatalog {
 
   void beginShutdown() {
     _shuttingDown = true;
+    omlxEngine?.beginShutdown();
     for (final provider in _providers) {
       provider.beginShutdown();
     }
@@ -424,7 +625,18 @@ class EngineCatalog {
   Future<void> shutdown() {
     if (_shutdown != null) return _shutdown!;
     beginShutdown();
-    return _shutdown = _drainAndStop();
+    final operation = _drainAndStop();
+    _shutdown = operation;
+    // Keep admission permanently closed, but let failed owned cleanup retry.
+    unawaited(
+      operation.then<void>(
+        (_) {},
+        onError: (Object _, StackTrace _) {
+          if (identical(_shutdown, operation)) _shutdown = null;
+        },
+      ),
+    );
+    return operation;
   }
 
   Future<void> _drainAndStop() async {
@@ -437,6 +649,11 @@ class EngineCatalog {
         errors.add(error);
       }
     }
+    try {
+      await omlxEngine?.shutdown();
+    } catch (error) {
+      errors.add(error);
+    }
     if (errors.isNotEmpty) throw StateError('引擎管理器退出未完成：${errors.join('; ')}');
   }
 
@@ -445,6 +662,8 @@ class EngineCatalog {
   }
 
   void close() {
+    _omlxSubscription?.cancel();
+    omlxEngine?.close();
     for (final subscription in _subscriptions) {
       subscription.cancel();
     }

@@ -1,7 +1,10 @@
 import 'engine_catalog.dart';
+import 'engine_runtime.dart';
 
 String engineDisplayName(EngineRegistration entry) {
-  if (entry.source == EngineSource.linked) return 'llama.cpp';
+  if (entry.source == EngineSource.linked) {
+    return entry.family == EngineFamily.omlx ? 'oMLX' : 'llama.cpp';
+  }
   return entry.name;
 }
 

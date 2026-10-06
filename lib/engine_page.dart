@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'app_theme.dart';
 import 'engine_catalog.dart';
 import 'engine_labels.dart';
+import 'engine_runtime.dart';
+import 'omlx_engine.dart';
 import 'llama_engine.dart';
 
 class EnginePage extends StatefulWidget {
@@ -110,6 +112,16 @@ class _EnginePageState extends State<EnginePage> {
             child: SelectableText(
               [
                 engineSourceLabel(entry),
+                if (entry.family == EngineFamily.omlx) ...[
+                  '完整官方 app · 模型池未实现 · 不可运行',
+                  OmlxEngine.artifactUrl,
+                  if (entry.omlxReceipt != null) ...[
+                    '发行标签 ${entry.omlxReceipt!.releaseLabel} · app 构建 ${entry.omlxReceipt!.build}',
+                    'DMG SHA-256 ${entry.omlxReceipt!.dmgSha256 ?? '本地关联：未验证发行 DMG'}',
+                    'Bundle 清单 SHA-256 ${entry.omlxReceipt!.bundleManifestSha256}',
+                    'Python ${entry.omlxReceipt!.runtimeIdentity.python} · ${entry.omlxReceipt!.runtimeIdentity.architecture}',
+                  ],
+                ],
                 if (entry.version != null) entry.version!,
                 if (entry.path != null) entry.path!,
                 if (entry.release != null) ...[
@@ -226,7 +238,9 @@ class _EnginePageState extends State<EnginePage> {
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
-                                      entry.version == null
+                                      entry.family == EngineFamily.omlx
+                                          ? '完整官方 app · 模型池未实现 · 不可运行'
+                                          : entry.version == null
                                           ? '${entry.release?.tag ?? '未知版本'} · macOS arm64'
                                           : engineVersionLabel(entry.version),
                                       style: theme.textTheme.bodySmall,

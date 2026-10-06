@@ -13,6 +13,7 @@ import 'download_preferences.dart';
 import 'download_tasks_page.dart';
 import 'engine_catalog.dart';
 import 'engine_page.dart';
+import 'omlx_engine.dart';
 import 'hf_model_browser.dart';
 import 'library_directory_settings.dart';
 import 'library_page.dart';
@@ -94,6 +95,11 @@ class _ManagerShellState extends State<_ManagerShell> {
       library: _library,
       officialEngine: _officialEngine,
       standardEngine: _standardEngine,
+      omlxEngine: OmlxEngine(
+        installationDirectory: Directory(
+          '${_settings.file.parent.path}/engines/omlx',
+        ),
+      ),
       useRegistry: _useRegistry,
       registryFile: File('${_settings.file.parent.path}/engines.json'),
     );

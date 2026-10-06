@@ -7,12 +7,65 @@ import 'package:ghost_model_deck/app_theme.dart';
 import 'package:ghost_model_deck/engine_catalog.dart';
 import 'package:ghost_model_deck/engine_page.dart';
 import 'package:ghost_model_deck/llama_engine.dart';
+import 'package:ghost_model_deck/omlx_engine.dart';
 import 'package:ghost_model_deck/model_library.dart';
 import 'package:ghost_model_deck/model_use_registry.dart';
 
 import 'fixtures/engine_archive.dart';
 
 void main() {
+  testWidgets(
+    'same engine page exposes official full-app install without implying a callable oMLX pool',
+    (tester) async {
+      late Directory root;
+      late ModelLibrary library;
+      late LlamaEngine cpp;
+      late EngineCatalog catalog;
+      await tester.runAsync(() async {
+        root = await Directory.systemTemp.createTemp('gmd-omlx-page-');
+        library = ModelLibrary();
+        cpp = LlamaEngine(
+          library: library,
+          installationDirectory: Directory('${root.path}/cpp'),
+        );
+        catalog = EngineCatalog(
+          library: library,
+          officialEngine: cpp,
+          omlxEngine: OmlxEngine(
+            installationDirectory: Directory('${root.path}/omlx'),
+          ),
+          useRegistry: ModelUseRegistry(library),
+          registryFile: File('${root.path}/engines.json'),
+        );
+      });
+      addTearDown(() async {
+        catalog.close();
+        cpp.close();
+        library.close();
+        await tester.runAsync(() => root.delete(recursive: true));
+      });
+      await tester.runAsync(() async {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildJevTheme(Brightness.light),
+            home: Scaffold(
+              body: EnginePage(
+                catalog: catalog,
+                pickEngineDirectory: () async => null,
+              ),
+            ),
+          ),
+        );
+        await catalog.refresh();
+      });
+      await tester.pumpAndSettle();
+      expect(find.text('oMLX · 官方 0.7.0'), findsOneWidget);
+      expect(find.text('完整官方 app · 模型池未实现 · 不可运行'), findsOneWidget);
+      expect(find.text('安装'), findsNWidgets(2));
+      expect(find.text('Ready'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
   testWidgets(
     'engine management contains install and association but no model execution or LM Studio connection form',
     (tester) async {
