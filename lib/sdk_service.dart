@@ -152,6 +152,10 @@ class LauncherInferenceService {
   }) : _socketPath = socketPath ?? MacLauncherSdk.defaultSocketPath();
 
   static const String projectId = 'com.ghost233.ghostmodeldeck';
+
+  /// 运行时发现自报显示名（#30）：未关联时启动器以此建待批准卡片。
+  static const String projectName = 'GhostModelDeck';
+
   static const String serviceId = 'inference';
   static const String serviceName = '推理服务';
 
@@ -182,6 +186,11 @@ class LauncherInferenceService {
   final _subscriptions = <StreamSubscription<void>>[];
   bool _disposed = false;
 
+  /// 待批准期间（#30）：启动器以 pending-approval 拒绝握手是批准前的正常
+  /// 状态，SDK 每 5 秒自动重试。此期间只公告一次，不反复刷连接日志；
+  /// 批准成功（connected）或被以其他原因拒绝时退出该期间。
+  bool _pendingApproval = false;
+
   LauncherServiceState get state => _state;
 
   /// 本次运行的实例身份（应用生成，非 PID/会话名）；停止后为 null。
@@ -195,6 +204,11 @@ class LauncherInferenceService {
     if (_sdk != null) return;
     final sdk = MacLauncherSdk.connect(
       projectId: projectId,
+      projectName: projectName,
+      // 运行时发现入口自报（#30）：打包运行时上报自身 .app（DMG 安装后解析
+      // 为 /Applications/GhostModelDeck.app）；开发期非 bundle 运行退回上报
+      // 当前可执行文件。入口存在性由启动器在批准时校验。
+      entry: SdkEntry.currentAppBundle() ?? SdkEntry.currentExecutable(),
       socketPath: _socketPath,
       services: {
         serviceId: ServiceCallbacks(
@@ -214,6 +228,24 @@ class LauncherInferenceService {
     _subscriptions.add(
       sdk.states.listen((status) {
         // 断连/重连只记录真实连接事件，从不回收或复制业务。
+        if (status.state == SdkConnectionState.rejected &&
+            status.reason == kRejectReasonPendingApproval) {
+          // 待批准不是错误：公告一次后静默，SDK 自动重试到用户批准。
+          if (!_pendingApproval) {
+            _pendingApproval = true;
+            _log('启动器待批准：请在启动器管理窗口批准 $projectName 的关联，批准后自动连接');
+          }
+          return;
+        }
+        if (_pendingApproval) {
+          // 待批准期间的 connecting/disconnected 是重试噪音，不刷日志。
+          if (status.state == SdkConnectionState.connected ||
+              status.state == SdkConnectionState.rejected) {
+            _pendingApproval = false;
+          } else {
+            return;
+          }
+        }
         _log(
           '启动器连接：${status.state.name}'
           '${status.reason == null ? '' : '（${status.reason}）'}',

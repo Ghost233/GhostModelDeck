@@ -60,6 +60,16 @@
 - 验收证据：socket 级测试实证能力声明、未注册自动 unsupported、异常兜底 failure；容器串行门禁 run-XKnfQi/run-usANPK/run-5uhoQJ 全绿（450/450）。
 - 已知边界：unsupported 状态的原因经 `failureReason` 字段透传（SDK 文档称该字段语义上属 failure，字段本身原样透传）；`SDK_INTEGRATION.md@5d81583` 另有「解除绑定表现」一节（persistent rejected=未关联，应提示重新关联而非无限等待），尚未集成，留作跟进。
 
+## 运行时发现（#30 接入，SDK 基线提升）
+
+2026-10-07 增补：工单 [#30](https://github.com/Ghost233/GhostModelDeck/issues/30) 把应用锁定的 SDK ref 提升到 `b48c5a9c232a609b59c9510c59cca82046fc9e55`（含运行时发现，上游 [PR #51](https://github.com/Ghost233/MacLauncher/pull/51)），本节以该提交为事实基线：
+
+- hello 握手新增可选 `projectName` 与 `entry`（`SdkEntry`）自报字段；缺省时省略，线形与旧版逐字节一致，旧启动器不受影响。新增握手拒绝原因 `pending-approval`：项目未关联且未忽略时启动器把项目放入「待批准」，用户在管理窗口一次性批准即建立运行时绑定（`BindingOrigin.runtime`）。`pending-approval` 是批准前正常状态，不是错误；SDK 按 `retryInterval`（5 秒）持续重试，批准后握手自动成功，应用不得当作配置错误。[connect 参数与语义](https://github.com/Ghost233/MacLauncher/blob/b48c5a9c232a609b59c9510c59cca82046fc9e55/packages/maclauncher_sdk/lib/src/client.dart)、[拒绝原因常量](https://github.com/Ghost233/MacLauncher/blob/b48c5a9c232a609b59c9510c59cca82046fc9e55/packages/maclauncher_sdk/lib/src/protocol/messages.dart)
+- `SdkEntry`：`appBundle(path)` 经系统 `open` 拉起；`executable(path, args, workingDirectory)` detached 拉起；`currentAppBundle()` 从 `Platform.resolvedExecutable` 推导自身 `.app`（非 bundle 运行返回 null）；`currentExecutable()` 上报当前可执行文件。路径须绝对；启动器在批准时校验存在性，入口事后失效为可恢复的「入口失效」状态。[入口自报](https://github.com/Ghost233/MacLauncher/blob/b48c5a9c232a609b59c9510c59cca82046fc9e55/packages/maclauncher_sdk/lib/src/entry_report.dart)
+- 本应用接入（`lib/sdk_service.dart` `connect()`）：自报 `projectName: 'GhostModelDeck'` 与 `entry: SdkEntry.currentAppBundle() ?? SdkEntry.currentExecutable()`（DMG 安装后解析为 `/Applications/GhostModelDeck.app`，开发期退回当前可执行文件）。连接日志对 `pending-approval` 降噪：待批准期间只公告一次「请在启动器管理窗口批准关联」，重试的 connecting/disconnected/rejected 不刷日志；connected 或其他拒绝原因退出该期间。
+- 与配置绑定的关系：`maclauncher.json` 配置绑定仍是支持路径（可选增强），本应用保留该文件不动；同 `projectId` 的运行时绑定与配置绑定冲突时走启动器既有冲突弹窗，迁移为配置绑定，行为由上游负责。运行时绑定由 hello 驱动服务声明 diff 与入口失效自愈。
+- 验收证据：socket 级测试实证 hello 自报 `projectName`/`entry`、`pending-approval` 只公告一次且不以拒绝原因原文呈现、批准后正常记录 connected。
+
 ## 建议的最小联调验收门槛
 
 以下是据上述契约提出的验收建议，本次未执行，不是已通过结果。
