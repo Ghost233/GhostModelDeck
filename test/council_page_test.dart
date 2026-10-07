@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -122,6 +123,205 @@ void main() {
         expect(tester.takeException(), isNull);
       });
     }
+  }
+  for (final model in ['quick', 'native']) {
+    testWidgets(
+      '$model software uses single-call debug and clears old output before cancellation',
+      (tester) async {
+        late CouncilRuntime runtime;
+        late CouncilController council;
+        late Completer<void> held, arrived;
+        await tester.runAsync(
+          () => HttpOverrides.runWithHttpOverrides(() async {
+            held = Completer<void>();
+            arrived = Completer<void>();
+            runtime = await CouncilRuntime.create(modelCount: 1);
+            council = CouncilController(catalog: runtime.catalog);
+            final binding = council.models.availableBindings.single;
+            await council.models.save(
+              JevModelDefinition.council(
+                name: 'quick',
+                seats: [binding],
+                timeout: const Duration(seconds: 3),
+              ),
+            );
+            await council.models.save(
+              JevModelDefinition.native(name: 'native', binding: binding),
+            );
+          }, _NetworkBoundary()),
+        );
+        addTearDown(() async {
+          if (!held.isCompleted) held.complete();
+          await tester.runAsync(council.close);
+          await tester.runAsync(runtime.close);
+        });
+        runtime.io.respond = (body, raw) async {
+          if (body['state'] == 'cancelled') {
+            arrived.complete();
+            await held.future;
+          }
+          return jsonEncode({
+            ...jsonDecode(raw) as Map,
+            'marker': body['state'],
+            'diagnostic': {'API_KEY': 'gui-secret'},
+          });
+        };
+        String? copied;
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          (call) async {
+            if (call.method == 'Clipboard.setData') {
+              copied = (call.arguments as Map)['text'] as String;
+            }
+            return null;
+          },
+        );
+        addTearDown(
+          () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            SystemChannels.platform,
+            null,
+          ),
+        );
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = const Size(1000, 1200);
+        final theme = buildJevTheme(Brightness.light);
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: theme.copyWith(
+              textTheme: theme.textTheme.apply(fontFamily: layoutFont),
+            ),
+            home: Scaffold(
+              body: CouncilPage(controller: council, onOpenLibrary: () {}),
+            ),
+          ),
+        );
+        await tester.tap(find.byKey(const Key('council-model')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(model).last);
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byKey(const Key('council-id-1')), 'accept');
+        await tester.enterText(find.byKey(const Key('council-id-2')), 'reject');
+        await tester.enterText(
+          find.byKey(const Key('council-option-1')),
+          'Accept',
+        );
+        await tester.enterText(
+          find.byKey(const Key('council-option-2')),
+          'Reject',
+        );
+        expect(
+          tester
+              .widget<CheckboxListTile>(find.byKey(const Key('jev-debug')))
+              .value,
+          false,
+        );
+        Future<void> completedCall(String marker) async {
+          await tester.runAsync(
+            () => HttpOverrides.runWithHttpOverrides(() async {
+              final idle = runtime.engine.changes.firstWhere(
+                (state) =>
+                    runtime.io.requests.any((r) => r['state'] == marker) &&
+                    state.instances.single.activeRequests == 0,
+              );
+              await tester.tap(find.text('咨询'));
+              await idle.timeout(const Duration(seconds: 4));
+              await Future<void>.value();
+              await Future<void>.value();
+            }, _NetworkBoundary()),
+          );
+          await tester.pumpAndSettle();
+        }
+
+        String output() => tester
+            .widget<SelectableText>(
+              find.byKey(const Key('jev-standard-output')),
+            )
+            .data!;
+        await tester.enterText(
+          find.byKey(const Key('council-context')),
+          'first',
+        );
+        await tester.ensureVisible(find.byKey(const Key('jev-debug')));
+        await tester.tap(find.byKey(const Key('jev-debug')));
+        await tester.pump();
+        await tester.ensureVisible(find.text('咨询'));
+        await completedCall('first');
+        final first = jsonDecode(output()) as Map;
+        expect(first['model'], model);
+        expect(first['debug']['input']['state'], 'first');
+        expect(output(), isNot(contains('gui-secret')));
+        await tester.ensureVisible(find.byTooltip('复制结果'));
+        await tester.tap(find.byTooltip('复制结果'));
+        await tester.pump();
+        expect(copied, output());
+        expect(
+          tester
+              .widget<CheckboxListTile>(find.byKey(const Key('jev-debug')))
+              .value,
+          false,
+        );
+        await tester.enterText(
+          find.byKey(const Key('council-context')),
+          'cancelled',
+        );
+        await tester.ensureVisible(find.byKey(const Key('jev-debug')));
+        await tester.tap(find.byKey(const Key('jev-debug')));
+        await tester.pump();
+        await tester.ensureVisible(find.text('咨询'));
+        await tester.runAsync(
+          () => HttpOverrides.runWithHttpOverrides(() async {
+            await tester.tap(find.text('咨询'));
+            await arrived.future.timeout(const Duration(seconds: 3));
+          }, _NetworkBoundary()),
+        );
+        await tester.pump();
+        expect(find.byKey(const Key('jev-standard-output')), findsNothing);
+        expect(find.text('咨询中'), findsOneWidget);
+        await tester.ensureVisible(find.text('取消'));
+        await tester.runAsync(
+          () => HttpOverrides.runWithHttpOverrides(() async {
+            final idle = runtime.engine.changes.firstWhere(
+              (state) => state.instances.single.activeRequests == 0,
+            );
+            await tester.tap(find.text('取消'));
+            await idle.timeout(const Duration(seconds: 3));
+            await Future<void>.value();
+            await Future<void>.value();
+          }, _NetworkBoundary()),
+        );
+        await tester.pumpAndSettle();
+        final cancelled = jsonDecode(output()) as Map;
+        expect(cancelled['error']['code'], 'cancelled');
+        expect(cancelled.containsKey('answers'), false);
+        expect(cancelled['debug']['input']['state'], 'cancelled');
+        final io = model == 'native'
+            ? cancelled['debug']['native']
+            : (cancelled['debug']['seats'] as List).single;
+        expect(io['raw_response'], isNull);
+        await tester.ensureVisible(find.byTooltip('复制结果'));
+        await tester.tap(find.byTooltip('复制结果'));
+        await tester.pump();
+        expect(copied, output());
+        expect(copied, isNot(contains('"first"')));
+        held.complete();
+        await tester.enterText(
+          find.byKey(const Key('council-context')),
+          'third',
+        );
+        await tester.ensureVisible(find.text('咨询'));
+        await completedCall('third');
+        expect((jsonDecode(output()) as Map).keys, [
+          'model',
+          'answers',
+          'usage',
+        ]);
+        expect(runtime.io.killedChildren, 0);
+        expect(runtime.engine.state.instances.single.activeRequests, 0);
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
 }
 

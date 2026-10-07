@@ -7,16 +7,24 @@ import 'decision_protocol.dart';
 import 'engine_catalog.dart';
 import 'engine_runtime.dart';
 import 'llama_engine.dart';
+import 'jev_debug.dart';
 import 'model_library.dart';
 
 enum JevModelSource { council, native }
 
 class JevRequestException extends DecisionProtocolException {
-  const JevRequestException(this.statusCode, this.code, super.message);
+  const JevRequestException(
+    this.statusCode,
+    this.code,
+    super.message, {
+    this.debug,
+  });
   final int statusCode;
   final String code;
+  final Map<String, Object?>? debug;
   Map<String, Object> toJson() => {
     'error': {'code': code, 'message': message},
+    'debug': ?debug,
   };
 }
 
@@ -322,63 +330,167 @@ class JevModels {
       throw const JevRequestException(404, 'model_not_found', '调用模型名不存在');
     }
     if (definition.source == JevModelSource.council) {
+      final watch = Stopwatch()..start();
+      final traces = <String, DecisionIOTrace>{};
       final seats = <CouncilSeat>[];
       final unavailable = <Map<String, Object>>[];
       for (final binding in definition.bindings) {
         try {
-          seats.add(_resolve(binding));
+          final seat = _resolve(binding);
+          seats.add(seat);
+          if (debug) traces[seat.id] = DecisionIOTrace();
         } on JevRequestException catch (error) {
-          unavailable.add({
-            'binding': binding.toJson(),
-            'error': error.toJson()['error']!,
-          });
+          if (debug) {
+            unavailable.add({
+              'binding': binding.toJson(),
+              'error': error.toJson()['error']!,
+            });
+          }
         }
       }
-      final result = await controller.consultBatch(
-        request,
-        timeout: definition.timeout,
-        cancellation: cancellation,
-        seats: seats,
-      );
+      CouncilBatchConsultation? receivedResult;
+      Map<String, Object?>? snapshot(Map<String, Object?> converted) {
+        if (!debug) return null;
+        for (final trace in traces.values) {
+          trace.seal();
+        }
+        return sealDebugJson({
+          'model': definition.name,
+          'source': 'council',
+          'configuration': definition.toJson(),
+          'input': request.toSystemone(model: definition.name),
+          'unavailable_seats': unavailable,
+          'seats': [
+            for (final binding in definition.bindings)
+              _debugSeat(binding, receivedResult!, traces, unavailable),
+          ],
+          'valid_seats': [
+            for (final opinion in receivedResult!.seats)
+              if (opinion.status == CouncilSeatStatus.ok)
+                JevModelBinding(
+                  artifactId: opinion.seat.instance.asset.id,
+                  engineId: opinion.seat.engine.id,
+                ).id,
+          ],
+          'council': receivedResult.toJson(),
+          'converted_result': converted,
+          'elapsed_us': watch.elapsedMicroseconds,
+        });
+      }
+
+      try {
+        receivedResult = await controller.consultBatch(
+          request,
+          timeout: definition.timeout,
+          cancellation: cancellation,
+          seats: seats,
+          ioTraces: debug ? traces : null,
+        );
+        if (cancellation?.isCancelled == true) {
+          throw const JevRequestException(409, 'cancelled', '本次决策已取消');
+        }
+        if (controller.isShuttingDown) {
+          throw const JevRequestException(503, 'service_stopping', '应用正在退出');
+        }
+        if (receivedResult.status == CouncilStatus.failed) {
+          if (receivedResult.seats.any(
+            (s) => s.status == CouncilSeatStatus.timedOut,
+          )) {
+            throw const JevRequestException(
+              504,
+              'timed_out',
+              '整轮咨询已截止，没有完整成功席位',
+            );
+          }
+          throw const JevRequestException(
+            502,
+            'no_successful_seats',
+            '没有完整成功席位',
+          );
+        }
+        final converted = receivedResult.standardResult(definition.name);
+        return {...converted, if (debug) 'debug': snapshot(converted)};
+      } on JevRequestException catch (error) {
+        throw JevRequestException(
+          error.statusCode,
+          error.code,
+          error.message,
+          debug: snapshot(error.toJson()),
+        );
+      }
+    }
+    final watch = Stopwatch()..start();
+    final ioTrace = debug ? DecisionIOTrace() : null;
+    CouncilSeat? seat;
+    DecisionBatchResult? receivedResult;
+    Map<String, Object?>? snapshot(
+      Map<String, Object?> converted, {
+      JevRequestException? error,
+    }) {
+      if (!debug) return null;
+      ioTrace!.seal();
+      return sealDebugJson({
+        'model': definition.name,
+        'source': 'native',
+        'configuration': definition.toJson(),
+        'input': request.toSystemone(model: definition.name),
+        'native': {
+          'binding': definition.bindings.single.toJson(),
+          'instance_id': seat?.instance.id,
+          'generation': seat?.instance.generation,
+          'status': error?.code ?? 'ok',
+          'error': error?.toJson()['error'],
+          ...ioTrace.toJson(),
+          'result': receivedResult?.toJson(),
+        },
+        'converted_result': converted,
+        'elapsed_us': watch.elapsedMicroseconds,
+      });
+    }
+
+    JevRequestException finishError(JevRequestException error) {
       if (cancellation?.isCancelled == true) {
-        throw const JevRequestException(409, 'cancelled', '本次决策已取消');
+        error = const JevRequestException(409, 'cancelled', '本次决策已取消');
+      } else if (controller.isShuttingDown) {
+        error = const JevRequestException(503, 'service_stopping', '应用正在退出');
       }
-      if (controller.isShuttingDown) {
-        throw const JevRequestException(503, 'service_stopping', '应用正在退出');
-      }
-      if (result.status == CouncilStatus.failed) {
-        throw const JevRequestException(502, 'no_successful_seats', '没有完整成功席位');
-      }
-      return {
-        ...result.standardResult(definition.name),
-        if (debug)
-          'debug': {
-            'source': 'council',
-            'configuration': definition.toJson(),
-            'unavailable_seats': unavailable,
-            'council': result.toJson(),
-          },
-      };
-    }
-    final seat = _resolve(definition.bindings.single);
-    if (request.questions.values.any(
-      (q) =>
-          !seat.instance.capabilities.contains(capabilityForPrimitive(q.type)),
-    )) {
-      throw const JevRequestException(
-        409,
-        'capability_mismatch',
-        '所选原生实例没有本次请求需要的题型能力',
+      final evidence = snapshot(error.toJson(), error: error);
+      final safeMessage = evidence == null
+          ? error.message
+          : ((evidence['converted_result'] as Map)['error'] as Map)['message']
+                as String;
+      return JevRequestException(
+        error.statusCode,
+        error.code,
+        safeMessage,
+        debug: evidence,
       );
     }
+
+    final removeCancellation = debug
+        ? cancellation?.listen(ioTrace!.seal)
+        : null;
     try {
-      final result = await controller.catalog
+      seat = _resolve(definition.bindings.single);
+      if (request.questions.values.any(
+        (q) => !seat!.instance.capabilities.contains(
+          capabilityForPrimitive(q.type),
+        ),
+      )) {
+        throw const JevRequestException(
+          409,
+          'capability_mismatch',
+          '所选原生实例没有本次请求需要的题型能力',
+        );
+      }
+      receivedResult = await controller.catalog
           .providerFor(seat.engine.id)
           .decideBatch(
             seat.instance.id,
             request,
             timeout: definition.timeout,
             cancellation: cancellation,
+            ioTrace: ioTrace,
           );
       // Deliver the engine's queued result notification before committing output.
       await Future<void>.value();
@@ -388,40 +500,85 @@ class JevModels {
       if (controller.isShuttingDown) {
         throw const JevRequestException(503, 'service_stopping', '应用正在退出');
       }
-      return {
-        ...result.toJson(publicModel: definition.name),
-        if (debug)
-          'debug': {
-            'source': 'native',
-            'configuration': definition.toJson(),
-            'instance_id': seat.instance.id,
-            'request': request.toSystemone(model: seat.instance.id),
-            'raw_response': jsonDecode(result.rawResponse),
-            'elapsed_us': result.elapsed.inMicroseconds,
-          },
-      };
+      final converted = receivedResult.toJson(publicModel: definition.name);
+      return {...converted, if (debug) 'debug': snapshot(converted)};
+    } on JevRequestException catch (error) {
+      throw finishError(error);
     } on LlamaRequestException catch (error) {
-      throw JevRequestException(
-        switch (error.kind) {
-          DecisionFailureKind.timedOut => 504,
-          DecisionFailureKind.cancelled => 409,
-          DecisionFailureKind.notReady => 503,
-          _ => 502,
-        },
-        switch (error.kind) {
-          DecisionFailureKind.timedOut => 'timed_out',
-          DecisionFailureKind.cancelled => 'cancelled',
-          DecisionFailureKind.notReady => 'model_not_ready',
-          DecisionFailureKind.invalidResponse => 'invalid_response',
-          _ => 'engine_error',
-        },
-        error.message,
+      throw finishError(
+        JevRequestException(
+          switch (error.kind) {
+            DecisionFailureKind.timedOut => 504,
+            DecisionFailureKind.cancelled => 409,
+            DecisionFailureKind.notReady => 503,
+            _ => 502,
+          },
+          switch (error.kind) {
+            DecisionFailureKind.timedOut => 'timed_out',
+            DecisionFailureKind.cancelled => 'cancelled',
+            DecisionFailureKind.notReady => 'model_not_ready',
+            DecisionFailureKind.invalidResponse => 'invalid_response',
+            _ => 'engine_error',
+          },
+          error.message,
+        ),
       );
     } on LlamaEngineException catch (error) {
-      throw JevRequestException(502, 'engine_error', error.message);
+      throw finishError(
+        JevRequestException(502, 'engine_error', error.message),
+      );
     } on FormatException {
-      throw const JevRequestException(502, 'invalid_response', '引擎响应不是有效 JSON');
+      throw finishError(
+        const JevRequestException(502, 'invalid_response', '引擎响应不是有效 JSON'),
+      );
+    } finally {
+      removeCancellation?.call();
+      ioTrace?.seal();
     }
+  }
+
+  Map<String, Object?> _debugSeat(
+    JevModelBinding binding,
+    CouncilBatchConsultation result,
+    Map<String, DecisionIOTrace> traces,
+    List<Map<String, Object>> unavailable,
+  ) {
+    final opinion = result.seats
+        .where(
+          (s) =>
+              s.seat.engine.id == binding.engineId &&
+              s.seat.instance.asset.id == binding.artifactId,
+        )
+        .firstOrNull;
+    if (opinion == null) {
+      return {
+        'binding': binding.toJson(),
+        'instance_id': null,
+        'generation': null,
+        'status': 'not_ready',
+        'error': unavailable.singleWhere(
+          (s) =>
+              (s['binding'] as Map)['artifact_id'] == binding.artifactId &&
+              (s['binding'] as Map)['engine_id'] == binding.engineId,
+        )['error'],
+        'dispatched': false,
+        'request': null,
+        'request_body': null,
+        'raw_response': null,
+        'http_status': null,
+        'elapsed_us': 0,
+        'result': null,
+      };
+    }
+    return {
+      'binding': binding.toJson(),
+      'instance_id': opinion.seat.instance.id,
+      'generation': opinion.seat.instance.generation,
+      'status': opinion.toJson()['status'],
+      'error': opinion.error,
+      ...traces[opinion.seat.id]!.toJson(),
+      'result': opinion.batchResult?.toJson(),
+    };
   }
 
   Future<void> save(JevModelDefinition definition, {String? replacing}) =>

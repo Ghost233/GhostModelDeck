@@ -620,7 +620,12 @@ void main() {
     final old = await pending;
     expect(old['model'], 'hard');
     expect(old['usage'], {'input_tokens': 20, 'output_tokens': 0});
-    final snapshot = (old['debug'] as Map)['configuration'];
+    final oldDebug = old['debug'] as Map;
+    expect(oldDebug['input']['state'], 'before-edit');
+    for (final seat in oldDebug['seats'] as List) {
+      expect(seat['request']['state'], 'before-edit');
+    }
+    final snapshot = oldDebug['configuration'];
     expect(snapshot['name'], 'hard');
     expect(snapshot['timeout_us'], 3000000);
     expect(snapshot['bindings'], hasLength(2));
@@ -639,6 +644,7 @@ void main() {
     final deleting = council.models.decide(
       'quick',
       _mixed(state: 'before-delete'),
+      debug: true,
     );
     await arrived.future.timeout(const Duration(seconds: 2));
     await council.models.delete('quick');
@@ -653,7 +659,15 @@ void main() {
       ),
     );
     release.complete();
-    expect((await deleting)['model'], 'quick');
+    final deletedResult = await deleting;
+    expect(deletedResult['model'], 'quick');
+    final deletedDebug = deletedResult['debug'] as Map;
+    expect(deletedDebug['configuration']['name'], 'quick');
+    expect(deletedDebug['input']['state'], 'before-delete');
+    expect(
+      (deletedDebug['seats'] as List).single['request']['state'],
+      'before-delete',
+    );
   });
 
   test('timeout uses a completed seat but active cancellation withdraws success and isolates the next call', () async {
