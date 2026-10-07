@@ -15,7 +15,7 @@ dependencies:
   maclauncher_sdk:
     git:
       url: https://github.com/Ghost233/MacLauncher.git
-      ref: 5d81583bf07e3a97160259435809662a303e9908
+      ref: b48c5a9c232a609b59c9510c59cca82046fc9e55
       path: packages/maclauncher_sdk
   flutter:
     sdk: flutter

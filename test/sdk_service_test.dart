@@ -62,6 +62,23 @@ void main() {
       }, reason: '按契约不声明 onSetEntryManaged');
     });
 
+    _realNet('hello 自报 projectName 与 entry（运行时发现 #30）', () async {
+      final fixture = await _SdkFixture.create();
+      addTearDown(fixture.close);
+      fixture.service.connect();
+      final hello = await fixture.peer.helloAt(0);
+
+      expect(hello['projectName'], 'GhostModelDeck');
+      final entry = (hello['entry'] as Map).cast<String, Object?>();
+      expect(
+        entry['kind'],
+        isIn(['app', 'executable']),
+        reason: '开发期非 bundle 运行退回 executable，打包运行为 app',
+      );
+      expect(entry['path'], isA<String>());
+      expect((entry['path'] as String), isNotEmpty);
+    });
+
     _realNet('注册 onVersionStatus 后声明能力并按桥映射如实应答（#28）', () async {
       const sha =
           '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
@@ -517,6 +534,53 @@ void main() {
         fixture.gateway.state,
         PublicGatewayState.stopped,
         reason: '重连不得触碰业务',
+      );
+    });
+
+    _realNet('pending-approval 只公告一次、不刷错误日志，批准后正常连接（#30）', () async {
+      final fixture = await _SdkFixture.create(
+        acceptHellos: false,
+        rejectReason: sdk.kRejectReasonPendingApproval,
+      );
+      addTearDown(fixture.close);
+      fixture.service.connect();
+      await fixture.peer.helloAt(0);
+      await fixture.peer.helloAt(1, timeout: const Duration(seconds: 15));
+
+      fixture.peer.acceptHellos = true;
+      await fixture.peer.helloAt(2, timeout: const Duration(seconds: 15));
+      // states 流为异步投递：logs 应答可能先于 connected 日志落库，按条件
+      // 轮询到连接成功日志出现再断言（带截止时间，不赌固定延时）。
+      final deadline = DateTime.now().add(const Duration(seconds: 10));
+      List<String> texts;
+      for (;;) {
+        final logs = await fixture.peer.call('logs', params: {'limit': 500});
+        texts = _logEntries(logs)
+            .map((entry) => entry['text'] as String)
+            .toList();
+        if (texts.any((text) => text.contains('启动器连接：connected'))) {
+          break;
+        }
+        if (DateTime.now().isAfter(deadline)) {
+          fail('timed out waiting for 启动器连接：connected log entry');
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+
+      expect(
+        texts.where((text) => text.contains('待批准')),
+        hasLength(1),
+        reason: '待批准期间只公告一次，SDK 重试不重复刷日志',
+      );
+      expect(
+        texts.where((text) => text.contains('pending-approval')),
+        isEmpty,
+        reason: 'pending-approval 不以拒绝原因原文作为错误呈现',
+      );
+      expect(
+        texts.where((text) => text.contains('启动器连接：connected')),
+        isNotEmpty,
+        reason: '用户批准后正常记录连接成功',
       );
     });
 
