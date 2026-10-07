@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 
 import 'decision_protocol.dart';
 import 'engine_catalog.dart';
 import 'engine_runtime.dart';
+import 'jev_models.dart';
 import 'llama_engine.dart';
 
 export 'llama_engine.dart' show DecisionCancellation;
@@ -184,7 +186,9 @@ class CouncilBatchConsultation {
     required this.elapsed,
     required List<CouncilOpinion> seats,
     required Map<String, Map<String, Object?>> aggregates,
+    required Map<String, Map<String, Object?>> answers,
   }) : seats = List.unmodifiable(seats),
+       answers = Map.unmodifiable(answers),
        aggregates = Map.unmodifiable({
          for (final entry in aggregates.entries)
            entry.key: Map<String, Object?>.unmodifiable(entry.value),
@@ -198,6 +202,18 @@ class CouncilBatchConsultation {
   final Duration elapsed;
   final List<CouncilOpinion> seats;
   final Map<String, Map<String, Object?>> aggregates;
+  final Map<String, Map<String, Object?>> answers;
+
+  Map<String, Object?> standardResult(String model) => {
+    'model': model,
+    'answers': answers,
+    'usage': {
+      'input_tokens': seats
+          .where((s) => s.status == CouncilSeatStatus.ok)
+          .fold(0, (sum, s) => sum + s.batchResult!.inputTokens),
+      'output_tokens': 0,
+    },
+  };
 
   Map<String, Object?> toJson() => {
     'schema_version': 1,
@@ -228,10 +244,21 @@ class CouncilState {
 
 /// The desktop and MCP share this consultation entry point.
 class CouncilController {
-  CouncilController({required this.catalog}) {
+  CouncilController({
+    required this.catalog,
+    this.modelRegistryFile,
+    this.modelRegistryIO,
+  }) {
     _subscription = catalog.changes.listen((_) => _publish());
   }
   final EngineCatalog catalog;
+  final File? modelRegistryFile;
+  final JevRegistryIO? modelRegistryIO;
+  late final JevModels models = JevModels(
+    controller: this,
+    registryFile: modelRegistryFile,
+    registryIO: modelRegistryIO,
+  );
   final _changes = StreamController<CouncilState>.broadcast();
   late final StreamSubscription<EngineCatalogState> _subscription;
   List<CouncilSeat> _selected = const [];
@@ -384,6 +411,7 @@ class CouncilController {
     DecisionBatchRequest request, {
     Duration timeout = const Duration(seconds: 10),
     DecisionCancellation? cancellation,
+    List<CouncilSeat>? seats,
   }) async {
     if (_shuttingDown) throw StateError('委员会正在退出');
     if (timeout <= Duration.zero) {
@@ -391,7 +419,7 @@ class CouncilController {
     }
     final available = {for (final seat in availableSeats) seat.id: seat};
     final selected = List<CouncilSeat>.unmodifiable(
-      _selected.map((seat) => available[seat.id] ?? seat),
+      seats ?? _selected.map((seat) => available[seat.id] ?? seat).toList(),
     );
     final requestId = List.generate(
       16,
@@ -417,6 +445,14 @@ class CouncilController {
       final successful = opinions
           .where((s) => s.status == CouncilSeatStatus.ok)
           .toList();
+      final computed = <String, Map<String, Object?>>{
+        if (successful.isNotEmpty)
+          for (final question in request.questions.entries)
+            question.key: _aggregateQuestion(question.value, [
+              for (final seat in successful)
+                seat.batchResult!.answers[question.key]!,
+            ]),
+      };
       final result = CouncilBatchConsultation._(
         requestId: requestId,
         status: successful.isEmpty
@@ -434,13 +470,22 @@ class CouncilController {
         completedAt: DateTime.now().toUtc(),
         elapsed: watch.elapsed,
         seats: opinions,
-        aggregates: {
-          if (successful.length >= 2)
-            for (final question in request.questions.entries)
-              question.key: _aggregateQuestion(question.value, [
-                for (final seat in successful)
-                  seat.batchResult!.answers[question.key]!,
-              ]),
+        aggregates: successful.length >= 2 ? computed : {},
+        answers: {
+          for (final entry in computed.entries)
+            entry.key: {
+              for (final field in entry.value.entries)
+                if (const {
+                  'type',
+                  'choice',
+                  'score',
+                  'legend',
+                  'probabilities',
+                  'confidence',
+                  'noul',
+                }.contains(field.key))
+                  field.key: field.value,
+            },
         },
       );
       _lastBatchResult = result;
@@ -603,16 +648,23 @@ class CouncilController {
 
   Future<void> shutdown() async {
     beginShutdown();
-    await Future.wait(_active.values.map((value) => value.future).toList());
+    await Future.wait([
+      ..._active.values.map((value) => value.future),
+      models.shutdown(),
+    ]);
   }
 
   void _publish() {
     if (!_changes.isClosed) _changes.add(state);
   }
 
-  void close() {
-    _subscription.cancel();
-    _changes.close();
+  Future<void> close() async {
+    try {
+      await models.close();
+    } finally {
+      await _subscription.cancel();
+      await _changes.close();
+    }
   }
 }
 
@@ -646,6 +698,7 @@ Map<String, Object?> _aggregateQuestion(
       'legend': question.legend,
       'probabilities': mean,
       'score': ordinalExpectation(mean),
+      'confidence': _scoreConfidence(mean),
       'ordinal_spread': values.reduce(max) - values.reduce(min),
     };
   }
@@ -654,12 +707,18 @@ Map<String, Object?> _aggregateQuestion(
     for (final id in mean.keys) id: choices.where((a) => a.choice == id).length,
   });
   final best = mean.values.reduce(max);
+  final tied = [
+    for (final e in mean.entries)
+      if (e.value == best) e.key,
+  ]..sort();
   return {
     'type': 'choice',
+    'choice': tied.first,
+    'confidence': max(0.0, (best - 1 / mean.length) / (1 - 1 / mean.length)),
     'probabilities': mean,
     'top_choices': List<String>.unmodifiable([
       for (final entry in mean.entries)
-        if ((entry.value - best).abs() <= 1e-12) entry.key,
+        if (entry.value == best) entry.key,
     ]),
     'votes': votes,
     'disagreement': 1 - votes.values.reduce(max) / answers.length,
@@ -670,4 +729,23 @@ class _SeatDispatch {
   const _SeatDispatch(this.at, this.after);
   final DateTime at;
   final Duration after;
+}
+
+// Fixed native server-decision.cpp confidence formula, applied to the final
+// equal-weight distribution. It describes distribution shape, not agreement.
+double _scoreConfidence(Map<String, double> probabilities) {
+  final ordered = probabilities.entries.toList()
+    ..sort((a, b) => int.parse(a.key).compareTo(int.parse(b.key)));
+  var mode = 0;
+  for (var i = 1; i < ordered.length; i++) {
+    if (ordered[i].value > ordered[mode].value) mode = i;
+  }
+  final center = (ordered.length - 1) / 2;
+  var distance = 0.0;
+  var uniformDistance = 0.0;
+  for (var i = 0; i < ordered.length; i++) {
+    distance += ordered[i].value * (i - mode).abs();
+    uniformDistance += (i - center).abs() / ordered.length;
+  }
+  return max(0.0, 1 - distance / uniformDistance);
 }

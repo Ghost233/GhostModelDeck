@@ -1,10 +1,13 @@
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'app_theme.dart';
 import 'council.dart';
 import 'decision_protocol.dart';
+import 'jev_models.dart';
 
 class CouncilPage extends StatefulWidget {
   const CouncilPage({
@@ -32,6 +35,20 @@ class _CouncilPageState extends State<CouncilPage> {
       _primitive == DecisionPrimitive.noul ? _options.take(2) : _options;
   String? _error;
   DecisionCancellation? _activeCancellation;
+  String? _model;
+  bool _debug = false;
+  Map<String, Object?>? _response;
+  bool get _busy => _activeCancellation != null;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(
+      widget.controller.models.load().catchError((Object error) {
+        if (mounted) setState(() => _error = error.toString());
+      }),
+    );
+  }
 
   @override
   void dispose() {
@@ -57,194 +74,223 @@ class _CouncilPageState extends State<CouncilPage> {
       _visibleOptions.every((option) => option.text.text.trim().isNotEmpty);
 
   Future<void> _consult() async {
+    final model = _model;
+    if (model == null) return;
     final cancellation = DecisionCancellation();
     setState(() {
       _error = null;
+      _response = null;
       _activeCancellation = cancellation;
     });
     try {
-      if (_primitive != DecisionPrimitive.choice) {
-        final descriptions = _visibleOptions
-            .map((option) => option.text.text.trim())
-            .toList();
-        final DecisionQuestion question = _primitive == DecisionPrimitive.score
-            ? ScoreQuestion(
-                instructions: '根据上下文，按从低到高的有序等级评分。',
-                levels: descriptions,
-              )
-            : NoulQuestion(
-                instructions: '根据上下文判断描述。',
-                falseText: descriptions[0],
-                trueText: descriptions[1],
-              );
-        await widget.controller.consultBatch(
-          DecisionBatchRequest(
-            state: _context.text,
-            questions: {'council_typed': question},
-          ),
-          cancellation: cancellation,
-        );
-      } else {
-        await widget.controller.consult(
-          state: _context.text,
+      final descriptions = _visibleOptions
+          .map((option) => option.text.text.trim())
+          .toList();
+      final DecisionQuestion question = switch (_primitive) {
+        DecisionPrimitive.choice => ChoiceQuestion(
+          instructions: '根据上下文，从候选项中选择最合适的一项。',
           options: {
             for (final option in _options)
               option.id.text.trim(): option.text.text.trim(),
           },
-          cancellation: cancellation,
-        );
-      }
+        ),
+        DecisionPrimitive.score => ScoreQuestion(
+          instructions: '根据上下文，按从低到高的有序等级评分。',
+          levels: descriptions,
+        ),
+        DecisionPrimitive.noul => NoulQuestion(
+          instructions: '根据上下文判断描述。',
+          falseText: descriptions[0],
+          trueText: descriptions[1],
+        ),
+      };
+      final result = await widget.controller.models.decide(
+        model,
+        DecisionBatchRequest(
+          state: _context.text,
+          questions: {'council_choice': question},
+        ),
+        cancellation: cancellation,
+        debug: _debug,
+      );
+      if (mounted) setState(() => _response = result);
     } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
+      if (mounted) {
+        setState(() {
+          _error = error.toString();
+          if (error is JevRequestException) _response = error.toJson();
+        });
+      }
     } finally {
       if (mounted) setState(() => _activeCancellation = null);
     }
   }
 
-  void _select(CouncilSeat seat, bool selected) {
-    final ids = [...widget.controller.selectedSeatIds];
-    selected ? ids.add(seat.id) : ids.remove(seat.id);
+  Future<void> _editModel([JevModelDefinition? existing]) async {
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) =>
+          _ModelEditor(models: widget.controller.models, existing: existing),
+    );
+    if (mounted && name != null) setState(() => _model = name);
+  }
+
+  Future<void> _deleteModel(String name) async {
     try {
-      widget.controller.selectSeats(ids);
+      await widget.controller.models.delete(name);
+      if (mounted && _model == name) setState(() => _model = null);
     } catch (error) {
-      setState(() => _error = error.toString());
+      if (mounted) setState(() => _error = error.toString());
     }
   }
 
   @override
-  Widget build(BuildContext context) => StreamBuilder<CouncilState>(
-    stream: widget.controller.changes,
-    initialData: widget.controller.state,
-    builder: (context, snapshot) => Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        JevPageHeader(
-          title: '委员会',
-          action: TextButton.icon(
-            onPressed: widget.onOpenLibrary,
-            icon: const Icon(Icons.folder_outlined, size: 16),
-            label: const Text('模型库'),
-          ),
-        ),
-        if (widget.controller.availableSeats.isEmpty &&
-            widget.controller.selectedSeats.isEmpty &&
-            snapshot.data!.lastResult == null &&
-            snapshot.data!.lastBatchResult == null)
-          Expanded(
-            child: Center(
-              child: JevSurface(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.hub_outlined,
-                      size: 32,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      '暂无运行中模型',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 16),
-                    OutlinedButton(
-                      onPressed: widget.onOpenLibrary,
-                      child: const Text('打开模型库'),
-                    ),
-                  ],
-                ),
-              ),
+  Widget build(BuildContext context) => StreamBuilder<void>(
+    stream: widget.controller.models.changes,
+    builder: (context, snapshot) {
+      final models = widget.controller.models.configuredModels;
+      final selected = models.any((m) => m.definition.name == _model)
+          ? _model
+          : null;
+      final json = _response == null
+          ? null
+          : const JsonEncoder.withIndent('  ').convert(_response);
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          JevPageHeader(
+            title: '委员会',
+            action: TextButton.icon(
+              onPressed: widget.onOpenLibrary,
+              icon: const Icon(Icons.folder_open_outlined, size: 16),
+              label: const Text('模型库'),
             ),
-          )
-        else
+          ),
           Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final state = snapshot.data!;
-                final result = state.lastResult;
-                final batch = state.lastBatchResult;
-                final output = switch (state.latestResultKind) {
-                  CouncilResultKind.batch when batch != null => _batchResult(
-                    context,
-                    batch,
-                  ),
-                  CouncilResultKind.choice when result != null => _result(
-                    context,
-                    result,
-                  ),
-                  _ => null,
-                };
-                final input = _input(context, state);
-                return SingleChildScrollView(
-                  child: output != null && constraints.maxWidth >= 880
-                      ? Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  JevSurface(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
                           children: [
-                            Expanded(flex: 5, child: input),
-                            const SizedBox(width: 20),
-                            Expanded(flex: 6, child: output),
-                          ],
-                        )
-                      : Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            input,
-                            if (output != null) ...[
-                              const SizedBox(height: 20),
-                              output,
-                            ],
+                            const Expanded(child: Text('命名 JEV 模型')),
+                            TextButton.icon(
+                              onPressed: () => _editModel(),
+                              icon: const Icon(Icons.add, size: 16),
+                              label: const Text('创建模型'),
+                            ),
                           ],
                         ),
-                );
-              },
+                        if (models.isEmpty)
+                          const Text('创建委员会配置或原生调用名。配置不会自动加载模型。'),
+                        for (final model in models)
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(
+                              '${model.definition.name} · ${model.definition.source == JevModelSource.council ? '委员会' : '原生 JEV'}',
+                            ),
+                            subtitle: Text(
+                              model.available
+                                  ? model.reason == null
+                                        ? '可调用 · ${model.definition.bindings.length} 个绑定'
+                                        : '可调用 · 部分绑定未就绪 · ${model.reason}'
+                                  : '未就绪 · ${model.reason}',
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  key: Key(
+                                    'edit-model-${model.definition.name}',
+                                  ),
+                                  tooltip: '编辑模型配置',
+                                  onPressed: () => _editModel(model.definition),
+                                  icon: const Icon(
+                                    Icons.edit_outlined,
+                                    size: 18,
+                                  ),
+                                ),
+                                IconButton(
+                                  key: Key(
+                                    'delete-model-${model.definition.name}',
+                                  ),
+                                  tooltip: '删除模型配置',
+                                  onPressed: () =>
+                                      _deleteModel(model.definition.name),
+                                  icon: const Icon(
+                                    Icons.delete_outline,
+                                    size: 18,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        DropdownButton<String>(
+                          key: const Key('council-model'),
+                          value: selected,
+                          hint: const Text('选择调用模型'),
+                          isExpanded: true,
+                          items: [
+                            for (final m in models)
+                              DropdownMenuItem(
+                                value: m.definition.name,
+                                child: Text(m.definition.name),
+                              ),
+                          ],
+                          onChanged: _busy
+                              ? null
+                              : (value) => setState(() => _model = value),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _input(context, modelSelected: selected != null),
+                  if (json != null) ...[
+                    const SizedBox(height: 16),
+                    JevSurface(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Expanded(child: Text('标准 JEV 结果')),
+                              IconButton(
+                                tooltip: '复制结果',
+                                onPressed: () => Clipboard.setData(
+                                  ClipboardData(text: json),
+                                ),
+                                icon: const Icon(Icons.copy_outlined, size: 18),
+                              ),
+                            ],
+                          ),
+                          SelectableText(
+                            json,
+                            key: const Key('jev-standard-output'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
-      ],
-    ),
+        ],
+      );
+    },
   );
 
-  Widget _input(BuildContext context, CouncilState state) {
+  Widget _input(BuildContext context, {required bool modelSelected}) {
     final theme = Theme.of(context);
-    final selected = widget.controller.selectedSeatIds;
-    final available = widget.controller.availableSeats;
-    final readyIds = available.map((seat) => seat.id).toSet();
-    final seats = [
-      ...available,
-      ...widget.controller.selectedSeats.where(
-        (seat) => !readyIds.contains(seat.id),
-      ),
-    ];
     return JevSurface(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Text('席位', style: theme.textTheme.titleMedium),
-              const Spacer(),
-              Text('${selected.length} 已选', style: theme.textTheme.bodySmall),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final seat in seats)
-                Tooltip(
-                  message: '${seat.engine.name} · ${seat.instance.id}',
-                  child: FilterChip(
-                    label: Text(
-                      '${_seatLabel(seat)}${readyIds.contains(seat.id) ? '' : ' · 未就绪'}',
-                    ),
-                    selected: selected.contains(seat.id),
-                    onSelected: state.busy
-                        ? null
-                        : (chosen) => _select(seat, chosen),
-                  ),
-                ),
-            ],
-          ),
           const SizedBox(height: 24),
           DropdownButton<DecisionPrimitive>(
             key: const Key('council-primitive'),
@@ -264,7 +310,7 @@ class _CouncilPageState extends State<CouncilPage> {
                 child: Text('Noul · true-head'),
               ),
             ],
-            onChanged: state.busy
+            onChanged: _busy
                 ? null
                 : (value) => setState(() => _primitive = value!),
           ),
@@ -289,7 +335,7 @@ class _CouncilPageState extends State<CouncilPage> {
                 }, style: theme.textTheme.titleMedium),
               ),
               TextButton.icon(
-                onPressed: state.busy || _options.length >= _maxOptions
+                onPressed: _busy || _options.length >= _maxOptions
                     ? null
                     : () => setState(
                         () => _options.add(_OptionFields(_nextOption++)),
@@ -318,7 +364,7 @@ class _CouncilPageState extends State<CouncilPage> {
                         : TextField(
                             key: Key('council-id-${option.number}'),
                             controller: option.id,
-                            enabled: !state.busy,
+                            enabled: !_busy,
                             decoration: const InputDecoration(hintText: 'ID'),
                             onChanged: (_) => setState(() {}),
                           ),
@@ -328,7 +374,7 @@ class _CouncilPageState extends State<CouncilPage> {
                     child: TextField(
                       key: Key('council-option-${option.number}'),
                       controller: option.text,
-                      enabled: !state.busy,
+                      enabled: !_busy,
                       decoration: const InputDecoration(hintText: '候选内容'),
                       onChanged: (_) => setState(() {}),
                     ),
@@ -337,7 +383,7 @@ class _CouncilPageState extends State<CouncilPage> {
                   IconButton(
                     tooltip: '删除候选项',
                     onPressed:
-                        state.busy ||
+                        _busy ||
                             _options.length <= 2 ||
                             _primitive == DecisionPrimitive.noul
                         ? null
@@ -360,10 +406,19 @@ class _CouncilPageState extends State<CouncilPage> {
                 ),
               ),
             ),
+          CheckboxListTile(
+            key: const Key('jev-debug'),
+            value: _debug,
+            contentPadding: EdgeInsets.zero,
+            title: const Text('本次附带 debug 依据'),
+            onChanged: _busy
+                ? null
+                : (value) => setState(() => _debug = value!),
+          ),
           const SizedBox(height: 8),
           Row(
             children: [
-              if (state.busy)
+              if (_busy)
                 const SizedBox(
                   width: 16,
                   height: 16,
@@ -378,257 +433,13 @@ class _CouncilPageState extends State<CouncilPage> {
                 const SizedBox(width: 8),
               ],
               FilledButton(
-                onPressed: state.busy || selected.isEmpty || !_validOptions
+                onPressed: _busy || !modelSelected || !_validOptions
                     ? null
                     : _consult,
-                child: Text(state.busy ? '咨询中' : '咨询'),
+                child: Text(_busy ? '咨询中' : '咨询'),
               ),
             ],
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _batchResult(BuildContext context, CouncilBatchConsultation result) {
-    final theme = Theme.of(context);
-    return JevSurface(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            result.scope == CouncilScope.ensemble
-                ? '综合 typed 判断'
-                : result.scope == CouncilScope.singleModel
-                ? '单模型结果 · 无综合'
-                : '咨询失败',
-            style: theme.textTheme.titleMedium,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '${result.seats.where((seat) => seat.batchResult != null).length}/${result.seats.length} 席 · ${result.status.name} · ${result.elapsed.inMilliseconds} ms',
-            style: theme.textTheme.bodySmall,
-          ),
-          const SizedBox(height: 12),
-          const Text('概率与原值分歧不是校准置信度；score 为等级期望索引，noul 不解释为概率。'),
-          for (final entry in result.aggregates.entries)
-            Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: Text(
-                '${entry.key} · ${_typedSummary(entry.value)}',
-                style: theme.textTheme.bodyLarge,
-              ),
-            ),
-          for (final seat in result.seats)
-            ExpansionTile(
-              title: Text('${_seatLabel(seat.seat)} · ${seat.status.name}'),
-              children: [
-                if (result.scope == CouncilScope.singleModel &&
-                    seat.batchResult != null)
-                  for (final entry in seat.batchResult!.answers.entries)
-                    Text(
-                      '${entry.key} · ${_typedSummary(entry.value.toJson())}',
-                    ),
-                SelectableText(
-                  const JsonEncoder.withIndent('  ')
-                      .convert(seat.toJson(typed: true)),
-                  style: theme.textTheme.bodySmall,
-                ),
-              ],
-            ),
-          ExpansionTile(
-            title: const Text('完整 computed DTO'),
-            children: [
-              SelectableText(
-                const JsonEncoder.withIndent('  ').convert(result.toJson()),
-                style: theme.textTheme.bodySmall,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _typedSummary(Map<String, Object?> value) => switch (value['type']) {
-    'score' =>
-      '期望索引 ${(value['score'] as num).toStringAsFixed(4)} · 0–${(value['legend'] as Map).length - 1}${value.containsKey('ordinal_spread') ? ' · 原值极差 ${value['ordinal_spread']}' : ''}',
-    'noul' =>
-      'true-head scalar ${(value['noul'] as num).toStringAsFixed(4)}${value.containsKey('scalar_spread') ? ' · 原值极差 ${value['scalar_spread']}' : ''}',
-    _ => 'choice · ${value['top_choices'] ?? value['choice']}',
-  };
-
-  Widget _result(BuildContext context, CouncilConsultation result) {
-    final theme = Theme.of(context);
-    final ensemble = result.scope == CouncilScope.ensemble;
-    return JevSurface(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  ensemble
-                      ? '综合评分'
-                      : result.scope == CouncilScope.singleModel
-                      ? '单模型结果'
-                      : '咨询失败',
-                  style: theme.textTheme.titleMedium,
-                ),
-              ),
-              JevStatusChip(
-                label: switch (result.status) {
-                  CouncilStatus.ok => '已完成',
-                  CouncilStatus.partial => '部分返回',
-                  CouncilStatus.failed => '失败',
-                },
-                tone: result.status == CouncilStatus.failed
-                    ? JevStatusTone.error
-                    : result.status == CouncilStatus.partial
-                    ? JevStatusTone.warning
-                    : JevStatusTone.success,
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '${result.seats.where((seat) => seat.result != null).length}/${result.seats.length} 席 · ${result.elapsed.inMilliseconds} ms${ensemble ? ' · 分歧 ${(result.disagreement! * 100).toStringAsFixed(1)}%' : ''}',
-            style: theme.textTheme.bodySmall,
-          ),
-          if (ensemble) ...[
-            const SizedBox(height: 20),
-            for (final option in result.request.options.entries)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            option.value,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodyMedium,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          '${(result.aggregateScores![option.key]! * 100).toStringAsFixed(1)}%',
-                          style: theme.textTheme.titleMedium,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    LinearProgressIndicator(
-                      value: result.aggregateScores![option.key],
-                      minHeight: 4,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            '${option.key} · ${result.votes![option.key]} 票',
-                            style: theme.textTheme.bodySmall,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        if (result.topChoices!.contains(option.key))
-                          JevStatusChip(
-                            label: result.topChoices!.length > 1
-                                ? '并列最高'
-                                : '最高评分',
-                          ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-          ],
-          const SizedBox(height: 12),
-          Text('各席意见', style: theme.textTheme.titleSmall),
-          const SizedBox(height: 8),
-          for (final opinion in result.seats)
-            ExpansionTile(
-              key: PageStorageKey('${result.requestId}/${opinion.seat.id}'),
-              tilePadding: EdgeInsets.zero,
-              childrenPadding: const EdgeInsets.only(bottom: 16),
-              title: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      _seatLabel(opinion.seat),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleSmall,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  JevStatusChip(
-                    label: switch (opinion.status) {
-                      CouncilSeatStatus.ok => '已完成',
-                      CouncilSeatStatus.notReady => '未就绪',
-                      CouncilSeatStatus.timedOut => '超时',
-                      CouncilSeatStatus.cancelled => '已取消',
-                      CouncilSeatStatus.invalidResponse => '响应无效',
-                      CouncilSeatStatus.failed => '失败',
-                    },
-                    tone: opinion.status == CouncilSeatStatus.ok
-                        ? JevStatusTone.success
-                        : opinion.status == CouncilSeatStatus.cancelled
-                        ? JevStatusTone.neutral
-                        : opinion.status == CouncilSeatStatus.notReady ||
-                              opinion.status == CouncilSeatStatus.timedOut
-                        ? JevStatusTone.warning
-                        : JevStatusTone.error,
-                  ),
-                ],
-              ),
-              subtitle: Text(
-                opinion.result == null
-                    ? opinion.error ?? '失败'
-                    : '${result.request.options[opinion.result!.choice]} · ${opinion.elapsed.inMilliseconds} ms',
-                style: theme.textTheme.bodySmall,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              children: [
-                if (opinion.result != null) ...[
-                  for (final option in result.request.options.entries)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              option.value,
-                              style: theme.textTheme.bodySmall,
-                            ),
-                          ),
-                          Text(
-                            '${(opinion.result!.probabilities[option.key]! * 100).toStringAsFixed(1)}%',
-                            style: theme.textTheme.bodySmall,
-                          ),
-                        ],
-                      ),
-                    ),
-                  const SizedBox(height: 12),
-                ],
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text('原始响应', style: theme.textTheme.titleSmall),
-                ),
-                const SizedBox(height: 8),
-                SelectableText(
-                  const JsonEncoder.withIndent('  ').convert(opinion.toJson()),
-                  style: theme.textTheme.bodySmall,
-                ),
-              ],
-            ),
         ],
       ),
     );
@@ -647,17 +458,163 @@ class _OptionFields {
   }
 }
 
-String _seatLabel(CouncilSeat seat) {
-  final file = seat.instance.asset.files.first.path.split('/').last;
-  final name =
-      seat.instance.asset.repoId
-          ?.split('/')
-          .last
-          .replaceFirst(RegExp(r'-GGUF$', caseSensitive: false), '') ??
-      seat.instance.asset.files.first.path.split('/').reversed.skip(1).first;
-  final variant = RegExp(
-    r'(?:^|[-.])(Q\d(?:_[A-Z0-9]+)*|BF16|F16|F32)(?=[-.]|$)',
-    caseSensitive: false,
-  ).firstMatch(file)?.group(1);
-  return variant == null ? name : '$name · $variant';
+class _ModelEditor extends StatefulWidget {
+  const _ModelEditor({required this.models, this.existing});
+  final JevModels models;
+  final JevModelDefinition? existing;
+  @override
+  State<_ModelEditor> createState() => _ModelEditorState();
+}
+
+class _ModelEditorState extends State<_ModelEditor> {
+  late final _name = TextEditingController(text: widget.existing?.name ?? '');
+  late final _timeout = TextEditingController(
+    text: '${(widget.existing?.timeout.inMicroseconds ?? 10000000) / 1000000}',
+  );
+  late JevModelSource _source =
+      widget.existing?.source ?? JevModelSource.council;
+  late final List<JevModelBinding> _bindings = {
+    for (final binding in widget.models.availableBindings) binding.id: binding,
+    for (final binding in widget.existing?.bindings ?? <JevModelBinding>[])
+      binding.id: binding,
+  }.values.toList();
+  late final Set<String> _chosen = {
+    for (final b in widget.existing?.bindings ?? <JevModelBinding>[]) b.id,
+  };
+  bool _saving = false;
+  String? _error;
+  @override
+  void dispose() {
+    _name.dispose();
+    _timeout.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final seats = _bindings.where((b) => _chosen.contains(b.id)).toList();
+      final seconds = double.tryParse(_timeout.text);
+      if (_source == JevModelSource.council &&
+          (seconds == null || !seconds.isFinite || seconds <= 0)) {
+        throw const DecisionProtocolException('整轮超时需要是正数');
+      }
+      if (_source == JevModelSource.native && seats.length != 1) {
+        throw const DecisionProtocolException('原生模型需要一个资产与引擎绑定');
+      }
+      final definition = _source == JevModelSource.council
+          ? JevModelDefinition.council(
+              name: _name.text.trim(),
+              seats: seats,
+              timeout: Duration(microseconds: (seconds! * 1000000).round()),
+            )
+          : JevModelDefinition.native(
+              name: _name.text.trim(),
+              binding: seats.single,
+            );
+      await widget.models.save(definition, replacing: widget.existing?.name);
+      if (mounted) Navigator.of(context).pop(definition.name);
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _error = error.toString();
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bindings = _bindings;
+    return AlertDialog(
+      title: Text(widget.existing == null ? '创建 JEV 模型' : '编辑 JEV 模型'),
+      content: SizedBox(
+        width: 520,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextField(
+                key: const Key('jev-model-name'),
+                controller: _name,
+                decoration: const InputDecoration(labelText: '调用名'),
+              ),
+              DropdownButton<JevModelSource>(
+                key: const Key('jev-model-source'),
+                value: _source,
+                isExpanded: true,
+                items: const [
+                  DropdownMenuItem(
+                    value: JevModelSource.council,
+                    child: Text('委员会'),
+                  ),
+                  DropdownMenuItem(
+                    value: JevModelSource.native,
+                    child: Text('原生 JEV'),
+                  ),
+                ],
+                onChanged: _saving
+                    ? null
+                    : (value) => setState(() {
+                        _source = value!;
+                        if (_source == JevModelSource.native &&
+                            _chosen.length > 1) {
+                          final first = _chosen.first;
+                          _chosen
+                            ..clear()
+                            ..add(first);
+                        }
+                      }),
+              ),
+              if (_source == JevModelSource.council)
+                TextField(
+                  key: const Key('jev-model-timeout'),
+                  controller: _timeout,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: '整轮超时（秒）'),
+                ),
+              const SizedBox(height: 12),
+              const Text('绑定已登记的本机模型与引擎；保存不启动模型。'),
+              for (final binding in bindings)
+                CheckboxListTile(
+                  value: _chosen.contains(binding.id),
+                  title: Text(widget.models.bindingLabel(binding)),
+                  subtitle: Text(widget.models.bindingReason(binding) ?? '可调用'),
+                  contentPadding: EdgeInsets.zero,
+                  onChanged: _saving
+                      ? null
+                      : (checked) => setState(() {
+                          if (_source == JevModelSource.native) _chosen.clear();
+                          checked!
+                              ? _chosen.add(binding.id)
+                              : _chosen.remove(binding.id);
+                        }),
+                ),
+              if (bindings.isEmpty) const Text('模型库中尚无已登记的 JEV 模型。'),
+              if (_error != null)
+                Text(
+                  _error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: _saving ? null : _save,
+          child: Text(_saving ? '保存中' : '保存'),
+        ),
+      ],
+    );
+  }
 }

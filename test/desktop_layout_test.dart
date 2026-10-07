@@ -11,6 +11,7 @@ import 'package:ghost_model_deck/app_theme.dart';
 import 'package:ghost_model_deck/council.dart';
 import 'package:ghost_model_deck/council_mcp.dart';
 import 'package:ghost_model_deck/council_page.dart';
+import 'package:ghost_model_deck/jev_models.dart';
 import 'package:ghost_model_deck/download_panel.dart';
 import 'package:ghost_model_deck/download_preferences.dart';
 import 'package:ghost_model_deck/download_tasks_page.dart';
@@ -355,9 +356,54 @@ void main() {
             }
             if (page == 'council') {
               await _capture(tester, '$page-actions-$mode');
-              await tester.ensureVisible(find.text('综合评分'));
+              await tester.ensureVisible(
+                find.byKey(const Key('council-model')),
+              );
+              await tester.tap(find.byKey(const Key('council-model')));
               await tester.pumpAndSettle();
-              _expectVisible(tester, find.text('综合评分'));
+              await tester.tap(find.text('layout-council').last);
+              await tester.pumpAndSettle();
+              await tester.enterText(
+                find.byKey(const Key('council-id-1')),
+                'accept',
+              );
+              await tester.enterText(
+                find.byKey(const Key('council-id-2')),
+                'reject',
+              );
+              await tester.enterText(
+                find.byKey(const Key('council-option-1')),
+                '接受',
+              );
+              await tester.enterText(
+                find.byKey(const Key('council-option-2')),
+                '拒绝',
+              );
+              await tester.pump();
+              await tester.ensureVisible(_action('咨询'));
+              await tester.runAsync(
+                () => HttpOverrides.runWithHttpOverrides(() async {
+                  final complete = fixture.council.changes.firstWhere(
+                    (s) => s.lastBatchResult != null && !s.busy,
+                  );
+                  await tester.tap(_action('咨询'));
+                  await complete.timeout(const Duration(seconds: 5));
+                  await Future<void>.delayed(Duration.zero);
+                }, _NetworkBoundary()),
+              );
+              await tester.pumpAndSettle();
+              final value = jsonDecode(
+                tester
+                    .widget<SelectableText>(
+                      find.byKey(const Key('jev-standard-output')),
+                    )
+                    .data!,
+              ) as Map;
+              expect(value.keys, ['model', 'answers', 'usage']);
+              expect(value['model'], 'layout-council');
+              await tester.ensureVisible(find.text('标准 JEV 结果'));
+              await tester.pumpAndSettle();
+              _expectVisible(tester, find.text('标准 JEV 结果'));
               await _capture(tester, '$page-result-$mode');
             }
           }
@@ -617,10 +663,12 @@ class _LayoutFixture {
     );
     expect(downloads.downloader.state.status, DownloadStatus.failed);
     final council = CouncilController(catalog: runtime.catalog);
-    council.selectSeats(council.availableSeats.map((seat) => seat.id));
-    await council.consult(
-      state: '布局验收 fixture',
-      options: {'accept': '接受', 'reject': '拒绝'},
+    await council.models.save(
+      JevModelDefinition.council(
+        name: 'layout-council',
+        seats: council.models.availableBindings,
+        timeout: const Duration(seconds: 3),
+      ),
     );
     final mcp = CouncilMcpServer(controller: council, port: 0);
     await mcp.start();
@@ -670,7 +718,7 @@ class _LayoutFixture {
 
   Future<void> close() async {
     await mcp.close();
-    council.close();
+    await council.close();
     browser.close();
     downloads.downloader.close();
     downloads.preferences.dispose();

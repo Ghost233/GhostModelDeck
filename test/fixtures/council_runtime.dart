@@ -89,6 +89,7 @@ class CouncilRuntimeIO implements EngineProcessIO {
   Future<String> Function(Map<String, dynamic> request, String response)?
   respond;
   int killedChildren = 0;
+  bool failScoreForOther = false;
   int consultationStatus = 200;
   final _servers = <String, HttpServer>{};
   Future<void> closeEndpoint(String instanceId) =>
@@ -147,7 +148,8 @@ class CouncilRuntimeIO implements EngineProcessIO {
           await utf8.decoder.bind(request).join(),
         ) as Map<String, dynamic>;
         final questions = body['questions'] as Map;
-        if (!questions.containsKey('council_choice')) {
+        if (!questions.containsKey('council_choice') ||
+            questions['council_choice']['type'] != 'choice') {
           final consultation = !questions.containsKey('capability_probe');
           if (consultation) {
             requests.add(body);
@@ -159,6 +161,16 @@ class CouncilRuntimeIO implements EngineProcessIO {
             'answers': typedAnswers(questions),
             'usage': {'input_tokens': 10, 'output_tokens': 0},
           });
+          if (!consultation &&
+              failScoreForOther &&
+              arg('--model').contains('/Other/') &&
+              questions.values.any((q) => q['type'] == 'score')) {
+            raw = jsonEncode({
+              'model': arg('--alias'),
+              'answers': {},
+              'usage': {'input_tokens': 10, 'output_tokens': 0},
+            });
+          }
           if (consultation && respond != null) raw = await respond!(body, raw);
           if (consultation) request.response.statusCode = consultationStatus;
           request.response.write(raw);
@@ -178,6 +190,7 @@ class CouncilRuntimeIO implements EngineProcessIO {
           'answers': {
             'council_choice': {
               'type': 'choice',
+              'confidence': 0.5,
               'choice': consultation
                   ? (prefersAccept ? 'accept' : 'reject')
                   : options.keys.last,

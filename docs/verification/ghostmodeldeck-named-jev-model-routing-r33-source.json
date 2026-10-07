@@ -1,0 +1,299 @@
+{
+  "base_commit": "888b41490ccc303dee62fbadea564c4ffd1aed60",
+  "bootstrap_cleanup_validation": {
+    "bash_n_exit": 0,
+    "engineering_rule": "E04 resource ownership; explicit upload failures in Bash conditional context",
+    "evidence_directory": ".tooling/verification/stage33-bootstrap-cleanup",
+    "final_resource_state": {
+      "all_four_owned_containers_absent": true,
+      "evidence": "resource-final-state.json",
+      "existing_gate_container_id_retained": true
+    },
+    "git_diff_check_exit": 0,
+    "node_image": "sha256:b937e94e9d34b951780aeada17bebd8f979de53ea3cadba193e7dec85dc3be8f",
+    "probes": [
+      {
+        "assertions": {
+          "empty_container_still_running": true,
+          "first_failed": true,
+          "retry_reused_existing": true,
+          "retry_timed_out": true
+        },
+        "evidence": "red-result.json",
+        "first_exit": 1,
+        "kind": "real Socktainer bootstrap zero-byte upload before fix",
+        "retry_exit": -15,
+        "retry_timed_out": true,
+        "retry_timeout_seconds": 12,
+        "runner_sha256": "2287146911a50228bf0d7f4036dac5945096c8d4cbd9fc287be1026ad5d9ce34"
+      },
+      {
+        "assertions": {
+          "bootstrap_never_published": true,
+          "first_container_removed": true,
+          "first_failed": true,
+          "retry_container_removed": true,
+          "retry_created_again": true,
+          "retry_failed": true
+        },
+        "evidence": "green-result.json",
+        "first_exit": 1,
+        "kind": "real Socktainer bootstrap zero-byte upload after fix",
+        "retry_exit": 1,
+        "retry_timed_out": false,
+        "runner_sha256": "38092ead45f6164bb26d52ad6bbfe47de86a1b014034192e428f24f7bba27f6f"
+      },
+      {
+        "assertions": {
+          "container_root_retained": true,
+          "existing_data_retained": true,
+          "job_not_executed": true,
+          "job_not_published": true,
+          "original_mismatch_exit": true,
+          "staging_removed": true,
+          "upload_failure_reached": true
+        },
+        "evidence": "existing-result.json",
+        "exit": 1,
+        "kind": "pre-existing container external Docker zero-byte job fixture",
+        "runner_sha256": "38092ead45f6164bb26d52ad6bbfe47de86a1b014034192e428f24f7bba27f6f"
+      },
+      {
+        "evidence": "propagation-result.json",
+        "kind": "real Socktainer external Docker copy and cleanup failures",
+        "results": [
+          {
+            "assertions": {
+              "checksum_not_attempted": true,
+              "container_removed": true,
+              "never_published": true,
+              "original_exit_preserved": true
+            },
+            "exit": 73,
+            "mode": "copy-exit-73"
+          },
+          {
+            "assertions": {
+              "cleanup_error_reported": true,
+              "cleanup_failure_retained_container": true,
+              "never_published": true,
+              "original_exit_preserved": true
+            },
+            "exit": 1,
+            "mode": "zero-upload-cleanup-exit-74"
+          }
+        ],
+        "runner_sha256": "38092ead45f6164bb26d52ad6bbfe47de86a1b014034192e428f24f7bba27f6f"
+      },
+      {
+        "evidence": "environment-failure-result.json",
+        "exit": 1,
+        "kind": "initial pre-existing-container probe blocked by sandbox mktemp permission",
+        "status": "environment failure before upload; not counted as a passing fault probe"
+      }
+    ],
+    "scope": "Only app-owned containers created by this invocation may be removed after bootstrap publication failure; existing containers and volumes are preserved. Fault-probe expected failures are separate from product gates. Final gates used online pub get and current 88 source inputs.",
+    "shell": "macOS /bin/bash 3.2",
+    "source_commit_before_fix": "0b836e3cf3c0e23be8b22a441f36a3e0676b7f70"
+  },
+  "branch": "codex/jev-model-routing",
+  "check_scripts": {
+    "scripts/run-desktop.sh": "bb368ffb477a027fe248b5d41e24a994f0be18c60227761c1ec7bdf845c8a0e6",
+    "scripts/test-container.sh": "38092ead45f6164bb26d52ad6bbfe47de86a1b014034192e428f24f7bba27f6f"
+  },
+  "checked_input_sha256": "c681cd6f2c6ca44de0f9014790479ec848c78322dd90acdffe8eaa592ace6d4e",
+  "checks": [
+    {
+      "command": "GMD_TEST_CONTAINER=ghostmodeldeck-checks-r33b ./scripts/test-container.sh format --output=none --set-exit-if-changed lib test benchmarks",
+      "exit": 0,
+      "job_sha256": "f04f7414a84b38f6f4dd260cc03c899b6ae2721375c17a169ccbfd0a0fec1f1c",
+      "mode": "format",
+      "result": "80 files, 0 changed",
+      "result_log_sha256": "ab4fbb62e9f0127543d10ff708379a6a5e94dd9ca56c15e341ab314dfccfed51",
+      "run": "run-8Tibw3",
+      "runner_sha256": "38092ead45f6164bb26d52ad6bbfe47de86a1b014034192e428f24f7bba27f6f",
+      "source_archive_sha256": "f65372976a4d9ef69de6efcdfb8f94b67c92d5ddf19f0167ac1c96ebb44a33a8"
+    },
+    {
+      "command": "GMD_TEST_CONTAINER=ghostmodeldeck-checks-r33b ./scripts/test-container.sh analyze",
+      "exit": 0,
+      "job_sha256": "ea7035b513f3b40c8bd3d236022adcc22acb4e477bd24d11c702d1377aab9377",
+      "mode": "analyze",
+      "result": "No issues found",
+      "result_log_sha256": "37008deb6ef2c5882505f2eb23180f34dbb7b316cb5f827cd8f0da59686c0834",
+      "run": "run-Wet3Bh",
+      "runner_sha256": "38092ead45f6164bb26d52ad6bbfe47de86a1b014034192e428f24f7bba27f6f",
+      "source_archive_sha256": "4fda3e1138f73ba106325d4147de16966d518799d56a3f1fd2567b42196758ea"
+    },
+    {
+      "command": "GMD_TEST_CONTAINER=ghostmodeldeck-checks-r33b ./scripts/test-container.sh test",
+      "exit": 0,
+      "job_sha256": "1b423ca4b8e57803d44ab89785eca6c2db053abc44b429a9729a7f16c6364f88",
+      "mode": "test",
+      "result": "459 tests passed",
+      "result_log_sha256": "cb5c0ea1fb8143c8a0c69bd373c059d897e906f15cabf840f792370c4bb31188",
+      "run": "run-LE7NLG",
+      "runner_sha256": "38092ead45f6164bb26d52ad6bbfe47de86a1b014034192e428f24f7bba27f6f",
+      "source_archive_sha256": "ffe66d0ff6048d300bf3f7a06b92ef6443433a566126385c0769a533afb99af7"
+    }
+  ],
+  "files": {
+    "analysis_options.yaml": "fa6b57f2914294448d9656235603da32d5808c1b8373a3d9c281436bfc0c3f98",
+    "benchmarks/fixtures/zh-decision-smoke.json": "c0e3c7ac17becdee2944a7a8daf8d2eb16538dd9e32ddf61dc14d1162a4e7971",
+    "benchmarks/results/2026-10-05/chinese.jsonl": "30337c189288c450ed0a7bd8925ce954dd1ec64bcc3f1fa7c3a905272999a40d",
+    "benchmarks/results/2026-10-05/summary.json": "9ea0b8fc035bfe3573805a884f871fc4d91635120337662170ddb9a1ffcc35b3",
+    "benchmarks/run_native.dart": "2e1682534dd78d3bed410f0bb9544292b0730ccd4745106bf506a962eb1b65d4",
+    "lib/app_theme.dart": "c56030b8b7102a6d70bd931efb7efd1d4093c034b63846942df32c55863aab03",
+    "lib/chat_protocol.dart": "57b845d966ea2ffd71e3f75a4052cc6877a501b8484e676d2f2b37a13b8b94ac",
+    "lib/council.dart": "7e76fd9858ef53ae396b01e92d4e0fd6be98670f1aa0dc34ddd4cff0b914e925",
+    "lib/council_mcp.dart": "482f8fccd02708ef9c9da2dc55b4ed504ea40a0e9203ca55546e663dc2be07d3",
+    "lib/council_page.dart": "5cac8ed60fa025f1da21885d1941d0b5140576b2792dcfdcef64afb75b4dce48",
+    "lib/decision_protocol.dart": "89e34c65cde167944e6df76059af742ccbf1097ffe035dbfa331ada074187aae",
+    "lib/download_panel.dart": "40c31ab845be92f3563cf72881bfb579ed8c4ddb02d9f5dba74124c96adc86c3",
+    "lib/download_preferences.dart": "3656b0190e263e4441d58981a41b4fa0129243988fb910e7f4b83f35e5168d05",
+    "lib/download_tasks_page.dart": "93f4473a475671e0fd0392efbf7c2dce91f9f030f8775bc9dbc4f26bacd61668",
+    "lib/engine_catalog.dart": "cf89911155aac5583ae21dce8553b4913b86b8ef9f7d2b0cfabaa10d02b2b9c5",
+    "lib/engine_labels.dart": "850a4e2d086040415b5dca7c3dc522612c8efa519b5b8ac85a6242e56b175841",
+    "lib/engine_page.dart": "8853bade4352ad39527fa4d5f621f7e81990965adfb5795774de2563c469d909",
+    "lib/engine_runtime.dart": "1f63e13e5b4336b57542ffa2fe887dc19e9021ddefb033b0c9c428f4f1e98016",
+    "lib/hf_model_browser.dart": "9178253c5a3af0e4e5841c5deb941f09913c770c2f8a90a672de9809444e3ba1",
+    "lib/jev_models.dart": "a08a09979064758c43f9be9b0a5f25e5760cd4fe825f51a8f14877564c628522",
+    "lib/library_directory_settings.dart": "2fa98c55e2e48ea173b3a020e521fdc17216f485c1942a3d5a89c136e5af5f3d",
+    "lib/library_page.dart": "972afc999e6197806a31d0bb5813a9b56707963defea942b4e15f2dd7aa03a80",
+    "lib/llama_engine.dart": "70a7362a0eb4fdc2453e10231e6cf5f7aa787a96e84ac9e1b257d317a7fbc34d",
+    "lib/lmstudio_provider.dart": "227e985bdf95bbf5555532dbc191022dbb867a9685b8a47d2e1b9ddbe4e4b702",
+    "lib/local_model_package.dart": "a20ef4316b1ace88a979d73e4d25ebf40fbbf048b236b70753b0d5b9acefb209",
+    "lib/main.dart": "c96326479c03ed5b349709083c223bfd6cb2aacaad5c0abf8ea8018c77702e86",
+    "lib/manager_lifecycle.dart": "a3728559744ddd6a7359ab7bd323d56e3dacd87245486d4c73dea6ccf4516f23",
+    "lib/mcp_page.dart": "d22b0f724f4a8606487f27eb03dd5a8956d8446b3fc25bc74d4b423751288be1",
+    "lib/model_downloader.dart": "235a279d3a41298e256cdd91aef8aebb5f098ace55271019c962e574c0d7faba",
+    "lib/model_library.dart": "2c1e4a8b2cd5f26eb6694fc205b02044c085b3fce71886947f69b9d8fef2376e",
+    "lib/model_package.dart": "e94b6da80164646a780ddc52201b5ac3f27099cca4ff4b6c1b3c7e857c472afe",
+    "lib/model_run_dialog.dart": "afe37e8459006af967181999ad51a56508a05bb448a4e953433ab46239e5feeb",
+    "lib/model_search_page.dart": "426e54de2457902c9de1b3124dc33bc986e95590ad113b7455f610eb48426874",
+    "lib/model_use_registry.dart": "923238fd6eb71044e4abfec49c48c1969d7a006371e1a298440298256d094d3d",
+    "lib/omlx_engine.dart": "baa28e2b028f62a440b8c15aafa765e7c65cbba47c13ba907d22e130293d62fe",
+    "lib/prototype_main.dart": "a133fdceb1c96def164a44e8e69b8d5b311522968b5c44713d5770eb6cd2ccbf",
+    "lib/public_gateway.dart": "5a26132c0147c656693fb6cea07d48e3de5ddd9065a7b73c36bce4b040e9609e",
+    "lib/sdk_service.dart": "623052cf715b91551686c69b3d0d5aee102b6d20f794df00a0918073a9c8221c",
+    "lib/settings_page.dart": "edf1177791db8288e72ff129dec98f797eaa0566b121d8235b97b31f9828f680",
+    "lib/software_update_pane.dart": "f9722ae39ffe4f3ad7aa820e7000d4819ca36d95a6010887f7f605787d269cd5",
+    "lib/update_checker.dart": "f9c3d6d80add5bf82d38c4138301a330087ed44ce9bb5c9f9f18b02dbee20d1d",
+    "lib/update_download_service.dart": "0625db3ed9ebe229db6e2fc3aa15f75bb705b6d3a3d2790f1542563aba180b05",
+    "lib/version_status_bridge.dart": "e7401427bc978d655ed849ab61e1517aab6892a09235af14aa076d91786ada4a",
+    "pubspec.lock": "c76857a884ba82b9ca3e883296202ba41cbd46d66f7f7936d8f8031780a40ff6",
+    "pubspec.yaml": "d473a22851477ec5bd41458b9f7e836a7ae43649a6572cb6b59b9c6df85a3d57",
+    "test/council_mcp_test.dart": "fe0ef2b4320e4a63ba3648ad4eb69d23caf54ed79b039c4d211bac21e14afdc1",
+    "test/council_page_test.dart": "6dc96661ff690373832dc482e8e750bffa5694540b77c6895efa79d05acfcd6c",
+    "test/council_test.dart": "869f362f1e9bde00c78def82b4387902ed6fc4fc8bb52134ac40f3324c785ba6",
+    "test/decision_protocol_test.dart": "a9734c801c0b1feec40530aff9804958435e53673fb614bf2ef18400752f5a4d",
+    "test/desktop_layout_test.dart": "98d45a1a86dea0a8dcc824ddcdf76f88ce755e8b387a41af4a0c5011ca8e0944",
+    "test/download_preferences_test.dart": "8cc22ea33a8e7cdd83f93f7ec379ec34b906661e3bac16c105a4806e9c3307b5",
+    "test/download_task_source_test.dart": "15ec4764ccbd5c36cb8b136bf1407f71dc0d0f3eb66424921aa2a01bb474c678",
+    "test/engine_catalog_test.dart": "7ba424952ddc0d4e0a863a44294a1b20d718b4487c33856a9076905fac0fcb16",
+    "test/engine_page_test.dart": "5a499037ed7bc9ca25e13532576a030078fab68a4aa0d575edc84fc695f3d1d8",
+    "test/fixtures/council_runtime.dart": "cf419cf8d591f928a806b28e1ea6ccdffb18cae1498aca145fc3d001e1f32f4a",
+    "test/fixtures/decision_gguf.dart": "df9d7840c083f6c578b50513a72c825688f1212d1f05739e7b6c05620ad53d89",
+    "test/fixtures/engine_archive.dart": "6ba173af11e110ce202e4a17bbf6f4e839fb3cd518b61f4bff42f7cefdbc4103",
+    "test/fixtures/hf_laya_multilingual_1720e3e.json": "f6330a4eda0eee4a9223a8001c37e9510ba17841218289c68215e0d4e92414cc",
+    "test/fixtures/hf_mlx_qwen2_config_a5339a4.json": "b045e57ea90b8f1b35f89f954b176a5c1faa02bd0af2c89bcec191239d66cef4",
+    "test/fixtures/mlx_package.dart": "e7b6649ce58da80343a9ab49ea0a331e1f8cbfb77020ddc50172349a77d7cfb4",
+    "test/fixtures/qwen2_mlx_layout.dart": "d77204c451e990fdc0c02309629195025da736a01eac421684f2b108cd18ab85",
+    "test/fixtures/typed_answers.dart": "6f61a630048c1b574cd47f7ec0977b6a1312d3c6e4244c34ee5bc7712defaaab",
+    "test/hf_model_browser_test.dart": "0fcf02e3c2c7facccc2f523631a5f14b84bef83dde0baa0dd33e42ebe6ddd53c",
+    "test/jev_model_page_test.dart": "0f442f50adfa8301219c60b212fa40679307d25bbbcad4bc6f029485536a0e39",
+    "test/jev_models_test.dart": "5593214ae7bcc01592aa55a4488523aa42649751c28512f1eeb3fd4f2e56ebdb",
+    "test/jev_protocol_test.dart": "cc3ac041ee8fdd978497e4a240b3cf53ce9f153c95236e0d782e98088c972313",
+    "test/jev_registry_lifecycle_test.dart": "9681abbe71fbb9e2b4d7d8a1168fa5d1a0ef361c76845f8025ff84e4ca3a8656",
+    "test/library_directory_settings_test.dart": "68b3dfe31e713b890c90e728136768d96b44c151f576fc8b4774a695fd6032dc",
+    "test/llama_engine_test.dart": "07ef1e2b694ab419dc742c1448b8b5a4c965054ee4dc2b81efe30f22406e63f8",
+    "test/lmstudio_provider_test.dart": "08eaf11ca72a7c7f36d8ca144ec20caca3f8a72bf08d0afcaf86890ac523fd37",
+    "test/local_model_package_test.dart": "a1e4e8913ae3b2f97e1abe294d4c0d8539cd26a52e5f680ae896428be2b62c7d",
+    "test/manager_lifecycle_test.dart": "2370ea21f998f544b83125b9a9cc9e66cfbf67253098844e57be2073a192c1ca",
+    "test/mcp_page_test.dart": "d203697314c2b97eeeb9f7a90cf2c27254dbec2d6bb77a20ee6c05619a754505",
+    "test/model_downloader_test.dart": "8a0e682024b1ffe18e008daf6a4315a484c1e5eb6a8fd6ba2b3a52b4544da5cd",
+    "test/model_library_test.dart": "7bb2ac9e031a1fedd8e20326c72e0abf9d64d8d261acffeb5f7e6c3f0471a789",
+    "test/model_package_test.dart": "fee5ec7bd5865c28576067613228c6ccca667dfbf3a93b73084de2ff41556c00",
+    "test/model_run_dialog_test.dart": "369fb71a90ade2d0643d0b5ecd76a9df5bbb712959b06a14992d1f1cf3dde91e",
+    "test/model_search_page_test.dart": "b0675f98546a78fb9f30d73355688613adaad0a5be1c7102fadf1ce94016c987",
+    "test/model_use_registry_test.dart": "154366f8b279d2642f30b892bdd0584b61247d62e29de97ba7f99c0f27b30f45",
+    "test/omlx_engine_test.dart": "7affcb26b8a851bd1e1685f45096f0755c6dce69d5da1675eaa07e67d24e3bdd",
+    "test/omlx_pool_test.dart": "741a1f1aae5231920c1a45c03bfe957666e10861b428edb6f8947311a90446b8",
+    "test/public_gateway_test.dart": "eb14b03d8af929b3413f6745fdf74dc15b31f97701bbcfbbc5f8a12faf17f9da",
+    "test/sdk_service_test.dart": "7ff79c6343431c07ffe1f0a3b4ad22024538d42369cb7c2da79007f989262f57",
+    "test/settings_page_test.dart": "5daaaf52b3c66e355b95b384c7b064f6dcd800bf6fcf421bcad16380f5a8fdbb",
+    "test/software_update_pane_test.dart": "43a90efc9e153cde92a5ddb0aacbe068091cc3f4d69b78efb85ab71d0380b9f9",
+    "test/update_checker_test.dart": "f23434913f00ba103ecb951e73a919088efd23b403764f6549caa3bbc92ae363",
+    "test/update_download_service_test.dart": "336fcfb4ee333cdf7105d18102c1cedc85ade8c9a2686e81ea53148344254283",
+    "test/version_status_bridge_test.dart": "601ba12a39cd88cad8faac22d51afea1873ecb7ec02831255d92cf5dd77c62d3"
+  },
+  "hash_encoding": "UTF-8 JSON sorted keys, compact separators of path-to-SHA256 map",
+  "input_files": 88,
+  "pre_bootstrap_cleanup_validation": {
+    "check_scripts": {
+      "scripts/run-desktop.sh": "bb368ffb477a027fe248b5d41e24a994f0be18c60227761c1ec7bdf845c8a0e6",
+      "scripts/test-container.sh": "2287146911a50228bf0d7f4036dac5945096c8d4cbd9fc287be1026ad5d9ce34"
+    },
+    "checked_input_sha256": "c681cd6f2c6ca44de0f9014790479ec848c78322dd90acdffe8eaa592ace6d4e",
+    "checks": [
+      {
+        "command": "GMD_TEST_CONTAINER=ghostmodeldeck-checks-r33b ./scripts/test-container.sh format --output=none --set-exit-if-changed lib test benchmarks",
+        "exit": 0,
+        "mode": "format",
+        "result": "80 files, 0 changed",
+        "run": "run-rnOkh6",
+        "source_archive_sha256": "7b81f5e01e808f7a7247fcad3f1fac5baedbd7ed5867241e3081dbee27077062"
+      },
+      {
+        "command": "GMD_TEST_CONTAINER=ghostmodeldeck-checks-r33b ./scripts/test-container.sh analyze",
+        "exit": 0,
+        "mode": "analyze",
+        "result": "No issues found",
+        "run": "run-9e2het",
+        "source_archive_sha256": "d247e0300d516aba2d947702dbeac5c4768f8b5d288dc692acc0f3d9168945fb"
+      },
+      {
+        "command": "GMD_TEST_CONTAINER=ghostmodeldeck-checks-r33b ./scripts/test-container.sh test",
+        "exit": 0,
+        "mode": "test",
+        "result": "459 tests passed",
+        "run": "run-hS6CRq",
+        "source_archive_sha256": "dd7450968dd943e523ba20e060c625f75cba5479c5208b40067d96b547e861df"
+      }
+    ],
+    "input_files": 88,
+    "source_commit": "0b836e3cf3c0e23be8b22a441f36a3e0676b7f70"
+  },
+  "prior_candidate_validation": {
+    "checked_input_sha256": "35f35f3df840ce677faa8ec4c3c5f89e335f2b3e0d70220b836fa701290bdda1",
+    "checks": [
+      {
+        "exit": 0,
+        "mode": "format",
+        "run": "run-3PcQ04"
+      },
+      {
+        "exit": 0,
+        "mode": "analyze",
+        "run": "run-wJem0f"
+      },
+      {
+        "exit": 0,
+        "mode": "test",
+        "run": "run-1UInQs",
+        "tests_passed": 453
+      }
+    ],
+    "commit": "21f8cfb3c156b4753a6b5baec0d3cec8fe1c6817",
+    "hash_encoding": "UTF-8 newline separated relative path and SHA256 pairs",
+    "input_files": 87
+  },
+  "review_and_retro_document": "docs/verification/ghostmodeldeck-r33-review-and-retro.md",
+  "reviewed_commit": "21f8cfb3c156b4753a6b5baec0d3cec8fe1c6817",
+  "toolchain": {
+    "container": "ghostmodeldeck-checks-r33b",
+    "dart_version": "3.13.5",
+    "flutter_commit": "5fc346839b5d0eef006ed8404392afb4dfae428d",
+    "preparation": "online flutter pub get using pubspec.lock"
+  }
+}

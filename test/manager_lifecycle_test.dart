@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/council.dart';
 import 'package:ghost_model_deck/council_mcp.dart';
+import 'package:ghost_model_deck/jev_models.dart';
 import 'package:ghost_model_deck/engine_catalog.dart';
 import 'package:ghost_model_deck/hf_model_browser.dart';
 import 'package:ghost_model_deck/manager_lifecycle.dart';
@@ -233,6 +234,13 @@ void main() {
     final council = CouncilController(catalog: runtime.catalog);
     addTearDown(council.close);
     council.selectSeats(council.availableSeats.map((seat) => seat.id));
+    await council.models.save(
+      JevModelDefinition.council(
+        name: 'test-council',
+        seats: council.models.availableBindings,
+        timeout: const Duration(seconds: 10),
+      ),
+    );
     final mcp = CouncilMcpServer(controller: council, port: 0);
     addTearDown(mcp.close);
     await mcp.start();
@@ -258,6 +266,7 @@ void main() {
       options: {'accept': '接受', 'reject': '拒绝'},
     );
     Map<String, dynamic> args(String state) => {
+      'model': 'test-council',
       'state': state,
       'options': [
         {'id': 'accept', 'text': '接受'},
@@ -266,18 +275,12 @@ void main() {
     };
     final firstCall = first
         .callTool(
-          CallToolRequest(
-            name: 'consult_jev_council',
-            arguments: args('mcp-first'),
-          ),
+          CallToolRequest(name: 'decide_jev', arguments: args('mcp-first')),
         )
         .then<Object>((value) => value, onError: (Object error) => error);
     final secondCall = second
         .callTool(
-          CallToolRequest(
-            name: 'consult_jev_council',
-            arguments: args('mcp-second'),
-          ),
+          CallToolRequest(name: 'decide_jev', arguments: args('mcp-second')),
         )
         .then<Object>((value) => value, onError: (Object error) => error);
     final watch = Stopwatch()..start();

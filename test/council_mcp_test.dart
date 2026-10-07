@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/council.dart';
 import 'package:ghost_model_deck/council_mcp.dart';
+import 'package:ghost_model_deck/jev_models.dart';
 import 'package:mcp_dart/mcp_dart.dart';
 
 import 'fixtures/council_runtime.dart';
@@ -55,7 +56,37 @@ Future<(int, dynamic)> _http(
 }
 
 void main() {
-  test('emitted Codex config enables both tools at the actual listener', () async {
+  test('generated Codex budget follows the longest saved council timeout with buffer', () async {
+    final runtime = await CouncilRuntime.create();
+    addTearDown(runtime.close);
+    final council = CouncilController(catalog: runtime.catalog);
+    addTearDown(council.close);
+    final bindings = council.models.availableBindings;
+    await council.models.save(
+      JevModelDefinition.council(
+        name: 'hard',
+        seats: bindings,
+        timeout: const Duration(milliseconds: 60100),
+      ),
+    );
+    final server = CouncilMcpServer(controller: council, port: 0);
+    addTearDown(server.close);
+    await server.start();
+    expect(server.codexConfig, contains('tool_timeout_sec = 71'));
+    await council.models.save(
+      JevModelDefinition.council(
+        name: 'hard',
+        seats: bindings,
+        timeout: const Duration(seconds: 60),
+      ),
+      replacing: 'hard',
+    );
+    expect(server.codexConfig, contains('tool_timeout_sec = 70'));
+    await council.models.delete('hard');
+    expect(server.codexConfig, contains('tool_timeout_sec = 20'));
+  });
+
+  test('emitted Codex config enables decision and discovery tools at the actual listener', () async {
     final runtime = await CouncilRuntime.create();
     addTearDown(runtime.close);
     final council = CouncilController(catalog: runtime.catalog);
@@ -70,94 +101,117 @@ void main() {
     expect((await running).endpoint, server.endpoint);
     expect(
       server.codexConfig,
-      '[mcp_servers.ghostmodeldeck]\nurl = "${server.endpoint}"\nenabled = true\nenabled_tools = ["consult_jev_council", "consult_jev_council_batch"]\nstartup_timeout_sec = 10\ntool_timeout_sec = 20',
+      '[mcp_servers.ghostmodeldeck]\nurl = "${server.endpoint}"\nenabled = true\nenabled_tools = ["decide_jev", "decide_jev_batch", "list_jev_models"]\nstartup_timeout_sec = 10\ntool_timeout_sec = 20',
     );
     final client = await _connect(server.endpoint!);
     addTearDown(client.close);
     expect(
       (await client.listTools()).tools.map((tool) => tool.name),
-      containsAll(['consult_jev_council', 'consult_jev_council_batch']),
+      containsAll(['decide_jev', 'decide_jev_batch']),
     );
     await server.stop();
     expect(server.codexConfig, isEmpty);
   });
-  test('existing MCP discovers typed batches and renders the same computed mixed DTO', () async {
-    final runtime = await CouncilRuntime.create();
-    addTearDown(runtime.close);
-    final council = CouncilController(catalog: runtime.catalog);
-    addTearDown(council.close);
-    council.selectSeats(council.availableSeats.map((s) => s.id));
-    final server = CouncilMcpServer(controller: council, port: 0);
-    addTearDown(server.close);
-    await server.start();
-    final client = await _connect(server.endpoint!);
-    addTearDown(client.close);
-    final tools = (await client.listTools()).tools;
-    expect(tools.map((t) => t.name), contains('consult_jev_council_batch'));
-    final questions = {
-      'rank': {
-        'type': 'score',
-        'instructions': 'Rank',
-        'criteria': ['Low', 'High'],
-      },
-      'valid': {
-        'type': 'noul',
-        'instructions': 'Valid',
-        'criteria': {'false': 'False', 'true': 'True'},
-      },
-      'route': {
-        'type': 'choice',
-        'instructions': 'Route',
-        'criteria': {'a': 'A', 'b': 'B'},
-      },
-    };
-    final result = await client.callTool(
-      CallToolRequest(
-        name: 'consult_jev_council_batch',
-        arguments: {'state': 'same', 'questions': questions},
-      ),
-    );
-    final dto = result.structuredContent!;
-    expect(dto, council.state.lastBatchResult!.toJson());
-    expect(jsonDecode((result.content.single as TextContent).text), dto);
-    expect(dto['status'], 'ok');
-    expect(dto['aggregates']['rank']['score'], 0.75);
-    expect(dto['aggregates']['valid'], {
-      'type': 'noul',
-      'noul': 0.8,
-      'scalar_spread': 0.0,
-    });
-    expect(dto['aggregates']['route']['votes'], {'a': 0, 'b': 2});
-    for (final seat in dto['seats']) {
-      expect(seat.containsKey('probabilities'), isFalse);
-      expect(seat['answers']['valid'], {'type': 'noul', 'noul': 0.8});
-    }
-    for (final bad in [
-      {'state': 'same', 'questions': questions, 'stream': true},
-      {
-        'state': 'same',
-        'questions': {
-          'bad': {
-            'type': 'score',
-            'instructions': 'Rank',
-            'criteria': ['Only'],
+  test(
+    'MCP discovers typed batches and renders the shared standard mixed result',
+    () async {
+      final runtime = await CouncilRuntime.create();
+      addTearDown(runtime.close);
+      final council = CouncilController(catalog: runtime.catalog);
+      addTearDown(council.close);
+      council.selectSeats(council.availableSeats.map((s) => s.id));
+      await council.models.save(
+        JevModelDefinition.council(
+          name: 'test-council',
+          seats: council.models.availableBindings,
+          timeout: const Duration(seconds: 10),
+        ),
+      );
+      final server = CouncilMcpServer(controller: council, port: 0);
+      addTearDown(server.close);
+      await server.start();
+      final client = await _connect(server.endpoint!);
+      addTearDown(client.close);
+      final tools = (await client.listTools()).tools;
+      expect(tools.map((t) => t.name), contains('decide_jev_batch'));
+      final questions = {
+        'rank': {
+          'type': 'score',
+          'instructions': 'Rank',
+          'criteria': ['Low', 'High'],
+        },
+        'valid': {
+          'type': 'noul',
+          'instructions': 'Valid',
+          'criteria': {'false': 'False', 'true': 'True'},
+        },
+        'route': {
+          'type': 'choice',
+          'instructions': 'Route',
+          'criteria': {'a': 'A', 'b': 'B'},
+        },
+      };
+      final result = await client.callTool(
+        CallToolRequest(
+          name: 'decide_jev_batch',
+          arguments: {
+            'model': 'test-council',
+            'state': 'same',
+            'questions': questions,
+          },
+        ),
+      );
+      final dto = result.structuredContent!;
+      expect(
+        dto,
+        council.state.lastBatchResult!.standardResult('test-council'),
+      );
+      expect(jsonDecode((result.content.single as TextContent).text), dto);
+      expect(dto['answers']['rank']['score'], 0.75);
+      expect(dto['answers']['valid'], {'type': 'noul', 'noul': 0.8});
+      expect(dto['answers']['route']['choice'], 'b');
+      expect(dto.keys, ['model', 'answers', 'usage']);
+      for (final bad in [
+        {
+          'model': 'test-council',
+          'state': 'same',
+          'questions': questions,
+          'stream': true,
+        },
+        {
+          'model': 'test-council',
+          'state': 'same',
+          'questions': {
+            'bad': {
+              'type': 'score',
+              'instructions': 'Rank',
+              'criteria': ['Only'],
+            },
           },
         },
-      },
-      {'state': 'same', 'questions': {}, 'options': []},
-    ]) {
-      final failure = await client.callTool(
-        CallToolRequest(name: 'consult_jev_council_batch', arguments: bad),
-      );
-      expect(failure.isError, isTrue);
-      expect(failure.structuredContent!['error']['code'], 'invalid_input');
-      expect(failure.structuredContent!['aggregates'], isEmpty);
-      expect(
-        jsonDecode((failure.content.single as TextContent).text),
-        failure.structuredContent,
-      );
-    }
-  });
+        {
+          'model': 'test-council',
+          'state': 'same',
+          'questions': {},
+          'options': [],
+        },
+      ]) {
+        final failure = await client.callTool(
+          CallToolRequest(
+            name: 'decide_jev_batch',
+            arguments: {'model': 'test-council', ...bad},
+          ),
+        );
+        expect(failure.isError, isTrue);
+        expect(failure.structuredContent!['error']['code'], 'invalid_input');
+        expect(failure.structuredContent!.containsKey('answers'), isFalse);
+        expect(
+          jsonDecode((failure.content.single as TextContent).text),
+          failure.structuredContent,
+        );
+      }
+    },
+  );
 
   test('an occupied configured port fails explicitly and retries that exact address after release', () async {
     final runtime = await CouncilRuntime.create(modelCount: 0);
@@ -179,9 +233,9 @@ void main() {
     addTearDown(client.close);
     expect(
       (await client.listTools()).tools
-          .singleWhere((tool) => tool.name == 'consult_jev_council')
+          .singleWhere((tool) => tool.name == 'decide_jev')
           .name,
-      'consult_jev_council',
+      'decide_jev',
     );
   });
   test('exact Host and Origin checks cover POST and preflight while malformed RPC stays a protocol error', () async {
@@ -253,6 +307,13 @@ void main() {
     final council = CouncilController(catalog: runtime.catalog);
     addTearDown(council.close);
     council.selectSeats(council.availableSeats.map((seat) => seat.id));
+    await council.models.save(
+      JevModelDefinition.council(
+        name: 'test-council',
+        seats: council.models.availableBindings,
+        timeout: const Duration(seconds: 10),
+      ),
+    );
     final server = CouncilMcpServer(controller: council, port: 0);
     addTearDown(server.close);
     await server.start();
@@ -276,8 +337,9 @@ void main() {
     final rpc = client
         .callTool(
           CallToolRequest(
-            name: 'consult_jev_council',
+            name: 'decide_jev',
             arguments: {
+              'model': 'test-council',
               'state': 'mcp',
               'options': [
                 {'id': 'accept', 'text': '接受'},
@@ -296,7 +358,8 @@ void main() {
     expect(runtime.io.killedChildren, 0);
     final stoppedRpc = await rpc.timeout(const Duration(seconds: 3));
     if (stoppedRpc is CallToolResult) {
-      expect(stoppedRpc.structuredContent!['scope'], 'none');
+      expect(stoppedRpc.isError, true);
+      expect(stoppedRpc.structuredContent!.containsKey('answers'), false);
     }
     desktopRelease.complete();
     final result = await desktop.timeout(const Duration(seconds: 3));
@@ -310,9 +373,9 @@ void main() {
     addTearDown(reconnected.close);
     expect(
       (await reconnected.listTools()).tools
-          .singleWhere((tool) => tool.name == 'consult_jev_council')
+          .singleWhere((tool) => tool.name == 'decide_jev')
           .name,
-      'consult_jev_council',
+      'decide_jev',
     );
   });
   test('SDK cancellation aborts only its own consultation while a peer client continues with the same PIDs', () async {
@@ -321,6 +384,13 @@ void main() {
     final council = CouncilController(catalog: runtime.catalog);
     addTearDown(council.close);
     council.selectSeats(council.availableSeats.map((seat) => seat.id));
+    await council.models.save(
+      JevModelDefinition.council(
+        name: 'test-council',
+        seats: council.models.availableBindings,
+        timeout: const Duration(seconds: 10),
+      ),
+    );
     final server = CouncilMcpServer(controller: council, port: 0);
     addTearDown(server.close);
     await server.start();
@@ -342,8 +412,9 @@ void main() {
     };
     final abort = BasicAbortController();
     CallToolRequest input(String state) => CallToolRequest(
-      name: 'consult_jev_council',
+      name: 'decide_jev',
       arguments: {
+        'model': 'test-council',
         'state': state,
         'options': [
           {'id': 'accept', 'text': '接受'},
@@ -367,13 +438,13 @@ void main() {
     expect(runtime.io.killedChildren, 0);
     releaseB.complete();
     final result = await peer.timeout(const Duration(seconds: 3));
-    expect(result.structuredContent!['scope'], 'ensemble');
-    expect(result.structuredContent!['status'], 'ok');
+    expect(result.structuredContent!['model'], 'test-council');
+    expect(result.structuredContent!['usage']['input_tokens'], 20);
     releaseA.complete();
     runtime.io.respond = null;
     expect(
-      (await b.callTool(input('next'))).structuredContent!['scope'],
-      'ensemble',
+      (await b.callTool(input('next'))).structuredContent!['model'],
+      'test-council',
     );
     expect(
       runtime.engine.state.instances.map((instance) => instance.pid),
@@ -381,12 +452,19 @@ void main() {
     );
     expect(runtime.io.killedChildren, 0);
   });
-  test('the actual Codex protocol profile preserves full, single and zero-seat results through the SDK', () async {
+  test('the actual Codex protocol profile preserves full, single and zero-seat standard results through the SDK', () async {
     final runtime = await CouncilRuntime.create();
     addTearDown(runtime.close);
     final council = CouncilController(catalog: runtime.catalog);
     addTearDown(council.close);
     council.selectSeats(council.availableSeats.map((seat) => seat.id));
+    await council.models.save(
+      JevModelDefinition.council(
+        name: 'test-council',
+        seats: council.models.availableBindings,
+        timeout: const Duration(seconds: 10),
+      ),
+    );
     final events = <Map<String, Object?>>[];
     final server = CouncilMcpServer(
       controller: council,
@@ -403,8 +481,9 @@ void main() {
     addTearDown(client.close);
     await client.listTools();
     CallToolRequest input() => CallToolRequest(
-      name: 'consult_jev_council',
+      name: 'decide_jev',
       arguments: {
+        'model': 'test-council',
         'state': '旧版协议验收',
         'options': [
           {'id': 'accept', 'text': '接受'},
@@ -414,11 +493,11 @@ void main() {
     );
     final full = await client.callTool(input());
     expect(full.isError, isFalse);
-    expect(full.structuredContent!['scope'], 'ensemble');
-    expect(full.structuredContent!['aggregate_scores'], {
-      'accept': 0.5,
-      'reject': 0.5,
-    });
+    expect(full.structuredContent!['model'], 'test-council');
+    expect(
+      full.structuredContent!['answers']['council_choice']['probabilities'],
+      {'accept': 0.5, 'reject': 0.5},
+    );
     expect(
       jsonDecode((full.content.single as TextContent).text),
       full.structuredContent,
@@ -429,16 +508,11 @@ void main() {
     await runtime.engine.stop(ids.first);
     final single = await client.callTool(input());
     expect(single.isError, isFalse);
-    expect(single.structuredContent!['status'], 'partial');
-    expect(single.structuredContent!['scope'], 'single_model');
-    expect(single.structuredContent!['aggregate_scores'], isNull);
-    expect(single.structuredContent!['votes'], isNull);
-    expect(
-      (single.structuredContent!['seats'] as List).map(
-        (seat) => seat['status'],
-      ),
-      contains('not_ready'),
-    );
+    expect(single.structuredContent!['usage'], {
+      'input_tokens': 10,
+      'output_tokens': 0,
+    });
+    expect(single.structuredContent!.containsKey('debug'), isFalse);
     expect(
       jsonDecode((single.content.single as TextContent).text),
       single.structuredContent,
@@ -446,15 +520,17 @@ void main() {
     await runtime.engine.stop(ids.last);
     final none = await client.callTool(input());
     expect(none.isError, isTrue);
-    expect(none.structuredContent!['status'], 'failed');
-    expect(none.structuredContent!['scope'], 'none');
-    expect(none.structuredContent!['aggregate_scores'], isNull);
+    expect(none.structuredContent!['error']['code'], 'no_successful_seats');
+    expect(none.structuredContent!.containsKey('answers'), isFalse);
     expect(
       jsonDecode((none.content.single as TextContent).text),
       none.structuredContent,
     );
     final invalid = await client.callTool(
-      CallToolRequest(name: 'consult_jev_council', arguments: {'state': 1}),
+      CallToolRequest(
+        name: 'decide_jev',
+        arguments: {'model': 'test-council', 'state': 1},
+      ),
     );
     expect(invalid.isError, isTrue);
     expect(invalid.structuredContent!['error']['code'], 'invalid_input');
@@ -472,6 +548,13 @@ void main() {
     final council = CouncilController(catalog: runtime.catalog);
     addTearDown(council.close);
     council.selectSeats(council.availableSeats.map((seat) => seat.id));
+    await council.models.save(
+      JevModelDefinition.council(
+        name: 'test-council',
+        seats: council.models.availableBindings,
+        timeout: const Duration(seconds: 10),
+      ),
+    );
     final server = CouncilMcpServer(controller: council, port: 0);
     addTearDown(server.close);
     await server.start();
@@ -481,9 +564,10 @@ void main() {
     ];
     final bad = <Map<String, dynamic>>[
       {},
-      {'state': 9, 'options': validOptions},
-      {'state': '', 'options': 'not-a-list'},
+      {'model': 'test-council', 'state': 9, 'options': validOptions},
+      {'model': 'test-council', 'state': '', 'options': 'not-a-list'},
       {
+        'model': 'test-council',
         'state': '',
         'options': [
           {'id': 'same', 'text': '一'},
@@ -491,6 +575,7 @@ void main() {
         ],
       },
       {
+        'model': 'test-council',
         'state': '',
         'options': [
           {'id': ' ', 'text': '一'},
@@ -498,6 +583,7 @@ void main() {
         ],
       },
       {
+        'model': 'test-council',
         'state': '',
         'options': [
           {'id': 'accept', 'text': ' '},
@@ -505,35 +591,38 @@ void main() {
         ],
       },
       {
+        'model': 'test-council',
         'state': '',
         'options': [
           {'id': 'accept'},
         ],
       },
       {
+        'model': 'test-council',
         'state': '',
         'options': [1, 2],
       },
-      {'state': '', 'options': validOptions, 'execute': true},
+      {
+        'model': 'test-council',
+        'state': '',
+        'options': validOptions,
+        'execute': true,
+      },
     ];
     for (final protocol in [McpProtocol.stable, McpProtocol.legacy]) {
       final client = await _connect(server.endpoint!, protocol: protocol);
       addTearDown(client.close);
       for (final args in bad) {
         final result = await client.callTool(
-          CallToolRequest(name: 'consult_jev_council', arguments: args),
+          CallToolRequest(
+            name: 'decide_jev',
+            arguments: {'model': 'test-council', ...args},
+          ),
         );
         expect(result.isError, isTrue);
         final payload = result.structuredContent!;
-        expect(payload['schema_version'], 1);
-        expect(payload['status'], 'failed');
-        expect(payload['scope'], 'none');
         expect(payload['error']['code'], 'invalid_input');
-        expect(payload['seats'], isEmpty);
-        expect(payload['aggregate_scores'], isNull);
-        expect(payload['top_choices'], isNull);
-        expect(payload['votes'], isNull);
-        expect(payload['disagreement'], isNull);
+        expect(payload.keys, ['error']);
         expect(
           jsonDecode((result.content.single as TextContent).text),
           payload,
@@ -575,9 +664,9 @@ void main() {
     addTearDown(client.close);
     expect(
       (await client.listTools()).tools
-          .singleWhere((tool) => tool.name == 'consult_jev_council')
+          .singleWhere((tool) => tool.name == 'decide_jev')
           .name,
-      'consult_jev_council',
+      'decide_jev',
     );
     expect(runtime.engine.state.instances, isEmpty);
   });
@@ -587,6 +676,13 @@ void main() {
     final council = CouncilController(catalog: runtime.catalog);
     addTearDown(council.close);
     council.selectSeats(council.availableSeats.map((seat) => seat.id));
+    await council.models.save(
+      JevModelDefinition.council(
+        name: 'test-council',
+        seats: council.models.availableBindings,
+        timeout: const Duration(seconds: 10),
+      ),
+    );
     final events = <Map<String, Object?>>[];
     final server = CouncilMcpServer(
       controller: council,
@@ -615,8 +711,9 @@ void main() {
       return response;
     };
     CallToolRequest input(String state) => CallToolRequest(
-      name: 'consult_jev_council',
+      name: 'decide_jev',
       arguments: {
+        'model': 'test-council',
         'state': state,
         'options': [
           {'id': 'accept', 'text': '接受'},
@@ -631,14 +728,25 @@ void main() {
     for (final result in await Future.wait([a, b])) {
       expect(result.isError, isFalse);
       final payload = result.structuredContent!;
-      expect(payload['scope'], 'ensemble');
-      expect(payload['status'], 'ok');
-      expect(payload['aggregate_scores'], {'accept': 0.5, 'reject': 0.5});
+      expect(payload['model'], 'test-council');
+      expect(payload['answers']['council_choice']['probabilities'], {
+        'accept': 0.5,
+        'reject': 0.5,
+      });
       expect(jsonDecode((result.content.single as TextContent).text), payload);
       expect(
-        (payload['seats'] as List).map((seat) => seat['instance']['id']),
-        ids,
+        runtime.io.requests
+            .where((r) => r['state'] == 'modern')
+            .map((r) => r['model']),
+        containsAll(ids),
       );
+      expect(
+        runtime.io.requests
+            .where((r) => r['state'] == 'legacy')
+            .map((r) => r['model']),
+        containsAll(ids),
+      );
+      expect(payload.keys, ['model', 'answers', 'usage']);
     }
     final consultationEvents = events
         .where((event) => event['kind'] == 'consultation')
@@ -655,7 +763,7 @@ void main() {
     );
     await modern.close();
     final afterDisconnect = await legacy.callTool(input('still-resident'));
-    expect(afterDisconnect.structuredContent!['scope'], 'ensemble');
+    expect(afterDisconnect.structuredContent!['model'], 'test-council');
     expect(runtime.engine.state.instances.map((instance) => instance.id), ids);
     expect(runtime.io.killedChildren, 0);
   });
@@ -673,38 +781,22 @@ void main() {
       addTearDown(client.close);
       final discovered = await client.listTools();
       expect(
-        discovered.tools
-            .singleWhere((tool) => tool.name == 'consult_jev_council')
-            .name,
-        'consult_jev_council',
+        discovered.tools.singleWhere((tool) => tool.name == 'decide_jev').name,
+        'decide_jev',
       );
       expect(
         discovered.tools
-            .singleWhere((tool) => tool.name == 'consult_jev_council')
+            .singleWhere((tool) => tool.name == 'decide_jev')
             .inputSchema
             .toJson()['required'],
-        ['state', 'options'],
+        ['model', 'state', 'options'],
       );
-      expect(
-        discovered.tools
-            .singleWhere((tool) => tool.name == 'consult_jev_council')
-            .outputSchema!
-            .toJson()['required'],
-        containsAll([
-          'schema_version',
-          'request_id',
-          'status',
-          'scope',
-          'seats',
-          'aggregate_scores',
-          'votes',
-          'disagreement',
-        ]),
-      );
+      expect(discovered.tools.map((t) => t.name), contains('list_jev_models'));
       final result = await client.callTool(
         CallToolRequest(
-          name: 'consult_jev_council',
+          name: 'decide_jev',
           arguments: {
+            'model': 'test-council',
             'state': '没有运行模型',
             'options': [
               {'id': 'accept', 'text': '接受'},
@@ -714,8 +806,8 @@ void main() {
         ),
       );
       expect(result.isError, isTrue);
-      expect(result.structuredContent!['status'], 'failed');
-      expect(result.structuredContent!['scope'], 'none');
+      expect(result.structuredContent!['error']['code'], 'model_not_found');
+      expect(result.structuredContent!.containsKey('answers'), isFalse);
       expect(
         jsonDecode((result.content.single as TextContent).text),
         result.structuredContent,
