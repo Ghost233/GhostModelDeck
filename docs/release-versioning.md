@@ -53,4 +53,9 @@
 
 ## 首发基线
 
-首个正式 Release 为 `0.1.0`，对应首期收尾的 main HEAD。首次真实发布的执行不属于 workflow 工单范围，需单独确认。
+首个正式 Release 为 `0.1.0`，对应首期收尾的 main HEAD。
+
+**注意：发布没有独立的人工闸门。** workflow 的唯一判断是「pubspec semver 部分是否有对应 tag」——任何 push 到 main 时，只要当前版本号还没有 `v<x.y.z>` tag，就会立即构建并发布。首个 Release `v0.1.0` 即由引入 workflow 的合并 push（PR #29）自动触发，并非单独执行的发布操作。因此：
+
+- 不打算发版时，不要把带新版本号的改动 push 到 main；版本 bump 必须是「准备好立即发布」的最后一步。
+- 合并引入或修改 `release.yml` 的 PR 前，先确认 pubspec 当前版本已有对应 tag，否则合并本身就会触发一次发布。
