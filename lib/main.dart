@@ -8,6 +8,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'app_theme.dart';
 import 'council.dart';
 import 'council_page.dart';
+import 'jev_playground_page.dart';
 import 'council_mcp.dart';
 import 'download_panel.dart';
 import 'download_preferences.dart';
@@ -382,6 +383,7 @@ class _ManagerShellState extends State<_ManagerShell> {
                         _navigation('下载任务', Icons.download_outlined, 1),
                         _groupLabel('服务'),
                         _navigation('委员会', Icons.groups_outlined, 5),
+                        _navigation('推理测试场', Icons.science_outlined, 7),
                         _navigation('MCP', Icons.cable_outlined, 6),
                         _navigation('引擎管理', Icons.memory_outlined, 3),
                       ],
@@ -453,6 +455,15 @@ class _ManagerShellState extends State<_ManagerShell> {
                       const SizedBox.shrink(),
                     if (_openedPages.contains(6))
                       McpPage(server: _mcp)
+                    else
+                      const SizedBox.shrink(),
+                    if (_openedPages.contains(7))
+                      JevPlaygroundPage(
+                        controller: _council,
+                        gateway: _publicGateway,
+                        mcp: _mcp,
+                        active: _page == 7,
+                      )
                     else
                       const SizedBox.shrink(),
                   ],
