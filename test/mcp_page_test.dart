@@ -22,7 +22,7 @@ void main() {
       addTearDown(() async {
         await tester.runAsync(() async {
           await server.close();
-          council.close();
+          await council.close();
           await runtime.close();
         });
       });

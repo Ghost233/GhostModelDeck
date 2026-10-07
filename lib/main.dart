@@ -253,7 +253,7 @@ class _ManagerShellState extends State<_ManagerShell> {
     _mcp.close();
     _publicGateway.close();
     _publicRoutes.close();
-    _council.close();
+    unawaited(_council.close().catchError((Object _) {}));
     _engines.close();
     _officialEngine.close();
     _standardEngine.close();

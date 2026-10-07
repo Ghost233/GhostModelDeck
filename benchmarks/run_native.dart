@@ -185,7 +185,7 @@ Future<void> main() async {
           },
       ],
     });
-    council.close();
+    await council.close();
     catalog.close();
     engine.close();
     library.close();

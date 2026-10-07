@@ -19,7 +19,7 @@ HTTP 为 `POST /v1/systemone`。MCP 为 `decide_jev`、`decide_jev_batch`，另�
 | 条目 | 实施与验证 |
 | --- | --- |
 | 1. HTTP/MCP 必填 model、同一来源、双载荷一致 | `jev_protocol_test.dart` 真实三名称混合调用，缺少/未知 model，MCP 文本 JSON 与 structuredContent 相等；`council_mcp_test.dart` 新工具发现和单题。 |
-| 2. 多配置 CRUD、独立超时、持久恢复 | `jev_models_test.dart` 离线创建 quick/hard、不同成员/预算、重新构造控制器加载文件、重命名与删除；`jev_model_page_test.dart` 实际对话框创建/编辑/删除。生产没有预设 quick/hard 或难度策略。 |
+| 2. 多配置 CRUD、独立超时、持久恢复 | `jev_models_test.dart` 离线创建 quick/hard、不同成员/预算、重新构造控制器加载文件、重命名与删除；生命周期回归覆盖退出等待写入、删除、恢复与持久化失败传播；`jev_model_page_test.dart` 实际对话框创建/编辑/删除，以及成员被移除后的编辑拒绝和明确删席保存。生产没有预设 quick/hard 或难度策略。 |
 | 3. 原生固定名、全局唯一、无特殊默认 | 跨来源同名拒绝，不覆盖已有配置；未登记 gmd-council 报不存在，用户显式创建同名普通委员会后可调用。 |
 | 4. 离线绑定不加载、稳定资产/引擎身份 | 停止全部受管实例后保存配置，恢复时无 live process；显示未就绪原因；显式重新启动后 alias 改变，原固定名继续可用。 |
 | 5. 可用状态与发现、唯一绑定、逐批能力 | 部分不可用配置显示原因；歧义原生从发现移除；`jev_protocol_test.dart` Score probe 未成功的 Ready 原生仍可被发现，但混合请求被拒绝，Choice-only 可用。 |
@@ -59,11 +59,11 @@ HTTP 为 `POST /v1/systemone`。MCP 为 `decide_jev`、`decide_jev_batch`，另�
 
 完整测试首轮 `run-ULdqC7` 为449通过/4失败、exit1；四项均为旧桌面布局驱动寻找已替换的“综合评分”，首个原始错误为 `desktop_layout_test.dart:358` 的 No element，没有溢出诊断。保留原900×560、dark/light及1.0/1.5字号、边界可见性与截图断言，改为实际选择命名配置并提交后检查标准结果。定向首项 `run-hcdx4r` exit0，随后同文件完整矩阵 `run-4mkEfE` 为34通过、exit0。
 
-## 最终本地门禁
+## 首轮候选本地门禁（历史）
 
 固定 Flutter 提交 `5fc346839b5d0eef006ed8404392afb4dfae428d` / Dart3.13.5，Socktainer 容器 `ghostmodeldeck-checks-r33b`，按锁文件联网 pub get。容器独占、检查串行，无离线模式和远端 CI。
 
-最终正式命令与结果如下，均从指定容器主进程 runner 执行，退出码从保存的 exit 文件核对：
+以下为首轮候选 `21f8cfb3c156b4753a6b5baec0d3cec8fe1c6817` 的历史正式门禁，不能代替审查修复后输入的检查。命令均从指定容器主进程 runner 执行，退出码从保存的 exit 文件核对：
 
 | 命令（均带 `GMD_TEST_CONTAINER=ghostmodeldeck-checks-r33b`） | 证据目录 | 实际结果 |
 | --- | --- | --- |
@@ -71,9 +71,44 @@ HTTP 为 `POST /v1/systemone`。MCP 为 `decide_jev`、`decide_jev_batch`，另�
 | `./scripts/test-container.sh analyze` | `run-wJem0f` | No issues found、exit0 |
 | `./scripts/test-container.sh test` | `run-1UInQs` | 453 tests passed、0 failed、exit0 |
 
-最终87个检查输入的内容指纹为 `35f35f3df840ce677faa8ec4c3c5f89e335f2b3e0d70220b836fa701290bdda1`，每个文件的 SHA256 见 [输入清单](ghostmodeldeck-named-jev-model-routing-r33-source.json)。包含 lib/test/benchmarks 与 pubspec/lockfile/analysis_options，和 runner 的输入范围一致。门禁完成后逐文件核对指纹没有变化；后续只填写本文的结果记录。
+首轮87个检查输入的内容指纹为 `35f35f3df840ce677faa8ec4c3c5f89e335f2b3e0d70220b836fa701290bdda1`。该历史指纹使用逐行路径/哈希编码；当前输入的逐文件 SHA256 和编码见 [输入清单](ghostmodeldeck-named-jev-model-routing-r33-source.json)。范围包含 lib/test/benchmarks 与 pubspec/lockfile/analysis_options，和 runner 的输入范围一致。
 
-最新集成分支 `codex/jev-protocol-playground` 与当前基线均为 `888b41490ccc303dee62fbadea564c4ffd1aed60`；执行正常 merge 返回 Already up to date，无源码差异。保留上述真实失败历史，无未闭合本地失败、未完成测试或远端补验需求。GitHub/远端业务由主线程后续阶段执行，本工作树仅产生本地提交。
+最新集成分支 `codex/jev-protocol-playground` 与当前基线均为 `888b41490ccc303dee62fbadea564c4ffd1aed60`；执行正常 merge 返回 Already up to date，无源码差异。首轮门禁及合并结果保留为历史证据；审查修复后的当前门禁见下方记录。GitHub/远端业务由主线程后续阶段执行，本工作树仅产生本地提交。
+
+
+## 首轮双轴审查修复
+
+审查基于首轮候选 `21f8cfb3c156b4753a6b5baec0d3cec8fe1c6817`。Standards 轴原顺序为原生取消窗口、持久化退出排空两项 P2；Spec 轴原顺序为不可用绑定编辑丢失、重复的原生取消窗口两项 P2，共三个独立缺陷。[审查与复盘记录](ghostmodeldeck-r33-review-and-retro.md) 保留两个轴的原顺序和脚本故障证据。
+
+| 缺陷 | 首个原始错误与修复 | 真实定向与模块结果 |
+| --- | --- | --- |
+| 原生通知事件取消后仍返回正常结果 | 公开 `engine.changes` 首次发布 `lastBatchResult` 时取消 token，`run-H5VFhz` exit1 仍返回 answers。仅加 await 后检查的 `run-s3LhuV` 仍 exit1；让已排队结果通知先送达，再复核 token 和退出状态。 | `run-yAGgMM` exit0；原生、协议和 MCP 相关文件 `run-zZ4P15` 28项通过、exit0。 |
+| 配置持久化未纳入退出排空 | 仅在真实文件 I/O 边界延迟写入，`run-OBQITw` exit1 显示写入未完成时 shutdown 已完成。登记关闭新准入，等待已接纳写入/删除/恢复，持久化错误向 shutdown/close 传播。 | 原失败用例 `run-cqaDFs` exit0；`run-YlPp6G` 4项生命周期用例通过、exit0。 |
+| 编辑不可用成员时静默丢失绑定 | 真实模型库移除 B 后，`run-pmAmye` exit1 显示只有1项，期望保留2项。编辑器持有已有绑定快照，显示不可用项；改名/预算必须先明确移除该项，否则拒绝保存并保留磁盘原配置。 | 首次绿尝试 `run-kV6ytr` exit1 为测试查找器误选后台标签，限定对话框后 `run-hB0n0w` exit0；页面文件 `run-gVRNE7` 2项通过。异步清理适配后 `run-CeaNGC` 2项通过、exit0。 |
+
+`CouncilController.close` 返回的 Future 已在需要完成清理的生产 benchmark、桌面/SDK fixture 和 Widget 清理入口等待；`addTearDown` 直接接收 Future 回调。Widget I/O 使用既有 `tester.runAsync`。页面 dispose 保留显式 `unawaited` 与错误处理，正式退出仍由 `ManagerLifecycle` 等待 shutdown 并报告持久化错误。
+
+最小受影响模块命令为 `GMD_TEST_CONTAINER=ghostmodeldeck-checks-r33b ./scripts/test-container.sh test --no-pub test/jev_registry_lifecycle_test.dart test/jev_models_test.dart test/jev_protocol_test.dart test/jev_model_page_test.dart test/council_page_test.dart test/manager_lifecycle_test.dart test/mcp_page_test.dart`，`run-Jgu8VU` 39项通过、exit0。此处 `--no-pub` 前 runner 已执行联网 pub get。后续页面清理输入变化由 `run-CeaNGC` 再次覆盖，旧绿没有复用为新输入的检查。
+
+复盘的两个脚本 P2 由主线程修复：作业上传先核对内容哈希再发布，桌面启动保护识别已安装的运行实例。`bash -n`、`git diff --check` 与真实外部 I/O 故障/保护干跑结果见上述复盘记录；故障用例中的预期 exit1 不算产品门禁通过。
+
+## 审查修复后的本地门禁
+
+主线程通过新 runner 的格式干跑 `run-JKH7mI` 为80文件/0改动、exit0；随后正式 analyze `run-VweOGF` exit1，在 `lib/jev_models.dart:230` 首报多行 if 缺少块，共3项同类诊断。逐项加块后源码指纹变化，旧格式绿只作为历史证据；当前格式/分析/全套测试重新覆盖同一最终输入。
+
+同一固定工具链、锁文件和独占容器通过新 runner 串行执行正式命令，均由归档的原始 exit 文件核对：
+
+| 命令（均带 `GMD_TEST_CONTAINER=ghostmodeldeck-checks-r33b`） | 证据目录 | 实际结果 |
+| --- | --- | --- |
+| `./scripts/test-container.sh format --output=none --set-exit-if-changed lib test benchmarks` | `run-rnOkh6` | 80 files、0 changed、exit0 |
+| `./scripts/test-container.sh analyze` | `run-9e2het` | No issues found、exit0 |
+| `./scripts/test-container.sh test` | `run-hS6CRq` | 459 tests passed、0 failed、exit0 |
+
+三次门禁归档的88个输入逐文件 SHA256 与当前内容完全相等，按 sorted compact JSON 的路径→SHA256 映射编码，内容指纹为 `c681cd6f2c6ca44de0f9014790479ec848c78322dd90acdffe8eaa592ace6d4e`。详细输入、真实命令、结果、归档哈希、工具链、复盘脚本哈希及历史候选记录见 [输入与检查清单](ghostmodeldeck-named-jev-model-routing-r33-source.json)。最终门禁后只更新本阶段文档，没有改 lib/test/benchmarks 或检查脚本输入。
+
+当前复盘脚本 SHA256 仍与主线程交付完全相等：`test-container.sh` 为 `2287146911a50228bf0d7f4036dac5945096c8d4cbd9fc287be1026ad5d9ce34`，`run-desktop.sh` 为 `bb368ffb477a027fe248b5d41e24a994f0be18c60227761c1ec7bdf845c8a0e6`。本地 `bash -n scripts/test-container.sh scripts/run-desktop.sh` 和 `git diff --check` 再次 exit0；复盘的原始外部 I/O 故障证据保留在主工作区 `.tooling/verification/stage33-retro/`。
+
+最新本地集成分支仍为 `888b41490ccc303dee62fbadea564c4ffd1aed60`，正常 merge 再次返回 Already up to date。三个已确认产品 P2 与两个复盘脚本 P2 已闭合，本地无未闭合失败、有效长作业或远端补验缺口。完整 stage diff 将交回主线程复审；本分支仅本地提交，不推送或创建 PR。
 
 
 ## 验证范围

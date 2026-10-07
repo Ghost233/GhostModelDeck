@@ -244,14 +244,20 @@ class CouncilState {
 
 /// The desktop and MCP share this consultation entry point.
 class CouncilController {
-  CouncilController({required this.catalog, this.modelRegistryFile}) {
+  CouncilController({
+    required this.catalog,
+    this.modelRegistryFile,
+    this.modelRegistryIO,
+  }) {
     _subscription = catalog.changes.listen((_) => _publish());
   }
   final EngineCatalog catalog;
   final File? modelRegistryFile;
+  final JevRegistryIO? modelRegistryIO;
   late final JevModels models = JevModels(
     controller: this,
     registryFile: modelRegistryFile,
+    registryIO: modelRegistryIO,
   );
   final _changes = StreamController<CouncilState>.broadcast();
   late final StreamSubscription<EngineCatalogState> _subscription;
@@ -642,17 +648,23 @@ class CouncilController {
 
   Future<void> shutdown() async {
     beginShutdown();
-    await Future.wait(_active.values.map((value) => value.future).toList());
+    await Future.wait([
+      ..._active.values.map((value) => value.future),
+      models.shutdown(),
+    ]);
   }
 
   void _publish() {
     if (!_changes.isClosed) _changes.add(state);
   }
 
-  void close() {
-    models.close();
-    _subscription.cancel();
-    _changes.close();
+  Future<void> close() async {
+    try {
+      await models.close();
+    } finally {
+      await _subscription.cancel();
+      await _changes.close();
+    }
   }
 }
 

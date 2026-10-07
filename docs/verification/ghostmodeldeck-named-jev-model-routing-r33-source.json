@@ -1,18 +1,48 @@
 {
   "base_commit": "888b41490ccc303dee62fbadea564c4ffd1aed60",
   "branch": "codex/jev-model-routing",
-  "checked_input_sha256": "35f35f3df840ce677faa8ec4c3c5f89e335f2b3e0d70220b836fa701290bdda1",
+  "check_scripts": {
+    "scripts/run-desktop.sh": "bb368ffb477a027fe248b5d41e24a994f0be18c60227761c1ec7bdf845c8a0e6",
+    "scripts/test-container.sh": "2287146911a50228bf0d7f4036dac5945096c8d4cbd9fc287be1026ad5d9ce34"
+  },
+  "checked_input_sha256": "c681cd6f2c6ca44de0f9014790479ec848c78322dd90acdffe8eaa592ace6d4e",
+  "checks": [
+    {
+      "command": "GMD_TEST_CONTAINER=ghostmodeldeck-checks-r33b ./scripts/test-container.sh format --output=none --set-exit-if-changed lib test benchmarks",
+      "exit": 0,
+      "mode": "format",
+      "result": "80 files, 0 changed",
+      "run": "run-rnOkh6",
+      "source_archive_sha256": "7b81f5e01e808f7a7247fcad3f1fac5baedbd7ed5867241e3081dbee27077062"
+    },
+    {
+      "command": "GMD_TEST_CONTAINER=ghostmodeldeck-checks-r33b ./scripts/test-container.sh analyze",
+      "exit": 0,
+      "mode": "analyze",
+      "result": "No issues found",
+      "run": "run-9e2het",
+      "source_archive_sha256": "d247e0300d516aba2d947702dbeac5c4768f8b5d288dc692acc0f3d9168945fb"
+    },
+    {
+      "command": "GMD_TEST_CONTAINER=ghostmodeldeck-checks-r33b ./scripts/test-container.sh test",
+      "exit": 0,
+      "mode": "test",
+      "result": "459 tests passed",
+      "run": "run-hS6CRq",
+      "source_archive_sha256": "dd7450968dd943e523ba20e060c625f75cba5479c5208b40067d96b547e861df"
+    }
+  ],
   "files": {
     "analysis_options.yaml": "fa6b57f2914294448d9656235603da32d5808c1b8373a3d9c281436bfc0c3f98",
     "benchmarks/fixtures/zh-decision-smoke.json": "c0e3c7ac17becdee2944a7a8daf8d2eb16538dd9e32ddf61dc14d1162a4e7971",
     "benchmarks/results/2026-10-05/chinese.jsonl": "30337c189288c450ed0a7bd8925ce954dd1ec64bcc3f1fa7c3a905272999a40d",
     "benchmarks/results/2026-10-05/summary.json": "9ea0b8fc035bfe3573805a884f871fc4d91635120337662170ddb9a1ffcc35b3",
-    "benchmarks/run_native.dart": "6df7122a324dd561b545d14d29c701edd81a6e86455b7084cab817e246caa8d7",
+    "benchmarks/run_native.dart": "2e1682534dd78d3bed410f0bb9544292b0730ccd4745106bf506a962eb1b65d4",
     "lib/app_theme.dart": "c56030b8b7102a6d70bd931efb7efd1d4093c034b63846942df32c55863aab03",
     "lib/chat_protocol.dart": "57b845d966ea2ffd71e3f75a4052cc6877a501b8484e676d2f2b37a13b8b94ac",
-    "lib/council.dart": "46d5007b193cfae1656a27962696698ab9a13188d0926cdf87eec1619a20e408",
+    "lib/council.dart": "7e76fd9858ef53ae396b01e92d4e0fd6be98670f1aa0dc34ddd4cff0b914e925",
     "lib/council_mcp.dart": "482f8fccd02708ef9c9da2dc55b4ed504ea40a0e9203ca55546e663dc2be07d3",
-    "lib/council_page.dart": "c50714db3c2f616d921d73a3b5ed2ed2b33ae1814c872400794d13fda75d1792",
+    "lib/council_page.dart": "5cac8ed60fa025f1da21885d1941d0b5140576b2792dcfdcef64afb75b4dce48",
     "lib/decision_protocol.dart": "89e34c65cde167944e6df76059af742ccbf1097ffe035dbfa331ada074187aae",
     "lib/download_panel.dart": "40c31ab845be92f3563cf72881bfb579ed8c4ddb02d9f5dba74124c96adc86c3",
     "lib/download_preferences.dart": "3656b0190e263e4441d58981a41b4fa0129243988fb910e7f4b83f35e5168d05",
@@ -22,13 +52,13 @@
     "lib/engine_page.dart": "8853bade4352ad39527fa4d5f621f7e81990965adfb5795774de2563c469d909",
     "lib/engine_runtime.dart": "1f63e13e5b4336b57542ffa2fe887dc19e9021ddefb033b0c9c428f4f1e98016",
     "lib/hf_model_browser.dart": "9178253c5a3af0e4e5841c5deb941f09913c770c2f8a90a672de9809444e3ba1",
-    "lib/jev_models.dart": "911543eaba9a5e51eaaa1536a43c7935f7490bb4fb83e66e046ae4bf47092cf5",
+    "lib/jev_models.dart": "a08a09979064758c43f9be9b0a5f25e5760cd4fe825f51a8f14877564c628522",
     "lib/library_directory_settings.dart": "2fa98c55e2e48ea173b3a020e521fdc17216f485c1942a3d5a89c136e5af5f3d",
     "lib/library_page.dart": "972afc999e6197806a31d0bb5813a9b56707963defea942b4e15f2dd7aa03a80",
     "lib/llama_engine.dart": "70a7362a0eb4fdc2453e10231e6cf5f7aa787a96e84ac9e1b257d317a7fbc34d",
     "lib/lmstudio_provider.dart": "227e985bdf95bbf5555532dbc191022dbb867a9685b8a47d2e1b9ddbe4e4b702",
     "lib/local_model_package.dart": "a20ef4316b1ace88a979d73e4d25ebf40fbbf048b236b70753b0d5b9acefb209",
-    "lib/main.dart": "86d1a6a6c82b2e1faeac387dced2bdb003b688dd1c3762363494c87e4d9de86d",
+    "lib/main.dart": "c96326479c03ed5b349709083c223bfd6cb2aacaad5c0abf8ea8018c77702e86",
     "lib/manager_lifecycle.dart": "a3728559744ddd6a7359ab7bd323d56e3dacd87245486d4c73dea6ccf4516f23",
     "lib/mcp_page.dart": "d22b0f724f4a8606487f27eb03dd5a8956d8446b3fc25bc74d4b423751288be1",
     "lib/model_downloader.dart": "235a279d3a41298e256cdd91aef8aebb5f098ace55271019c962e574c0d7faba",
@@ -49,10 +79,10 @@
     "pubspec.lock": "c76857a884ba82b9ca3e883296202ba41cbd46d66f7f7936d8f8031780a40ff6",
     "pubspec.yaml": "d473a22851477ec5bd41458b9f7e836a7ae43649a6572cb6b59b9c6df85a3d57",
     "test/council_mcp_test.dart": "fe0ef2b4320e4a63ba3648ad4eb69d23caf54ed79b039c4d211bac21e14afdc1",
-    "test/council_page_test.dart": "adc1b2fe6818ed4f720cb90277c614b64a15e2017f1259a2bc581be81cad83e3",
+    "test/council_page_test.dart": "6dc96661ff690373832dc482e8e750bffa5694540b77c6895efa79d05acfcd6c",
     "test/council_test.dart": "869f362f1e9bde00c78def82b4387902ed6fc4fc8bb52134ac40f3324c785ba6",
     "test/decision_protocol_test.dart": "a9734c801c0b1feec40530aff9804958435e53673fb614bf2ef18400752f5a4d",
-    "test/desktop_layout_test.dart": "e0a0ce15d76d0a9166e30d678e2a94652f8fd70e56bd1374d336327e04ff31db",
+    "test/desktop_layout_test.dart": "98d45a1a86dea0a8dcc824ddcdf76f88ce755e8b387a41af4a0c5011ca8e0944",
     "test/download_preferences_test.dart": "8cc22ea33a8e7cdd83f93f7ec379ec34b906661e3bac16c105a4806e9c3307b5",
     "test/download_task_source_test.dart": "15ec4764ccbd5c36cb8b136bf1407f71dc0d0f3eb66424921aa2a01bb474c678",
     "test/engine_catalog_test.dart": "7ba424952ddc0d4e0a863a44294a1b20d718b4487c33856a9076905fac0fcb16",
@@ -66,15 +96,16 @@
     "test/fixtures/qwen2_mlx_layout.dart": "d77204c451e990fdc0c02309629195025da736a01eac421684f2b108cd18ab85",
     "test/fixtures/typed_answers.dart": "6f61a630048c1b574cd47f7ec0977b6a1312d3c6e4244c34ee5bc7712defaaab",
     "test/hf_model_browser_test.dart": "0fcf02e3c2c7facccc2f523631a5f14b84bef83dde0baa0dd33e42ebe6ddd53c",
-    "test/jev_model_page_test.dart": "b856bc937ee9df91120b2f0037b9206547ee85448c4829291abd1f363f273ea5",
-    "test/jev_models_test.dart": "16ee8c48c8b6ba3b396104d4a9e2633f877645e7898ebbad6dba7f3590120f8c",
+    "test/jev_model_page_test.dart": "0f442f50adfa8301219c60b212fa40679307d25bbbcad4bc6f029485536a0e39",
+    "test/jev_models_test.dart": "5593214ae7bcc01592aa55a4488523aa42649751c28512f1eeb3fd4f2e56ebdb",
     "test/jev_protocol_test.dart": "cc3ac041ee8fdd978497e4a240b3cf53ce9f153c95236e0d782e98088c972313",
+    "test/jev_registry_lifecycle_test.dart": "9681abbe71fbb9e2b4d7d8a1168fa5d1a0ef361c76845f8025ff84e4ca3a8656",
     "test/library_directory_settings_test.dart": "68b3dfe31e713b890c90e728136768d96b44c151f576fc8b4774a695fd6032dc",
     "test/llama_engine_test.dart": "07ef1e2b694ab419dc742c1448b8b5a4c965054ee4dc2b81efe30f22406e63f8",
     "test/lmstudio_provider_test.dart": "08eaf11ca72a7c7f36d8ca144ec20caca3f8a72bf08d0afcaf86890ac523fd37",
     "test/local_model_package_test.dart": "a1e4e8913ae3b2f97e1abe294d4c0d8539cd26a52e5f680ae896428be2b62c7d",
     "test/manager_lifecycle_test.dart": "2370ea21f998f544b83125b9a9cc9e66cfbf67253098844e57be2073a192c1ca",
-    "test/mcp_page_test.dart": "7ca7e18d9745cfd52bf8a71a40086b7ad0ea36681b5143f66be1fe183e6d55dc",
+    "test/mcp_page_test.dart": "d203697314c2b97eeeb9f7a90cf2c27254dbec2d6bb77a20ee6c05619a754505",
     "test/model_downloader_test.dart": "8a0e682024b1ffe18e008daf6a4315a484c1e5eb6a8fd6ba2b3a52b4544da5cd",
     "test/model_library_test.dart": "7bb2ac9e031a1fedd8e20326c72e0abf9d64d8d261acffeb5f7e6c3f0471a789",
     "test/model_package_test.dart": "fee5ec7bd5865c28576067613228c6ccca667dfbf3a93b73084de2ff41556c00",
@@ -84,11 +115,45 @@
     "test/omlx_engine_test.dart": "7affcb26b8a851bd1e1685f45096f0755c6dce69d5da1675eaa07e67d24e3bdd",
     "test/omlx_pool_test.dart": "741a1f1aae5231920c1a45c03bfe957666e10861b428edb6f8947311a90446b8",
     "test/public_gateway_test.dart": "eb14b03d8af929b3413f6745fdf74dc15b31f97701bbcfbbc5f8a12faf17f9da",
-    "test/sdk_service_test.dart": "95def3297ef904f0d0456186ee811306bf7d8f9af6081f58d06e2643d11567f7",
+    "test/sdk_service_test.dart": "7ff79c6343431c07ffe1f0a3b4ad22024538d42369cb7c2da79007f989262f57",
     "test/settings_page_test.dart": "5daaaf52b3c66e355b95b384c7b064f6dcd800bf6fcf421bcad16380f5a8fdbb",
     "test/software_update_pane_test.dart": "43a90efc9e153cde92a5ddb0aacbe068091cc3f4d69b78efb85ab71d0380b9f9",
     "test/update_checker_test.dart": "f23434913f00ba103ecb951e73a919088efd23b403764f6549caa3bbc92ae363",
     "test/update_download_service_test.dart": "336fcfb4ee333cdf7105d18102c1cedc85ade8c9a2686e81ea53148344254283",
     "test/version_status_bridge_test.dart": "601ba12a39cd88cad8faac22d51afea1873ecb7ec02831255d92cf5dd77c62d3"
+  },
+  "hash_encoding": "UTF-8 JSON sorted keys, compact separators of path-to-SHA256 map",
+  "input_files": 88,
+  "prior_candidate_validation": {
+    "checked_input_sha256": "35f35f3df840ce677faa8ec4c3c5f89e335f2b3e0d70220b836fa701290bdda1",
+    "checks": [
+      {
+        "exit": 0,
+        "mode": "format",
+        "run": "run-3PcQ04"
+      },
+      {
+        "exit": 0,
+        "mode": "analyze",
+        "run": "run-wJem0f"
+      },
+      {
+        "exit": 0,
+        "mode": "test",
+        "run": "run-1UInQs",
+        "tests_passed": 453
+      }
+    ],
+    "commit": "21f8cfb3c156b4753a6b5baec0d3cec8fe1c6817",
+    "hash_encoding": "UTF-8 newline separated relative path and SHA256 pairs",
+    "input_files": 87
+  },
+  "review_and_retro_document": "docs/verification/ghostmodeldeck-r33-review-and-retro.md",
+  "reviewed_commit": "21f8cfb3c156b4753a6b5baec0d3cec8fe1c6817",
+  "toolchain": {
+    "container": "ghostmodeldeck-checks-r33b",
+    "dart_version": "3.13.5",
+    "flutter_commit": "5fc346839b5d0eef006ed8404392afb4dfae428d",
+    "preparation": "online flutter pub get using pubspec.lock"
   }
 }

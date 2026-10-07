@@ -718,7 +718,7 @@ class _LayoutFixture {
 
   Future<void> close() async {
     await mcp.close();
-    council.close();
+    await council.close();
     browser.close();
     downloads.downloader.close();
     downloads.preferences.dispose();

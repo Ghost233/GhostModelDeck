@@ -473,6 +473,11 @@ class _ModelEditorState extends State<_ModelEditor> {
   );
   late JevModelSource _source =
       widget.existing?.source ?? JevModelSource.council;
+  late final List<JevModelBinding> _bindings = {
+    for (final binding in widget.models.availableBindings) binding.id: binding,
+    for (final binding in widget.existing?.bindings ?? <JevModelBinding>[])
+      binding.id: binding,
+  }.values.toList();
   late final Set<String> _chosen = {
     for (final b in widget.existing?.bindings ?? <JevModelBinding>[]) b.id,
   };
@@ -491,9 +496,7 @@ class _ModelEditorState extends State<_ModelEditor> {
       _error = null;
     });
     try {
-      final seats = widget.models.availableBindings
-          .where((b) => _chosen.contains(b.id))
-          .toList();
+      final seats = _bindings.where((b) => _chosen.contains(b.id)).toList();
       final seconds = double.tryParse(_timeout.text);
       if (_source == JevModelSource.council &&
           (seconds == null || !seconds.isFinite || seconds <= 0)) {
@@ -526,7 +529,7 @@ class _ModelEditorState extends State<_ModelEditor> {
 
   @override
   Widget build(BuildContext context) {
-    final bindings = widget.models.availableBindings;
+    final bindings = _bindings;
     return AlertDialog(
       title: Text(widget.existing == null ? '创建 JEV 模型' : '编辑 JEV 模型'),
       content: SizedBox(

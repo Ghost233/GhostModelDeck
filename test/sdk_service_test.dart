@@ -1527,7 +1527,7 @@ class _SdkFixture {
     gateway.close();
     routes.close();
     mcp.close();
-    council.close();
+    await council.close();
     await catalog.stopManaged();
     catalog.close();
     engine.close();

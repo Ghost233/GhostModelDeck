@@ -44,7 +44,7 @@ void main() {
           }, _NetworkBoundary()),
         );
         addTearDown(() async {
-          council.close();
+          await tester.runAsync(council.close);
           await tester.runAsync(runtime.close);
         });
         addTearDown(tester.view.resetPhysicalSize);

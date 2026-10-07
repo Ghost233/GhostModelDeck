@@ -89,19 +89,48 @@ class JevModelAvailability {
   };
 }
 
+/// Filesystem boundary for reading and atomically replacing the registry.
+abstract interface class JevRegistryIO {
+  Future<String?> read(File file);
+  Future<void> write(File file, String contents);
+}
+
+class NativeJevRegistryIO implements JevRegistryIO {
+  @override
+  Future<String?> read(File file) async =>
+      await file.exists() ? await file.readAsString() : null;
+
+  @override
+  Future<void> write(File file, String contents) async {
+    await file.parent.create(recursive: true);
+    final temporary = File('${file.path}.tmp');
+    await temporary.writeAsString(contents, flush: true);
+    await temporary.rename(file.path);
+  }
+}
+
 /// One named-model registry for desktop, HTTP and MCP on the same running graph.
 class JevModels {
-  JevModels({required this.controller, this.registryFile}) {
+  JevModels({
+    required this.controller,
+    this.registryFile,
+    JevRegistryIO? registryIO,
+  }) : registryIO = registryIO ?? NativeJevRegistryIO() {
     _subscription = controller.catalog.changes.listen((_) => _publish());
   }
   final CouncilController controller;
   final File? registryFile;
+  final JevRegistryIO registryIO;
   final _changes = StreamController<void>.broadcast();
   late final StreamSubscription<EngineCatalogState> _subscription;
   List<JevModelDefinition> _definitions = const [];
   bool _loaded = false;
   Future<void>? _loading;
   Future<void> _operations = Future.value();
+  bool _sealed = false;
+  ({Object error, StackTrace stack})? _storageFailure;
+  Future<void>? _shutdown;
+  Future<void>? _close;
   Stream<void> get changes => _changes.stream;
   List<JevModelDefinition> get definitions => _definitions;
 
@@ -197,18 +226,36 @@ class JevModels {
   }
 
   Future<void> load() {
+    if (_sealed || controller.isShuttingDown) {
+      return Future.error(StateError('应用正在退出'));
+    }
+    return _restore();
+  }
+
+  Future<void> _restore() {
     if (_loaded) return Future.value();
-    return _loading ??= _load().whenComplete(() => _loading = null);
+    return _loading ??= _load()
+        .then<void>(
+          (_) {
+            _storageFailure = null;
+          },
+          onError: (Object error, StackTrace stack) {
+            _storageFailure = (error: error, stack: stack);
+            Error.throwWithStackTrace(error, stack);
+          },
+        )
+        .whenComplete(() => _loading = null);
   }
 
   Future<void> _load() async {
     final file = registryFile;
-    if (file == null || !await file.exists()) {
+    final contents = file == null ? null : await registryIO.read(file);
+    if (contents == null) {
       _loaded = true;
       return;
     }
     try {
-      final value = jsonDecode(await file.readAsString());
+      final value = jsonDecode(contents);
       if (value is! Map || value['schema'] != 1 || value['models'] is! List) {
         throw const FormatException('登记格式无效');
       }
@@ -333,6 +380,11 @@ class JevModels {
             timeout: definition.timeout,
             cancellation: cancellation,
           );
+      // Deliver the engine's queued result notification before committing output.
+      await Future<void>.value();
+      if (cancellation?.isCancelled == true) {
+        throw const JevRequestException(409, 'cancelled', '本次决策已取消');
+      }
       if (controller.isShuttingDown) {
         throw const JevRequestException(503, 'service_stopping', '应用正在退出');
       }
@@ -374,8 +426,7 @@ class JevModels {
 
   Future<void> save(JevModelDefinition definition, {String? replacing}) =>
       _serial(() async {
-        await load();
-        if (controller.isShuttingDown) throw StateError('应用正在退出');
+        await _restore();
         if (replacing != null &&
             !_definitions.any((m) => m.name == replacing)) {
           throw const DecisionProtocolException('待编辑的模型配置不存在');
@@ -397,7 +448,7 @@ class JevModels {
       });
 
   Future<void> delete(String name) => _serial(() async {
-    await load();
+    await _restore();
     if (!_definitions.any((m) => m.name == name)) {
       throw const DecisionProtocolException('模型配置不存在');
     }
@@ -410,22 +461,28 @@ class JevModels {
   Future<void> _store(List<JevModelDefinition> models) async {
     final file = registryFile;
     if (file != null) {
-      await file.parent.create(recursive: true);
-      final temporary = File('${file.path}.tmp');
-      await temporary.writeAsString(
-        jsonEncode({
-          'schema': 1,
-          'models': [for (final m in models) m.toJson()],
-        }),
-        flush: true,
-      );
-      await temporary.rename(file.path);
+      try {
+        await registryIO.write(
+          file,
+          jsonEncode({
+            'schema': 1,
+            'models': [for (final m in models) m.toJson()],
+          }),
+        );
+        _storageFailure = null;
+      } catch (error, stack) {
+        _storageFailure = (error: error, stack: stack);
+        rethrow;
+      }
     }
     _definitions = List.unmodifiable(models);
     _publish();
   }
 
   Future<void> _serial(Future<void> Function() action) {
+    if (_sealed || controller.isShuttingDown) {
+      return Future.error(StateError('应用正在退出'));
+    }
     final future = _operations.then((_) => action());
     _operations = future.then<void>(
       (_) {},
@@ -438,9 +495,29 @@ class JevModels {
     if (!_changes.isClosed) _changes.add(null);
   }
 
-  void close() {
-    unawaited(_subscription.cancel());
-    unawaited(_changes.close());
+  Future<void> shutdown() {
+    _sealed = true;
+    return _shutdown ??= _drain();
+  }
+
+  Future<void> _drain() async {
+    await _operations;
+    await _loading;
+    final failure = _storageFailure;
+    if (failure != null) {
+      Error.throwWithStackTrace(failure.error, failure.stack);
+    }
+  }
+
+  Future<void> close() => _close ??= _closeResources();
+
+  Future<void> _closeResources() async {
+    try {
+      await shutdown();
+    } finally {
+      await _subscription.cancel();
+      await _changes.close();
+    }
   }
 }
 

@@ -805,6 +805,37 @@ void main() {
     expect(runtime.engine.state.instances.single.activeRequests, 0);
     expect(runtime.io.killedChildren, 0);
   });
+  test('native cancellation at result publication withdraws the pending public success', () async {
+    final runtime = await CouncilRuntime.create(modelCount: 1);
+    addTearDown(runtime.close);
+    final council = CouncilController(catalog: runtime.catalog);
+    addTearDown(council.close);
+    await council.models.save(
+      JevModelDefinition.native(
+        name: 'native-kev',
+        binding: council.models.availableBindings.single,
+      ),
+    );
+    final cancellation = DecisionCancellation();
+    var published = false;
+    final subscription = runtime.engine.changes.listen((state) {
+      if (!published &&
+          state.instances.any((instance) => instance.lastBatchResult != null)) {
+        published = true;
+        cancellation.cancel();
+      }
+    });
+    addTearDown(subscription.cancel);
+    await expectLater(
+      council.models.decide('native-kev', _mixed(), cancellation: cancellation),
+      throwsA(
+        isA<JevRequestException>().having((e) => e.code, 'code', 'cancelled'),
+      ),
+    );
+    expect(published, true);
+    expect(runtime.engine.state.instances.single.activeRequests, 0);
+    expect(runtime.io.killedChildren, 0);
+  });
 }
 
 DecisionBatchRequest _mixed({String state = 'mixed'}) => DecisionBatchRequest(
