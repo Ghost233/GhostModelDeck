@@ -214,3 +214,9 @@ LLM完整文件/哈希/模板见 [fixture研究](research/acceptance-model-fixtu
 - [确定首期回归验收与可实施规格的交接标准](https://github.com/Ghost233/GhostModelDeck/issues/8)
 
 词汇以 [领域记录](../CONTEXT.md) 为准，工程要求见 [工程规范](engineering.md)；引擎与严格显式加载依据见 [引擎事实](research/standard-llm-engine-contracts.md) 和 [显式加载研究](research/omlx-explicit-load-contract.md)。
+
+## 后续已确认需求
+
+2026-10-07 新增的原生协议兼容、协议转换器及应用内推理测试场需求以 [命名 JEV 模型路由、标准协议与应用内推理测试场规格](https://github.com/Ghost233/GhostModelDeck/issues/32) 为规范工单，本地定稿见 [规格正文](requirements/protocol-converters-and-playground.md)。委员会默认输出改为标准 JEV，Jev typed HTTP 与 MCP 共用该结果结构，完整委员会自有结构仅用于单次显式 debug；本期不增加 OpenAI Chat 输出转换。完整输入、输出、失败、取消、调试及测试场契约已由用户确认，待实施；用户后续将本期测试场与专项验收收窄到 JEV，标准文本 llama.cpp/oMLX 和 SSE 测试移出本期，不改变上述首期规格及既有验收的范围，也不表示新增功能已经实现。
+
+命名委员会配置（如 quick/hard）与按固定原生调用名直连的新增需求已完成 Q15–Q25 分支决定与整体确认，完整行为及验收见 [补充需求](requirements/jev-model-routing-and-council-profiles.md)，已整合进上述规格正文。当前契约采用必填 model 的显式命名路由，配置在软件内管理并持久保存，允许离线保存绑定，执行中的请求使用入场快照；MCP 决策工具为 decide_jev / decide_jev_batch。该后续规格替换首期的旧 JEV 工具命名约定；实际实施与验收以 #32 及其子工单为准。
