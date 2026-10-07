@@ -1462,7 +1462,7 @@ class LlamaEngine implements EngineRuntime {
   Future<String> _request(
     Uri uri, {
     required Duration timeout,
-    Map<String, Object>? body,
+    Map<String, Object?>? body,
     DecisionCancellation? cancellation,
     int? maxResponseBytes,
     DecisionIOTrace? ioTrace,

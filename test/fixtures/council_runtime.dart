@@ -76,6 +76,7 @@ class CouncilRuntime {
 
   Future<void> close() async {
     io.release?.completeIfPending();
+    io.identityRelease?.completeIfPending();
     io.exitRelease?.completeIfPending();
     await catalog.stopManaged();
     catalog.close();
@@ -96,10 +97,23 @@ class CouncilRuntimeIO implements EngineProcessIO {
   Completer<void>? childKilled;
   Completer<void>? exitRelease;
   bool failScoreForOther = false;
+  bool recordChoiceConsultations = false;
   int consultationStatus = 200;
   final _servers = <String, HttpServer>{};
   Future<void> closeEndpoint(String instanceId) =>
       _servers[instanceId]!.close(force: true);
+  Completer<void>? identityArrived;
+  Completer<void>? identityRelease;
+  int _identityCount = 0;
+  int _expectedIdentities = 0;
+
+  void holdIdentity({required int expected}) {
+    _identityCount = 0;
+    _expectedIdentities = expected;
+    identityArrived = Completer<void>();
+    identityRelease = Completer<void>();
+  }
+
   Completer<void>? bothArrived;
   Completer<void>? release;
 
@@ -154,6 +168,12 @@ class CouncilRuntimeIO implements EngineProcessIO {
       if (request.uri.path == '/health') {
         request.response.write('{"status":"ok"}');
       } else if (request.uri.path == '/props') {
+        if (identityRelease != null && !identityRelease!.isCompleted) {
+          if (++_identityCount == _expectedIdentities) {
+            identityArrived?.completeIfPending();
+          }
+          await identityRelease!.future;
+        }
         request.response.write(
           jsonEncode({
             'model_alias': identityAliases[arg('--alias')] ?? arg('--alias'),
@@ -195,7 +215,8 @@ class CouncilRuntimeIO implements EngineProcessIO {
           return;
         }
         final options = questions['council_choice']['criteria'] as Map;
-        final consultation = options.containsKey('accept');
+        final consultation =
+            recordChoiceConsultations || options.containsKey('accept');
         if (consultation) {
           requests.add(body);
           if (requests.length == 2) bothArrived?.completeIfPending();

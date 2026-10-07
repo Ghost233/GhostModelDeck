@@ -739,6 +739,182 @@ void main() {
     expect(runtime.engine.state.instances.single.activeRequests, 0);
     expect(runtime.io.killedChildren, 0);
   });
+  test('deep JSON input and renamed bindings share the frozen request and its actual IO trace', () async {
+    final runtime = await CouncilRuntime.create();
+    addTearDown(runtime.close);
+    final council = CouncilController(catalog: runtime.catalog);
+    addTearDown(council.close);
+    final bindings = council.models.availableBindings;
+    for (final source in ['native', 'council']) {
+      final oldName = '$source-old', newName = '$source-new';
+      await council.models.save(
+        source == 'native'
+            ? JevModelDefinition.native(name: oldName, binding: bindings.first)
+            : JevModelDefinition.council(
+                name: oldName,
+                seats: bindings,
+                timeout: const Duration(seconds: 3),
+              ),
+      );
+      final state = <String, Object?>{
+        'conversation': [
+          {'content': 'original'},
+        ],
+        'ids': [1, 2],
+      };
+      final instructions = <String, Object?>{
+        'policy': [
+          'keep',
+          {'flag': true},
+        ],
+      };
+      final descriptions = <String, Object?>{
+        'a': {
+          'label': ['A', true],
+        },
+        'b': ['B', 2],
+      };
+      final levels = <Object?>[
+        {
+          'tier': 'low',
+          'detail': [1],
+        },
+        ['high', 2],
+      ];
+      final extensions = <String, Object?>{'images': null};
+      final submitted = DecisionBatchRequest(
+        state: state,
+        extensions: extensions,
+        questions: {
+          'pick': ChoiceQuestion(
+            instructions: instructions,
+            options: descriptions,
+          ),
+          'rank': ScoreQuestion(
+            instructions: [
+              'rank',
+              {'ordered': true},
+            ],
+            levels: levels,
+          ),
+        },
+      );
+      runtime.io.requests.clear();
+      runtime.io.holdIdentity(expected: source == 'native' ? 1 : 2);
+      runtime.io.respond = (body, raw) async => jsonEncode({
+        ...jsonDecode(raw) as Map,
+        'input_marker': body['state'],
+      });
+      final pending = council.models.decide(oldName, submitted, debug: true);
+      await runtime.io.identityArrived!.future.timeout(
+        const Duration(seconds: 2),
+      );
+      ((state['conversation'] as List).single as Map)['content'] = 'mutated';
+      (state['ids'] as List).add(3);
+      (instructions['policy'] as List).clear();
+      (descriptions['b'] as List).clear();
+      (levels.first as Map)['tier'] = 'mutated';
+      extensions['images'] = <Object?>[];
+      await council.models.save(
+        source == 'native'
+            ? JevModelDefinition.native(name: newName, binding: bindings.last)
+            : JevModelDefinition.council(
+                name: newName,
+                seats: [bindings.last],
+                timeout: const Duration(seconds: 1),
+              ),
+        replacing: oldName,
+      );
+      runtime.io.identityRelease!.complete();
+      final result = await pending.timeout(const Duration(seconds: 3));
+      expect(result['model'], oldName);
+      final debug = result['debug'] as Map;
+      expect(debug['configuration']['name'], oldName);
+      expect(
+        debug['configuration']['bindings'],
+        hasLength(source == 'native' ? 1 : 2),
+      );
+      expect(
+        debug['configuration']['timeout_us'],
+        source == 'native' ? 10000000 : 3000000,
+      );
+      final expectedState = {
+        'conversation': [
+          {'content': 'original'},
+        ],
+        'ids': [1, 2],
+      };
+      expect(debug['input']['state'], expectedState);
+      expect(debug['input']['questions']['pick']['instructions'], {
+        'policy': [
+          'keep',
+          {'flag': true},
+        ],
+      });
+      expect(debug['input']['questions']['pick']['criteria']['b'], ['B', 2]);
+      expect(debug['input']['questions']['rank']['criteria'], [
+        {
+          'tier': 'low',
+          'detail': [1],
+        },
+        ['high', 2],
+      ]);
+      expect((debug['input'] as Map).containsKey('images'), true);
+      expect(debug['input']['images'], isNull);
+      final captured = source == 'native'
+          ? [debug['native']]
+          : debug['seats'] as List;
+      expect(runtime.io.requests, hasLength(captured.length));
+      for (final io in captured) {
+        final actual = runtime.io.requests.singleWhere(
+          (body) => body['model'] == io['instance_id'],
+        );
+        expect(io['request'], actual);
+        expect(jsonDecode(io['request_body'] as String), actual);
+        expect(actual['state'], expectedState);
+        expect(actual.containsKey('images'), true);
+        expect(actual['images'], isNull);
+        expect(
+          jsonDecode(io['raw_response'] as String)['input_marker'],
+          expectedState,
+        );
+        expect(
+          () => (io['request']['state']['ids'] as List).add(9),
+          throwsUnsupportedError,
+        );
+      }
+      expect((result['answers'] as Map)['rank']['legend']['0'], {
+        'tier': 'low',
+        'detail': [1],
+      });
+      await expectLater(
+        council.models.decide(oldName, request('old-route')),
+        throwsA(
+          isA<JevRequestException>().having(
+            (e) => e.code,
+            'code',
+            'model_not_found',
+          ),
+        ),
+      );
+      final next = await council.models.decide(
+        newName,
+        request('new-route'),
+        debug: true,
+      );
+      final newDebug = next['debug'] as Map;
+      expect(newDebug['configuration']['bindings'], [bindings.last.toJson()]);
+      expect(
+        newDebug['configuration']['timeout_us'],
+        source == 'native' ? 10000000 : 1000000,
+      );
+    }
+    expect(
+      runtime.engine.state.instances.every((i) => i.activeRequests == 0),
+      true,
+    );
+    expect(runtime.io.killedChildren, 0);
+  });
 }
 
 DecisionBatchRequest request(String state) => DecisionBatchRequest(
