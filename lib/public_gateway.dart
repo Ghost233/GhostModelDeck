@@ -4,7 +4,9 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'chat_protocol.dart';
+import 'decision_protocol.dart';
 import 'engine_runtime.dart';
+import 'jev_models.dart';
 import 'llama_engine.dart';
 import 'model_library.dart';
 import 'omlx_engine.dart';
@@ -242,6 +244,7 @@ class _ParsedChat {
 class PublicGatewayServer {
   PublicGatewayServer({
     required this._routes,
+    this.jevModels,
     this.port = defaultPort,
     this.heartbeatInterval = const Duration(seconds: 15),
   });
@@ -250,6 +253,7 @@ class PublicGatewayServer {
   static const _bodyLimit = 1024 * 1024;
 
   final PublicModelRoutes _routes;
+  final JevModels? jevModels;
   final int port;
 
   /// SSE comment-frame cadence. dart:io only surfaces a dead client on the
@@ -290,6 +294,7 @@ class PublicGatewayServer {
     HttpServer listener;
     try {
       await _routes.load();
+      await jevModels?.load();
       listener = await HttpServer.bind(InternetAddress.loopbackIPv4, port);
     } on SocketException {
       _error = '公开 API 端口 $port 被占用或不可用，不做端口漂移';
@@ -361,6 +366,13 @@ class PublicGatewayServer {
         _sendJson(request.response, 200, {
           'object': 'list',
           'data': [
+            for (final entry
+                in jevModels?.callableModels ?? <JevModelAvailability>[])
+              {
+                ...entry.toJson(),
+                'object': 'model',
+                'owned_by': 'ghostmodeldeck',
+              },
             for (final entry in _routes.listModels())
               {
                 'id': entry.publicId,
@@ -371,17 +383,63 @@ class PublicGatewayServer {
         });
         return;
       }
+      if (request.method == 'POST' &&
+          path == '/v1/systemone' &&
+          jevModels != null) {
+        await _systemone(request, inflight.cancellation);
+        return;
+      }
       if (request.method == 'POST' && path == '/v1/chat/completions') {
         await _chat(request, inflight.cancellation);
         return;
       }
       _sendError(request.response, 404, 'invalid_request_error', '路径不存在');
+    } on JevRequestException catch (error) {
+      _sendJson(request.response, error.statusCode, error.toJson());
+    } on DecisionProtocolException catch (error) {
+      _sendJson(request.response, 400, {
+        'error': {'code': 'invalid_input', 'message': error.message},
+      });
+    } on FormatException {
+      _sendJson(request.response, 400, {
+        'error': {'code': 'invalid_input', 'message': '请求体不是有效 JSON'},
+      });
     } on PublicRequestException catch (error) {
       _sendError(request.response, error.statusCode, error.type, error.message);
     } finally {
       _inflight.remove(inflight);
       if (!inflight.drained.isCompleted) inflight.drained.complete();
     }
+  }
+
+  Future<void> _systemone(
+    HttpRequest request,
+    DecisionCancellation cancellation,
+  ) async {
+    final bytes = BytesBuilder(copy: false);
+    await for (final chunk in request) {
+      bytes.add(chunk);
+      if (bytes.length > decisionMaxRequestBytes) {
+        request.response.persistentConnection = false;
+        throw const JevRequestException(413, 'invalid_input', 'typed 请求超出字节上限');
+      }
+    }
+    final parsed = JevModelRequest.parse(
+      jsonDecode(utf8.decode(bytes.takeBytes())),
+    );
+    unawaited(
+      request.response.done.then(
+        (_) => cancellation.cancel(),
+        onError: (Object _) => cancellation.cancel(),
+      ),
+    );
+    final result = await jevModels!.decide(
+      parsed.model,
+      parsed.request,
+      cancellation: cancellation,
+      debug: parsed.debug,
+    );
+    _sendJson(request.response, 200, result);
   }
 
   Future<void> _chat(

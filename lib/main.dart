@@ -118,14 +118,20 @@ class _ManagerShellState extends State<_ManagerShell> {
       useRegistry: _useRegistry,
       registryFile: File('${_settings.file.parent.path}/engines.json'),
     );
-    _council = CouncilController(catalog: _engines);
+    _council = CouncilController(
+      catalog: _engines,
+      modelRegistryFile: File('${_settings.file.parent.path}/jev_models.json'),
+    );
     _mcp = CouncilMcpServer(controller: _council);
     _publicRoutes = PublicModelRoutes(
       library: _library,
       runtimes: [_officialEngine, _standardEngine, _omlxEngine],
       registryFile: File('${_settings.file.parent.path}/public_models.json'),
     );
-    _publicGateway = PublicGatewayServer(routes: _publicRoutes);
+    _publicGateway = PublicGatewayServer(
+      routes: _publicRoutes,
+      jevModels: _council.models,
+    );
     // #28 版本状况桥：与设置页共用 UpdateChecker 查询；当前版本读取包信息
     // 缓存值，未就绪时桥如实按查询失败回报。
     _versionStatusBridge = VersionStatusBridge(

@@ -119,6 +119,7 @@ void main() {
       'legend': {'0': 'Low', '1': 'High'},
       'probabilities': {'0': 0.5, '1': 0.5},
       'score': 0.5,
+      'confidence': 0.0,
       'ordinal_spread': 0.5,
     });
     expect(partial.aggregates['valid'], {

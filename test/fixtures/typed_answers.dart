@@ -5,6 +5,7 @@ Map<String, Object> typedAnswers(Map questions) => {
       'score' => {
         'type': 'score',
         'score': 0.75,
+        'confidence': 0.5,
         'legend': {
           for (var i = 0; i < (entry.value['criteria'] as List).length; i++)
             '$i': entry.value['criteria'][i],
@@ -21,6 +22,7 @@ Map<String, Object> typedAnswers(Map questions) => {
       'noul' => {'type': 'noul', 'noul': 0.8},
       _ => {
         'type': 'choice',
+        'confidence': 0.5,
         'choice': (entry.value['criteria'] as Map).keys.last,
         'probabilities': {
           for (final id in (entry.value['criteria'] as Map).keys)

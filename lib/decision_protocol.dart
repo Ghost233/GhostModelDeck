@@ -221,10 +221,14 @@ sealed class DecisionAnswer {
 }
 
 final class ChoiceAnswer extends DecisionAnswer {
-  ChoiceAnswer._(this.choice, Map<String, double> probabilities)
-    : probabilities = Map.unmodifiable(probabilities);
+  ChoiceAnswer._(
+    this.choice,
+    Map<String, double> probabilities,
+    this.confidence,
+  ) : probabilities = Map.unmodifiable(probabilities);
   final String choice;
   final Map<String, double> probabilities;
+  final double confidence;
   @override
   DecisionPrimitive get type => DecisionPrimitive.choice;
   @override
@@ -232,6 +236,7 @@ final class ChoiceAnswer extends DecisionAnswer {
     'type': type.name,
     'choice': choice,
     'probabilities': probabilities,
+    'confidence': confidence,
   };
 }
 
@@ -240,11 +245,13 @@ final class ScoreAnswer extends DecisionAnswer {
     this.score,
     Map<String, String> legend,
     Map<String, double> probabilities,
+    this.confidence,
   ) : legend = Map.unmodifiable(legend),
       probabilities = Map.unmodifiable(probabilities);
   final double score;
   final Map<String, String> legend;
   final Map<String, double> probabilities;
+  final double confidence;
   @override
   DecisionPrimitive get type => DecisionPrimitive.score;
   @override
@@ -253,6 +260,7 @@ final class ScoreAnswer extends DecisionAnswer {
     'score': score,
     'legend': legend,
     'probabilities': probabilities,
+    'confidence': confidence,
   };
 }
 
@@ -278,6 +286,12 @@ class DecisionBatchResult {
   final int inputTokens;
   final String rawResponse;
   final Duration elapsed;
+
+  Map<String, Object> toJson({String? publicModel}) => {
+    'model': publicModel ?? model,
+    'answers': {for (final a in answers.entries) a.key: a.value.toJson()},
+    'usage': {'input_tokens': inputTokens, 'output_tokens': 0},
+  };
 
   static DecisionBatchResult parse(
     String raw,
@@ -332,7 +346,11 @@ class DecisionBatchResult {
               )) {
             throw const DecisionProtocolException('响应选择不是最高概率候选');
           }
-          parsed[entry.key] = ChoiceAnswer._(choice, probabilities);
+          parsed[entry.key] = ChoiceAnswer._(
+            choice,
+            probabilities,
+            _finite(answer['confidence'], 1),
+          );
         } else if (question is ScoreQuestion) {
           final legend = answer['legend'];
           if (legend is! Map ||
@@ -353,6 +371,7 @@ class DecisionBatchResult {
             score,
             question.legend,
             probabilities,
+            _finite(answer['confidence'], 1),
           );
         }
       }

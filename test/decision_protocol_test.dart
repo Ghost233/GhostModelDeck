@@ -48,6 +48,7 @@ void main() {
       'answers': {
         'q': {
           'type': 'score',
+          'confidence': 0.5,
           'score': 0.75,
           'legend': {'0': 'Low', '1': 'High'},
           'probabilities': {'0': 0.25, '1': 0.75},
@@ -139,11 +140,13 @@ void main() {
         'answers': {
           'route': {
             'type': 'choice',
+            'confidence': 0.5,
             'choice': 'b',
             'probabilities': {'a': 0.25, 'b': 0.75},
           },
           'rank': {
             'type': 'score',
+            'confidence': 0.5,
             'score': 1.25,
             'legend': {'0': 'Low', '1': 'Medium', '2': 'High'},
             'probabilities': {'0': 0.25, '1': 0.25, '2': 0.5},

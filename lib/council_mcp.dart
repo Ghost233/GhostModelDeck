@@ -8,6 +8,7 @@ import 'package:mcp_dart/mcp_dart.dart';
 
 import 'council.dart';
 import 'decision_protocol.dart';
+import 'jev_models.dart';
 
 enum CouncilMcpStatus { stopped, starting, running, stopping, failed }
 
@@ -31,8 +32,9 @@ class CouncilMcpServer {
     this.port = 54842,
     this.observer,
   });
-  static const toolName = 'consult_jev_council';
-  static const batchToolName = 'consult_jev_council_batch';
+  static const toolName = 'decide_jev';
+  static const batchToolName = 'decide_jev_batch';
+  static const discoveryToolName = 'list_jev_models';
   final CouncilController controller;
   final int port;
   final void Function(Map<String, Object?> event)? observer;
@@ -55,9 +57,19 @@ class CouncilMcpServer {
     error: _error,
     activeRequests: _inflight.length,
   );
-  String get codexConfig => endpoint == null
-      ? ''
-      : '[mcp_servers.ghostmodeldeck]\nurl = "${endpoint!}"\nenabled = true\nenabled_tools = ["$toolName", "$batchToolName"]\nstartup_timeout_sec = 10\ntool_timeout_sec = 20';
+  String get codexConfig {
+    final address = endpoint;
+    if (address == null) return '';
+    final timeoutSeconds = controller.models.definitions.fold<int>(
+      20,
+      (budget, model) => max(
+        budget,
+        (model.timeout.inMicroseconds / Duration.microsecondsPerSecond).ceil() +
+            10,
+      ),
+    );
+    return '[mcp_servers.ghostmodeldeck]\nurl = "$address"\nenabled = true\nenabled_tools = ["$toolName", "$batchToolName", "$discoveryToolName"]\nstartup_timeout_sec = 10\ntool_timeout_sec = $timeoutSeconds';
+  }
 
   Future<void> _serial(Future<void> Function() action) {
     final result = _operations.then((_) => action());
@@ -77,6 +89,7 @@ class CouncilMcpServer {
       _error = null;
       _publish();
       try {
+        await controller.models.load();
         _listener = await HttpServer.bind(InternetAddress.loopbackIPv4, port);
         _status = CouncilMcpStatus.running;
         _listener!.listen(_handle);
@@ -273,7 +286,7 @@ class CouncilMcpServer {
     );
     mcp.registerTool(
       toolName,
-      description: '咨询已运行的决策委员会，返回每席原始意见、综合评分、分歧与故障。',
+      description: '按必填 model 调用已配置的原生 JEV 或委员会，返回标准 JEV choice 结果。用 list_jev_models 发现当前可调用名称。',
       inputSchema: JsonObject.fromJson(_inputSchema),
       outputSchema: JsonObject.fromJson(_outputSchema),
       annotations: const ToolAnnotations(
@@ -284,7 +297,7 @@ class CouncilMcpServer {
     );
     mcp.registerTool(
       batchToolName,
-      description: '批量咨询已运行的决策席位；返回 choice 分布、score 期望有序索引、noul true-head scalar，以及原始意见、综合与原值分歧。不是校准置信度。',
+      description: '按必填 model 批量调用 choice、score、noul，返回 model/answers/usage。confidence 描述分布形状，不表示正确率。',
       inputSchema: JsonObject.fromJson(_batchInputSchema),
       outputSchema: JsonObject.fromJson(_batchOutputSchema),
       annotations: const ToolAnnotations(
@@ -293,11 +306,25 @@ class CouncilMcpServer {
       ),
       callback: (args, extra) => _call(args, extra, typed: true),
     );
+    mcp.registerTool(
+      discoveryToolName,
+      description: '列出当前具有唯一可用绑定的 JEV 调用名称和来源类型；实际请求还需题型能力验证。',
+      inputSchema: JsonObject.fromJson(const {
+        'type': 'object',
+        'additionalProperties': false,
+      }),
+      annotations: const ToolAnnotations(
+        readOnlyHint: true,
+        openWorldHint: false,
+      ),
+      callback: (args, extra) => _discover(args),
+    );
     // Application validation preserves structured failures, including bad input.
     mcp.server.setRequestHandler<JsonRpcCallToolRequest>(
       'tools/call',
       (request, extra) async {
         final call = request.callParams;
+        if (call.name == discoveryToolName) return _discover(call.arguments);
         if (call.name != toolName && call.name != batchToolName) {
           throw McpError(
             ErrorCode.invalidParams.value,
@@ -342,12 +369,8 @@ class CouncilMcpServer {
         'protocol_version': protocol,
         'rpc_id': extra.requestId,
         'tool': typed ? batchToolName : toolName,
-        'request_id': payload['request_id'],
-        'status': payload['status'],
-        'seat_instance_ids': [
-          for (final seat in payload['seats'] as List)
-            (seat as Map)['instance']['id'],
-        ],
+        'model': payload['model'],
+        'status': result.isError == true ? 'failed' : 'ok',
       });
       return result;
     } finally {
@@ -362,76 +385,58 @@ class CouncilMcpServer {
     DecisionCancellation cancellation, {
     bool typed = false,
   }) async {
-    final started = DateTime.now().toUtc();
-    final watch = Stopwatch()..start();
-    var validated = false;
     Map<String, dynamic> payload;
+    var failed = false;
     try {
-      JsonObject.fromJson(typed ? _batchInputSchema : _inputSchema)
-          .validate(args);
-      if (typed) {
-        final request = _batchRequest(args);
-        validated = true;
-        if (_status != CouncilMcpStatus.running) throw StateError('MCP 服务正在停止');
-        payload = Map<String, dynamic>.from(
-          (await controller.consultBatch(
-            request,
-            cancellation: cancellation,
-          )).toJson(),
-        );
-      } else {
-        final raw = args['options'] as List;
-        final options = <String, String>{};
-        for (final value in raw) {
-          final option = value as Map;
-          final id = option['id'] as String, text = option['text'] as String;
-          if (id.trim().isEmpty ||
-              text.trim().isEmpty ||
-              options.containsKey(id)) {
-            throw const FormatException('候选 ID 必须唯一，ID 与内容不能为空');
-          }
-          options[id] = text;
-        }
-        validated = true;
-        if (_status != CouncilMcpStatus.running) throw StateError('MCP 服务正在停止');
-        payload = Map<String, dynamic>.from(
-          (await controller.consult(
-            state: args['state'] as String,
-            options: options,
-            cancellation: cancellation,
-          )).toJson(),
-        );
+      final parsed = typed
+          ? JevModelRequest.parse(args)
+          : JevModelRequest.single(args);
+      if (_status != CouncilMcpStatus.running) {
+        throw const JevRequestException(503, 'service_stopping', 'MCP 服务正在停止');
       }
-    } catch (error) {
+      payload = Map<String, dynamic>.from(
+        await controller.models.decide(
+          parsed.model,
+          parsed.request,
+          cancellation: cancellation,
+          debug: parsed.debug,
+        ),
+      );
+    } on JevRequestException catch (error) {
+      failed = true;
+      payload = Map<String, dynamic>.from(error.toJson());
+    } on DecisionProtocolException catch (error) {
+      failed = true;
       payload = {
-        'schema_version': 1,
-        'request_id': _newId(),
-        'status': 'failed',
-        'scope': 'none',
-        'request': args,
-        'started_at': started.toIso8601String(),
-        'completed_at': DateTime.now().toUtc().toIso8601String(),
-        'elapsed_us': watch.elapsedMicroseconds,
-        'seats': [],
-        if (typed) 'aggregates': <String, Object?>{},
-        if (!typed) 'aggregate_scores': null,
-        if (!typed) 'top_choices': null,
-        if (!typed) 'votes': null,
-        if (!typed) 'disagreement': null,
-        'error': {
-          'code': !validated
-              ? 'invalid_input'
-              : _status != CouncilMcpStatus.running
-              ? 'service_stopping'
-              : 'consultation_failed',
-          'message': error.toString(),
-        },
+        'error': {'code': 'invalid_input', 'message': error.message},
       };
     }
     return CallToolResult(
       content: [TextContent(text: jsonEncode(payload))],
       structuredContent: payload,
-      isError: payload['status'] == 'failed',
+      isError: failed,
+    );
+  }
+
+  Future<CallToolResult> _discover(Map<String, dynamic> args) async {
+    if (args.isNotEmpty) {
+      final payload = {
+        'error': {'code': 'invalid_input', 'message': '模型发现不接受参数'},
+      };
+      return CallToolResult(
+        content: [TextContent(text: jsonEncode(payload))],
+        structuredContent: payload,
+        isError: true,
+      );
+    }
+    await controller.models.load();
+    final payload = {
+      'object': 'list',
+      'data': [for (final m in controller.models.callableModels) m.toJson()],
+    };
+    return CallToolResult(
+      content: [TextContent(text: jsonEncode(payload))],
+      structuredContent: payload,
     );
   }
 
@@ -467,62 +472,19 @@ String _newId() => List.generate(
   (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'),
 ).join();
 
-DecisionBatchRequest _batchRequest(Map<String, dynamic> args) {
-  final raw = args['questions'] as Map;
-  final questions = <String, DecisionQuestion>{};
-  for (final entry in raw.entries) {
-    final value = entry.value as Map;
-    final instructions = value['instructions'] as String;
-    final criteria = value['criteria'];
-    questions[entry.key as String] = switch (value['type']) {
-      'choice' => ChoiceQuestion(
-        instructions: instructions,
-        options: Map<String, String>.from(criteria as Map),
-      ),
-      'score' => ScoreQuestion(
-        instructions: instructions,
-        levels: List<String>.from(criteria as List),
-      ),
-      'noul' => _noulQuestion(instructions, criteria as Map),
-      _ => throw const DecisionProtocolException('未知 typed 题型'),
-    };
-  }
-  return DecisionBatchRequest(
-    state: args['state'] as String,
-    questions: questions,
-    stream: args['stream'] == true,
-  );
-}
-
-NoulQuestion _noulQuestion(String instructions, Map criteria) {
-  if (criteria.length != 2 ||
-      !criteria.containsKey('false') ||
-      !criteria.containsKey('true')) {
-    throw const DecisionProtocolException('noul 只能使用 false/true 描述');
-  }
-  return NoulQuestion(
-    instructions: instructions,
-    falseText: criteria['false'] as String,
-    trueText: criteria['true'] as String,
-  );
-}
-
 const _batchInputSchema = <String, dynamic>{
   'type': 'object',
-  'required': ['state', 'questions'],
+  'required': ['model', 'state', 'questions'],
   'additionalProperties': false,
   'properties': {
-    'state': {'type': 'string', 'description': '所有题共享的本次判断上下文。'},
-    'stream': {
-      'type': 'boolean',
-      'const': false,
-      'description': '仅支持非流式 typed 判断。',
-    },
+    'model': {'type': 'string', 'minLength': 1},
+    'state': {'type': 'string'},
+    'stream': {'type': 'boolean', 'const': false},
+    'debug': {'type': 'boolean', 'default': false},
     'questions': {
       'type': 'object',
       'minProperties': 1,
       'maxProperties': 32,
-      'description': '唯一非空题 ID 到题目。choice: 2–255项 ID→描述；score: 2–10项由低到高描述数组，返回期望索引0..n−1；noul: false/true描述对象，仅true-head scalar。',
       'additionalProperties': {
         'type': 'object',
         'required': ['type', 'instructions', 'criteria'],
@@ -543,53 +505,15 @@ const _batchInputSchema = <String, dynamic>{
     },
   },
 };
-
-const _batchOutputSchema = <String, dynamic>{
-  'type': 'object',
-  'required': [
-    'schema_version',
-    'request_id',
-    'status',
-    'scope',
-    'request',
-    'started_at',
-    'completed_at',
-    'elapsed_us',
-    'seats',
-    'aggregates',
-  ],
-  'properties': {
-    'schema_version': {'type': 'integer', 'const': 1},
-    'request_id': {'type': 'string', 'minLength': 1},
-    'status': {
-      'type': 'string',
-      'enum': ['ok', 'partial', 'failed'],
-    },
-    'scope': {
-      'type': 'string',
-      'enum': ['ensemble', 'single_model', 'none'],
-    },
-    'request': {'type': 'object'},
-    'started_at': {'type': 'string'},
-    'completed_at': {'type': 'string'},
-    'elapsed_us': {'type': 'integer', 'minimum': 0},
-    'seats': {
-      'type': 'array',
-      'items': {'type': 'object'},
-    },
-    'aggregates': {
-      'type': 'object',
-      'additionalProperties': {'type': 'object'},
-    },
-  },
-};
-
 const _inputSchema = <String, dynamic>{
   'type': 'object',
-  'required': ['state', 'options'],
+  'required': ['model', 'state', 'options'],
   'additionalProperties': false,
   'properties': {
-    'state': {'type': 'string', 'description': '本次判断的完整上下文。'},
+    'model': {'type': 'string', 'minLength': 1},
+    'state': {'type': 'string'},
+    'instructions': {'type': 'string', 'minLength': 1},
+    'debug': {'type': 'boolean', 'default': false},
     'options': {
       'type': 'array',
       'minItems': 2,
@@ -606,59 +530,39 @@ const _inputSchema = <String, dynamic>{
     },
   },
 };
-
 const _outputSchema = <String, dynamic>{
   'type': 'object',
-  'required': [
-    'schema_version',
-    'request_id',
-    'status',
-    'scope',
-    'request',
-    'started_at',
-    'completed_at',
-    'elapsed_us',
-    'seats',
-    'aggregate_scores',
-    'top_choices',
-    'votes',
-    'disagreement',
+  'anyOf': [
+    {
+      'required': ['model', 'answers', 'usage'],
+    },
+    {
+      'required': ['error'],
+    },
   ],
   'properties': {
-    'schema_version': {'type': 'integer', 'const': 1},
-    'request_id': {'type': 'string', 'minLength': 1},
-    'status': {
-      'type': 'string',
-      'enum': ['ok', 'partial', 'failed'],
+    'model': {'type': 'string'},
+    'answers': {
+      'type': 'object',
+      'additionalProperties': {'type': 'object'},
     },
-    'scope': {
-      'type': 'string',
-      'enum': ['ensemble', 'single_model', 'none'],
+    'usage': {
+      'type': 'object',
+      'required': ['input_tokens', 'output_tokens'],
+      'properties': {
+        'input_tokens': {'type': 'integer', 'minimum': 0},
+        'output_tokens': {'type': 'integer', 'const': 0},
+      },
     },
-    'request': {'type': 'object'},
-    'started_at': {'type': 'string'},
-    'completed_at': {'type': 'string'},
-    'elapsed_us': {'type': 'integer', 'minimum': 0},
-    'seats': {
-      'type': 'array',
-      'items': {'type': 'object'},
-    },
-    'aggregate_scores': {
-      'type': ['object', 'null'],
-      'additionalProperties': {'type': 'number', 'minimum': 0, 'maximum': 1},
-    },
-    'top_choices': {
-      'type': ['array', 'null'],
-      'items': {'type': 'string'},
-    },
-    'votes': {
-      'type': ['object', 'null'],
-      'additionalProperties': {'type': 'integer', 'minimum': 0},
-    },
-    'disagreement': {
-      'type': ['number', 'null'],
-      'minimum': 0,
-      'maximum': 1,
+    'debug': {'type': 'object'},
+    'error': {
+      'type': 'object',
+      'required': ['code', 'message'],
+      'properties': {
+        'code': {'type': 'string'},
+        'message': {'type': 'string'},
+      },
     },
   },
 };
+const _batchOutputSchema = _outputSchema;

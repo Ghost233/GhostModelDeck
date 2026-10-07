@@ -1936,6 +1936,7 @@ class _InstallIO implements EngineProcessIO {
             'answers': {
               'council_choice': {
                 'type': 'choice',
+                'confidence': 0.5,
                 'choice': options.keys.last,
                 'probabilities': {
                   options.keys.first: 0.25,
