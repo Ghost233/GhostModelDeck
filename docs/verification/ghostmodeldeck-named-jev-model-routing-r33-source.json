@@ -1,35 +1,140 @@
 {
   "base_commit": "888b41490ccc303dee62fbadea564c4ffd1aed60",
+  "bootstrap_cleanup_validation": {
+    "bash_n_exit": 0,
+    "engineering_rule": "E04 resource ownership; explicit upload failures in Bash conditional context",
+    "evidence_directory": ".tooling/verification/stage33-bootstrap-cleanup",
+    "final_resource_state": {
+      "all_four_owned_containers_absent": true,
+      "evidence": "resource-final-state.json",
+      "existing_gate_container_id_retained": true
+    },
+    "git_diff_check_exit": 0,
+    "node_image": "sha256:b937e94e9d34b951780aeada17bebd8f979de53ea3cadba193e7dec85dc3be8f",
+    "probes": [
+      {
+        "assertions": {
+          "empty_container_still_running": true,
+          "first_failed": true,
+          "retry_reused_existing": true,
+          "retry_timed_out": true
+        },
+        "evidence": "red-result.json",
+        "first_exit": 1,
+        "kind": "real Socktainer bootstrap zero-byte upload before fix",
+        "retry_exit": -15,
+        "retry_timed_out": true,
+        "retry_timeout_seconds": 12,
+        "runner_sha256": "2287146911a50228bf0d7f4036dac5945096c8d4cbd9fc287be1026ad5d9ce34"
+      },
+      {
+        "assertions": {
+          "bootstrap_never_published": true,
+          "first_container_removed": true,
+          "first_failed": true,
+          "retry_container_removed": true,
+          "retry_created_again": true,
+          "retry_failed": true
+        },
+        "evidence": "green-result.json",
+        "first_exit": 1,
+        "kind": "real Socktainer bootstrap zero-byte upload after fix",
+        "retry_exit": 1,
+        "retry_timed_out": false,
+        "runner_sha256": "38092ead45f6164bb26d52ad6bbfe47de86a1b014034192e428f24f7bba27f6f"
+      },
+      {
+        "assertions": {
+          "container_root_retained": true,
+          "existing_data_retained": true,
+          "job_not_executed": true,
+          "job_not_published": true,
+          "original_mismatch_exit": true,
+          "staging_removed": true,
+          "upload_failure_reached": true
+        },
+        "evidence": "existing-result.json",
+        "exit": 1,
+        "kind": "pre-existing container external Docker zero-byte job fixture",
+        "runner_sha256": "38092ead45f6164bb26d52ad6bbfe47de86a1b014034192e428f24f7bba27f6f"
+      },
+      {
+        "evidence": "propagation-result.json",
+        "kind": "real Socktainer external Docker copy and cleanup failures",
+        "results": [
+          {
+            "assertions": {
+              "checksum_not_attempted": true,
+              "container_removed": true,
+              "never_published": true,
+              "original_exit_preserved": true
+            },
+            "exit": 73,
+            "mode": "copy-exit-73"
+          },
+          {
+            "assertions": {
+              "cleanup_error_reported": true,
+              "cleanup_failure_retained_container": true,
+              "never_published": true,
+              "original_exit_preserved": true
+            },
+            "exit": 1,
+            "mode": "zero-upload-cleanup-exit-74"
+          }
+        ],
+        "runner_sha256": "38092ead45f6164bb26d52ad6bbfe47de86a1b014034192e428f24f7bba27f6f"
+      },
+      {
+        "evidence": "environment-failure-result.json",
+        "exit": 1,
+        "kind": "initial pre-existing-container probe blocked by sandbox mktemp permission",
+        "status": "environment failure before upload; not counted as a passing fault probe"
+      }
+    ],
+    "scope": "Only app-owned containers created by this invocation may be removed after bootstrap publication failure; existing containers and volumes are preserved. Fault-probe expected failures are separate from product gates. Final gates used online pub get and current 88 source inputs.",
+    "shell": "macOS /bin/bash 3.2",
+    "source_commit_before_fix": "0b836e3cf3c0e23be8b22a441f36a3e0676b7f70"
+  },
   "branch": "codex/jev-model-routing",
   "check_scripts": {
     "scripts/run-desktop.sh": "bb368ffb477a027fe248b5d41e24a994f0be18c60227761c1ec7bdf845c8a0e6",
-    "scripts/test-container.sh": "2287146911a50228bf0d7f4036dac5945096c8d4cbd9fc287be1026ad5d9ce34"
+    "scripts/test-container.sh": "38092ead45f6164bb26d52ad6bbfe47de86a1b014034192e428f24f7bba27f6f"
   },
   "checked_input_sha256": "c681cd6f2c6ca44de0f9014790479ec848c78322dd90acdffe8eaa592ace6d4e",
   "checks": [
     {
       "command": "GMD_TEST_CONTAINER=ghostmodeldeck-checks-r33b ./scripts/test-container.sh format --output=none --set-exit-if-changed lib test benchmarks",
       "exit": 0,
+      "job_sha256": "f04f7414a84b38f6f4dd260cc03c899b6ae2721375c17a169ccbfd0a0fec1f1c",
       "mode": "format",
       "result": "80 files, 0 changed",
-      "run": "run-rnOkh6",
-      "source_archive_sha256": "7b81f5e01e808f7a7247fcad3f1fac5baedbd7ed5867241e3081dbee27077062"
+      "result_log_sha256": "ab4fbb62e9f0127543d10ff708379a6a5e94dd9ca56c15e341ab314dfccfed51",
+      "run": "run-8Tibw3",
+      "runner_sha256": "38092ead45f6164bb26d52ad6bbfe47de86a1b014034192e428f24f7bba27f6f",
+      "source_archive_sha256": "f65372976a4d9ef69de6efcdfb8f94b67c92d5ddf19f0167ac1c96ebb44a33a8"
     },
     {
       "command": "GMD_TEST_CONTAINER=ghostmodeldeck-checks-r33b ./scripts/test-container.sh analyze",
       "exit": 0,
+      "job_sha256": "ea7035b513f3b40c8bd3d236022adcc22acb4e477bd24d11c702d1377aab9377",
       "mode": "analyze",
       "result": "No issues found",
-      "run": "run-9e2het",
-      "source_archive_sha256": "d247e0300d516aba2d947702dbeac5c4768f8b5d288dc692acc0f3d9168945fb"
+      "result_log_sha256": "37008deb6ef2c5882505f2eb23180f34dbb7b316cb5f827cd8f0da59686c0834",
+      "run": "run-Wet3Bh",
+      "runner_sha256": "38092ead45f6164bb26d52ad6bbfe47de86a1b014034192e428f24f7bba27f6f",
+      "source_archive_sha256": "4fda3e1138f73ba106325d4147de16966d518799d56a3f1fd2567b42196758ea"
     },
     {
       "command": "GMD_TEST_CONTAINER=ghostmodeldeck-checks-r33b ./scripts/test-container.sh test",
       "exit": 0,
+      "job_sha256": "1b423ca4b8e57803d44ab89785eca6c2db053abc44b429a9729a7f16c6364f88",
       "mode": "test",
       "result": "459 tests passed",
-      "run": "run-hS6CRq",
-      "source_archive_sha256": "dd7450968dd943e523ba20e060c625f75cba5479c5208b40067d96b547e861df"
+      "result_log_sha256": "cb5c0ea1fb8143c8a0c69bd373c059d897e906f15cabf840f792370c4bb31188",
+      "run": "run-LE7NLG",
+      "runner_sha256": "38092ead45f6164bb26d52ad6bbfe47de86a1b014034192e428f24f7bba27f6f",
+      "source_archive_sha256": "ffe66d0ff6048d300bf3f7a06b92ef6443433a566126385c0769a533afb99af7"
     }
   ],
   "files": {
@@ -124,6 +229,41 @@
   },
   "hash_encoding": "UTF-8 JSON sorted keys, compact separators of path-to-SHA256 map",
   "input_files": 88,
+  "pre_bootstrap_cleanup_validation": {
+    "check_scripts": {
+      "scripts/run-desktop.sh": "bb368ffb477a027fe248b5d41e24a994f0be18c60227761c1ec7bdf845c8a0e6",
+      "scripts/test-container.sh": "2287146911a50228bf0d7f4036dac5945096c8d4cbd9fc287be1026ad5d9ce34"
+    },
+    "checked_input_sha256": "c681cd6f2c6ca44de0f9014790479ec848c78322dd90acdffe8eaa592ace6d4e",
+    "checks": [
+      {
+        "command": "GMD_TEST_CONTAINER=ghostmodeldeck-checks-r33b ./scripts/test-container.sh format --output=none --set-exit-if-changed lib test benchmarks",
+        "exit": 0,
+        "mode": "format",
+        "result": "80 files, 0 changed",
+        "run": "run-rnOkh6",
+        "source_archive_sha256": "7b81f5e01e808f7a7247fcad3f1fac5baedbd7ed5867241e3081dbee27077062"
+      },
+      {
+        "command": "GMD_TEST_CONTAINER=ghostmodeldeck-checks-r33b ./scripts/test-container.sh analyze",
+        "exit": 0,
+        "mode": "analyze",
+        "result": "No issues found",
+        "run": "run-9e2het",
+        "source_archive_sha256": "d247e0300d516aba2d947702dbeac5c4768f8b5d288dc692acc0f3d9168945fb"
+      },
+      {
+        "command": "GMD_TEST_CONTAINER=ghostmodeldeck-checks-r33b ./scripts/test-container.sh test",
+        "exit": 0,
+        "mode": "test",
+        "result": "459 tests passed",
+        "run": "run-hS6CRq",
+        "source_archive_sha256": "dd7450968dd943e523ba20e060c625f75cba5479c5208b40067d96b547e861df"
+      }
+    ],
+    "input_files": 88,
+    "source_commit": "0b836e3cf3c0e23be8b22a441f36a3e0676b7f70"
+  },
   "prior_candidate_validation": {
     "checked_input_sha256": "35f35f3df840ce677faa8ec4c3c5f89e335f2b3e0d70220b836fa701290bdda1",
     "checks": [

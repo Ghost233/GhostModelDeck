@@ -114,3 +114,17 @@ HTTP 为 `POST /v1/systemone`。MCP 为 `decide_jev`、`decide_jev_batch`，另�
 ## 验证范围
 
 以上证据验证生产业务、标准转换、持久化、生产 Widget 布局与本机协议往返。原生进程/引擎 wire 位于已确认的外部 I/O 替身边界，不能代替 Mac 真模型推理、概率质量、真实客户端和完整 Release 验收。没有修改版本号、tag、Release 或已确认规格，也没有实施普通 Chat 输出转换、llama/oMLX/SSE 专项能力或后续完整原生 JSON 与完整测试场交互。
+
+## bootstrap 清理修复后的最终工程门禁
+
+二次 Standards 复审发现 bootstrap 发布失败遗留本次新建等待容器的 P2，按 E04 完成清理及原始失败传播。真实红、同类真实绿、既有容器保留、清理失败独立报告的证据和环境故障记录见 [阶段复盘](ghostmodeldeck-r33-review-and-retro.md)。本轮只修改 `scripts/test-container.sh` 与验证文档，没有修改 lib/test/benchmarks 或 `run-desktop.sh`。
+
+最终 runner SHA-256 为 `38092ead45f6164bb26d52ad6bbfe47de86a1b014034192e428f24f7bba27f6f`。在独占的 `ghostmodeldeck-checks-r33b` 中逐个作业重跑以下完整门禁；每次均先联网 pub get，宿主 runner 与容器 job 的真实退出码均为 0。
+
+| 命令 | 证据目录 | 结果 |
+| --- | --- | --- |
+| `./scripts/test-container.sh format --output=none --set-exit-if-changed lib test benchmarks` | `run-8Tibw3` | 80 files、0 changed、exit0 |
+| `./scripts/test-container.sh analyze` | `run-Wet3Bh` | No issues found、exit0 |
+| `./scripts/test-container.sh test` | `run-LE7NLG` | 459 tests passed、0 failed、exit0 |
+
+三次归档的 88 个输入逐文件 SHA-256 与当前工作树及既有清单完全相等，内容指纹仍为 `c681cd6f2c6ca44de0f9014790479ec848c78322dd90acdffe8eaa592ace6d4e`；最终脚本变化由本轮三项门禁重新覆盖。归档哈希、日志哈希、作业哈希和 runner 哈希见 [输入与检查清单](ghostmodeldeck-named-jev-model-routing-r33-source.json)，上一轮 `run-rnOkh6` / `run-9e2het` / `run-hS6CRq` 已保留为修复前历史。本轮故障探针均为检查脚本公开 I/O 与资源生命周期证据，不能替代真实模型和客户端验收。

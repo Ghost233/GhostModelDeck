@@ -8,9 +8,9 @@ container_name="${GMD_TEST_CONTAINER:-ghostmodeldeck-flutter-dev}"
 upload_verified() {
   local source_file="$1" destination="$2" upload_path="$2.upload"
   local expected_sha actual_sha
-  expected_sha="$(shasum -a 256 "$source_file" | awk '{print $1}')"
-  docker cp "$source_file" "${container_name}:${upload_path}"
-  actual_sha="$(docker exec "$container_name" sha256sum "$upload_path" | awk '{print $1}')"
+  expected_sha="$(shasum -a 256 "$source_file" | awk '{print $1}')" || return $?
+  docker cp "$source_file" "${container_name}:${upload_path}" || return $?
+  actual_sha="$(docker exec "$container_name" sha256sum "$upload_path" | awk '{print $1}')" || return $?
   if [[ "$expected_sha" != "$actual_sha" ]]; then
     echo "Upload verification failed: $destination" >&2
     if ! docker exec "$container_name" rm -f "$upload_path"; then
@@ -18,7 +18,7 @@ upload_verified() {
     fi
     return 1
   fi
-  docker exec "$container_name" mv "$upload_path" "$destination"
+  docker exec "$container_name" mv "$upload_path" "$destination" || return $?
 }
 [[ "$(docker context show)" == socktainer ]]
 if ! docker inspect "$container_name" >/dev/null 2>&1; then
@@ -26,7 +26,18 @@ if ! docker inspect "$container_name" >/dev/null 2>&1; then
   docker run -d --name "$container_name" --network default --dns 119.29.29.29 --memory 4g \
     --entrypoint /bin/bash node:22-bookworm -c \
     'mkdir -p /workspace/inbox; while [ ! -f /workspace/inbox/bootstrap.sh ]; do sleep 1; done; exec bash /workspace/inbox/bootstrap.sh'
-  upload_verified scripts/container/bootstrap-flutter.sh /workspace/inbox/bootstrap.sh
+  if upload_verified scripts/container/bootstrap-flutter.sh /workspace/inbox/bootstrap.sh; then
+    :
+  else
+    bootstrap_exit=$?
+    if docker rm -f "$container_name"; then
+      :
+    else
+      cleanup_exit=$?
+      echo "Bootstrap container cleanup failed: $container_name (exit $cleanup_exit)" >&2
+    fi
+    exit "$bootstrap_exit"
+  fi
 fi
 if [[ "$(docker inspect "$container_name" --format '{{.State.Running}}')" != true ]]; then
   docker logs --tail 30 "$container_name"
