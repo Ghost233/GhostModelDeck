@@ -416,6 +416,7 @@ void main() {
       arguments: {
         'model': 'test-council',
         'state': state,
+        if (state == 'cancel') 'debug': true,
         'options': [
           {'id': 'accept', 'text': '接受'},
           {'id': 'reject', 'text': '拒绝'},
@@ -439,6 +440,7 @@ void main() {
     releaseB.complete();
     final result = await peer.timeout(const Duration(seconds: 3));
     expect(result.structuredContent!['model'], 'test-council');
+    expect(result.structuredContent!.containsKey('debug'), false);
     expect(result.structuredContent!['usage']['input_tokens'], 20);
     releaseA.complete();
     runtime.io.respond = null;

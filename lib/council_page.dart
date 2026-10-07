@@ -77,9 +77,11 @@ class _CouncilPageState extends State<CouncilPage> {
     final model = _model;
     if (model == null) return;
     final cancellation = DecisionCancellation();
+    final debug = _debug;
     setState(() {
       _error = null;
       _response = null;
+      _debug = false;
       _activeCancellation = cancellation;
     });
     try {
@@ -111,7 +113,7 @@ class _CouncilPageState extends State<CouncilPage> {
           questions: {'council_choice': question},
         ),
         cancellation: cancellation,
-        debug: _debug,
+        debug: debug,
       );
       if (mounted) setState(() => _response = result);
     } catch (error) {

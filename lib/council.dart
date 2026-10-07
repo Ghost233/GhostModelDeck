@@ -6,6 +6,7 @@ import 'decision_protocol.dart';
 import 'engine_catalog.dart';
 import 'engine_runtime.dart';
 import 'jev_models.dart';
+import 'jev_debug.dart';
 import 'llama_engine.dart';
 
 export 'llama_engine.dart' show DecisionCancellation;
@@ -412,6 +413,7 @@ class CouncilController {
     Duration timeout = const Duration(seconds: 10),
     DecisionCancellation? cancellation,
     List<CouncilSeat>? seats,
+    Map<String, DecisionIOTrace>? ioTraces,
   }) async {
     if (_shuttingDown) throw StateError('委员会正在退出');
     if (timeout <= Duration.zero) {
@@ -441,6 +443,7 @@ class CouncilController {
         timeout,
         token,
         batch: request,
+        ioTraces: ioTraces,
       );
       final successful = opinions
           .where((s) => s.status == CouncilSeatStatus.ok)
@@ -508,6 +511,7 @@ class CouncilController {
     DecisionCancellation cancellation,
     _SeatDispatch dispatch, {
     DecisionBatchRequest? batch,
+    DecisionIOTrace? ioTrace,
   }) async {
     DecisionResult? result;
     DecisionBatchResult? batchResult;
@@ -522,6 +526,7 @@ class CouncilController {
           batch,
           timeout: timeout,
           cancellation: cancellation,
+          ioTrace: ioTrace,
         );
       } else {
         result = await engine.decide(
@@ -566,6 +571,7 @@ class CouncilController {
     Duration timeout,
     DecisionCancellation? external, {
     DecisionBatchRequest? batch,
+    Map<String, DecisionIOTrace>? ioTraces,
   }) async {
     if (selected.isEmpty) return [];
     final token = DecisionCancellation();
@@ -578,6 +584,9 @@ class CouncilController {
     void stop(CouncilSeatStatus reason) {
       if (sealed || done.isCompleted) return;
       stopped = reason;
+      for (final trace in ioTraces?.values ?? <DecisionIOTrace>[]) {
+        trace.seal();
+      }
       done.complete();
       token.cancel();
     }
@@ -600,6 +609,7 @@ class CouncilController {
             token,
             dispatch,
             batch: batch,
+            ioTrace: ioTraces?[selected[index].id],
           ).then((opinion) {
             if (sealed || stopped != null) return;
             if (watch.elapsed >= timeout) {
@@ -613,6 +623,9 @@ class CouncilController {
       }
       await done.future;
       sealed = true;
+      for (final trace in ioTraces?.values ?? <DecisionIOTrace>[]) {
+        trace.seal();
+      }
       final at = DateTime.now().toUtc();
       final after = watch.elapsed;
       return [

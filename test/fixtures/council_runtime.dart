@@ -76,6 +76,7 @@ class CouncilRuntime {
 
   Future<void> close() async {
     io.release?.completeIfPending();
+    io.exitRelease?.completeIfPending();
     await catalog.stopManaged();
     catalog.close();
     engine.close();
@@ -89,6 +90,11 @@ class CouncilRuntimeIO implements EngineProcessIO {
   Future<String> Function(Map<String, dynamic> request, String response)?
   respond;
   int killedChildren = 0;
+  final identityAliases = <String, String>{};
+  final heldExitAliases = <String>{};
+  final killedAliases = <String>[];
+  Completer<void>? childKilled;
+  Completer<void>? exitRelease;
   bool failScoreForOther = false;
   int consultationStatus = 200;
   final _servers = <String, HttpServer>{};
@@ -131,7 +137,18 @@ class CouncilRuntimeIO implements EngineProcessIO {
       InternetAddress.loopbackIPv4,
       int.parse(arg('--port')),
     );
-    final child = _RuntimeChild(server, () => killedChildren++);
+    final alias = arg('--alias');
+    final child = _RuntimeChild(
+      server,
+      () {
+        killedChildren++;
+        killedAliases.add(alias);
+        childKilled?.completeIfPending();
+      },
+      () async {
+        if (heldExitAliases.contains(alias)) await exitRelease?.future;
+      },
+    );
     _servers[arg('--alias')] = server;
     server.listen((request) async {
       if (request.uri.path == '/health') {
@@ -139,7 +156,7 @@ class CouncilRuntimeIO implements EngineProcessIO {
       } else if (request.uri.path == '/props') {
         request.response.write(
           jsonEncode({
-            'model_alias': arg('--alias'),
+            'model_alias': identityAliases[arg('--alias')] ?? arg('--alias'),
             'model_path': arg('--model'),
           }),
         );
@@ -215,9 +232,10 @@ class CouncilRuntimeIO implements EngineProcessIO {
 }
 
 class _RuntimeChild implements EngineChild {
-  _RuntimeChild(this.server, this.onKill) : _pid = server.port;
+  _RuntimeChild(this.server, this.onKill, this.beforeExit) : _pid = server.port;
   final HttpServer server;
   final void Function() onKill;
+  final Future<void> Function() beforeExit;
   final int _pid;
   final stopped = Completer<int>();
   @override
@@ -231,7 +249,8 @@ class _RuntimeChild implements EngineChild {
   @override
   bool kill(ProcessSignal signal) {
     onKill();
-    server.close(force: true).then((_) {
+    server.close(force: true).then((_) async {
+      await beforeExit();
       if (!stopped.isCompleted) stopped.complete(0);
     });
     return true;

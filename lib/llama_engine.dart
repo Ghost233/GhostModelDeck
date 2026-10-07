@@ -8,6 +8,7 @@ import 'package:crypto/crypto.dart';
 import 'chat_protocol.dart';
 import 'decision_protocol.dart';
 import 'engine_runtime.dart';
+import 'jev_debug.dart';
 
 export 'engine_runtime.dart' show DecisionCancellation;
 import 'model_library.dart';
@@ -953,6 +954,7 @@ class LlamaEngine implements EngineRuntime {
     DecisionBatchRequest request, {
     Duration timeout = const Duration(seconds: 10),
     DecisionCancellation? cancellation,
+    DecisionIOTrace? ioTrace,
   }) async {
     final running = _running[instanceId];
     if (_shuttingDown ||
@@ -966,6 +968,7 @@ class LlamaEngine implements EngineRuntime {
             capabilityForPrimitive(q.type),
           ),
         )) {
+      ioTrace?.seal();
       throw const LlamaRequestException(
         '所选受管实例没有已验证的 typed 能力',
         kind: DecisionFailureKind.notReady,
@@ -980,6 +983,7 @@ class LlamaEngine implements EngineRuntime {
         request,
         timeout - watch.elapsed,
         cancellation: permit.cancellation,
+        ioTrace: ioTrace,
       );
       _checkTerminal(running, permit.cancellation);
       running.instance = _copy(running.instance, lastBatchResult: result);
@@ -990,6 +994,7 @@ class LlamaEngine implements EngineRuntime {
       await _fail(running, error.message);
       rethrow;
     } finally {
+      ioTrace?.seal();
       _release(running, permit);
     }
   }
@@ -1012,6 +1017,7 @@ class LlamaEngine implements EngineRuntime {
     DecisionBatchRequest request,
     Duration timeout, {
     DecisionCancellation? cancellation,
+    DecisionIOTrace? ioTrace,
   }) async {
     final watch = Stopwatch()..start();
     final raw = await _request(
@@ -1020,6 +1026,7 @@ class LlamaEngine implements EngineRuntime {
       body: request.toSystemone(model: running.instance.id),
       cancellation: cancellation,
       maxResponseBytes: decisionMaxResponseBytes,
+      ioTrace: ioTrace,
     );
     try {
       final result = DecisionBatchResult.parse(
@@ -1458,6 +1465,7 @@ class LlamaEngine implements EngineRuntime {
     Map<String, Object>? body,
     DecisionCancellation? cancellation,
     int? maxResponseBytes,
+    DecisionIOTrace? ioTrace,
   }) async {
     if (timeout <= Duration.zero) {
       throw const LlamaRequestException(
@@ -1495,7 +1503,9 @@ class LlamaEngine implements EngineRuntime {
                 : await client.postUrl(uri);
             if (body != null) {
               request.headers.contentType = ContentType.json;
-              request.write(jsonEncode(body));
+              final encoded = jsonEncode(body);
+              request.write(encoded);
+              ioTrace?.sent(encoded);
             }
             final response = await request.close();
             final bytes = <int>[];
@@ -1518,6 +1528,7 @@ class LlamaEngine implements EngineRuntime {
                 kind: DecisionFailureKind.invalidResponse,
               );
             }
+            ioTrace?.received(raw, response.statusCode);
             if (response.statusCode != 200) {
               throw LlamaRequestException(
                 '引擎 HTTP ${response.statusCode}: ${raw.length > 1024 ? raw.substring(0, 1024) : raw}',
@@ -1537,6 +1548,7 @@ class LlamaEngine implements EngineRuntime {
     } finally {
       removeShutdown();
       removeExternal?.call();
+      ioTrace?.seal();
       client.close(force: true);
     }
   }
