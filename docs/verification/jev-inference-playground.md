@@ -36,6 +36,28 @@ Dart 非流式 HttpResponse 的 `done` 不保证客户端 FIN/RST 后立即完�
 
 Socktainer 上下文；专用容器 `ghostmodeldeck-checks-r33b`，长任务由容器主 runner 执行，每次在线 pub get。固定 Flutter 3.47.6 / Dart 3.13.5；锁文件未改，mcp_dart 为 2.4.2。主线程独立复核：`/private/tmp/ghostmodeldeck-implementation-context/r36-gates-independent.json`，compact-JSON manifest 为 `e0d81b108b96d76aed774c1148eb83ddfc221ce78ec21e4784be1e760d2ff10a`。以下四项覆盖相同最终输入：98 个源码/工具链输入文件的逐行内容 manifest SHA-256 为 `c771669ed1d94693a0d058e70da35d48b14c150d933644f17e41152409549ffe`。
 
+### 可复现的 manifest 字节编码
+
+逐行 manifest 只读取源码归档中 `TarInfo.isfile()` 为真的 98 个成员。路径直接使用未规范化的 `TarInfo.name`，按 Python `(path, digest)` 元组排序；每行依次为小写十六进制 SHA-256、两个 ASCII 空格（`0x20 0x20`）、路径和 LF（`0x0A`）。最后一行也保留 LF；整体以 UTF-8 编码，不含 BOM。
+
+以下 Python 代码对最终全量测试归档生成 `c771669ed1d94693a0d058e70da35d48b14c150d933644f17e41152409549ffe`，在仓库根目录执行：
+
+```python
+import hashlib
+import tarfile
+
+with tarfile.open(".tooling/container-tests/run-NYaC59/source.tar.gz") as archive:
+    entries = [
+        (member.name, hashlib.sha256(archive.extractfile(member).read()).hexdigest())
+        for member in archive
+        if member.isfile()
+    ]
+manifest = "".join(f"{digest}  {path}\n" for path, digest in sorted(entries))
+print(hashlib.sha256(manifest.encode("utf-8")).hexdigest())
+```
+
+独立复核的 compact-JSON manifest 使用同一 `path -> digest` 字典，按 `json.dumps(mapping, sort_keys=True, separators=(",", ":"))` 生成文本，再以 UTF-8 编码计算 SHA-256，结果为 `e0d81b108b96d76aed774c1148eb83ddfc221ce78ec21e4784be1e760d2ff10a`。两种序列化已按 98 个文件逐一核对内容相同；不能用旧 `path + " " + digest + LF` 编码直接复现逐行 hash。
+
 | 实际命令（均设置 GMD_TEST_CONTAINER） | 归档 run | 宿主/job 退出码 | 实际结果 |
 | --- | --- | --- | --- |
 | `./scripts/test-container.sh analyze` | `run-tIpZZs` | 0 / 0 | No issues found |
@@ -50,6 +72,8 @@ Socktainer 上下文；专用容器 `ghostmodeldeck-checks-r33b`，长任务由�
 使用 `/Users/ghost233/flutter/bin/cache/dart-sdk/bin/dart`（3.13.5 macos_arm64），读取既有依赖配置并在任务临时目录中固定到本 worktree。`stage36-mac-owned-http.dart` 通过当前生产 adapter、controller、gateway 与实际本机 HTTP 驱动；只替换外部引擎 I/O，不启动真实模型或 GUI。
 
 最终 `stage36-mac-owned-final.log`：真实宿主退出 0，本次 lease/许可 6 ms 排空；另一条待决请求和后续请求成功，两监听器仍 running，清理前驻留 kill 为 0，最终 owned registry/许可均为 0。脚本 SHA-256：`530576309522c4fb8d499f8df2d4b89c18017b34f406640fd54b2775bd14e900`；验证的 gateway SHA-256：`3244db601a61666914a37170c613890104c6e010d7993994f5b75fef0c1e1c3f`；adapter SHA-256：`c9b8eb5e7bfd14d7a363dd0ab455dcd6e12b71df7ef9bc87525a32f8a1839f75`。
+
+初次阶段审查与会话/环境复盘见 [审查与复盘记录](jev-playground-review-and-retro.md)；文档补记之后的最终整体双轴复审由主线程执行。
 
 ## 未覆盖
 
