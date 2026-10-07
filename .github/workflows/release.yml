@@ -68,6 +68,10 @@ jobs:
 
       - name: Build DMG and manifests
         if: steps.version.outputs.exists == 'false'
+        env:
+          # 构建号（CFBundleVersion）由 CI 运行号注入，pubspec 不写构建号
+          # （见 docs/release-versioning.md）。
+          GMD_BUILD_NUMBER: ${{ github.run_number }}
         run: scripts/build-release.sh
 
       - name: Assert tag matches pubspec semver

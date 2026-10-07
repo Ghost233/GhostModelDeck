@@ -4,7 +4,7 @@
 
 ## 版本权威
 
-- 版本号的唯一权威来源是 `pubspec.yaml` 的 `version:` 字段，其中 **semver 部分**（`+` 之前的 `x.y.z`）为权威，`+build` 元数据不参与版本比较。本仓库约定版本号**不带** `+build` 后缀（Flutter 会自动处理 `CFBundleVersion`）。
+- 版本号的唯一权威来源是 `pubspec.yaml` 的 `version:` 字段，其中 **semver 部分**（`+` 之前的 `x.y.z`）为权威，`+build` 元数据不参与版本比较。本仓库约定版本号**不带** `+build` 后缀；构建号（`CFBundleVersion`）由发布 workflow 注入 GitHub Actions 运行号（`github.run_number`），本地构建由 Flutter 以版本号兜底。
 - 版本号由**人**在每个发布工单的实施中手动递增；禁止 CI 或脚本自动推导、自动 bump。
 - 应用内读取当前版本必须来自打包信息（Info.plist / package_info_plus 等派生值），不得硬编码。
 

@@ -11,7 +11,10 @@
 #   scripts/build-release.sh --app-path PATH  跳过 flutter build，直接打包已构建的 .app
 #
 # 环境变量：
-#   FLUTTER_BIN   flutter 可执行文件路径，缺省为 PATH 中的 flutter。
+#   FLUTTER_BIN        flutter 可执行文件路径，缺省为 PATH 中的 flutter。
+#   GMD_BUILD_NUMBER   可选；构建号（写入 CFBundleVersion）。CI 发布由
+#                      release.yml 注入 github.run_number；本地构建缺省不传，
+#                      由 Flutter 以版本号兜底。
 #
 # 每步失败即停（set -euo pipefail），任何错误以非零退出。
 
@@ -96,8 +99,13 @@ if [ -n "$PREBUILT_APP" ]; then
 else
   command -v "$FLUTTER_BIN" >/dev/null 2>&1 \
     || die "未找到 flutter（可通过 FLUTTER_BIN 指定路径）"
-  info "执行 flutter build macos --release …"
-  "$FLUTTER_BIN" build macos --release
+  # 构建号由调用方注入（CI 传 github.run_number）；缺省不传，Flutter 以版本号兜底。
+  build_args=(build macos --release)
+  if [ -n "${GMD_BUILD_NUMBER:-}" ]; then
+    build_args+=(--build-number "$GMD_BUILD_NUMBER")
+  fi
+  info "执行 flutter ${build_args[*]} …"
+  "$FLUTTER_BIN" "${build_args[@]}"
   APP_PATH="build/macos/Build/Products/Release/${APP_NAME}.app"
 fi
 
