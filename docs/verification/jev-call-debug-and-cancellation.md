@@ -59,6 +59,19 @@
 | `GMD_TEST_CONTAINER=ghostmodeldeck-checks-r35 ./scripts/test-container.sh analyze` | 零诊断，退出 0 | `run-9NBnOn` |
 | `GMD_TEST_CONTAINER=ghostmodeldeck-checks-r35 ./scripts/test-container.sh test` | 484 测试通过，退出 0 | `run-TFhfts` |
 
-三项实际检查的 92 文件内容清单 SHA-256 均为 `6e6f3ff5ca765ed16a5aa6a62fbf8fe284de20d7553a9fe0a557333cbcef9720`；已逐文件核对最终工作区源码与完整测试归档相同。每个归档和日志的独立字节 SHA-256、真实退出码保存在 status JSON，不将归档时间等元数据差异误写为同一字节归档。
+三项实际检查的 92 个文件逐项与产品源码相同。内容清单采用两种明确编码，文件集合与各文件 SHA-256 完全一致：
+
+- UTF-8 LF 行清单：按路径排序，每行 `path + " " + file_sha`，末尾也保留 LF；8,607 字节，SHA-256 为 `6e6f3ff5ca765ed16a5aa6a62fbf8fe284de20d7553a9fe0a557333cbcef9720`。
+- 与前阶段统一的 compact JSON：`json.dumps(path_to_sha, sort_keys=True, separators=(',', ':')).encode('utf8')`；8,976 字节，SHA-256 为 `66e65fccaa195e3d2672f72d7c3d928ba9f0723d23924cbbffd16ce37e9c71c1`。
+
+完整 92 路径及文件 SHA、两种编码表达式、三个实际 run 的对照和独立归档/日志字节 SHA，保存于 [源码与双编码证据](jev-call-debug-and-cancellation-source.json)。归档字节 SHA 与内容清单 SHA 分别记录，未把编码或归档元数据差异当作源码差异。
 
 原始 RED、fixture/tool 失败与 analyze 的 6 条及后续剩余 1 条诊断均保留；最终零诊断与成功退出来自实际重新检查。未修改锁文件、SDK 或容器设置，也未在此切片执行 GitHub 写操作或推送。
+
+## 首轮审查与环境 retro
+
+首轮 Standards 与 Spec 均以 `ee4ac0ef2b25acef22ee55725c67b3f647ddd590` 为固定点、`fc37dbc0cc16e57b479ab6bf12fee4798ed7ef32` 为候选，沿完整 `git diff base...HEAD` 覆盖全部 18 个变更文件，包含已正常 merge 的 #34 前置、产品代码、测试及历史验证文档。Standards 发现 0、Spec 发现 0，两轴 P0/P1/P2 均为 0。该两轴源码审查未重跑测试，既有通过结果作为实际证据引用。
+
+同一候选的环境 retro 按 38 次真实 run、失败锚点原始日志、工程规范与既有检查入口复盘导航、机械规则、信息访问和工具成本；环境 P0/P1/P2 均为 0，新增修复候选 0。已修复的产品 RED、fixture/tool 错误与分析诊断保留真实非零结果，不重复作为剩余环境缺陷。首轮两轴与 retro 原始报告位置及字节 SHA 见上述 [证据 JSON](jev-call-debug-and-cancellation-source.json)。
+
+本次收尾只更新验证 Markdown 与证据 JSON，92 个产品检查输入未变，复用已经通过的最终门禁；已核对文件内容与记录清单、JSON 与链接，并执行 `git diff --check`，未重跑产品检查。**截至本次文档更新，更新后最新 HEAD 的最终完整差异复审尚未执行**；首轮审查与 retro 的零发现不代表最新 HEAD 已通过最终复审。
