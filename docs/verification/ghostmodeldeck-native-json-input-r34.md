@@ -60,3 +60,10 @@ score legend 按 JSON 语义比较：对象键顺序无影响，数组保序，�
 | `./scripts/test-container.sh test` | run-Wot5NX | 0/0，468项通过、0失败 |
 
 在最终报告前两次正常 merge 本地集成分支 codex/jev-protocol-playground，均返回 Already up to date；集成与实施基线均为 ee4ac0ef2b25acef22ee55725c67b3f647ddd590，没有 rebase/cherry-pick/reset/stash。GitHub/远端业务由主线程负责，本工作树只生成本地候选。全部原始 run 目录另已校验复制到 `/private/tmp/ghostmodeldeck-implementation-context/stage34-gate-evidence/`，避免以后清理工作树丢失忽略的运行证据。
+
+
+## 首轮审查与环境复盘
+
+首轮完整双轴审查以 `ee4ac0ef2b25acef22ee55725c67b3f647ddd590` 为固定点、`fa7011f1b21b0be3845c01031e2d4b087ec2c597` 为候选，覆盖全部11个变更文件：[Standards 原始报告](/private/tmp/ghostmodeldeck-implementation-context/review34-standards.md) 与 [Spec 原始报告](/private/tmp/ghostmodeldeck-implementation-context/review34-spec.md) 的发现数量均为0，本轮 P0/P1/P2 均为0。[环境复盘原始报告](/private/tmp/ghostmodeldeck-implementation-context/retro34.md) 确认本轮环境 P0=0、P1=0、P2=0；只沿用此前“现有门禁未接入 PR/hook”的 P3 后续候选，没有要求本切片修复代码。
+
+本次仅追加验证文档及清单元数据，89个检查输入的逐文件 SHA256 与上述指纹完全不变，复用相同输入的既有门禁结果；新增链接、文本和 diff-check 核验通过。追加文档后的最新 HEAD 最终双轴复审尚未执行，首轮结论不作为最终复审结果。

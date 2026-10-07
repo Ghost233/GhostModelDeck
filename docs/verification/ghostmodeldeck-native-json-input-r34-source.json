@@ -2,7 +2,35 @@
   "base_commit": "ee4ac0ef2b25acef22ee55725c67b3f647ddd590",
   "branch": "codex/jev-json-input",
   "container": "ghostmodeldeck-checks-r33b",
+  "documentation_only_update": {
+    "check_input_count": 89,
+    "check_input_sha256_unchanged": "67f075abb8a58b53a3c33fe79f7f5ef41c24e5e7b8a35fa0c3cea88529a8847d",
+    "files": [
+      "docs/verification/ghostmodeldeck-native-json-input-r34.md",
+      "docs/verification/ghostmodeldeck-native-json-input-r34-source.json"
+    ],
+    "new_product_checks_run": false,
+    "product_checks_reused": true
+  },
   "evidence_backup": "/private/tmp/ghostmodeldeck-implementation-context/stage34-gate-evidence",
+  "first_review": {
+    "base_commit": "ee4ac0ef2b25acef22ee55725c67b3f647ddd590",
+    "candidate_commit": "fa7011f1b21b0be3845c01031e2d4b087ec2c597",
+    "environment_retro": {
+      "P0": 0,
+      "P1": 0,
+      "P2": 0,
+      "P3_candidate": "Existing gates are not connected to PR/hook; retained as a later task"
+    },
+    "final_review_status": "not_yet_performed",
+    "reports": [
+      "/private/tmp/ghostmodeldeck-implementation-context/review34-standards.md",
+      "/private/tmp/ghostmodeldeck-implementation-context/review34-spec.md",
+      "/private/tmp/ghostmodeldeck-implementation-context/retro34.md"
+    ],
+    "spec_findings": 0,
+    "standards_findings": 0
+  },
   "gates": {
     "analyze": {
       "diagnostics": 0,
