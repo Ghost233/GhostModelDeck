@@ -714,7 +714,9 @@ Map<String, Object?> _aggregateQuestion(
   return {
     'type': 'choice',
     'choice': tied.first,
-    'confidence': max(0.0, (best - 1 / mean.length) / (1 - 1 / mean.length)),
+    'confidence': mean.length == 1
+        ? 1.0
+        : max(0.0, (best - 1 / mean.length) / (1 - 1 / mean.length)),
     'probabilities': mean,
     'top_choices': List<String>.unmodifiable([
       for (final entry in mean.entries)

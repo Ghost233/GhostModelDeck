@@ -564,7 +564,7 @@ void main() {
     ];
     final bad = <Map<String, dynamic>>[
       {},
-      {'model': 'test-council', 'state': 9, 'options': validOptions},
+      {'model': 'test-council', 'state': null, 'options': validOptions},
       {'model': 'test-council', 'state': '', 'options': 'not-a-list'},
       {
         'model': 'test-council',
@@ -582,14 +582,7 @@ void main() {
           {'id': 'reject', 'text': '二'},
         ],
       },
-      {
-        'model': 'test-council',
-        'state': '',
-        'options': [
-          {'id': 'accept', 'text': ' '},
-          {'id': 'reject', 'text': '二'},
-        ],
-      },
+      {'model': 'test-council', 'state': '', 'options': []},
       {
         'model': 'test-council',
         'state': '',

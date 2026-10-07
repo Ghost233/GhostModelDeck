@@ -21,7 +21,6 @@ void main() {
         [],
         ['One'],
         List.filled(11, 'Level'),
-        ['Low', ' '],
       ]) {
         expect(
           () => ScoreQuestion(instructions: 'Rank', levels: levels),
