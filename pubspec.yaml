@@ -1,7 +1,7 @@
 name: ghost_model_deck
 description: GhostModelDeck desktop model manager.
 publish_to: none
-version: 0.1.1
+version: 0.1.2
 
 environment:
   sdk: ^3.13.5
