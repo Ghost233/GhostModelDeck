@@ -522,7 +522,7 @@ class JevModels {
 }
 
 /// Current typed input boundary shared by HTTP, MCP and the desktop form.
-/// Full native structured JSON/extensions are the subsequent #34 slice.
+/// JSON task contents are retained in the immutable production request.
 class JevModelRequest {
   const JevModelRequest(this.model, this.request, this.debug);
   final String model;
@@ -535,9 +535,18 @@ class JevModelRequest {
     if (model is! String || model.trim().isEmpty) {
       throw const DecisionProtocolException('model 需要是非空字符串');
     }
-    _fields(value, const {'model', 'state', 'questions', 'stream', 'debug'});
-    if (value['state'] is! String || value['questions'] is! Map) {
-      throw const DecisionProtocolException('state 需要是字符串，questions 需要是对象');
+    _fields(value, const {
+      'model',
+      'state',
+      'questions',
+      'stream',
+      'debug',
+      'images',
+    });
+    if (value['state'] == null || value['questions'] is! Map) {
+      throw const DecisionProtocolException(
+        'state 需要是非 null JSON，questions 需要是对象',
+      );
     }
     if (value.containsKey('debug') && value['debug'] is! bool ||
         value.containsKey('stream') && value['stream'] is! bool) {
@@ -548,41 +557,40 @@ class JevModelRequest {
       final question = entry.value;
       if (entry.key is! String ||
           question is! Map ||
-          question['instructions'] is! String) {
-        throw const DecisionProtocolException('题目需要非空 ID、题型与 instructions 字符串');
+          question['instructions'] == null) {
+        throw const DecisionProtocolException(
+          '题目需要非空 ID、题型与非 null instructions',
+        );
       }
       _fields(question, const {'type', 'instructions', 'criteria'});
-      final instructions = question['instructions'] as String;
+      final instructions = question['instructions'] as Object;
       final criteria = question['criteria'];
       questions[entry.key as String] = switch (question['type']) {
         'choice' => ChoiceQuestion(
           instructions: instructions,
           options: _descriptions(criteria),
         ),
-        'score' when criteria is List && criteria.every((v) => v is String) =>
-          ScoreQuestion(
-            instructions: instructions,
-            levels: criteria.cast<String>(),
-          ),
-        'noul'
-            when criteria is Map &&
-                criteria.length == 2 &&
-                criteria['false'] is String &&
-                criteria['true'] is String =>
-          NoulQuestion(
-            instructions: instructions,
-            falseText: criteria['false'] as String,
-            trueText: criteria['true'] as String,
-          ),
+        'score' when criteria is List => ScoreQuestion(
+          instructions: instructions,
+          levels: criteria.cast<Object?>(),
+        ),
+        'noul' => NoulQuestion.fromCriteria(
+          instructions: instructions,
+          criteria: criteria,
+          hasCriteria: question.containsKey('criteria'),
+        ),
         _ => throw const DecisionProtocolException('未知题型或 criteria 形状无效'),
       };
     }
     return JevModelRequest(
       model,
       DecisionBatchRequest(
-        state: value['state'] as String,
+        state: value['state'] as Object,
         questions: questions,
         stream: value['stream'] == true,
+        extensions: {
+          if (value.containsKey('images')) 'images': value['images'],
+        },
       ),
       value['debug'] == true,
     );
@@ -598,25 +606,27 @@ class JevModelRequest {
     });
     final raw = value['options'];
     if (raw is! List) throw const DecisionProtocolException('options 需要是候选项数组');
-    final options = <String, String>{};
+    final options = <String, Object?>{};
     for (final option in raw) {
       if (option is! Map ||
           option['id'] is! String ||
-          option['text'] is! String ||
+          !option.containsKey('text') ||
           options.containsKey(option['id'])) {
-        throw const DecisionProtocolException('候选 ID 必须唯一，ID 与内容需要是字符串');
+        throw const DecisionProtocolException('候选 ID 必须是唯一字符串，text 必须存在');
       }
       _fields(option, const {'id', 'text'});
-      options[option['id'] as String] = option['text'] as String;
+      options[option['id'] as String] = option['text'];
     }
     return parse({
       'model': value['model'],
       'state': value['state'],
-      'debug': value['debug'] ?? false,
+      'debug': value.containsKey('debug') ? value['debug'] : false,
       'questions': {
         'council_choice': {
           'type': 'choice',
-          'instructions': value['instructions'] ?? '根据上下文，从候选项中选择最合适的一项。',
+          'instructions': value.containsKey('instructions')
+              ? value['instructions']
+              : '根据上下文，从候选项中选择最合适的一项。',
           'criteria': options,
         },
       },
@@ -625,16 +635,18 @@ class JevModelRequest {
 }
 
 void _fields(Map value, Set<String> allowed) {
-  if (value.keys.any((key) => !allowed.contains(key))) {
-    throw const DecisionProtocolException('包含不支持的字段');
+  for (final key in value.keys) {
+    if (!allowed.contains(key)) {
+      throw DecisionProtocolException('包含不支持的字段：$key');
+    }
   }
 }
 
-Map<String, String> _descriptions(Object? value) {
-  if (value is! Map ||
-      value.keys.any((k) => k is! String) ||
-      value.values.any((v) => v is! String)) {
-    throw const DecisionProtocolException('choice criteria 需要是 ID 到描述字符串的对象');
+Map<String, Object?> _descriptions(Object? value) {
+  if (value is! Map || value.keys.any((k) => k is! String)) {
+    throw const DecisionProtocolException(
+      'choice criteria 需要是 ID 到 JSON 描述的对象',
+    );
   }
-  return Map<String, String>.from(value);
+  return Map<String, Object?>.from(value);
 }

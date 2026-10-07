@@ -472,35 +472,75 @@ String _newId() => List.generate(
   (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'),
 ).join();
 
+const _nonNullJson = <String, dynamic>{
+  'type': ['string', 'number', 'boolean', 'object', 'array'],
+};
 const _batchInputSchema = <String, dynamic>{
   'type': 'object',
   'required': ['model', 'state', 'questions'],
   'additionalProperties': false,
   'properties': {
     'model': {'type': 'string', 'minLength': 1},
-    'state': {'type': 'string'},
+    'state': _nonNullJson,
+    'images': {
+      'type': ['array', 'null'],
+      'maxItems': 0,
+    },
     'stream': {'type': 'boolean', 'const': false},
     'debug': {'type': 'boolean', 'default': false},
     'questions': {
       'type': 'object',
       'minProperties': 1,
       'maxProperties': 32,
+      'propertyNames': {'type': 'string', 'pattern': r'\S'},
       'additionalProperties': {
         'type': 'object',
-        'required': ['type', 'instructions', 'criteria'],
+        'required': ['type', 'instructions'],
         'additionalProperties': false,
         'properties': {
           'type': {
             'type': 'string',
             'enum': ['choice', 'score', 'noul'],
           },
-          'instructions': {'type': 'string', 'minLength': 1},
-          'criteria': {
-            'type': ['object', 'array'],
-            'items': {'type': 'string'},
-            'additionalProperties': {'type': 'string'},
-          },
+          'instructions': _nonNullJson,
+          'criteria': {},
         },
+        'oneOf': [
+          {
+            'required': ['criteria'],
+            'properties': {
+              'type': {'const': 'choice'},
+              'criteria': {
+                'type': 'object',
+                'minProperties': 1,
+                'maxProperties': 255,
+                'propertyNames': {'type': 'string', 'pattern': r'\S'},
+                'additionalProperties': {},
+              },
+            },
+          },
+          {
+            'required': ['criteria'],
+            'properties': {
+              'type': {'const': 'score'},
+              'criteria': {
+                'type': 'array',
+                'minItems': 2,
+                'maxItems': 10,
+                'items': {},
+              },
+            },
+          },
+          {
+            'properties': {
+              'type': {'const': 'noul'},
+              'criteria': {
+                'type': ['object', 'null'],
+                'additionalProperties': {},
+              },
+            },
+          },
+        ],
       },
     },
   },
@@ -511,20 +551,20 @@ const _inputSchema = <String, dynamic>{
   'additionalProperties': false,
   'properties': {
     'model': {'type': 'string', 'minLength': 1},
-    'state': {'type': 'string'},
-    'instructions': {'type': 'string', 'minLength': 1},
+    'state': _nonNullJson,
+    'instructions': _nonNullJson,
     'debug': {'type': 'boolean', 'default': false},
     'options': {
       'type': 'array',
-      'minItems': 2,
+      'minItems': 1,
       'maxItems': 255,
       'items': {
         'type': 'object',
         'required': ['id', 'text'],
         'additionalProperties': false,
         'properties': {
-          'id': {'type': 'string', 'minLength': 1},
-          'text': {'type': 'string', 'minLength': 1},
+          'id': {'type': 'string', 'pattern': r'\S'},
+          'text': {},
         },
       },
     },
