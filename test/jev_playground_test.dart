@@ -516,4 +516,92 @@ void main() {
       selected.model,
     );
   });
+  for (final mode in JevPlaygroundMode.values) {
+    test(
+      '$mode legal credential-looking JEV IDs and JSON descriptions survive native and real HTTP/MCP default and debug',
+      () async {
+        final fixture = await PlaygroundRuntime.create();
+        addTearDown(fixture.close);
+        final source = fixture.playground.nativeSources.first;
+        for (final name
+            in mode == JevPlaygroundMode.native
+                ? [source.model]
+                : ['quick', 'hard', 'native-kev']) {
+          for (final debug in [false, true]) {
+            final document = credentialNamedJevDocument(name, debug: debug);
+            final result = await fixture.playground.run(
+              mode,
+              jsonEncode(document),
+              nativeSource: source,
+            );
+            expect(result.status, JevPlaygroundStatus.success);
+            expect(result.output, {
+              'model': name,
+              'answers': credentialNamedJevAnswers,
+              'usage': {
+                'input_tokens': name == 'hard' ? 20 : 10,
+                'output_tokens': 0,
+              },
+            });
+            if (debug) {
+              final input = result.debug!['input'] as Map;
+              expect(input['questions'], document['questions']);
+              expect(input['state'], document['state']);
+              final ios =
+                  (result.debug!['source'] == 'council'
+                          ? result.debug!['seats'] as List
+                          : [result.debug!['native']])
+                      .cast<Map>();
+              for (final io in ios) {
+                expect(io['request']['questions'], document['questions']);
+                expect(io['request']['state'], document['state']);
+                expect(
+                  jsonDecode(io['request_body'] as String)['questions'],
+                  document['questions'],
+                );
+                expect(
+                  jsonDecode(io['raw_response'] as String)['answers'],
+                  credentialNamedJevAnswers,
+                );
+              }
+              if (result.debug!['source'] == 'council') {
+                final council = result.debug!['council'] as Map;
+                expect(council['request']['questions'], document['questions']);
+                for (final seat in council['seats'] as List) {
+                  expect(seat['answers'], credentialNamedJevAnswers);
+                  expect(
+                    jsonDecode(seat['raw_response'] as String)['answers'],
+                    credentialNamedJevAnswers,
+                  );
+                }
+                if (name == 'hard') {
+                  final totals = council['aggregates'] as Map;
+                  expect(totals.keys.toList(), [
+                    'api_key',
+                    'cookie',
+                    'authorization',
+                  ]);
+                  expect(totals['api_key']['probabilities'], {
+                    'authorization': 0.25,
+                    'cookie': 0.75,
+                  });
+                  expect(totals['api_key']['votes'], {
+                    'authorization': 0,
+                    'cookie': 2,
+                  });
+                  expect(totals['cookie']['legend'], {
+                    '0': 'Authorization: allow',
+                    '1': {'api_key': 'Authorization: allow'},
+                  });
+                }
+              }
+              expect(result.debug!['converted_result'], result.output);
+            } else {
+              expect(result.debug, isNull);
+            }
+          }
+        }
+      },
+    );
+  }
 }

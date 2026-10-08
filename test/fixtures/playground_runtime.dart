@@ -103,3 +103,69 @@ Map<String, Object?> playgroundDocument(
     'valid': <String, Object?>{'type': 'noul', 'instructions': true},
   },
 };
+
+Map<String, Object?> credentialNamedJevDocument(
+  String model, {
+  bool debug = false,
+}) => {
+  'model': model,
+  'debug': debug,
+  'state': {
+    'api_key': 'ordinary task value',
+    'authorization': 'allow',
+    'cookie': [
+      true,
+      {'api_key': 7},
+    ],
+  },
+  'questions': {
+    'api_key': {
+      'type': 'choice',
+      'instructions': {
+        'authorization': [
+          'allow',
+          {'cookie': false},
+        ],
+      },
+      'criteria': {
+        'authorization': {'cookie': 'nonsecret'},
+        'cookie': [
+          'Authorization: allow',
+          {'api_key': 3},
+        ],
+      },
+    },
+    'cookie': {
+      'type': 'score',
+      'instructions': 'Authorization: allow',
+      'criteria': [
+        'Authorization: allow',
+        {'api_key': 'Authorization: allow'},
+      ],
+    },
+    'authorization': {
+      'type': 'noul',
+      'instructions': '{"api_key":"task JSON"}',
+    },
+  },
+};
+
+const credentialNamedJevAnswers = {
+  'api_key': {
+    'type': 'choice',
+    'choice': 'cookie',
+    'confidence': 0.5,
+    'probabilities': {'authorization': 0.25, 'cookie': 0.75},
+  },
+  'cookie': {
+    'type': 'score',
+    'score': 0.75,
+    'confidence': 0.5,
+    'legend': {
+      '0': 'Authorization: allow',
+      '1': {'api_key': 'Authorization: allow'},
+    },
+    'probabilities': {'0': 0.25, '1': 0.75},
+  },
+  'authorization': {'type': 'noul', 'noul': 0.8},
+};

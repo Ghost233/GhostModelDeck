@@ -915,6 +915,75 @@ void main() {
     );
     expect(runtime.io.killedChildren, 0);
   });
+  test('contextual projection preserves legal typed data but redacts credential extras and known echoes', () {
+    final wire =
+        '{\n  "model": "native", "answers": {"api_key": {"type": "choice", "choice": "cookie", "confidence": 0.5, "probabilities": {"authorization": 0.25, "cookie": 0.75}, "diagnostic": {"API_KEY": "extra-secret"}}}, "usage": {"input_tokens": 10, "output_tokens": 0}, "server_log": "Authorization: Bearer raw-header-secret"\n}';
+    final response = jsonDecode(wire) as Map<String, Object?>;
+    final projected = sealDebugJson({
+      'configuration': {
+        'API_KEY': 'config-secret',
+        'Authorization': 'Bearer config-auth-secret',
+      },
+      'input': {
+        'model': 'native',
+        'state': {
+          'authorization': 'allow',
+          'api_key': 'nonsecret payload',
+          'echo': 'config-secret',
+        },
+        'questions': {
+          'api_key': {
+            'type': 'score',
+            'instructions': 'Authorization: allow',
+            'criteria': [
+              'Authorization: allow',
+              {'cookie': true},
+            ],
+          },
+        },
+      },
+      'result': response,
+      'raw_response': wire,
+      'echo': 'extra-secret raw-header-secret config-secret config-auth-secret',
+      'error': {'message': 'Cookie: sid=error-cookie-secret'},
+    });
+    final answer =
+        ((projected['result'] as Map)['answers'] as Map)['api_key'] as Map;
+    expect(answer['probabilities'], {'authorization': 0.25, 'cookie': 0.75});
+    expect(answer['diagnostic'], {'API_KEY': '[redacted]'});
+    expect((projected['input'] as Map)['state'], {
+      'authorization': 'allow',
+      'api_key': 'nonsecret payload',
+      'echo': '[redacted]',
+    });
+    expect(
+      ((projected['input'] as Map)['questions'] as Map)['api_key']['criteria'],
+      [
+        'Authorization: allow',
+        {'cookie': true},
+      ],
+    );
+    expect(
+      projected['raw_response'],
+      wire
+          .replaceAll('extra-secret', '[redacted]')
+          .replaceAll('Bearer raw-header-secret', '[redacted]'),
+    );
+    for (final secret in [
+      'extra-secret',
+      'raw-header-secret',
+      'config-secret',
+      'config-auth-secret',
+      'error-cookie-secret',
+    ]) {
+      expect(jsonEncode(projected), isNot(contains(secret)));
+    }
+    expect(wire, contains('extra-secret'));
+    expect(
+      () => (answer['probabilities'] as Map)['cookie'] = 1,
+      throwsUnsupportedError,
+    );
+  });
 }
 
 DecisionBatchRequest request(String state) => DecisionBatchRequest(
