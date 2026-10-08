@@ -17,6 +17,96 @@ import 'fixtures/decision_gguf.dart';
 import 'fixtures/engine_archive.dart';
 
 void main() {
+  for (final newAlias in [false, true]) {
+    test(
+      'managed partial help preserves ${newAlias ? 'new alias attached to retained' : 'single retained alias'} context anchor',
+      () async {
+        final fixture = await _RecognitionFixture.create(managed: true);
+        addTearDown(fixture.close);
+        final name = newAlias ? '--current-ctx' : '--context-tokens';
+        final text = '$name 1024';
+        await fixture.catalog.saveLaunchDefaults(
+          fixture.id,
+          EngineLaunchConfiguration(argumentText: text),
+        );
+        fixture.io.help =
+            '$_requiredFlatHelp\n--context-tokens${newAlias ? ', --current-ctx' : ''} N      partial context description\n';
+        await fixture.catalog.refresh();
+        final preview = await fixture.engine.previewLaunch(fixture.asset.id);
+        expect(preview.overriddenForm, contains('--ctx-size'));
+        expect(preview.arguments, isNot(contains('--ctx-size')));
+        expect(
+          fixture.catalog.launchDefaultsFor(fixture.id).argumentText,
+          text,
+        );
+        await HttpOverrides.runWithHttpOverrides(() async {
+          final instance = await fixture.engine.start(fixture.asset.id);
+          expect(fixture.io.started.single.skip(8), preview.arguments.skip(8));
+          expect(
+            fixture.io.started.single.sublist(
+              fixture.io.started.single.length - 2,
+            ),
+            [name, '1024'],
+          );
+          await fixture.engine.stop(instance.id);
+        }, _NetworkBoundary());
+      },
+    );
+  }
+  test('retained anchors are not guessed across conflicting or opposite help groups', () async {
+    final fixture = await _RecognitionFixture.create(managed: true);
+    addTearDown(fixture.close);
+    for (final (row, text, overridden) in [
+      (
+        '--context-tokens, --parallel, --unconfirmed N',
+        '--context-tokens 1024 --unconfirmed 2',
+        {'--ctx-size'},
+      ),
+      ('--context-tokens, --no-context N', '--no-context 1024', <String>{}),
+    ]) {
+      fixture.io.help = '$_requiredFlatHelp\n$row      guarded aliases\n';
+      await fixture.catalog.saveLaunchDefaults(
+        fixture.id,
+        EngineLaunchConfiguration(argumentText: text),
+      );
+      await fixture.catalog.refresh();
+      final preview = await fixture.engine.previewLaunch(fixture.asset.id);
+      expect(preview.overriddenForm, overridden);
+      expect(preview.arguments, containsAllInOrder(['--parallel', '1']));
+      await HttpOverrides.runWithHttpOverrides(() async {
+        final instance = await fixture.engine.start(fixture.asset.id);
+        expect(fixture.io.started.last.skip(8), preview.arguments.skip(8));
+        await fixture.engine.stop(instance.id);
+      }, _NetworkBoundary());
+    }
+  });
+  test('another managed identity does not inherit a previous provider context anchor', () async {
+    final previous = await _RecognitionFixture.create(managed: true);
+    addTearDown(previous.close);
+    final current = await _RecognitionFixture.create(
+      managed: true,
+      initialHelp:
+          '$_requiredFlatHelp\n--context-tokens, --current-ctx N      new provider help\n',
+    );
+    addTearDown(current.close);
+    expect(
+      current.engine.parameterRecognition.executablePath,
+      isNot(previous.engine.parameterRecognition.executablePath),
+    );
+    await current.catalog.saveLaunchDefaults(
+      current.id,
+      EngineLaunchConfiguration(argumentText: '--current-ctx 1024'),
+    );
+    await current.catalog.refresh();
+    final preview = await current.engine.previewLaunch(current.asset.id);
+    expect(preview.overriddenForm, isEmpty);
+    expect(preview.arguments, containsAllInOrder(['--ctx-size', '4096']));
+    await HttpOverrides.runWithHttpOverrides(() async {
+      final instance = await current.engine.start(current.asset.id);
+      expect(current.io.started.single.skip(8), preview.arguments.skip(8));
+      await current.engine.stop(instance.id);
+    }, _NetworkBoundary());
+  });
   test('linked standard timestamp changes retain typed identity and saved startup', () async {
     final fixture = await _RecognitionFixture.create(
       linkedVersion:
@@ -551,12 +641,14 @@ class _RecognitionFixture {
   static Future<_RecognitionFixture> create({
     bool managed = false,
     String? linkedVersion,
+    String? initialHelp,
   }) async {
     final root = await Directory.systemTemp.createTemp('gmd-recognition-');
     final library = ModelLibrary();
     final use = ModelUseRegistry(library);
     final io = _RecognitionIO();
     if (linkedVersion != null) io.versionOutput = linkedVersion;
+    if (initialHelp != null) io.help = initialHelp;
     final data = engineArchive();
     final official = LlamaEngine(
       library: library,

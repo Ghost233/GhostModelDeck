@@ -512,9 +512,6 @@ class LlamaEngine implements EngineRuntime {
   EngineParameterRecognition get parameterRecognition => _parameterRecognition;
   EngineLaunchConfiguration Function(String artifactId)?
   _readLaunchConfiguration;
-  void readLaunchDefaultsFrom(
-    EngineLaunchConfiguration Function() readDefaults,
-  ) => _readLaunchConfiguration = (_) => readDefaults();
   void readLaunchConfigurationFrom(
     EngineLaunchConfiguration Function(String artifactId) readConfiguration,
   ) => _readLaunchConfiguration = readConfiguration;

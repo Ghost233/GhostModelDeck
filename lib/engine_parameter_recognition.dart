@@ -203,8 +203,12 @@ class EngineParameterRecognition {
         continue;
       }
       final known = row.names
-          .map(builtIn.canonicalName)
-          .where((name) => builtIn.parameters.containsKey(name))
+          .map((name) => aliases[name] ?? name)
+          .where(
+            (name) =>
+                builtIn.parameters.containsKey(name) ||
+                (retained?.parameters.containsKey(name) ?? false),
+          )
           .toSet();
       if (known.length > 1) {
         unsupported = true;
