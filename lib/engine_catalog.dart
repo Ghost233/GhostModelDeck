@@ -5,6 +5,7 @@ import 'dart:math';
 
 import 'llama_engine.dart';
 import 'engine_runtime.dart';
+import 'engine_launch_configuration.dart';
 import 'model_library.dart';
 import 'omlx_engine.dart';
 import 'model_use_registry.dart';
@@ -100,8 +101,9 @@ class EngineCatalog {
     required this.registryFile,
     EngineProcessIO? io,
   }) : io = io ?? NativeEngineProcessIO() {
-    for (final provider in _managed.values) {
-      _subscriptions.add(provider.changes.listen((_) => _publish()));
+    for (final entry in _managed.entries) {
+      entry.value.readLaunchDefaultsFrom(() => launchDefaultsFor(entry.key));
+      _subscriptions.add(entry.value.changes.listen((_) => _publish()));
     }
     _omlxSubscription = omlxEngine?.changes.listen((_) => _publish());
   }
@@ -128,6 +130,7 @@ class EngineCatalog {
   final _changes = StreamController<EngineCatalogState>.broadcast();
   final _linked = <String, LlamaEngine>{};
   final _names = <String, String>{};
+  final _launchDefaults = <String, EngineLaunchConfiguration>{};
   final _subscriptions = <StreamSubscription<LlamaEngineState>>[];
   Future<void> _operations = Future.value();
   bool _loaded = false;
@@ -271,7 +274,7 @@ class EngineCatalog {
         throw const LlamaEngineException('引擎登记文件无效');
       }
       if (value is! Map ||
-          ![1, 2].contains(value['schema']) ||
+          ![1, 2, 3].contains(value['schema']) ||
           value['linked'] is! List) {
         throw const LlamaEngineException('引擎登记文件无效');
       }
@@ -279,6 +282,24 @@ class EngineCatalog {
       // must leave both the existing schema-1 file and catalog unchanged.
       final cppRows = <String, (String, LinkedLlamaInstallation)>{};
       final nativeRows = <String, _LinkedOmlx>{};
+      final launchDefaults = <String, EngineLaunchConfiguration>{};
+      if (value['schema'] == 3) {
+        final configurations = value['launchDefaults'];
+        if (configurations is! Map) {
+          throw const LlamaEngineException('引擎启动配置登记无效');
+        }
+        for (final entry in configurations.entries) {
+          if (entry.key is! String || (entry.key as String).isEmpty) {
+            throw const LlamaEngineException('引擎启动配置登记无效');
+          }
+          try {
+            launchDefaults[entry.key as String] =
+                EngineLaunchConfiguration.fromJson(entry.value);
+          } on FormatException {
+            throw const LlamaEngineException('引擎启动配置登记无效');
+          }
+        }
+      }
       final ids = <String>{officialId, standardId, omlxId};
       for (final row in value['linked'] as List) {
         if (row is! Map ||
@@ -287,7 +308,7 @@ class EngineCatalog {
           throw const LlamaEngineException('关联引擎登记信息无效');
         }
         if (row['family'] == 'omlx') {
-          if (value['schema'] != 2 ||
+          if (![2, 3].contains(value['schema']) ||
               omlxEngine == null ||
               row['path'] is! String ||
               row['name'] is! String) {
@@ -330,6 +351,7 @@ class EngineCatalog {
         _register(row.key, row.value.$1, row.value.$2);
       }
       _linkedOmlx.addAll(nativeRows);
+      _launchDefaults.addAll(launchDefaults);
     }
     _loaded = true;
   }
@@ -343,6 +365,7 @@ class EngineCatalog {
       linkedInstallation: location,
       installationId: id,
     );
+    provider.readLaunchDefaultsFrom(() => launchDefaultsFor(id));
     if (_shuttingDown) provider.beginShutdown();
     if (_recycling) {
       _admissionReleases[provider] = provider.holdStartAdmission();
@@ -352,12 +375,25 @@ class EngineCatalog {
     _subscriptions.add(provider.changes.listen((_) => _publish()));
   }
 
-  Future<void> _save({String? excluding}) async {
+  Future<void> _save({
+    String? excluding,
+    Map<String, EngineLaunchConfiguration>? launchDefaults,
+  }) async {
+    final configurations = launchDefaults ?? _launchDefaults;
     await registryFile.parent.create(recursive: true);
     final temporary = File('${registryFile.path}.tmp');
     await temporary.writeAsString(
       jsonEncode({
-        'schema': _linkedOmlx.keys.any((id) => id != excluding) ? 2 : 1,
+        'schema': configurations.isNotEmpty
+            ? 3
+            : _linkedOmlx.keys.any((id) => id != excluding)
+            ? 2
+            : 1,
+        if (configurations.isNotEmpty)
+          'launchDefaults': {
+            for (final entry in configurations.entries)
+              entry.key: entry.value.toJson(),
+          },
         'linked': [
           for (final entry in _linked.entries)
             if (entry.key != excluding)
@@ -383,6 +419,21 @@ class EngineCatalog {
     );
     await temporary.rename(registryFile.path);
   }
+
+  EngineLaunchConfiguration launchDefaultsFor(String id) {
+    providerFor(id);
+    return _launchDefaults[id] ?? EngineLaunchConfiguration();
+  }
+
+  Future<void> saveLaunchDefaults(
+    String id,
+    EngineLaunchConfiguration configuration,
+  ) => _serial(() async {
+    await _load();
+    providerFor(id);
+    await _save(launchDefaults: {..._launchDefaults, id: configuration});
+    _launchDefaults[id] = configuration;
+  });
 
   Future<void> installOfficial({File? verifiedArchive}) =>
       installManaged(officialId, verifiedArchive: verifiedArchive);

@@ -9,6 +9,8 @@ import 'model_library.dart';
 import 'local_model_package.dart';
 import 'engine_catalog.dart';
 import 'engine_runtime.dart';
+import 'engine_launch_editor.dart';
+import 'llama_engine.dart';
 import 'model_run_dialog.dart';
 import 'public_gateway.dart';
 import 'sdk_service.dart';
@@ -779,6 +781,12 @@ class _LibraryPageState extends State<LibraryPage> {
                     : JevStatusTone.neutral,
               ),
               const Spacer(),
+              if (legacy?.launchCommand != null)
+                IconButton(
+                  tooltip: '实际启动命令',
+                  icon: const Icon(Icons.terminal, size: 18),
+                  onPressed: () => _showLaunchCommand(legacy!),
+                ),
               if (widget.startupSet != null) _startupSetToggle(run, theme),
               if (active)
                 TextButton(
@@ -838,6 +846,28 @@ class _LibraryPageState extends State<LibraryPage> {
       ),
     );
   }
+
+  Future<void> _showLaunchCommand(LlamaInstance instance) => showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('实际启动命令'),
+      content: SizedBox(
+        width: 580,
+        child: SingleChildScrollView(
+          child: EngineLaunchCommandView(
+            command: instance.launchCommand!,
+            title: '本次实际启动命令',
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('关闭'),
+        ),
+      ],
+    ),
+  );
 }
 
 String _variantStatus(LocalModelVariant variant) {

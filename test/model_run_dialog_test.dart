@@ -4,9 +4,12 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/app_theme.dart';
 import 'package:ghost_model_deck/engine_catalog.dart';
+import 'package:ghost_model_deck/engine_launch_configuration.dart';
+import 'package:ghost_model_deck/engine_page.dart';
 import 'package:ghost_model_deck/engine_runtime.dart';
 import 'package:ghost_model_deck/library_page.dart';
 import 'package:ghost_model_deck/llama_engine.dart';
@@ -17,6 +20,460 @@ import 'fixtures/decision_gguf.dart';
 import 'fixtures/engine_archive.dart';
 
 void main() {
+  test('managed standard JEV and linked launch defaults remain independent after reopening', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'gmd-isolated-defaults-',
+    );
+    late ModelLibrary library;
+    late List<LlamaEngine> providers;
+    late EngineCatalog catalog;
+    final ios = [_RuntimeIO(), _RuntimeIO(standard: true), _RuntimeIO()];
+    final models = Directory('${root.path}/models');
+    final owned = Directory('${root.path}/engines');
+    final registry = File('${root.path}/engines.json');
+    final archives = <File>[];
+    final releases = <LlamaRelease>[];
+    await writeDecisionKev(models, ordinaryChat: true);
+    for (final standard in [false, true]) {
+      final data = engineArchive(artifactTag: standard ? 'b11146' : 'b11381');
+      archives.add(
+        await File('${root.path}/$standard.tar.gz').writeAsBytes(data),
+      );
+      releases.add(
+        LlamaRelease(
+          tag: standard ? 'v0.5.0' : 'b11381',
+          artifactTag: standard ? 'b11146' : 'b11381',
+          expectedBuild: standard ? 11146 : 11381,
+          supportsSystemone: !standard,
+          commit: standard
+              ? '7fe450e19305b828c199d602c23a8337aaa1f03b'
+              : '836d57176',
+          url: Uri.parse('https://github.com/fixture'),
+          sha256: sha256.convert(data).toString(),
+          sizeBytes: data.length,
+        ),
+      );
+    }
+    void openCatalog() {
+      library = ModelLibrary();
+      final use = ModelUseRegistry(library);
+      providers = [
+        for (var index = 0; index < 2; index++)
+          LlamaEngine(
+            library: library,
+            installationDirectory: owned,
+            io: ios[index],
+            useRegistry: use,
+            loadTimeout: const Duration(seconds: 2),
+            release: releases[index],
+          ),
+      ];
+      catalog = EngineCatalog(
+        library: library,
+        officialEngine: providers[0],
+        standardEngine: providers[1],
+        useRegistry: use,
+        registryFile: registry,
+        io: ios[2],
+      );
+    }
+
+    openCatalog();
+    addTearDown(() async {
+      await catalog.stopManaged();
+      catalog.close();
+      for (final provider in providers) {
+        provider.close();
+      }
+      library.close();
+      await root.delete(recursive: true);
+    });
+    await catalog.installOfficial(verifiedArchive: archives[0]);
+    await catalog.installManaged(
+      EngineCatalog.standardId,
+      verifiedArchive: archives[1],
+    );
+    final external = await File('${root.path}/external/llama-server')
+        .create(recursive: true);
+    await external.writeAsString('external native fixture');
+    expect(
+      (await Process.run('/bin/chmod', ['+x', external.path])).exitCode,
+      0,
+    );
+    final linked = await catalog.link(external.path);
+    final ids = [EngineCatalog.officialId, EngineCatalog.standardId, linked.id];
+    const contexts = ['1024', '2048', '3072'];
+    const gpuLayers = ['11', '22', '33'];
+    for (var index = 0; index < ids.length; index++) {
+      final values = {
+        ...EngineLaunchConfiguration.initialValues,
+        '--ctx-size': contexts[index],
+        '--n-gpu-layers': gpuLayers[index],
+      };
+      if (index == 2) values.remove('--device');
+      await catalog.saveLaunchDefaults(
+        ids[index],
+        EngineLaunchConfiguration(formValues: values),
+      );
+    }
+    catalog.close();
+    for (final provider in providers) {
+      provider.close();
+    }
+    library.close();
+    openCatalog();
+    await catalog.refresh();
+    final asset = (await library.scan(models, verifyFiles: true)).single;
+    await HttpOverrides.runWithHttpOverrides(() async {
+      for (var index = 0; index < ids.length; index++) {
+        final provider = catalog.providerFor(ids[index]);
+        final saved = catalog.launchDefaultsFor(ids[index]);
+        expect(saved.formValues['--ctx-size'], contexts[index]);
+        expect(saved.formValues['--n-gpu-layers'], gpuLayers[index]);
+        expect(saved.formValues['--device'], index == 2 ? isNull : 'MTL0');
+        final preview = await provider.previewLaunch(asset.id);
+        expect(
+          preview.arguments,
+          containsAllInOrder([
+            '--ctx-size',
+            contexts[index],
+            '--n-gpu-layers',
+            gpuLayers[index],
+          ]),
+        );
+        final instance = await provider.start(asset.id);
+        expect(instance.status, LlamaInstanceStatus.ready);
+        expect(ios[index].startedArguments.single, [
+          '--model',
+          await File(asset.files.single.path).resolveSymbolicLinks(),
+          '--alias',
+          instance.id,
+          '--host',
+          '127.0.0.1',
+          '--port',
+          '${instance.endpoint.port}',
+          '--ctx-size',
+          contexts[index],
+          '--batch-size',
+          '4096',
+          '--ubatch-size',
+          '4096',
+          '--parallel',
+          '1',
+          '--n-gpu-layers',
+          gpuLayers[index],
+          if (index != 2) ...['--device', 'MTL0'],
+        ]);
+        expect(
+          instance.launchCommand!.arguments,
+          ios[index].startedArguments.single,
+        );
+      }
+    }, _NetworkBoundary());
+  });
+  testWidgets(
+    'saving cleared engine defaults affects only a subsequent manual restart',
+    (tester) async {
+      late Directory root;
+      late ModelLibrary library;
+      late LlamaEngine engine;
+      late EngineCatalog catalog;
+      late LibraryArtifact asset;
+      final io = _RuntimeIO();
+      await tester.runAsync(() async {
+        root = await Directory.systemTemp.createTemp('gmd-next-launch-');
+        library = ModelLibrary();
+        final models = Directory('${root.path}/models');
+        await writeDecisionKev(models, ordinaryChat: true);
+        asset = (await library.scan(models, verifyFiles: true)).single;
+        final use = ModelUseRegistry(library);
+        final data = engineArchive();
+        final archive = await File('${root.path}/engine.tar.gz')
+            .writeAsBytes(data);
+        engine = LlamaEngine(
+          library: library,
+          installationDirectory: Directory('${root.path}/engines'),
+          io: io,
+          useRegistry: use,
+          loadTimeout: const Duration(seconds: 2),
+          release: LlamaRelease(
+            tag: 'b11381',
+            commit: '836d57176',
+            url: Uri.parse('https://github.com/fixture'),
+            sha256: sha256.convert(data).toString(),
+            sizeBytes: data.length,
+          ),
+        );
+        catalog = EngineCatalog(
+          library: library,
+          officialEngine: engine,
+          useRegistry: use,
+          registryFile: File('${root.path}/engines.json'),
+          io: io,
+        );
+        await catalog.installOfficial(verifiedArchive: archive);
+      });
+      addTearDown(() async {
+        await tester.runAsync(() async {
+          await catalog.stopManaged();
+          catalog.close();
+          engine.close();
+          library.close();
+          await root.delete(recursive: true);
+        });
+      });
+      late LlamaInstance original;
+      await tester.runAsync(
+        () => HttpOverrides.runWithHttpOverrides(() async {
+          original = await catalog
+              .providerFor(EngineCatalog.officialId)
+              .start(asset.id);
+        }, _NetworkBoundary()),
+      );
+      await tester.runAsync(() async {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildJevTheme(Brightness.light),
+            home: Scaffold(
+              body: EnginePage(
+                catalog: catalog,
+                pickEngineDirectory: () async => null,
+              ),
+            ),
+          ),
+        );
+        await catalog.refresh();
+      });
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('启动参数'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.widgetWithText(TextField, '上下文大小'), '2048');
+      final device = find.widgetWithText(TextField, '设备');
+      await tester.ensureVisible(device);
+      await tester.enterText(device, '');
+      await tester.runAsync(() async {
+        final saved = catalog.changes.firstWhere((state) => !state.busy);
+        await tester.tap(find.widgetWithText(FilledButton, '保存'));
+        await saved.timeout(const Duration(seconds: 5));
+        await tester.pump();
+      });
+      await tester.pumpAndSettle();
+      final stillRunning = engine.state.instances.single;
+      expect(stillRunning.id, original.id);
+      expect(stillRunning.status, LlamaInstanceStatus.ready);
+      expect(io.startedArguments, hasLength(1));
+      expect(io.stopAttempts, 0);
+      expect(
+        stillRunning.launchCommand!.arguments,
+        containsAllInOrder(['--ctx-size', '4096', '--device', 'MTL0']),
+      );
+      late LlamaInstance restarted;
+      await tester.runAsync(
+        () => HttpOverrides.runWithHttpOverrides(() async {
+          await catalog.providerFor(EngineCatalog.officialId).stop(original.id);
+          restarted = await catalog
+              .providerFor(EngineCatalog.officialId)
+              .start(asset.id);
+        }, _NetworkBoundary()),
+      );
+      expect(io.startedArguments, hasLength(2));
+      expect(
+        io.startedArguments.last,
+        containsAllInOrder(['--ctx-size', '2048']),
+      );
+      expect(io.startedArguments.last, isNot(contains('--device')));
+      expect(restarted.launchCommand!.arguments, io.startedArguments.last);
+      final stopped = engine.state.instances.singleWhere(
+        (instance) => instance.id == original.id,
+      );
+      expect(stopped.status, LlamaInstanceStatus.stopped);
+      expect(
+        stopped.launchCommand!.displayText,
+        original.launchCommand!.displayText,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets(
+    'saved engine defaults are previewed copied and used by the public model run',
+    (tester) async {
+      late Directory root, models;
+      late ModelLibrary library;
+      late LlamaEngine engine;
+      late EngineCatalog catalog;
+      final io = _RuntimeIO();
+      String? clipboard;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+            if (call.method == 'Clipboard.setData') {
+              clipboard = (call.arguments as Map)['text'] as String;
+            }
+            return null;
+          });
+      addTearDown(() {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(SystemChannels.platform, null);
+      });
+      await tester.runAsync(() async {
+        root = await Directory.systemTemp.createTemp('gmd launch preview ');
+        models = Directory('${root.path}/models');
+        await writeDecisionKev(models, ordinaryChat: true);
+        library = ModelLibrary();
+        final use = ModelUseRegistry(library);
+        final data = engineArchive();
+        final archive = await File('${root.path}/engine.tar.gz')
+            .writeAsBytes(data);
+        engine = LlamaEngine(
+          library: library,
+          installationDirectory: Directory('${root.path}/engines'),
+          io: io,
+          useRegistry: use,
+          loadTimeout: const Duration(seconds: 2),
+          release: LlamaRelease(
+            tag: 'b11381',
+            commit: '836d57176',
+            url: Uri.parse('https://github.com/fixture'),
+            sha256: sha256.convert(data).toString(),
+            sizeBytes: data.length,
+          ),
+        );
+        catalog = EngineCatalog(
+          library: library,
+          officialEngine: engine,
+          useRegistry: use,
+          registryFile: File('${root.path}/engines.json'),
+          io: io,
+        );
+        await catalog.installOfficial(verifiedArchive: archive);
+      });
+      addTearDown(() async {
+        await tester.runAsync(() async {
+          await catalog.stopManaged();
+          catalog.close();
+          engine.close();
+          library.close();
+          await root.delete(recursive: true);
+        });
+      });
+      await tester.runAsync(() async {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildJevTheme(Brightness.light),
+            home: Scaffold(
+              body: EnginePage(
+                catalog: catalog,
+                pickEngineDirectory: () async => null,
+              ),
+            ),
+          ),
+        );
+        await catalog.refresh();
+      });
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('启动参数'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.widgetWithText(TextField, '上下文大小'), '2048');
+      await tester.runAsync(() async {
+        final saved = catalog.changes.firstWhere((state) => !state.busy);
+        await tester.tap(find.widgetWithText(FilledButton, '保存'));
+        await saved.timeout(const Duration(seconds: 5));
+        await tester.pump();
+      });
+      await tester.pumpAndSettle();
+      await tester.runAsync(() async {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildJevTheme(Brightness.light),
+            home: Scaffold(
+              body: Padding(
+                padding: const EdgeInsets.all(28),
+                child: LibraryPage(
+                  library: library,
+                  libraryPath: models.path,
+                  engines: catalog,
+                ),
+              ),
+            ),
+          ),
+        );
+        await _settleFilesystemFrames(tester);
+      });
+      await tester.runAsync(() async {
+        await tester.tap(find.widgetWithText(TextButton, '运行'));
+        // Build the real dialog in the I/O zone before queuing a refresh behind
+        // its own refresh. Leaving this zone earlier strands its loading state.
+        await tester.pump();
+        await catalog.refresh();
+        await tester.pump();
+      });
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, '运行'))
+            .onPressed,
+        isNotNull,
+      );
+      expect(find.text('完整启动命令'), findsOneWidget);
+      await tester.tap(find.byTooltip('复制命令'));
+      await tester.pump();
+      final modelPath = await tester.runAsync(
+        () =>
+            File(library.state.artifacts.single.files.single.path)
+                .resolveSymbolicLinks(),
+      );
+      expect(clipboard, contains('--ctx-size 2048'));
+      expect(clipboard, contains(modelPath!));
+      expect(clipboard, contains(engine.executablePath!));
+      expect(clipboard, contains('启动时分配'));
+      await tester.runAsync(
+        () => HttpOverrides.runWithHttpOverrides(() async {
+          final ready = catalog.changes.firstWhere(
+            (_) => engine.state.instances.any(
+              (instance) => instance.status == LlamaInstanceStatus.ready,
+            ),
+          );
+          await tester.tap(find.widgetWithText(FilledButton, '运行'));
+          await ready.timeout(const Duration(seconds: 5));
+        }, _NetworkBoundary()),
+      );
+      await tester.runAsync(() => _settleFilesystemFrames(tester));
+      final instance = engine.state.instances.single;
+      expect(io.startedArguments.single, [
+        '--model',
+        modelPath,
+        '--alias',
+        instance.id,
+        '--host',
+        '127.0.0.1',
+        '--port',
+        '${instance.endpoint.port}',
+        '--ctx-size',
+        '2048',
+        '--batch-size',
+        '4096',
+        '--ubatch-size',
+        '4096',
+        '--parallel',
+        '1',
+        '--n-gpu-layers',
+        '99',
+        '--device',
+        'MTL0',
+      ]);
+      await tester.tap(find.byTooltip('实际启动命令'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('复制命令'));
+      await tester.pump();
+      expect(
+        clipboard,
+        "'${io.startedExecutables.single}' --model '$modelPath' "
+        '--alias ${instance.id} --host 127.0.0.1 '
+        '--port ${instance.endpoint.port} --ctx-size 2048 --batch-size 4096 '
+        '--ubatch-size 4096 --parallel 1 --n-gpu-layers 99 --device MTL0',
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
   for (final lateLink in [false, true]) {
     test(
       'catalog recycle holds ${lateLink ? 'late linked' : 'captured'} provider admission until every child exits',
@@ -652,6 +1109,7 @@ class _RuntimeIO implements EngineProcessIO {
   _RuntimeIO({this.standard = false});
   final bool standard;
   final startedExecutables = <String>[];
+  final startedArguments = <List<String>>[];
   bool stopFailure = false;
   int stopAttempts = 0;
   Completer<void>? stopRelease;
@@ -698,6 +1156,7 @@ class _RuntimeIO implements EngineProcessIO {
   @override
   Future<EngineChild> start(String executable, List<String> arguments) async {
     startedExecutables.add(executable);
+    startedArguments.add(List.of(arguments));
     String arg(String name) => arguments[arguments.indexOf(name) + 1];
     final server = await HttpServer.bind(
       InternetAddress.loopbackIPv4,

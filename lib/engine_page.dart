@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'app_theme.dart';
 import 'engine_catalog.dart';
 import 'engine_labels.dart';
+import 'engine_launch_editor.dart';
 import 'engine_runtime.dart';
 import 'omlx_engine.dart';
 import 'llama_engine.dart';
@@ -53,6 +54,17 @@ class _EnginePageState extends State<EnginePage> {
       });
     }
   }
+
+  Future<void> _configure(EngineRegistration entry) => showDialog<void>(
+    context: context,
+    builder: (_) => EngineLaunchEditor(
+      title: '${engineDisplayName(entry)} · 启动参数',
+      initialConfiguration: widget.catalog.launchDefaultsFor(entry.id),
+      executable: entry.path,
+      onSave: (configuration) =>
+          widget.catalog.saveLaunchDefaults(entry.id, configuration),
+    ),
+  );
 
   Future<void> _remove(EngineRegistration entry) async {
     await _run(() async {
@@ -256,6 +268,14 @@ class _EnginePageState extends State<EnginePage> {
                                 icon: const Icon(Icons.info_outline, size: 18),
                               ),
                               const SizedBox(width: 8),
+                              if (entry.family == EngineFamily.llamaCpp)
+                                IconButton(
+                                  tooltip: '启动参数',
+                                  onPressed: busy
+                                      ? null
+                                      : () => _configure(entry),
+                                  icon: const Icon(Icons.tune, size: 18),
+                                ),
                               if (!linked && !installed)
                                 FilledButton(
                                   onPressed: busy

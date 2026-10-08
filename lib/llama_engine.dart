@@ -8,6 +8,7 @@ import 'package:crypto/crypto.dart';
 import 'chat_protocol.dart';
 import 'decision_protocol.dart';
 import 'engine_runtime.dart';
+import 'engine_launch_configuration.dart';
 import 'jev_debug.dart';
 
 export 'engine_runtime.dart' show DecisionCancellation;
@@ -355,6 +356,7 @@ class LlamaInstance {
     this.installationId,
     this.engineServiceId,
     this.processEnvironment,
+    this.launchCommand,
     this.binaryVersion,
     this.binarySha256,
     this.generation = 0,
@@ -380,6 +382,9 @@ class LlamaInstance {
 
   /// Exact restricted native launch environment; unknown for other I/O seams.
   final Map<String, String>? processEnvironment;
+
+  /// Immutable command passed to this instance's successfully created process.
+  final EngineLaunchCommand? launchCommand;
 
   /// Validated launch snapshots; not claims about a later on-disk replacement.
   final LlamaBinaryVersion? binaryVersion;
@@ -491,6 +496,10 @@ class LlamaEngine implements EngineRuntime {
   final Directory installationDirectory;
   final EngineProcessIO io;
   final LlamaRelease release;
+  EngineLaunchConfiguration Function()? _readLaunchDefaults;
+  void readLaunchDefaultsFrom(
+    EngineLaunchConfiguration Function() readDefaults,
+  ) => _readLaunchDefaults = readDefaults;
   final ModelUseRegistry useRegistry;
   final Duration loadTimeout;
   final LinkedLlamaInstallation? linkedInstallation;
@@ -571,6 +580,29 @@ class LlamaEngine implements EngineRuntime {
     };
   }
 
+  Future<EngineLaunchCommand> previewLaunch(String artifactId) async {
+    final executable = executablePath;
+    if (executable == null) {
+      throw const LlamaEngineException('请先安装或关联并核验引擎');
+    }
+    final assets = library.state.artifacts
+        .where((asset) => asset.id == artifactId)
+        .toList();
+    if (assets.length != 1 || assets.single.files.isEmpty) {
+      throw const LlamaEngineException('请选择完整模型变体');
+    }
+    final files = assets.single.files.toList()
+      ..sort((a, b) => a.path.compareTo(b.path));
+    final configuration =
+        _readLaunchDefaults?.call() ?? EngineLaunchConfiguration();
+    return configuration.command(
+      executable: executable,
+      // The library snapshot already stores canonical real-file paths. Preview
+      // reads that snapshot; start still verifies the current file before use.
+      modelPath: files.first.path,
+    );
+  }
+
   Future<LlamaInstance> start(String artifactId) {
     if (_recycling || _startAdmissionHolds > 0) {
       return Future.error(const LlamaEngineException('受管引擎正在回收'));
@@ -589,6 +621,9 @@ class LlamaEngine implements EngineRuntime {
     }
 
     return _serial(() async {
+      // Freeze at operation admission, before any installation/model I/O.
+      final configuration =
+          _readLaunchDefaults?.call() ?? EngineLaunchConfiguration();
       checkStartup();
       if (_detached) throw const LlamaEngineException('该引擎关联已解除');
       if (state.installation != LlamaInstallationStatus.installed ||
@@ -644,6 +679,12 @@ class LlamaEngine implements EngineRuntime {
         final port = socket.port;
         await socket.close();
         final endpoint = Uri.parse('http://127.0.0.1:$port');
+        final command = configuration.command(
+          executable: executablePath!,
+          modelPath: path,
+          alias: alias,
+          port: port,
+        );
         var instance = LlamaInstance(
           id: alias,
           generation: instanceGeneration,
@@ -658,33 +699,13 @@ class LlamaEngine implements EngineRuntime {
         _instances[alias] = instance;
         _publishInstances();
         checkStartup();
-        final child = await io.start(executablePath!, [
-          '--model',
-          path,
-          '--alias',
-          alias,
-          '--host',
-          '127.0.0.1',
-          '--port',
-          '$port',
-          '--ctx-size',
-          '4096',
-          '--batch-size',
-          '4096',
-          '--ubatch-size',
-          '4096',
-          '--parallel',
-          '1',
-          '--n-gpu-layers',
-          '99',
-          '--device',
-          'MTL0',
-        ]);
+        final child = await io.start(command.executable, command.arguments);
         instance = _copy(
           instance,
           pid: child.pid,
           engineServiceId: 'llama-service-$alias',
           processEnvironment: child is _NativeChild ? child.environment : null,
+          launchCommand: command,
           hasLiveProcess: true,
           status: startupCancellation.isCancelled
               ? LlamaInstanceStatus.stopping
@@ -1746,6 +1767,7 @@ class LlamaEngine implements EngineRuntime {
     int? pid,
     String? engineServiceId,
     Map<String, String>? processEnvironment,
+    EngineLaunchCommand? launchCommand,
     int? activeRequests,
     bool? acceptingRequests,
     bool? hasLiveProcess,
@@ -1762,6 +1784,7 @@ class LlamaEngine implements EngineRuntime {
     installationId: value.installationId,
     engineServiceId: engineServiceId ?? value.engineServiceId,
     processEnvironment: processEnvironment ?? value.processEnvironment,
+    launchCommand: launchCommand ?? value.launchCommand,
     binaryVersion: value.binaryVersion,
     binarySha256: value.binarySha256,
     asset: value.asset,
