@@ -19,3 +19,19 @@
 - 自动检查在 Socktainer 的隔离检查副本执行，Mac Release/窗口/真实模型/API/MCP/SDK 在宿主验收。遵循 [环境基线](verification/acceptance-environment-baseline.md)，不将查询成功、元数据或旧150项测试当作新功能通过。
 - 拿到失败事实后修复并重跑相关范围；未解决阻断缺陷、实际未执行部分、版本/布局不符必须明确保留。目标包/fixture 不适配时调查并更新可复核组合，不放宽 Ready 或隐式加载规则。
 - 当前交接仅完成规划。应用代码尚未迁入，所有实现工单仍待执行；没有模型下载、引擎安装或真实联调。
+
+## 引擎启动参数配置实施交接
+
+2026-10-08，用户批准七张垂直切片并发布为原生子工单。规范父项为 [引擎启动参数配置：文本优先、模型独立配置与最终命令预览规格](https://github.com/Ghost233/GhostModelDeck/issues/44)，本地正文见 [参数规格](requirements/engine-launch-configuration-spec.md)。状态、领取和原生 blocked_by 以 GitHub 为准。
+
+| 顺序 | 可交付切片 | 前置序号 | 主要验收 |
+| --- | --- | --- | --- |
+| 1 | [打通引擎默认表单参数的编辑、预览与启动](https://github.com/Ghost233/GhostModelDeck/issues/45) | 无 | 默认表单保存、完整预览与实际启动参数一致、既有实例保持运行 |
+| 2 | [打通参数文本优先、覆盖提示与实际启动](https://github.com/Ghost233/GhostModelDeck/issues/46) | 1 | 文本优先、覆盖标红、保真、受控字段及语法/语义错误边界 |
+| 3 | [打通模型独立配置、继承切换与 SDK 启动](https://github.com/Ghost233/GhostModelDeck/issues/47) | 2 | 变体 × 引擎独立配置、继承/空配置、桌面与 SDK 一致 |
+| 4 | [提供当前引擎版本的参数识别与编辑提示](https://github.com/Ghost233/GhostModelDeck/issues/48) | 2 | 内置规则与当前帮助信息、别名、部分识别及失败提示 |
+| 5 | [保留升级与解除关联后的启动配置并支持手动恢复](https://github.com/Ghost233/GhostModelDeck/issues/49) | 3、4 | 升级保留、未关联配置、手动恢复与实际启动 |
+| 6 | [提供 oMLX 参数保存与识别并明确当前运行限制](https://github.com/Ghost233/GhostModelDeck/issues/50) | 3、4 | 保存/识别与生产运行限制清楚分离，不启动模型池 |
+| 7 | [完成启动参数的跨入口与真实引擎端到端验收](https://github.com/Ghost233/GhostModelDeck/issues/51) | 5、6 | 完整 33 条故事、真实 llama.cpp / JEV、UI/SDK/预览与资源收尾 |
+
+第 3 与第 4、第 5 与第 6 分别无相互阻塞。所有切片有自己的适用检查，最终切片补原生完整验收；不将每张切片的验证推迟到最后。参数配置当前仅完成规格与工单发布，尚未实施。
