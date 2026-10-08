@@ -942,13 +942,14 @@ void main() {
           },
         },
       },
-      'result': response,
-      'raw_response': wire,
+      'native': {'status': 'ok', 'result': response, 'raw_response': wire},
       'echo': 'extra-secret raw-header-secret config-secret config-auth-secret',
       'error': {'message': 'Cookie: sid=error-cookie-secret'},
-    });
+    }, projection: JevDebugProjection.debug);
     final answer =
-        ((projected['result'] as Map)['answers'] as Map)['api_key'] as Map;
+        (((projected['native'] as Map)['result'] as Map)['answers']
+                as Map)['api_key']
+            as Map;
     expect(answer['probabilities'], {'authorization': 0.25, 'cookie': 0.75});
     expect(answer['diagnostic'], {'API_KEY': '[redacted]'});
     expect((projected['input'] as Map)['state'], {
@@ -964,7 +965,7 @@ void main() {
       ],
     );
     expect(
-      projected['raw_response'],
+      (projected['native'] as Map)['raw_response'],
       wire
           .replaceAll('extra-secret', '[redacted]')
           .replaceAll('Bearer raw-header-secret', '[redacted]'),

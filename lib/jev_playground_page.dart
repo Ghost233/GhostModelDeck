@@ -253,10 +253,18 @@ class _JevPlaygroundPageState extends State<JevPlaygroundPage> {
     );
   }
 
-  Widget _jsonBlock(String title, Object value, String key) {
+  Widget _jsonBlock(
+    String title,
+    Object value,
+    String key, {
+    JevDebugProjection projection = JevDebugProjection.generic,
+  }) {
     // Every display/copy projection crosses the credential redaction boundary.
     final safe = value is Map
-        ? sealDebugJson(Map<String, Object?>.from(value))
+        ? sealDebugJson(
+            Map<String, Object?>.from(value),
+            projection: projection,
+          )
         : freezeDebugJson(value);
     final text = _encoder.convert(safe);
     return Column(
@@ -460,7 +468,14 @@ class _JevPlaygroundPageState extends State<JevPlaygroundPage> {
             ExpansionTile(
               key: const Key('playground-preview-expand'),
               title: const Text('实际发送 JSON'),
-              children: [_jsonBlock('发送内容', preview, 'playground-preview')],
+              children: [
+                _jsonBlock(
+                  '发送内容',
+                  preview,
+                  'playground-preview',
+                  projection: JevDebugProjection.request,
+                ),
+              ],
             ),
           const SizedBox(height: 12),
           Wrap(
@@ -484,13 +499,23 @@ class _JevPlaygroundPageState extends State<JevPlaygroundPage> {
           if (result != null) ...[
             Text(result.message, key: const Key('playground-status')),
             if (result.output != null)
-              _jsonBlock('本次结果', result.output!, 'playground-output'),
+              _jsonBlock(
+                '本次结果',
+                result.output!,
+                'playground-output',
+                projection: JevDebugProjection.response,
+              ),
             if (result.debug != null)
               ExpansionTile(
                 key: const Key('playground-debug-expand'),
                 title: const Text('本次 debug · 来源 / 配置 / IO / 转换 / 耗时'),
                 children: [
-                  _jsonBlock('Debug', result.debug!, 'playground-debug-output'),
+                  _jsonBlock(
+                    'Debug',
+                    result.debug!,
+                    'playground-debug-output',
+                    projection: JevDebugProjection.debug,
+                  ),
                 ],
               ),
           ],

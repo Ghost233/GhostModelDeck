@@ -193,3 +193,26 @@ Map<String, Object?> credentialExtraJevResponse(String raw) {
     'echo': 'answer-extra-secret unknown-header-token unlisted-cookie-token typed-object-secret',
   };
 }
+
+Map<String, Object?> nestedCredentialJevResponse(String raw) => {
+  ...Map<String, Object?>.from(jsonDecode(raw) as Map),
+  'server_metadata': {
+    'state': {'API_KEY': 'shape-secret'},
+    'questions': <String, Object?>{},
+  },
+  'response_metadata': {
+    'model': 'untrusted',
+    'answers': {
+      'q': {
+        'type': 'score',
+        'legend': {'API_KEY': 'response-legend-token'},
+      },
+    },
+  },
+  'diagnostic': {'model': 'Authorization: Bearer unique-secret'},
+  'encoded_metadata': [
+    '{"state":{"API_KEY":"encoded-question-token"},"questions":{}}',
+    '{"model":"untrusted","answers":{"q":{"type":"score","legend":{"Authorization":"Bearer encoded-answer-token"}}}}',
+  ],
+  'echo': 'shape-secret response-legend-token unique-secret encoded-question-token encoded-answer-token',
+};

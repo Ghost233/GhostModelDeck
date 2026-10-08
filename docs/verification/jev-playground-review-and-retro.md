@@ -47,7 +47,15 @@
 
 共享 sealer 的最终源码 SHA-256 为 `4f14eb970efdc16b8cdd5d839dd5dc01d08b83f0106498a1bb80b84da1b876c4`；独立门禁记录为 `r36-p2-gates-independent.json`。
 
-## 当前修正的最终证据
+## 后续完整审查与当前上下文来源修正
+
+完整 `6359...a5c55bf` 阶段审查为 Standards 0 / Spec 1 项 P2：未知嵌套 request/response 形状或 model 字符串仍能重新取得任务免疫。初审 0 → 合法数据 P2 → 未知凭据 P2 → 嵌套形状 P2 的各次结论均保留。当前修正改为调用方声明根角色，只经真实业务字段传播，未知 metadata 与编码 JSON 不能改变来源。
+
+原始响应的已验证来源由本次 DecisionBatchResult DTO 或委员会有效 answers 表达，不使用 status/HTTP 200 或任意 JSON 形状决定信任。公开取消用例用实际引擎状态通知作为到达屏障，验证本次仍以 cancelled 错误结束、已验证 raw 任务数据保留、未知凭据隐藏；未验证原文 model/answers 不能获得免疫。生产结果源仍为本次 await 返回值，未借测试观察的共享状态构造结果。
+
+`run-20ZNB0` 1/1，六个 adapter/page 用例全部失败；`run-kma9sH` 0/0，14 个定点通过。取消保护红 `run-XrFwQQ` 1/1 与未匹配 guard 的 `run-vVzTaj` 1/1 均按原始结果保留，不把部分通过计为门禁通过。新 `lib/jev_models.dart` 仅涉及必要 debug 根角色接线，固定阶段完整文件范围现在为 13；最终整体双轴复审由主线程执行。
+
+## 第二次 P2 修正最终证据（历史）
 
 | 检查 | 最终结果 |
 | --- | --- |
@@ -57,9 +65,24 @@
 | `run-eHc7GE` 全量回归 | 宿主/job 0/0，528 tests passed。 |
 | 当前源码 macOS 回环 | 宿主退出 0，15 ms 排空本次 lease/许可；待决同伴和后续调用成功，监听器继续运行，清理前驻留 kill 为 0，最终登记/许可归零。 |
 
-上述四个容器归档与最终工作区逐文件核对相同 98 个输入，compact-JSON `bb91f663fe3d7a50d37169651f3282aacbbd65a66ad629cabee7c78648e3707d`，逐行 `1205422f8ebd9f5f13bb12c6a6933e7c5e8b164ce93222e767933949212bcd34`。新 Mac driver SHA-256 `8a0f8cf0f1e4e05b180d72ffee683fa54b2e9402d41bcf6aa37c712c9f79454c`，最终 sealer SHA-256 `b8f23a28a2f113243fb14cf21f9e9eda900186b14967dbd6691cad21e2d97e35`；完整命令、归档/日志 hash 和宿主/job 退出码见 [最终门禁](jev-inference-playground.md#最终工程门禁) 与持久主工作区 `.scratch/jev-protocol-playground/continuation/r36-projection-status.json`、`r36-final-gates.json`、`r36-final-mac-owned-http.json`。
+上述四个容器归档与 `a5c55bf` 该次修正的工作区逐文件核对相同 98 个输入，compact-JSON `bb91f663fe3d7a50d37169651f3282aacbbd65a66ad629cabee7c78648e3707d`，逐行 `1205422f8ebd9f5f13bb12c6a6933e7c5e8b164ce93222e767933949212bcd34`。新 Mac driver SHA-256 `8a0f8cf0f1e4e05b180d72ffee683fa54b2e9402d41bcf6aa37c712c9f79454c`，最终 sealer SHA-256 `b8f23a28a2f113243fb14cf21f9e9eda900186b14967dbd6691cad21e2d97e35`；完整命令、归档/日志 hash 和宿主/job 退出码见 [最终门禁](jev-inference-playground.md#最终工程门禁) 与持久主工作区 `.scratch/jev-protocol-playground/continuation/r36-projection-status.json`、`r36-final-gates.json`、`r36-final-mac-owned-http.json`。
 
 当前证据修正了 v2 P2 的两条具体路径，并保留先前合法数据 P2 的行为要求。最终整体 Standards/Spec 双轴复审仍由主线程执行，本记录不先行宣称零发现。
+
+## 当前上下文来源修正的最终证据
+
+| 检查 | 实际结果 |
+| --- | --- |
+| `run-v19ZLE` 最终定点 | 宿主/job 0/0，16 passed。 |
+| `run-Okl0YN` 受影响八文件 | 宿主/job 0/0，85 passed。 |
+| `run-8JnDxC` format | 宿主/job 0/0，90 files / 0 changed。 |
+| `run-ReToZt` analyze | 宿主/job 0/0，零诊断。 |
+| `run-4yKj9l` 全量 | 宿主/job 0/0，533 passed。 |
+| 当前源码 macOS 回环 | 宿主退出 0，11 ms 排空本次调用；同伴及后续调用成功，监听器运行，清理前驻留 kill 为 0，最终登记/许可为 0。 |
+
+四份最终容器归档与工作区逐文件核对相同 98 个输入：compact-JSON `ac4ef1e497368e5507b805f903dae7ad2ce9e17562a47444190833606741a8e3`，逐行 `aafbb804adfaa9cf3a42c89898f71c43eff340ea5a3b679578c16f7531e08175`。新的 sealer SHA-256 为 `117ee68707308224383ee1528ad28df160197b9736120c60aea16090c47650de`。当前 [工程与 Mac 证据](jev-inference-playground.md#最终工程门禁) 保存到持久 `continuation/r36-bounded-projection-status.json`、`r36-bounded-final-gates.json`、`r36-bounded-final-mac-owned-http.json`，主线程的独立核验为 `r36-bounded-independent.json`。
+
+后续审查揭示的嵌套形状缺陷和本轮暴露的取消证据误脱敏均据真实公开失败修正；此前各轮失败/通过记录保留，没有使用 HTTP 状态、测试数量或已取消结果推断成功。最终完整 13 文件 Standards/Spec 审查与复盘仍由主线程执行，此处不提前宣称零发现。
 
 ## 保留的验收边界
 

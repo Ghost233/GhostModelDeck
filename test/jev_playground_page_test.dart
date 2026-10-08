@@ -673,7 +673,7 @@ void main() {
   }
   for (final mode in JevPlaygroundMode.values) {
     testWidgets(
-      'actual $mode page preview and copied result preserve legal task data and hide response credential extras',
+      'actual $mode page preview and copied result preserve legal task data and hide response credential extras and nested response shapes',
       (tester) async {
         final fixture = (await tester.runAsync(
           () => HttpOverrides.runWithHttpOverrides(
@@ -738,8 +738,13 @@ void main() {
         final name = mode == JevPlaygroundMode.native
             ? fixture.runtime.engine.state.instances.first.id
             : 'quick';
-        for (final extras in [false, true]) {
-          fixture.runtime.io.respond = extras
+        for (final extraKind in [0, 1, 2]) {
+          final extras = extraKind == 1;
+          final nested = extraKind == 2;
+          fixture.runtime.io.respond = nested
+              ? (body, raw) async =>
+                    jsonEncode(nestedCredentialJevResponse(raw))
+              : extras
               ? (body, raw) async => jsonEncode(credentialExtraJevResponse(raw))
               : null;
           for (final debug in [false, true]) {
@@ -823,12 +828,39 @@ void main() {
                 },
                 'echo': '[redacted] [redacted] [redacted] [redacted]',
               },
+              if (mode == JevPlaygroundMode.native && nested) ...{
+                'server_metadata': {
+                  'state': {'API_KEY': '[redacted]'},
+                  'questions': {},
+                },
+                'response_metadata': {
+                  'model': 'untrusted',
+                  'answers': {
+                    'q': {
+                      'type': 'score',
+                      'legend': {'API_KEY': '[redacted]'},
+                    },
+                  },
+                },
+                'diagnostic': {'model': 'Authorization: [redacted]'},
+                'encoded_metadata': [
+                  '{"state":{"API_KEY":"[redacted]"},"questions":{}}',
+                  '{"model":"untrusted","answers":{"q":{"type":"score","legend":{"Authorization":"[redacted]"}}}}',
+                ],
+                'echo':
+                    '[redacted] [redacted] [redacted] [redacted] [redacted]',
+              },
             });
             for (final secret in [
               'answer-extra-secret',
               'unknown-header-token',
               'unlisted-cookie-token',
               'typed-object-secret',
+              'shape-secret',
+              'response-legend-token',
+              'unique-secret',
+              'encoded-question-token',
+              'encoded-answer-token',
             ]) {
               expect(copied, isNot(contains(secret)));
             }
@@ -856,6 +888,11 @@ void main() {
                 'unknown-header-token',
                 'unlisted-cookie-token',
                 'typed-object-secret',
+                'shape-secret',
+                'response-legend-token',
+                'unique-secret',
+                'encoded-question-token',
+                'encoded-answer-token',
               ]) {
                 expect(copied, isNot(contains(secret)));
               }

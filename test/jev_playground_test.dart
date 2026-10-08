@@ -516,6 +516,175 @@ void main() {
       selected.model,
     );
   });
+  test('native cancellation retains validated raw task data and hides unknown credentials', () async {
+    final fixture = await PlaygroundRuntime.create();
+    addTearDown(fixture.close);
+    final source = fixture.playground.nativeSources.first;
+    final token = DecisionCancellation();
+    fixture.runtime.io.respond = (body, raw) async => jsonEncode({
+      ...jsonDecode(raw) as Map,
+      'marker': 'accepted-before-cancel',
+      'diagnostic': {'API_KEY': 'accepted-extra-token'},
+    });
+    final subscription = fixture.runtime.engine.changes.listen((state) {
+      if (state.instances.any(
+        (instance) =>
+            instance.lastBatchResult?.rawResponse.contains(
+              'accepted-before-cancel',
+            ) ==
+            true,
+      )) {
+        token.cancel();
+      }
+    });
+    addTearDown(subscription.cancel);
+    final document = credentialNamedJevDocument(source.model, debug: true);
+    final result = await fixture.playground.run(
+      JevPlaygroundMode.native,
+      jsonEncode(document),
+      nativeSource: source,
+      cancellation: token,
+    );
+    expect(result.status, JevPlaygroundStatus.cancelled);
+    final input = result.debug!['input'] as Map;
+    expect(input['state'], document['state']);
+    expect(input['questions'], document['questions']);
+    final raw = jsonDecode(
+      (result.debug!['native'] as Map)['raw_response'] as String,
+    );
+    expect(raw['answers'], credentialNamedJevAnswers);
+    expect(raw['diagnostic'], {'API_KEY': '[redacted]'});
+    expect(jsonEncode(result.debug), isNot(contains('accepted-extra-token')));
+    expect(
+      fixture.runtime.engine.state.instances.every(
+        (i) => i.activeRequests == 0,
+      ),
+      true,
+    );
+  });
+  test('native rejected raw JSON cannot claim response immunity through model or answers', () async {
+    final fixture = await PlaygroundRuntime.create();
+    addTearDown(fixture.close);
+    final source = fixture.playground.nativeSources.first;
+    fixture.runtime.io.respond = (body, raw) async => jsonEncode({
+      'model': 'Authorization: Bearer invalid-model-token',
+      'answers': {
+        'q': {
+          'type': 'score',
+          'legend': {'API_KEY': 'invalid-legend-token'},
+        },
+      },
+    });
+    final result = await fixture.playground.run(
+      JevPlaygroundMode.native,
+      jsonEncode(credentialNamedJevDocument(source.model, debug: true)),
+      nativeSource: source,
+    );
+    expect(result.status, JevPlaygroundStatus.businessError);
+    expect((result.output!['error'] as Map)['code'], 'invalid_response');
+    final raw = jsonDecode(
+      (result.debug!['native'] as Map)['raw_response'] as String,
+    );
+    expect(raw['model'], 'Authorization: [redacted]');
+    expect(raw['answers']['q']['legend'], {'API_KEY': '[redacted]'});
+    for (final secret in ['invalid-model-token', 'invalid-legend-token']) {
+      expect(jsonEncode(result.debug), isNot(contains(secret)));
+    }
+  });
+  for (final mode in JevPlaygroundMode.values) {
+    test(
+      '$mode unknown nested response shapes cannot establish JEV task immunity',
+      () async {
+        final fixture = await PlaygroundRuntime.create();
+        addTearDown(fixture.close);
+        fixture.runtime.io.respond = (body, raw) async =>
+            jsonEncode(nestedCredentialJevResponse(raw));
+        final source = fixture.playground.nativeSources.first;
+        for (final name
+            in mode == JevPlaygroundMode.native
+                ? [source.model]
+                : ['quick', 'hard', 'native-kev']) {
+          for (final debug in [false, true]) {
+            final document = credentialNamedJevDocument(name, debug: debug);
+            final result = await fixture.playground.run(
+              mode,
+              jsonEncode(document),
+              nativeSource: source,
+            );
+            expect(result.status, JevPlaygroundStatus.success);
+            expect(result.output!['answers'], credentialNamedJevAnswers);
+            final responses = <Map>[];
+            if (mode == JevPlaygroundMode.native) responses.add(result.output!);
+            if (debug) {
+              expect(
+                (result.debug!['input'] as Map)['questions'],
+                document['questions'],
+              );
+              expect(
+                (result.debug!['input'] as Map)['state'],
+                document['state'],
+              );
+              final ios = result.debug!['source'] == 'council'
+                  ? result.debug!['seats'] as List
+                  : [result.debug!['native']];
+              for (final io in ios) {
+                responses.add(
+                  jsonDecode((io as Map)['raw_response'] as String) as Map,
+                );
+              }
+            } else {
+              expect(result.debug, isNull);
+            }
+            for (final response in responses) {
+              expect(response['server_metadata']['state'], {
+                'API_KEY': '[redacted]',
+              });
+              expect(response['response_metadata']['answers']['q']['legend'], {
+                'API_KEY': '[redacted]',
+              });
+              expect(
+                response['diagnostic']['model'],
+                'Authorization: [redacted]',
+              );
+              final encoded = response['encoded_metadata'] as List;
+              expect(jsonDecode(encoded.first as String)['state'], {
+                'API_KEY': '[redacted]',
+              });
+              expect(
+                jsonDecode(encoded.last as String)['answers']['q']['legend'],
+                {'Authorization': '[redacted]'},
+              );
+              expect(
+                response['echo'],
+                '[redacted] [redacted] [redacted] [redacted] [redacted]',
+              );
+              expect(response['answers'], credentialNamedJevAnswers);
+            }
+            for (final secret in [
+              'shape-secret',
+              'response-legend-token',
+              'unique-secret',
+              'encoded-question-token',
+              'encoded-answer-token',
+            ]) {
+              expect(jsonEncode(result.output), isNot(contains(secret)));
+              expect(jsonEncode(result.debug), isNot(contains(secret)));
+            }
+          }
+        }
+        for (final request in fixture.runtime.io.requests) {
+          expect(
+            request['questions'],
+            credentialNamedJevDocument('ignored')['questions'],
+          );
+          expect(
+            request['state'],
+            credentialNamedJevDocument('ignored')['state'],
+          );
+        }
+      },
+    );
+  }
   for (final mode in JevPlaygroundMode.values) {
     test(
       '$mode response answer extras cannot inherit request question credential immunity',

@@ -59,7 +59,7 @@ class JevPlaygroundResult {
       'message': message,
       'output': output,
       'debug': debug,
-    });
+    }, projection: JevDebugProjection.playgroundResult);
     return JevPlaygroundResult._(
       status,
       safe['message'] as String,
@@ -280,6 +280,7 @@ class JevPlayground {
     final trace = parsed.debug ? DecisionIOTrace() : null;
     final watch = Stopwatch()..start();
     final remove = token.listen(() => trace?.seal());
+    DecisionBatchResult? receivedResult;
     Map<String, Object?>? evidence(Map<String, Object?> result, String status) {
       if (!parsed.debug) return null;
       trace!.seal();
@@ -296,14 +297,18 @@ class JevPlayground {
           'timeout_us': timeout.inMicroseconds,
         },
         'input': parsed.request.toSystemone(model: parsed.model),
-        'native': {'status': status, ...trace.toJson()},
+        'native': {
+          'status': status,
+          ...trace.toJson(),
+          'result': receivedResult?.toJson(),
+        },
         'converted_result': result,
         'elapsed_us': watch.elapsedMicroseconds,
-      });
+      }, projection: JevDebugProjection.debug);
     }
 
     try {
-      final result = await controller.catalog
+      receivedResult = await controller.catalog
           .providerFor(selected.engineId)
           .decideBatch(
             selected.model,
@@ -320,7 +325,7 @@ class JevPlayground {
         );
       }
       final raw = Map<String, Object?>.from(
-        jsonDecode(result.rawResponse) as Map,
+        jsonDecode(receivedResult.rawResponse) as Map,
       );
       return JevPlaygroundResult(
         JevPlaygroundStatus.success,

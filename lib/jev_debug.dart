@@ -46,14 +46,36 @@ Object? freezeDebugJson(Object? value) => switch (value) {
   _ => value,
 };
 
-/// Redacts display copies only; actual engine input and standard answers remain intact.
-Map<String, Object?> sealDebugJson(Map<String, Object?> value) {
-  final redactor = _CredentialRedactor()..collect(value);
-  return freezeDebugJson(redactor.redact(value)) as Map<String, Object?>;
+/// Caller-owned business root; unknown nested JSON cannot establish a role.
+enum JevDebugProjection { generic, request, response, debug, playgroundResult }
+
+/// Redacts display copies only; actual engine input remains intact.
+Map<String, Object?> sealDebugJson(
+  Map<String, Object?> value, {
+  JevDebugProjection projection = JevDebugProjection.generic,
+}) {
+  final context = switch (projection) {
+    JevDebugProjection.generic => _JevProjection.none,
+    JevDebugProjection.request => _JevProjection.request,
+    JevDebugProjection.response => _JevProjection.response,
+    JevDebugProjection.debug => _JevProjection.debug,
+    JevDebugProjection.playgroundResult => _JevProjection.playgroundResult,
+  };
+  final redactor = _CredentialRedactor()..collect(value, context: context);
+  return freezeDebugJson(redactor.redact(value, context: context))
+      as Map<String, Object?>;
 }
 
 enum _JevProjection {
   none,
+  request,
+  response,
+  debug,
+  playgroundResult,
+  configuration,
+  io,
+  council,
+  councilSeat,
   questions,
   question,
   answers,
@@ -95,9 +117,16 @@ class _CredentialRedactor {
   // Identifier dictionaries and task descriptions are opaque JEV data, not
   // credential configuration. Known secrets are still removed from their values.
   static bool _taskData(Map parent, String key, _JevProjection context) {
-    if (key == 'model' && parent[key] is String) return true;
-    if (parent['questions'] is Map &&
-        parent.containsKey('state') &&
+    if (const {
+          _JevProjection.request,
+          _JevProjection.response,
+          _JevProjection.debug,
+        }.contains(context) &&
+        key == 'model' &&
+        parent[key] is String) {
+      return true;
+    }
+    if (context == _JevProjection.request &&
         const {'state', 'images'}.contains(key)) {
       return true;
     }
@@ -121,13 +150,10 @@ class _CredentialRedactor {
         return true;
       }
     }
-    if (key == 'name' &&
-        parent['bindings'] is List &&
-        const {'native', 'council'}.contains(parent['source'])) {
+    if (context == _JevProjection.configuration && key == 'name') {
       return true;
     }
-    if (parent['request'] is Map &&
-        parent['seats'] is List &&
+    if (context == _JevProjection.council &&
         const {
           'aggregate_scores',
           'votes',
@@ -149,28 +175,52 @@ class _CredentialRedactor {
     Map parent,
     String key,
     _JevProjection context,
-  ) {
-    if (context == _JevProjection.questions) return _JevProjection.question;
-    if (context == _JevProjection.answers) return _JevProjection.answer;
-    if (context == _JevProjection.aggregates) return _JevProjection.aggregate;
-    if (key == 'questions' &&
-        parent[key] is Map &&
-        parent.containsKey('state')) {
-      return _JevProjection.questions;
-    }
-    if (key == 'answers' &&
-        parent[key] is Map &&
-        (parent['model'] is String || parent['seat_id'] is String)) {
-      return _JevProjection.answers;
-    }
-    if (key == 'aggregates' &&
-        parent[key] is Map &&
-        parent['request'] is Map &&
-        parent['seats'] is List) {
-      return _JevProjection.aggregates;
-    }
-    return _JevProjection.none;
-  }
+  ) => switch (context) {
+    _JevProjection.playgroundResult => switch (key) {
+      'output' => _JevProjection.response,
+      'debug' => _JevProjection.debug,
+      _ => _JevProjection.none,
+    },
+    _JevProjection.debug => switch (key) {
+      'configuration' => _JevProjection.configuration,
+      'input' => _JevProjection.request,
+      'native' || 'seats' => _JevProjection.io,
+      'council' => _JevProjection.council,
+      'converted_result' => _JevProjection.response,
+      _ => _JevProjection.none,
+    },
+    _JevProjection.io => switch (key) {
+      'request' || 'request_body' => _JevProjection.request,
+      'result' => _JevProjection.response,
+      'raw_response' =>
+        parent['result'] != null
+            ? _JevProjection.response
+            : _JevProjection.none,
+      _ => _JevProjection.none,
+    },
+    _JevProjection.council => switch (key) {
+      'request' => _JevProjection.request,
+      'seats' => _JevProjection.councilSeat,
+      'aggregates' => _JevProjection.aggregates,
+      _ => _JevProjection.none,
+    },
+    _JevProjection.councilSeat => switch (key) {
+      'answers' => _JevProjection.answers,
+      'raw_response' =>
+        parent['answers'] != null
+            ? _JevProjection.response
+            : _JevProjection.none,
+      _ => _JevProjection.none,
+    },
+    _JevProjection.request =>
+      key == 'questions' ? _JevProjection.questions : _JevProjection.none,
+    _JevProjection.response =>
+      key == 'answers' ? _JevProjection.answers : _JevProjection.none,
+    _JevProjection.questions => _JevProjection.question,
+    _JevProjection.answers => _JevProjection.answer,
+    _JevProjection.aggregates => _JevProjection.aggregate,
+    _ => _JevProjection.none,
+  };
 
   void collect(
     Object? value, {
@@ -203,7 +253,7 @@ class _CredentialRedactor {
       try {
         final parsed = jsonDecode(value);
         if (parsed is Map || parsed is List) {
-          collect(parsed);
+          collect(parsed, context: context);
           // A complete JSON document has structural context. Regex scanning its
           // original bytes would mistake identifiers/descriptions for headers.
           return;
