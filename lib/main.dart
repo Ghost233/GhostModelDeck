@@ -149,6 +149,8 @@ class _ManagerShellState extends State<_ManagerShell> {
       // 窗口激活最小原生 seam；原生窗口行为验证属 #19 范围。原生未实现时
       // MissingPluginException 真实上抛，不假装窗口已激活。
       onOpenWindow: () => _native.invokeMethod<void>('activateMainWindow'),
+      onSetEntryManaged: (managed) async =>
+          await _native.invokeMethod<bool>('setEntryManaged', managed) ?? false,
       onVersionStatus: _versionStatusBridge.query,
     );
     _lifecycle = ManagerLifecycle(

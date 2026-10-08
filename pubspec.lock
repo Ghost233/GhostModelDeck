@@ -140,8 +140,8 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/maclauncher_sdk"
-      ref: b48c5a9c232a609b59c9510c59cca82046fc9e55
-      resolved-ref: b48c5a9c232a609b59c9510c59cca82046fc9e55
+      ref: "268f88ef5ff47dbafe88200d5cddd090983ad313"
+      resolved-ref: "268f88ef5ff47dbafe88200d5cddd090983ad313"
       url: "https://github.com/Ghost233/MacLauncher.git"
     source: git
     version: "0.1.0"

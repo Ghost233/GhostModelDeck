@@ -59,7 +59,7 @@ void main() {
       });
       expect(Set<String>.from(capabilities['app'] as List), {
         'openWindow',
-      }, reason: '按契约不声明 onSetEntryManaged');
+      }, reason: '未配置菜单栏原生回调时不声明该能力');
     });
 
     _realNet('hello 自报 projectName 与 entry（运行时发现 #30）', () async {
@@ -185,6 +185,104 @@ void main() {
         DateTime.now().toUtc().difference(observedAt).abs().inSeconds,
         lessThan(10),
       );
+    });
+  });
+
+  group('LauncherInferenceService 菜单栏许可', () {
+    _realNet('隐藏和归还如实确认，已有模型与业务继续运行', () async {
+      final calls = <bool>[];
+      final fixture = await _SdkFixture.create(
+        useAssetEntry: true,
+        onSetEntryManaged: (managed) async {
+          calls.add(managed);
+          return true;
+        },
+      );
+      addTearDown(fixture.close);
+      await fixture.connect();
+      final capabilities = fixture.peer.hellos.single['capabilities'] as Map;
+      expect(capabilities['app'] as List, contains('setEntryManaged'));
+      await fixture.peer.call('start');
+      final instance = fixture.liveInstances.single.id;
+      for (final managed in [true, false]) {
+        final response = await fixture.peer.call(
+          'setEntryManaged',
+          serviceId: null,
+          params: {'managed': managed},
+        );
+        expect(response['result'], {'confirmed': true});
+        expect(fixture.liveInstances.single.id, instance);
+        expect(fixture.io.startCount, 1);
+        expect(fixture.gateway.state, PublicGatewayState.running);
+        expect(fixture.mcp.state.status, CouncilMcpStatus.running);
+      }
+      expect(calls, [true, false]);
+    });
+
+    _realNet('原生拒绝不虚报确认，非法 managed 不调用原生', () async {
+      final calls = <bool>[];
+      final fixture = await _SdkFixture.create(
+        onSetEntryManaged: (managed) async {
+          calls.add(managed);
+          return false;
+        },
+      );
+      addTearDown(fixture.close);
+      await fixture.connect();
+      final response = await fixture.peer.call(
+        'setEntryManaged',
+        serviceId: null,
+        params: {'managed': true},
+      );
+      expect(response['result'], {'confirmed': false});
+      final error = await fixture.peer.callError(
+        'setEntryManaged',
+        serviceId: null,
+        params: {'managed': 'true'},
+      );
+      expect(error['code'], 'invalid');
+      expect(calls, [true]);
+    });
+
+    _realNet('断连归还排在在途隐藏之后，迟到隐藏不能覆盖归还', () async {
+      final calls = <bool>[];
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      final restored = Completer<void>();
+      final fixture = await _SdkFixture.create(
+        onSetEntryManaged: (managed) async {
+          calls.add(managed);
+          if (managed) {
+            entered.complete();
+            await release.future;
+          } else if (!restored.isCompleted) {
+            restored.complete();
+          }
+          return true;
+        },
+      );
+      addTearDown(() async {
+        if (!release.isCompleted) release.complete();
+        await fixture.close();
+      });
+      await fixture.connect();
+      fixture.peer.sendRaw({
+        'type': 'request',
+        'id': 'menu-hide-race',
+        'method': 'setEntryManaged',
+        'params': {'managed': true},
+      });
+      await entered.future.timeout(const Duration(seconds: 5));
+      fixture.peer.dropConnections();
+      await fixture.peer.waitFor(
+        () => fixture.peer.drops > 0 ? true : null,
+        what: 'SDK disconnect',
+      );
+      expect(calls, [true]);
+      release.complete();
+      await restored.future.timeout(const Duration(seconds: 5));
+      expect(calls, [true, false]);
+      expect(fixture.events, isNot(contains('engine-killed')));
     });
   });
 
@@ -1414,6 +1512,7 @@ class _SdkFixture {
     bool useAssetEntry = false,
     bool extraMissingEntry = false,
     bool corruptStartupSet = false,
+    Future<bool> Function(bool managed)? onSetEntryManaged,
     Future<sdk.VersionStatus> Function()? onVersionStatus,
   }) async {
     final root = await Directory.systemTemp.createTemp('gmd-sdk-');
@@ -1501,6 +1600,7 @@ class _SdkFixture {
         mcp: mcp,
         startupSet: startupSet,
         onOpenWindow: openWindowSeam ? openWindowCounter.increment : null,
+        onSetEntryManaged: onSetEntryManaged,
         onVersionStatus: onVersionStatus,
         socketPath: socketPath,
       ),

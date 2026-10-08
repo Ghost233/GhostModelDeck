@@ -6,6 +6,7 @@ class AppDelegate: FlutterAppDelegate {
   var shutdownChannel: FlutterMethodChannel?
   private var terminating = false
   private var statusItem: NSStatusItem?
+  private var entryManaged = false
 
   func configureWindow(_ window: NSWindow) {
     mainFlutterWindow = window
@@ -28,8 +29,16 @@ class AppDelegate: FlutterAppDelegate {
     menu.addItem(quitItem)
     item.menu = menu
     statusItem = item
+    item.isVisible = !entryManaged
     NotificationCenter.default.addObserver(self, selector: #selector(mainWindowWillClose(_:)),
       name: NSWindow.willCloseNotification, object: window)
+  }
+
+  func setEntryManaged(_ managed: Bool) -> Bool {
+    entryManaged = managed
+    guard let item = statusItem else { return false }
+    item.isVisible = !managed
+    return item.isVisible == !managed
   }
 
   @objc private func mainWindowWillClose(_ notification: Notification) {

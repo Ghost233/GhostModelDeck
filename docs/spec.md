@@ -124,9 +124,9 @@ MacLauncher 通过一个整体推理服务启动接口及用户配置的启动�
 - 回收保留应用、SDK 连接、启动配置和模型文件，可再次启动；下载任务仍由应用管理。GUI/SDK 共用业务控制，协议去重不代替业务幂等。
 - onStatus 回报真实起停/就绪/故障及实际 UTC 观察时间；onLogs 回报真实批次，遵守限制、顺序、截断和未知原始时间/分流语义。
 - 关窗继续后台，onOpenWindow 激活/重开主窗口；明确退出才完整收尾推理、下载和 SDK。失败保留残留与重试入口，不假报停止。
-- 应用始终通过菜单栏提供自身入口；打开主窗口时显示 Dock 图标，关窗后隐藏 Dock 并保留菜单栏与业务服务。菜单提供打开主窗口与明确退出，菜单栏与启动器重开窗口均恢复 Dock。
+- 应用独立运行时通过菜单栏提供自身入口；打开主窗口时显示 Dock 图标，关窗后隐藏 Dock 并保留菜单栏与业务服务。菜单提供打开主窗口与明确退出，菜单栏与启动器重开窗口均恢复 Dock。连接 MacLauncher 时支持其菜单栏显示许可：暂时隐藏只作用于菜单栏，不改变窗口、Dock 或业务；断连、启动器退出或解除关联后由 SDK 归还自身入口。
 - 启动器退出/崩溃、断连/重连不回收业务或复制实例；连接生命周期独立于窗口/推理回收，第二连接冲突不抢占。
-- 保留自身入口，不声明 onSetEntryManaged，不隐藏或交接入口；首期不依赖上游 SDK 缺失的失联自动归还。
+- 2026-10-08 用户要求支持最新 SDK 菜单栏显示能力，替换首期不声明 onSetEntryManaged 的约定。声明该能力并通过原生 NSStatusItem 应用约束，实际应用成功才确认；约束不写入应用偏好。沿用 SDK 对隐藏/归还的串行执行及失联兜底，不回收或复制已有业务。
 
 ## 测试决策
 
@@ -192,7 +192,7 @@ MacLauncher 通过一个整体推理服务启动接口及用户配置的启动�
 - 目标机：M5 Pro/64 GB、arm64、macOS27.0.1 (26A434)、Xcode27.0 (27A266a)。Flutter3.47.6，revision 5fc346839b5d0eef006ed8404392afb4dfae428d；Dart3.13.5。Apple container1.2.0/Socktainer1.2.1，只读观察见 [环境基线](verification/acceptance-environment-baseline.md)。
 - 标准GGUF引擎：llama.cpp v0.5.0 / 7fe450e19305b828c199d602c23a8337aaa1f03b；oMLX v0.7.0 / 4d4f5a280bc1739ba2cf39c1cee44fd5cc89cb40。
 - oMLX官方 macos26-27 DMG：830,879,938 B，digest sha256:2e3bb06ac6ee7f50986ba1417e909d432ccd2be471db752a4a2d3b5651e3bce0。完整私有应用包与CLI wrapper的资源/路径约束见 [受管分发研究](research/omlx-managed-distribution.md)；未下载、解包或运行，不以源码意图声称发布包通过。
-- SDK固定提交：bc7262f4047e81f55922c203948ac64d9e0e2d13；官方纯Dart子包的引用/协议与来源差异见 [SDK研究](research/maclauncher-sdk-contract.md)。SDK project/service身份与schemaVersion1关联配置匹配。
+- SDK固定提交：268f88ef5ff47dbafe88200d5cddd090983ad313（2026-10-08 核验上游 main）；官方纯Dart子包的引用/协议与来源差异见 [SDK研究](research/maclauncher-sdk-contract.md)。SDK project/service身份与schemaVersion1关联配置匹配。
 
 ### 固定小型验收模型
 
