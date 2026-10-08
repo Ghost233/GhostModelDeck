@@ -375,7 +375,7 @@ class JevModels {
           'council': receivedResult.toJson(),
           'converted_result': converted,
           'elapsed_us': watch.elapsedMicroseconds,
-        });
+        }, projection: JevDebugProjection.debug);
       }
 
       try {
@@ -445,7 +445,7 @@ class JevModels {
         },
         'converted_result': converted,
         'elapsed_us': watch.elapsedMicroseconds,
-      });
+      }, projection: JevDebugProjection.debug);
     }
 
     JevRequestException finishError(JevRequestException error) {

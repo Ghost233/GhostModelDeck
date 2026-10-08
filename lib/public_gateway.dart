@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'chat_protocol.dart';
@@ -222,8 +223,33 @@ class PublicModelRoutes {
 enum PublicGatewayState { stopped, starting, running, stopping, failed }
 
 class _InflightRequest {
+  _InflightRequest({this.ownedId});
+  final String? ownedId;
+  bool claimed = false;
   final cancellation = DecisionCancellation();
   final drained = Completer<void>();
+}
+
+/// An in-process owner's capability for one actual HTTP JEV call.
+/// The opaque header binds the wire request; it cannot cancel another handle.
+class PublicJevRequestLease {
+  PublicJevRequestLease._(this._gateway, this._request);
+  final PublicGatewayServer _gateway;
+  final _InflightRequest _request;
+  String get id => _request.ownedId!;
+  bool cancel() {
+    if (_request.drained.isCompleted || _request.cancellation.isCancelled) {
+      return false;
+    }
+    _request.cancellation.cancel();
+    return true;
+  }
+
+  Future<void> close() async {
+    cancel();
+    if (!_request.claimed) _gateway._finish(_request);
+    await _request.drained.future;
+  }
 }
 
 class _ParsedChat {
@@ -250,6 +276,7 @@ class PublicGatewayServer {
   });
 
   static const defaultPort = 54841;
+  static const ownedRequestHeader = 'x-gmd-owned-jev-request';
   static const _bodyLimit = 1024 * 1024;
 
   final PublicModelRoutes _routes;
@@ -279,6 +306,26 @@ class PublicGatewayServer {
   }
 
   Stream<PublicGatewayState> get changes => _changes.stream;
+
+  int get activeOwnedRequests =>
+      _inflight.where((r) => r.ownedId != null).length;
+
+  /// Register before connecting, so cancellation cannot race late admission.
+  PublicJevRequestLease leaseJevRequest() {
+    if (_sealed || _state != PublicGatewayState.running || jevModels == null) {
+      throw StateError('JEV HTTP 服务未运行');
+    }
+    final random = Random.secure();
+    final id = base64UrlEncode(List.generate(24, (_) => random.nextInt(256)));
+    final request = _InflightRequest(ownedId: id);
+    _inflight.add(request);
+    return PublicJevRequestLease._(this, request);
+  }
+
+  void _finish(_InflightRequest request) {
+    _inflight.remove(request);
+    if (!request.drained.isCompleted) request.drained.complete();
+  }
 
   Future<void> start() async {
     if (_state == PublicGatewayState.running) {
@@ -319,6 +366,7 @@ class PublicGatewayServer {
     _sealed = true;
     for (final request in _inflight.toList()) {
       request.cancellation.cancel();
+      if (request.ownedId != null && !request.claimed) _finish(request);
     }
   }
 
@@ -346,7 +394,7 @@ class PublicGatewayServer {
   }
 
   Future<void> _handle(HttpRequest request) async {
-    final inflight = _InflightRequest();
+    var inflight = _InflightRequest();
     _inflight.add(inflight);
     try {
       if (_sealed) {
@@ -362,6 +410,42 @@ class PublicGatewayServer {
         return;
       }
       final path = request.uri.path;
+      final handles = request.headers[ownedRequestHeader];
+      if (handles != null) {
+        if (request.method != 'POST' ||
+            path != '/v1/systemone' ||
+            handles.length != 1 ||
+            handles.single.contains(',')) {
+          throw const JevRequestException(
+            400,
+            'invalid_owned_request',
+            '调用句柄需要唯一的 JEV HTTP 请求',
+          );
+        }
+        final owned = _inflight
+            .where((r) => r.ownedId == handles.single)
+            .firstOrNull;
+        if (owned == null) {
+          throw const JevRequestException(
+            404,
+            'unknown_owned_request',
+            '调用句柄不存在或已释放',
+          );
+        }
+        if (owned.claimed) {
+          throw const JevRequestException(
+            409,
+            'duplicate_owned_request',
+            '调用句柄已经用于另一个请求',
+          );
+        }
+        if (owned.cancellation.isCancelled) {
+          throw const JevRequestException(409, 'cancelled', '本次调用已取消');
+        }
+        _finish(inflight);
+        inflight = owned;
+        inflight.claimed = true;
+      }
       if (request.method == 'GET' && path == '/v1/models') {
         _sendJson(request.response, 200, {
           'object': 'list',
@@ -407,8 +491,7 @@ class PublicGatewayServer {
     } on PublicRequestException catch (error) {
       _sendError(request.response, error.statusCode, error.type, error.message);
     } finally {
-      _inflight.remove(inflight);
-      if (!inflight.drained.isCompleted) inflight.drained.complete();
+      _finish(inflight);
     }
   }
 
@@ -417,12 +500,27 @@ class PublicGatewayServer {
     DecisionCancellation cancellation,
   ) async {
     final bytes = BytesBuilder(copy: false);
-    await for (final chunk in request) {
-      bytes.add(chunk);
-      if (bytes.length > decisionMaxRequestBytes) {
-        request.response.persistentConnection = false;
-        throw const JevRequestException(413, 'invalid_input', 'typed 请求超出字节上限');
+    final body = StreamIterator<List<int>>(request);
+    final cancelled = cancellation.whenCancelled.then<bool>(
+      (_) => throw const JevRequestException(409, 'cancelled', '本次调用已取消'),
+    );
+    try {
+      while (await Future.any([body.moveNext(), cancelled])) {
+        bytes.add(body.current);
+        if (bytes.length > decisionMaxRequestBytes) {
+          request.response.persistentConnection = false;
+          throw const JevRequestException(
+            413,
+            'invalid_input',
+            'typed 请求超出字节上限',
+          );
+        }
       }
+    } finally {
+      await body.cancel();
+    }
+    if (cancellation.isCancelled) {
+      throw const JevRequestException(409, 'cancelled', '本次调用已取消');
     }
     final parsed = JevModelRequest.parse(
       jsonDecode(utf8.decode(bytes.takeBytes())),
