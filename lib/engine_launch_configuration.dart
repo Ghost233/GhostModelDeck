@@ -27,7 +27,7 @@ class EngineLaunchConfiguration {
 
   final Map<String, String> formValues;
   final String argumentText;
-  void validateArgumentText() => splitLaunchArgumentText(argumentText);
+  void validateArgumentText() => parseLaunchArgumentText(argumentText);
   static const _formAliases = {
     '-c': '--ctx-size',
     '-b': '--batch-size',
@@ -45,7 +45,7 @@ class EngineLaunchConfiguration {
     String? alias,
     int? port,
   }) {
-    final tokens = splitLaunchArgumentText(argumentText);
+    final tokens = parseLaunchArgumentText(argumentText);
     final managed = {
       '--model': modelPath,
       '--alias': alias ?? '<启动时分配的模型标识>',
@@ -57,14 +57,14 @@ class EngineLaunchConfiguration {
     final overridden = <String>{};
     final notices = <String>{};
     for (var index = 0; index < tokens.length; index++) {
-      final argument = tokens[index];
+      final argument = tokens[index].value;
       final name = argument.split('=').first;
       final controlled = _managedAliases[name] ?? name;
       if (managed.containsKey(controlled)) {
         managedNames.add(controlled);
         if (!argument.contains('=') &&
             index + 1 < tokens.length &&
-            !_looksLikeOption(tokens[index + 1])) {
+            _isValue(tokens[index + 1])) {
           index++;
         }
         continue;
@@ -84,9 +84,8 @@ class EngineLaunchConfiguration {
       final separator = argument.indexOf('=');
       if (separator >= 0) {
         value = argument.substring(separator + 1);
-      } else if (index + 1 < tokens.length &&
-          !_looksLikeOption(tokens[index + 1])) {
-        value = tokens[++index];
+      } else if (index + 1 < tokens.length && _isValue(tokens[index + 1])) {
+        value = tokens[++index].value;
         arguments.add(value);
       }
       final notice = _valueNotice(canonical, value);
@@ -127,6 +126,9 @@ class EngineLaunchConfiguration {
 
   static bool _looksLikeOption(String value) =>
       value.startsWith('-') && !RegExp(r'^-\d').hasMatch(value);
+
+  static bool _isValue(LaunchArgumentToken token) =>
+      token.hasLiteralPrefix || !_looksLikeOption(token.value);
 
   static String? _valueNotice(String name, String? value) {
     if (value == null || value.isEmpty) {

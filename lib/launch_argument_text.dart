@@ -7,16 +7,29 @@ class LaunchArgumentTextException implements Exception {
   String toString() => '参数文本第 $position 位：$message，启动前请修正。';
 }
 
-/// Splits argument boundaries only. It never expands variables or executes
-/// shell syntax; the caller gives these tokens directly to the chosen engine.
-List<String> splitLaunchArgumentText(String source) {
+class LaunchArgumentToken {
+  const LaunchArgumentToken(this.value, {required this.hasLiteralPrefix});
+  final String value;
+
+  /// Quoting/escaping at the start distinguishes a value after a known option
+  /// from the next independent, unquoted option. It does not rewrite the value.
+  final bool hasLiteralPrefix;
+}
+
+List<String> splitLaunchArgumentText(String source) =>
+    parseLaunchArgumentText(source).map((token) => token.value).toList();
+
+/// Parses argument boundaries and their source. It never expands variables or
+/// executes shell syntax; callers give the values directly to the chosen engine.
+List<LaunchArgumentToken> parseLaunchArgumentText(String source) {
   final nul = source.indexOf('\u0000');
   if (nul >= 0) {
     throw LaunchArgumentTextException(nul + 1, '参数不能包含 NUL 字符');
   }
-  final arguments = <String>[];
+  final arguments = <LaunchArgumentToken>[];
   var token = StringBuffer();
   var active = false;
+  var literalPrefix = false;
   String? quote;
   var quoteStart = 0;
   for (var index = 0; index < source.length; index++) {
@@ -46,10 +59,19 @@ List<String> splitLaunchArgumentText(String source) {
       continue;
     }
     if (RegExp(r'\s').hasMatch(character)) {
-      if (active) arguments.add(token.toString());
+      if (active) {
+        arguments.add(
+          LaunchArgumentToken(
+            token.toString(),
+            hasLiteralPrefix: literalPrefix,
+          ),
+        );
+      }
       token = StringBuffer();
       active = false;
+      literalPrefix = false;
     } else if (character == "'" || character == '"') {
+      if (!active) literalPrefix = true;
       quote = character;
       quoteStart = index;
       active = true;
@@ -59,6 +81,7 @@ List<String> splitLaunchArgumentText(String source) {
       }
       final next = source[++index];
       if (next != '\n') {
+        if (!active) literalPrefix = true;
         token.write(next);
         active = true;
       }
@@ -70,6 +93,10 @@ List<String> splitLaunchArgumentText(String source) {
   if (quote != null) {
     throw LaunchArgumentTextException(quoteStart + 1, '引号未闭合');
   }
-  if (active) arguments.add(token.toString());
+  if (active) {
+    arguments.add(
+      LaunchArgumentToken(token.toString(), hasLiteralPrefix: literalPrefix),
+    );
+  }
   return arguments;
 }

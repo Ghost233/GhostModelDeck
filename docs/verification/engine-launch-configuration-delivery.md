@@ -18,6 +18,8 @@
 
 第二阶段实现已冻结并完成所属 144 项测试和最终联网门禁：93 个格式文件零改动、分析零诊断、557 项全量测试通过。真实 JEV 验收 32 条业务断言通过：文本 `-c 1024` 覆盖表单 2048，软件管理字段保持真实路径/标识/监听，`/props.n_ctx=1024`；保存保持运行 PID 与原命令；非法整数到达原生进程并显示 stderr，未出现 Ready；未闭合引号可保存、位置10错误且无进程或实例创建。全部本次进程退出、端口释放。证据在 `.scratch/engine-launch-delivery/native-stage46/outcome.json` 与 `native-stage46.exit`，Mac 构建 `stage46-build.exit` 均为 0，输入未变化。第二阶段 merger 暂无已确认 P0/P1/P2，固定候选的双轴审查与复盘仍需完成。
 
+第二阶段首审 Standards 0，Spec 发现 1 个 P2：合成时丢失带引号、转义的选项形状值角色。以真实编辑/保存/启动链路复现后，词法保留来源，仅在已知参数等待值时使用，独立选项与缺值软提示保持。11 组成对边界和所属 145 项通过；修复后的最终格式/分析退出码 0，全量 558 项通过。实机增加 `--model "-weights.gguf" --alias "-dev"`，实际软件字段和上下文 1024 正确，32 条断言、全部进程与端口回收通过；最终证据为 `native-stage46-p2/outcome.json` 与 `native-stage46-p2.exit`，正确项目环境的 `stage46-build-p2-final.exit` 为 0。修复仍须复审确认关闭。
+
 原生拒绝曾被内部退出取消状态遮蔽；修复仅区分意外启动退出与主动 stop/回收，成对测试保持取消优先。词法及 UI 等待的原始失败、容器恢复时未真正运行测试的环境失败，以及测试字面量静态提示均保留在 `checks/stage46-*/`，没有作为成功证据。
 
 最小预检经真实公开关联/模型核验/启动路径加载现有 Kev，达到 Ready 并具备 choice、score、noul 能力；正常停止后模型端口释放，所有本次进程退出。证据：`.scratch/engine-launch-delivery/native-preflight/outcome.json`，退出码 0。

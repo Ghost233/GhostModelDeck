@@ -21,6 +21,94 @@ import 'fixtures/engine_archive.dart';
 
 void main() {
   testWidgets(
+    'quoted option-looking values keep their parameter role through editor save and start',
+    (tester) async {
+      final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
+      addTearDown(() => tester.runAsync(fixture.close));
+      const cases = [
+        ('--device "--host"', ['--device', '--host'], {'--device'}, <String>{}),
+        ('--device "-c"', ['--device', '-c'], {'--device'}, <String>{}),
+        ('--alias "-dev" CPU', ['CPU'], <String>{}, {'--alias'}),
+        (
+          '--model "-weights.gguf" --parallel 2',
+          ['--parallel', '2'],
+          {'--parallel'},
+          {'--model'},
+        ),
+        ('--device=--host', ['--device=--host'], {'--device'}, <String>{}),
+        ('--device --host 0.0.0.0', ['--device'], {'--device'}, {'--host'}),
+        (
+          '--device -c 1024',
+          ['--device', '-c', '1024'],
+          {'--device', '--ctx-size'},
+          <String>{},
+        ),
+        ('--device -c1024', ['--device', '-c1024'], {'--device'}, <String>{}),
+        ('--alias -dev CPU', ['-dev', 'CPU'], {'--device'}, {'--alias'}),
+        (r'--device \-c', ['--device', '-c'], {'--device'}, <String>{}),
+        (r'--model \-weights.gguf', <String>[], <String>{}, {'--model'}),
+      ];
+      for (final (source, tail, overridden, managed) in cases) {
+        await _openTextEditor(tester, fixture);
+        final input = find.widgetWithText(TextField, '启动参数文本');
+        await tester.ensureVisible(input);
+        await tester.enterText(input, source);
+        await tester.pump();
+        await _saveTextEditor(tester, fixture);
+        await _openTextEditor(tester, fixture);
+        expect(tester.widget<TextField>(input).controller!.text, source);
+        await tester.tap(find.widgetWithText(TextButton, '取消'));
+        await tester.pumpAndSettle();
+        await tester.runAsync(
+          () => HttpOverrides.runWithHttpOverrides(() async {
+            final preview = await fixture.engine.previewLaunch(
+              fixture.asset.id,
+            );
+            final instance = await fixture.engine.start(fixture.asset.id);
+            final expectedBody = [
+              if (!overridden.contains('--ctx-size')) ...['--ctx-size', '4096'],
+              '--batch-size',
+              '4096',
+              '--ubatch-size',
+              '4096',
+              if (!overridden.contains('--parallel')) ...['--parallel', '1'],
+              '--n-gpu-layers',
+              '99',
+              if (!overridden.contains('--device')) ...['--device', 'MTL0'],
+              ...tail,
+            ];
+            expect(
+              fixture.io.startedArguments.last.skip(8).toList(),
+              expectedBody,
+              reason: source,
+            );
+            expect(
+              preview.arguments.skip(8).toList(),
+              expectedBody,
+              reason: source,
+            );
+            expect(preview.overriddenForm, overridden, reason: source);
+            for (final name in ['--model', '--alias', '--host', '--port']) {
+              expect(
+                preview.notices.any(
+                  (notice) => notice.startsWith('$name 由软件管理'),
+                ),
+                managed.contains(name),
+                reason: source,
+              );
+            }
+            expect(
+              instance.launchCommand!.arguments,
+              fixture.io.startedArguments.last,
+            );
+            await fixture.engine.stop(instance.id);
+          }, _NetworkBoundary()),
+        );
+        expect(tester.takeException(), isNull);
+      }
+    },
+  );
+  testWidgets(
     'unrepresentable NUL and trailing escape remain saved but cannot spawn',
     (tester) async {
       final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
