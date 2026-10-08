@@ -381,6 +381,50 @@ void main() {
   });
 
   group('PublicGatewayServer HTTP 网关', () {
+    test('repeated start and stop releases each real listener and shares concurrent stop', () async {
+      final library = ModelLibrary();
+      final routes = PublicModelRoutes(library: library, runtimes: const []);
+      final gateway = PublicGatewayServer(routes: routes, port: 0);
+      addTearDown(() async {
+        await gateway.stop();
+        gateway.close();
+        routes.close();
+        library.close();
+      });
+      await gateway.stop();
+      for (var cycle = 0; cycle < 2; cycle++) {
+        await gateway.start();
+        final address = gateway.baseUrl!;
+        final response = await _get('$address/v1/models');
+        expect(
+          response.status,
+          HttpStatus.ok,
+          reason: 'cycle $cycle serves an actual HTTP listener',
+        );
+        expect((jsonDecode(response.body) as Map)['data'], isEmpty);
+        final firstStop = gateway.stop();
+        final concurrentStop = gateway.stop();
+        expect(identical(firstStop, concurrentStop), isTrue);
+        await Future.wait([firstStop, concurrentStop]);
+        await expectLater(
+          Socket.connect(
+            InternetAddress.loopbackIPv4,
+            address.port,
+            timeout: const Duration(seconds: 1),
+          ).then((socket) => socket.destroy()),
+          throwsA(isA<SocketException>()),
+          reason: 'cycle $cycle must close its actual listening port',
+        );
+        final replacement = await ServerSocket.bind(
+          InternetAddress.loopbackIPv4,
+          address.port,
+        );
+        await replacement.close();
+        expect(gateway.state, PublicGatewayState.stopped);
+        expect(gateway.baseUrl, isNull);
+        await gateway.stop();
+      }
+    });
     test(
       'a port conflict fails explicitly without fallback or drift',
       () async {

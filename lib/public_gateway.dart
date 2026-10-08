@@ -386,6 +386,7 @@ class PublicGatewayServer {
         for (final request in _inflight) request.drained.future,
       ]);
     }
+    _stopping = null;
     _setState(PublicGatewayState.stopped);
   }
 
