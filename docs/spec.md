@@ -1,4 +1,4 @@
-# GhostModelDeck 首期规格
+# Ghost Model Deck 首期规格
 
 Stage: ready-for-agent
 状态：规格已定，待实施；不表示构建、模型运行或验收已通过。
@@ -67,7 +67,7 @@ MacLauncher 通过一个整体推理服务启动接口及用户配置的启动�
 - 单用户、macOS / Apple Silicon 优先；首期只交付标准 LLM 与 JEV，引擎为 llama.cpp/oMLX。使用现成权重，零训练。
 - 从已交付 JevManager 固定源码基线迁入生产代码、测试、原生工程、脚本、依赖锁定和开发资料；保留新项目历史、已有规范与用户未提交内容，逐项合并差异。
 - 完全替代旧应用，个人设置重新建立；不迁移旧实例或个人配置，不要求双应用并存。
-- 应用品牌为 GhostModelDeck，Dart package 为 ghost_model_deck，bundle 身份为 com.ghost233.ghostmodeldeck；双端原生 channel 为 com.ghost233.ghostmodeldeck/native，MCP 实现与新配置键为 ghostmodeldeck。
+- 应用显示名与 .app 名称为 Ghost Model Deck，Dart package 为 ghost_model_deck，bundle 身份为 com.ghost233.ghostmodeldeck；双端原生 channel 为 com.ghost233.ghostmodeldeck/native，MCP 实现与新配置键为 ghostmodeldeck。配置目录与发布资产文件名沿用既有 GhostModelDeck 标识。
 - 应用状态、下载暂存及安装收据使用新品牌独立命名空间；模型文件保持位置和所有权。JEV 能力名 consult_jev_council 和原协议保留。
 - 采用紧凑导航、表格和直接操作，展示真实状态/错误与运行信息；保留发现、下载、模型库、引擎、委员会、API/MCP 信息及设置功能，无内置聊天或初始化工作台。
 
@@ -116,7 +116,7 @@ MacLauncher 通过一个整体推理服务启动接口及用户配置的启动�
 
 ### SDK 与窗口生命周期
 
-- 采用固定官方 SDK；项目身份为 com.ghost233.ghostmodeldeck，名称 GhostModelDeck，单一 service 身份 inference，显示为推理服务。
+- 采用固定官方 SDK；项目身份为 com.ghost233.ghostmodeldeck，显示名 Ghost Model Deck，单一 service 身份 inference，显示为推理服务。
 - 使用 schemaVersion 1 项目关联配置和真实应用拉起入口，配置与 SDK 身份匹配，由用户显式关联；未连接启动器不影响独立使用。
 - start 开启 LLM API/JEV MCP，并显式加载用户在新应用中选定的启动模型集合；不导入旧设置、替用户选择模型或下载权重，匹配实例复用且重复启动不创建副本。
 - 命令确认只代表受理；加载中、空集合、缺资产和部分失败以真实状态报告。有接口但无可用模型不能宣称推理就绪。

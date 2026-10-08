@@ -154,7 +154,7 @@ class LauncherInferenceService {
   static const String projectId = 'com.ghost233.ghostmodeldeck';
 
   /// 运行时发现自报显示名（#30）：未关联时启动器以此建待批准卡片。
-  static const String projectName = 'GhostModelDeck';
+  static const String projectName = 'Ghost Model Deck';
 
   static const String serviceId = 'inference';
   static const String serviceName = '推理服务';
@@ -206,7 +206,7 @@ class LauncherInferenceService {
       projectId: projectId,
       projectName: projectName,
       // 运行时发现入口自报（#30）：打包运行时上报自身 .app（DMG 安装后解析
-      // 为 /Applications/GhostModelDeck.app）；开发期非 bundle 运行退回上报
+      // 为 /Applications/Ghost Model Deck.app）；开发期非 bundle 运行退回上报
       // 当前可执行文件。入口存在性由启动器在批准时校验。
       entry: SdkEntry.currentAppBundle() ?? SdkEntry.currentExecutable(),
       socketPath: _socketPath,

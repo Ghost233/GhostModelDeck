@@ -14,16 +14,16 @@ class AppDelegate: FlutterAppDelegate {
     if let button = item.button {
       let image = NSImage(named: NSImage.applicationIconName)?.copy() as? NSImage
       image?.size = NSSize(width: 18, height: 18)
-      button.image = image ?? NSImage(systemSymbolName: "rectangle.stack", accessibilityDescription: "GhostModelDeck")
-      button.toolTip = "GhostModelDeck"
-      button.setAccessibilityLabel("GhostModelDeck")
+      button.image = image ?? NSImage(systemSymbolName: "rectangle.stack", accessibilityDescription: "Ghost Model Deck")
+      button.toolTip = "Ghost Model Deck"
+      button.setAccessibilityLabel("Ghost Model Deck")
     }
     let menu = NSMenu()
-    let openItem = NSMenuItem(title: "打开 GhostModelDeck", action: #selector(showMainWindow(_:)), keyEquivalent: "")
+    let openItem = NSMenuItem(title: "打开 Ghost Model Deck", action: #selector(showMainWindow(_:)), keyEquivalent: "")
     openItem.target = self
     menu.addItem(openItem)
     menu.addItem(.separator())
-    let quitItem = NSMenuItem(title: "退出 GhostModelDeck", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+    let quitItem = NSMenuItem(title: "退出 Ghost Model Deck", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
     quitItem.target = NSApp
     menu.addItem(quitItem)
     item.menu = menu

@@ -11,4 +11,4 @@ if [[ ! -x "$flutter_sdk/bin/flutter" ]]; then
   exit 1
 fi
 "$flutter_sdk/bin/flutter" --suppress-analytics build macos --release --target lib/prototype_main.dart
-open "$task_root/build/macos/Build/Products/Release/GhostModelDeck Prototype.app"
+open "$task_root/build/macos/Build/Products/Release/Ghost Model Deck.app"

@@ -170,9 +170,9 @@ print('unexpected gh operation',file=sys.stderr);sys.exit(2)
     @unittest.skipUnless(os.uname().sysname == "Darwin", "macOS package validation")
     def test_prebuilt_app_version_mismatch_fails_before_packaging(self):
         shutil.copy2(SOURCE / "build-release.sh", self.repo / "scripts/build-release.sh")
-        app = self.root / "GhostModelDeck.app"
+        app = self.root / "Ghost Model Deck.app"
         (app / "Contents/MacOS").mkdir(parents=True)
-        (app / "Contents/MacOS/GhostModelDeck").write_bytes(b"fixture executable")
+        (app / "Contents/MacOS/Ghost Model Deck").write_bytes(b"fixture executable")
         with (app / "Contents/Info.plist").open("wb") as file:
             plistlib.dump({"CFBundleIdentifier": "com.ghost233.ghostmodeldeck",
                           "CFBundleShortVersionString": "0.1.2"}, file)

@@ -83,7 +83,7 @@ jobs:
         run: |
           set -euo pipefail
           gh release create "${{ steps.version.outputs.tag }}" --verify-tag \
-            --title "GhostModelDeck ${{ steps.version.outputs.version }}" \
+            --title "Ghost Model Deck ${{ steps.version.outputs.version }}" \
             --notes-file dist/release-notes.md \
             "dist/GhostModelDeck-${{ steps.version.outputs.version }}.dmg" \
             dist/manifest.json \

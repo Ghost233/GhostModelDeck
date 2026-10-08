@@ -1,12 +1,12 @@
 ---
 name: deploy-release
-description: 发布 GhostModelDeck 正式版，核验手动版本和 Ghost233 身份，推送发布 tag 并跟踪 DMG 管线。仅在用户明确要求正式发布时使用；编辑此流程不触发发布。
+description: 发布 Ghost Model Deck 正式版，核验手动版本和 Ghost233 身份，推送发布 tag 并跟踪 DMG 管线。仅在用户明确要求正式发布时使用；编辑此流程不触发发布。
 disable-model-invocation: true
 ---
 
 # deploy-release
 
-发布 GhostModelDeck 正式版。执行前读取 `docs/agents/release.md` 与 `docs/release-versioning.md`。唯一执行入口是 `scripts/release.sh`；版本选择、失败恢复和完成条件以这两份文档为准。
+发布 Ghost Model Deck 正式版。执行前读取 `docs/agents/release.md` 与 `docs/release-versioning.md`。唯一执行入口是 `scripts/release.sh`；版本选择、失败恢复和完成条件以这两份文档为准。
 
 ## 步骤
 

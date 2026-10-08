@@ -8,7 +8,7 @@ import 'package:flutter/services.dart';
 void main() => runApp(
   MaterialApp(
     debugShowCheckedModeBanner: false,
-    title: 'GhostModelDeck Prototype',
+    title: 'Ghost Model Deck Prototype',
     theme: ThemeData(
       useMaterial3: true,
       colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff006d63)),
@@ -357,7 +357,7 @@ class _JevPrototypeState extends State<JevPrototype> {
             const Padding(
               padding: EdgeInsets.fromLTRB(24, 32, 20, 32),
               child: Text(
-                'GhostModelDeck',
+                'Ghost Model Deck',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 24,
@@ -934,7 +934,7 @@ class _JevPrototypeState extends State<JevPrototype> {
         ),
     const Divider(height: 28),
     const Text(
-      '明确退出时仅收尾 GhostModelDeck 创建的受管实例；不关闭 LM Studio 本身或原有实例。',
+      '明确退出时仅收尾 Ghost Model Deck 创建的受管实例；不关闭 LM Studio 本身或原有实例。',
       style: TextStyle(color: Color(0xff66757e), height: 1.7),
     ),
   ]);

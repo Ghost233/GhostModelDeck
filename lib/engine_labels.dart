@@ -9,7 +9,7 @@ String engineDisplayName(EngineRegistration entry) {
 }
 
 String engineSourceLabel(EngineRegistration entry) {
-  if (entry.source == EngineSource.managed) return 'GhostModelDeck';
+  if (entry.source == EngineSource.managed) return 'Ghost Model Deck';
   if (entry.path?.contains('/.lmstudio/extensions/backends/') ?? false) {
     final runtime = RegExp(r'-(\d+\.\d+\.\d+)(?:/|$)').firstMatch(entry.path!);
     return 'LM Studio${runtime == null ? '' : ' ${runtime[1]}'}';

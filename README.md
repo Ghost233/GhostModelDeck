@@ -1,9 +1,9 @@
-# GhostModelDeck
-GhostModelDeck
+# Ghost Model Deck
+Ghost Model Deck
 
 ## 文档先行迁移
 
-GhostModelDeck 将从 JevManager 扩展为通用模型及多类引擎的统一管理入口。规范和来源资料已先行迁入，首期规格已汇总；应用源码迁入与新能力实现由后续工单交付。
+Ghost Model Deck 将从 JevManager 扩展为通用模型及多类引擎的统一管理入口。规范和来源资料已先行迁入，首期规格已汇总；应用源码迁入与新能力实现由后续工单交付。
 
 - [迁移说明与后续范围](docs/migration/README.md)
 - [工程规范](docs/engineering.md)与 [项目界面记录](docs/design.md)

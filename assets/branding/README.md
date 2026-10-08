@@ -1,4 +1,4 @@
-# GhostModelDeck 图标
+# Ghost Model Deck 图标
 
 `ghostmodeldeck-icon-v2.png` 是本期应用图标的透明 PNG 母版，使用内置 `image_gen` 生成，参考 Ghost Nexus 的白色幽灵、深蓝背景与青紫色点缀。macOS AppIcon 中的 16–1024 px PNG 从此母版等比缩放。
 

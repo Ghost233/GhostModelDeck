@@ -40,7 +40,7 @@ class GhostModelDeckApp extends StatelessWidget {
   const GhostModelDeckApp({super.key});
   @override
   Widget build(BuildContext context) => MaterialApp(
-    title: 'GhostModelDeck',
+    title: 'Ghost Model Deck',
     debugShowCheckedModeBanner: false,
     theme: buildJevTheme(Brightness.light),
     darkTheme: buildJevTheme(Brightness.dark),
@@ -361,10 +361,10 @@ class _ManagerShellState extends State<_ManagerShell> {
                         const SizedBox(width: 10),
                         Expanded(
                           child: Tooltip(
-                            message: 'GhostModelDeck',
+                            message: 'Ghost Model Deck',
                             child: Text(
-                              'GhostModelDeck',
-                              maxLines: 1,
+                              'Ghost Model Deck',
+                              maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: Theme.of(context).textTheme.titleMedium,
                             ),

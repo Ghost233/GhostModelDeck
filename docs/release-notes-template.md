@@ -1,4 +1,4 @@
-# GhostModelDeck {{VERSION}}
+# Ghost Model Deck {{VERSION}}
 
 发布 tag：`{{TAG}}`。版本号与发布纪律见 [发布版本号规则](https://github.com/Ghost233/GhostModelDeck/blob/{{TAG}}/docs/release-versioning.md)。
 

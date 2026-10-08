@@ -1,6 +1,6 @@
-# GhostModelDeck
+# Ghost Model Deck
 
-GhostModelDeck 是统一管理现成模型及多种推理引擎的桌面应用。JEV 委员会是其中一种专用能力，不能代表全部模型的用途。
+Ghost Model Deck 是统一管理现成模型及多种推理引擎的桌面应用。JEV 委员会是其中一种专用能力，不能代表全部模型的用途。
 
 > 本文件记录新项目的领域词汇，不表示对应能力已经实现。JevManager 的原始术语保存在 [来源快照](docs/migration/jevmanager-source/CONTEXT.md)。
 

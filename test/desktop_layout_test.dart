@@ -107,7 +107,7 @@ void main() {
           await _settleIo(tester);
         });
         try {
-          _expectVisible(tester, find.text('GhostModelDeck'));
+          _expectVisible(tester, find.text('Ghost Model Deck'));
           _expectVisible(tester, find.text('设置'));
           await tester.ensureVisible(find.text('MCP'));
           await tester.pumpAndSettle();
@@ -245,7 +245,7 @@ void main() {
             await tester.pumpAndSettle();
             // Both real catalog registrations must remain readable in the menu.
             expect(
-              find.textContaining('GhostModelDeck').hitTestable(),
+              find.textContaining('Ghost Model Deck').hitTestable(),
               findsOneWidget,
             );
             expect(find.textContaining('本地关联').hitTestable(), findsOneWidget);

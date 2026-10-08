@@ -21,7 +21,7 @@
 
 set -euo pipefail
 
-APP_NAME="GhostModelDeck"
+APP_NAME="Ghost Model Deck"
 EXPECTED_BUNDLE_ID="com.ghost233.ghostmodeldeck"
 FLUTTER_BIN="${FLUTTER_BIN:-flutter}"
 PREBUILT_APP=""
@@ -82,7 +82,7 @@ esac
 [ "$(awk -F. -v v="$VERSION" 'BEGIN{print (split(v,a,".")==3)}')" = "1" ] \
   || die "版本号 '$full_version' 的 semver 部分不是 x.y.z 格式"
 
-DMG_NAME="${APP_NAME}-${VERSION}.dmg"
+DMG_NAME="GhostModelDeck-${VERSION}.dmg"
 STAGING_DIR=""
 APP_PATH=""
 
@@ -138,18 +138,18 @@ STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ghostmodeldeck-dmg.XXXXXX")"
 cp -R "$APP_PATH" "$STAGING_DIR/"
 
 cat > "$STAGING_DIR/README.txt" <<EOF
-GhostModelDeck ${VERSION}
+${APP_NAME} ${VERSION}
 =========================
 
 安装方法
 --------
-将 GhostModelDeck.app 拖入本窗口中的 Applications 文件夹
+将 ${APP_NAME}.app 拖入本窗口中的 Applications 文件夹
 （或拖入访达中的「应用程序」），即完成安装。
 
 首次打开
 --------
 本应用未使用 Apple 开发者证书签名，也未经过公证。
-首次打开时，请在访达中右键点击 GhostModelDeck.app 并选择「打开」，
+首次打开时，请在访达中右键点击 ${APP_NAME}.app 并选择「打开」，
 在弹出的对话框中再次点击「打开」。
 若系统提示「无法打开，因为 Apple 无法检查其是否包含恶意软件」，
 同样通过右键「打开」绕过 Gatekeeper 检查。

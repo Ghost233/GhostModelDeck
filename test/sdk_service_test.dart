@@ -68,7 +68,7 @@ void main() {
       fixture.service.connect();
       final hello = await fixture.peer.helloAt(0);
 
-      expect(hello['projectName'], 'GhostModelDeck');
+      expect(hello['projectName'], 'Ghost Model Deck');
       final entry = (hello['entry'] as Map).cast<String, Object?>();
       expect(
         entry['kind'],

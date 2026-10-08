@@ -65,13 +65,13 @@ class Release:
     def prepare(self, retry):
         pubspec = (ROOT / "pubspec.yaml").read_text()
         if not re.search(r"^name:\s*ghost_model_deck\s*$", pubspec, re.M):
-            raise ReleaseError("当前工作区不是 GhostModelDeck")
+            raise ReleaseError("当前工作区不是 Ghost Model Deck")
         versions = re.findall(r"^version:\s*([^\s#]+)\s*$", pubspec, re.M)
         if len(versions) != 1 or not re.fullmatch(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.([0-9])", versions[0]):
             raise ReleaseError("pubspec.yaml 必须使用无 +build 的 x.y.z 版本，patch 为 0–9")
         version = versions[0]
         if self.git("rev-parse", "--show-toplevel") != str(ROOT):
-            raise ReleaseError("发布脚本必须位于 GhostModelDeck 仓库根下")
+            raise ReleaseError("发布脚本必须位于 Ghost Model Deck 仓库根下")
         if self.git("symbolic-ref", "--short", "HEAD") != "main":
             raise ReleaseError("必须在 main 分支执行")
         if self.git("status", "--porcelain"):
@@ -111,7 +111,7 @@ class Release:
 
     def publish(self, tag, head, local_tag):
         if not local_tag:
-            self.git("tag", "-a", tag, head, "-m", "GhostModelDeck " + tag)
+            self.git("tag", "-a", tag, head, "-m", "Ghost Model Deck " + tag)
         try:
             self.git("push", "origin", "refs/tags/" + tag)
         except ReleaseError as error:
@@ -127,7 +127,7 @@ class Release:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="发布 GhostModelDeck 当前手动版本；不 bump、不提交、不推 main")
+    parser = argparse.ArgumentParser(description="发布 Ghost Model Deck 当前手动版本；不 bump、不提交、不推 main")
     parser.add_argument("--dry-run", action="store_true", help="只检查和显示计划，不创建或推送 tag")
     parser.add_argument("--retry-tag", action="store_true", help="重试尚未推送且指向当前 main 的本地 tag")
     args = parser.parse_args()
@@ -136,7 +136,7 @@ def main():
         tag, head, local_tag = release.prepare(args.retry_tag)
         if args.dry_run:
             print("release: [dry-run] " + ("复用本地 tag" if local_tag else "创建附注 tag") + f" {tag}")
-            print(f"release: [dry-run] 推送 {tag}，触发 GhostModelDeck release.yml 构建 DMG 与两份清单")
+            print(f"release: [dry-run] 推送 {tag}，触发 Ghost Model Deck release.yml 构建 DMG 与两份清单")
         else:
             release.publish(tag, head, local_tag)
     except (ReleaseError, OSError) as error:

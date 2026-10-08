@@ -1,4 +1,4 @@
-# GhostModelDeck 标准发布流程
+# Ghost Model Deck 标准发布流程
 
 仅在用户明确要求正式发布时执行 `scripts/release.sh`。编辑发布 skill、脚本或 workflow 只完成编辑与验证。版本规则的唯一来源是 [发布版本号规则](../release-versioning.md)。
 
