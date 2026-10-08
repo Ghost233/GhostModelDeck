@@ -9,6 +9,7 @@
 # 用法：
 #   scripts/build-release.sh                  完整构建并打包（需要 macOS 与 Flutter）
 #   scripts/build-release.sh --app-path PATH  跳过 flutter build，直接打包已构建的 .app
+#   --output-dir PATH                       指定本地预检产物目录（默认 dist）
 #
 # 环境变量：
 #   FLUTTER_BIN        flutter 可执行文件路径，缺省为 PATH 中的 flutter。
@@ -24,11 +25,13 @@ APP_NAME="GhostModelDeck"
 EXPECTED_BUNDLE_ID="com.ghost233.ghostmodeldeck"
 FLUTTER_BIN="${FLUTTER_BIN:-flutter}"
 PREBUILT_APP=""
+DIST_DIR="dist"
 
 usage() {
   cat >&2 <<'EOF'
-Usage: scripts/build-release.sh [--app-path PATH]
+Usage: scripts/build-release.sh [--app-path PATH] [--output-dir PATH]
   --app-path PATH   跳过 flutter build，打包指定的已构建 .app（用于仅测试打包环节）
+  --output-dir PATH 指定产物目录，默认 dist；本地预检可选独立目录
   -h, --help        显示本说明
 EOF
 }
@@ -47,6 +50,11 @@ while [ $# -gt 0 ]; do
     --app-path)
       [ $# -ge 2 ] || { usage; die "--app-path 需要一个路径参数"; }
       PREBUILT_APP="$2"
+      shift 2
+      ;;
+    --output-dir)
+      [ $# -ge 2 ] && [ -n "$2" ] || { usage; die "--output-dir 需要非空路径"; }
+      DIST_DIR="$2"
       shift 2
       ;;
     -h|--help) usage; exit 0 ;;
@@ -75,7 +83,6 @@ esac
   || die "版本号 '$full_version' 的 semver 部分不是 x.y.z 格式"
 
 DMG_NAME="${APP_NAME}-${VERSION}.dmg"
-DIST_DIR="dist"
 STAGING_DIR=""
 APP_PATH=""
 
@@ -118,6 +125,9 @@ bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist" 2>/
   || die "无法读取 $plist 的 CFBundleIdentifier"
 [ "$bundle_id" = "$EXPECTED_BUNDLE_ID" ] \
   || die "bundle id 不匹配：期望 ${EXPECTED_BUNDLE_ID}，实际 ${bundle_id}"
+app_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")"
+[ "$app_version" = "$VERSION" ] \
+  || die "应用版本不匹配：pubspec 为 ${VERSION}，实际 .app 为 ${app_version}"
 exe="$APP_PATH/Contents/MacOS/$APP_NAME"
 [ -s "$exe" ] || die "可执行文件缺失或为空: $exe"
 info "已校验 .app: ${APP_PATH}（bundle id: ${bundle_id}）"

@@ -15,6 +15,16 @@ class MainFlutterWindow: NSWindow {
       binaryMessenger: flutterViewController.engine.binaryMessenger)
     (NSApp.delegate as? AppDelegate)?.shutdownChannel = nativeChannel
     nativeChannel.setMethodCallHandler { [weak self] call, result in
+      if call.method == "activateMainWindow" {
+        guard let delegate = NSApp.delegate as? AppDelegate,
+              delegate.mainFlutterWindow != nil else {
+          result(FlutterError(code: "window_unavailable", message: "主窗口不可用", details: nil))
+          return
+        }
+        delegate.showMainWindow(nil)
+        result(nil)
+        return
+      }
       guard call.method == "pickLibraryDirectory" || call.method == "pickEngineDirectory" else {
         result(FlutterMethodNotImplemented)
         return
@@ -40,5 +50,9 @@ class MainFlutterWindow: NSWindow {
     self.center()
 
     super.awakeFromNib()
+    DispatchQueue.main.async { [weak self] in
+      guard let window = self, let delegate = NSApp.delegate as? AppDelegate else { return }
+      delegate.configureWindow(window)
+    }
   }
 }

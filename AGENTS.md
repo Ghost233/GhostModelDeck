@@ -28,6 +28,10 @@
 
 探索或修改领域行为前，读取 `docs/agents/domain.md`；采用单上下文的根 CONTEXT.md 与按需建立的 docs/adr/。
 
+### 发布流程
+
+正式发布或修改发布入口前，读取 `docs/agents/release.md`；入口为 `scripts/release.sh`，版本由人手动确定。
+
 ## 工程规范
 
 - 修改 Dart、Flutter、原生桥接或检查脚本前，读取 [工程规范](docs/engineering.md)，执行与改动相关的检查并报告实际结果。

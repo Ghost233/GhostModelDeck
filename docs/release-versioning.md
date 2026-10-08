@@ -35,27 +35,22 @@
 
 ## 发布操作清单
 
-1. 在发布工单中手动 bump `pubspec.yaml` 的 `version:`（按上述递增规则），随功能改动一并合并到 main。
-2. push 到 main 后，发布 workflow 检测到 semver 部分无对应 `v<x.y.z>` tag，即视为新发布：构建 DMG、生成 `manifest.json` 与 `SHA256SUMS`、打 tag 并创建正式（非 prerelease）GitHub Release。
-3. 发布后在 GitHub Releases 页面核对三件套资产与版本号。
-4. 如需撤回，按上述回滚流程执行。
+1. 在发布工单中按上方规则由人手动修改 `pubspec.yaml`，完成本地门禁与发布包预检，随已审查内容合入 main，并同步本地 main。
+2. 明确要求正式发布时执行 `scripts/release.sh --dry-run`，核对当前手动版本与 tag/完整提交，再执行 `scripts/release.sh`。
+3. 脚本仅创建并推送 `v<x.y.z>` 附注 tag，不自动 bump、不提交、不推送 main。tag 触发 workflow 构建并创建正式 Release。
+4. 发布后核对三件套资产、manifest 版本/大小/哈希、SHA256SUMS 与应用版本；失败恢复见 [标准发布流程](agents/release.md)。
 
 ## workflow 行为
 
-发布由 `.github/workflows/release.yml` 在 **push 到 main** 时触发，行为如下：
-
-- **no-op 判断**：workflow 读取 `pubspec.yaml` 的 semver 部分（`+` 之前），检查对应 `v<x.y.z>` tag 是否已存在。已存在视为该版本已发布，直接成功退出，不构建、不重复发布。
-- **新发布**：tag 不存在时，workflow 在 macos-15 上用固定 Flutter 3.47.6（stable）构建，调用 `scripts/build-release.sh` 产出 DMG 与清单。
-- **tag↔pubspec 强制一致**：发布前断言将创建的 tag 与 pubspec semver 部分严格相等，不一致即失败，不允许人工绕过。`gh release create` 基于当前提交原子地创建 tag 与正式（非 prerelease）GitHub Release。
-- **发布资产（三件套）**：`GhostModelDeck-<x.y.z>.dmg`、`manifest.json`（含版本、tag、DMG 的 sha256 与字节数，供检查更新使用）、`SHA256SUMS`（覆盖 DMG 与 manifest.json）。
-- **本地复现**：`scripts/build-release.sh` 可在本机直接执行同样的构建与打包；`--app-path <已构建的.app>` 可跳过 flutter build 只验证打包环节。
-- **手动回滚**：错误发布按上文「回滚规则」执行（删除 Release → 删除 tag → 版本号作废 → 以下一个版本号重新发布）。
+- `.github/workflows/release.yml` 由 **push v* tag** 触发；普通 push 到 main 不发布。
+- tag 去掉 v 后必须与根 `pubspec.yaml` 版本严格相等，不接受 `+build`；checkout 的提交必须等于发布 tag 的提交。
+- 使用固定 macos-15 / Flutter 3.47.6 调用 `scripts/build-release.sh`；该脚本验证应用 bundle id、可执行文件及 `.app` 版本。
+- tag 已由本地发布入口创建，CI 使用 `gh release create --verify-tag`，不自动生成 tag、不覆盖同版本资产。同一 tag 的流水线串行执行。
+- 资产为 `GhostModelDeck-<x.y.z>.dmg`、`manifest.json`、`SHA256SUMS`。构建号由 `github.run_number` 注入。
+- `scripts/build-release.sh --app-path <已构建的.app>` 在本机预检打包环节；应用版本必须与 pubspec 一致。
 
 ## 首发基线
 
 首个正式 Release 为 `0.1.0`，对应首期收尾的 main HEAD。
 
-**注意：发布没有独立的人工闸门。** workflow 的唯一判断是「pubspec semver 部分是否有对应 tag」——任何 push 到 main 时，只要当前版本号还没有 `v<x.y.z>` tag，就会立即构建并发布。首个 Release `v0.1.0` 即由引入 workflow 的合并 push（PR #29）自动触发，并非单独执行的发布操作。因此：
-
-- 不打算发版时，不要把带新版本号的改动 push 到 main；版本 bump 必须是「准备好立即发布」的最后一步。
-- 合并引入或修改 `release.yml` 的 PR 前，先确认 pubspec 当前版本已有对应 tag，否则合并本身就会触发一次发布。
+首发历史曾由 main push 自动发布。当前流程已改为显式版本 tag：版本修改或功能合入 main 不发布，只有明确发布并推送对应 tag 才触发正式管线。

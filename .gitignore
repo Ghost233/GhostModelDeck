@@ -15,3 +15,8 @@ macos/**/xcuserdata/
 
 # 发布构建产物（scripts/build-release.sh）
 dist/
+# 本机 Codex 项目账号配置
+/.codex/config.toml
+
+# 本地检查与验收的原始材料
+.scratch/
