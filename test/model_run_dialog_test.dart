@@ -12,6 +12,7 @@ import 'package:ghost_model_deck/engine_launch_configuration.dart';
 import 'package:ghost_model_deck/engine_page.dart';
 import 'package:ghost_model_deck/engine_runtime.dart';
 import 'package:ghost_model_deck/library_page.dart';
+import 'package:ghost_model_deck/local_model_package.dart';
 import 'package:ghost_model_deck/llama_engine.dart';
 import 'package:ghost_model_deck/model_library.dart';
 import 'package:ghost_model_deck/model_use_registry.dart';
@@ -20,6 +21,430 @@ import 'fixtures/decision_gguf.dart';
 import 'fixtures/engine_archive.dart';
 
 void main() {
+  test('model configuration JSON rejects partial mutation and retains orphan registrations', () async {
+    final fixture = await _LaunchTextFixture.create();
+    addTearDown(fixture.close);
+    const id = EngineCatalog.officialId;
+    await fixture.catalog.saveLaunchDefaults(
+      id,
+      EngineLaunchConfiguration(
+        formValues: {
+          ...EngineLaunchConfiguration.initialValues,
+          '--ctx-size': '2048',
+        },
+      ),
+    );
+    final binary = await File('${fixture.root.path}/external/llama-server')
+        .create(recursive: true);
+    await binary.writeAsString('external native fixture');
+    expect((await Process.run('/bin/chmod', ['+x', binary.path])).exitCode, 0);
+    await fixture.catalog.link(binary.path);
+    final registry = fixture.catalog.registryFile;
+    final input =
+        jsonDecode(await registry.readAsString()) as Map<String, dynamic>;
+    input['schema'] = 4;
+    final orphan = {
+      'enabled': true,
+      'configuration': {
+        'formValues': {'--ctx-size': '3072'},
+        'argumentText': ' --threads 7\n',
+      },
+    };
+    input['modelLaunchOverrides'] = {
+      'old-unlinked-registration': {'retained-model-variant': orphan},
+      id: <String, Object?>{
+        fixture.asset.id: {'enabled': true, 'configuration': null},
+      },
+    };
+    final invalid = jsonEncode(input);
+    await registry.writeAsString(invalid);
+    await expectLater(
+      fixture.reopen(),
+      throwsA(
+        isA<LlamaEngineException>().having(
+          (error) => error.message,
+          'reason',
+          contains('模型启动配置'),
+        ),
+      ),
+    );
+    expect(
+      fixture.catalog.state.entries,
+      hasLength(1),
+      reason: 'valid linked rows must not be partially registered',
+    );
+    expect(
+      fixture.catalog.launchDefaultsFor(id).formValues['--ctx-size'],
+      '4096',
+    );
+    expect(await registry.readAsString(), invalid);
+    input['modelLaunchOverrides'][id][fixture.asset.id] = {
+      'enabled': true,
+      'configuration': {
+        'formValues': {'--ctx-size': '1024'},
+        'argumentText': '--device=CPU',
+      },
+    };
+    await registry.writeAsString(jsonEncode(input));
+    await fixture.catalog.refresh();
+    await fixture.library.scan(
+      Directory('${fixture.root.path}/models'),
+      verifyFiles: true,
+    );
+    expect(fixture.catalog.state.entries, hasLength(2));
+    expect(
+      fixture.catalog
+          .launchConfigurationFor(id, fixture.asset.id)
+          .formValues['--ctx-size'],
+      '1024',
+    );
+    await fixture.catalog.saveLaunchDefaults(
+      id,
+      EngineLaunchConfiguration(
+        formValues: {
+          ...EngineLaunchConfiguration.initialValues,
+          '--ctx-size': '8192',
+        },
+      ),
+    );
+    final saved = jsonDecode(await registry.readAsString()) as Map;
+    expect(
+      saved['modelLaunchOverrides']['old-unlinked-registration']['retained-model-variant'],
+      orphan,
+    );
+    expect(
+      fixture.catalog
+          .launchConfigurationFor(id, fixture.asset.id)
+          .formValues['--ctx-size'],
+      '1024',
+    );
+  });
+  test('real model variants and concrete linked registrations keep isolated overrides', () async {
+    final fixture = await _LaunchTextFixture.create();
+    addTearDown(fixture.close);
+    final models = Directory('${fixture.root.path}/models');
+    final original = fixture.asset;
+    await File(original.files.single.path)
+        .copy('${File(original.files.single.path).parent.path}/Kev-Q4_0.gguf');
+    final assets = await fixture.library.scan(models, verifyFiles: true);
+    final packages = await LocalModelPackages.discover(models, assets);
+    final variants = packages.packages.single.variants;
+    expect(
+      variants.map((variant) => variant.id).toSet(),
+      assets.map((asset) => asset.id).toSet(),
+    );
+    expect(variants.map((variant) => variant.label).toSet(), {
+      'GGUF · Q4_0',
+      'GGUF · Q8_0',
+    });
+    final ids = <String>[];
+    for (final directory in ['engine-a', 'engine-b']) {
+      final binary = await File('${fixture.root.path}/$directory/llama-server')
+          .create(recursive: true);
+      await binary.writeAsString('external native fixture $directory');
+      expect(
+        (await Process.run('/bin/chmod', ['+x', binary.path])).exitCode,
+        0,
+      );
+      ids.add((await fixture.catalog.link(binary.path)).id);
+    }
+    const contexts = ['1024', '2048', '3072', '4096'];
+    for (var engine = 0; engine < 2; engine++) {
+      for (var model = 0; model < 2; model++) {
+        final index = engine * 2 + model;
+        await fixture.catalog.saveModelLaunchOverrides(
+          ids[engine],
+          variants[model].id,
+          EngineLaunchConfiguration(
+            formValues: {
+              ...EngineLaunchConfiguration.initialValues,
+              '--ctx-size': contexts[index],
+            },
+            argumentText: '--threads ${index + 1}',
+          ),
+        );
+      }
+    }
+    final originalId = original.id;
+    await fixture.reopen(artifactId: originalId);
+    await HttpOverrides.runWithHttpOverrides(() async {
+      for (var engine = 0; engine < 2; engine++) {
+        final provider = fixture.catalog.providerFor(ids[engine]);
+        for (var model = 0; model < 2; model++) {
+          final index = engine * 2 + model;
+          final selection = fixture.catalog.modelLaunchOverridesFor(
+            ids[engine],
+            variants[model].id,
+          );
+          expect(selection.enabled, isTrue);
+          expect(
+            selection.configuration!.formValues['--ctx-size'],
+            contexts[index],
+          );
+          expect(
+            selection.configuration!.argumentText,
+            '--threads ${index + 1}',
+          );
+          final preview = await provider.previewLaunch(variants[model].id);
+          final running = await provider.start(variants[model].id);
+          expect(
+            preview.arguments,
+            containsAllInOrder([
+              '--ctx-size',
+              contexts[index],
+              '--threads',
+              '${index + 1}',
+            ]),
+          );
+          expect(
+            fixture.io.startedArguments.last,
+            containsAllInOrder([
+              '--ctx-size',
+              contexts[index],
+              '--threads',
+              '${index + 1}',
+            ]),
+          );
+          expect(
+            running.launchCommand!.arguments,
+            fixture.io.startedArguments.last,
+          );
+          await provider.stop(running.id);
+        }
+      }
+      final managed = fixture.catalog.modelLaunchOverridesFor(
+        EngineCatalog.officialId,
+        originalId,
+      );
+      expect(managed.enabled, isFalse);
+      expect(managed.configuration, isNull);
+      final untouched = await fixture.engine.start(originalId);
+      expect(
+        untouched.launchCommand!.arguments,
+        containsAllInOrder(['--ctx-size', '4096']),
+      );
+      expect(untouched.launchCommand!.arguments, isNot(contains('--threads')));
+    }, _NetworkBoundary());
+  });
+  test('model overrides retain full independent empty or inherited state after reopen', () async {
+    final fixture = await _LaunchTextFixture.create();
+    addTearDown(fixture.close);
+    const engineId = EngineCatalog.officialId;
+    final initial = fixture.catalog.modelLaunchOverridesFor(
+      engineId,
+      fixture.asset.id,
+    );
+    expect(initial.enabled, isFalse);
+    expect(initial.configuration, isNull);
+    final defaults = EngineLaunchConfiguration(
+      formValues: {
+        ...EngineLaunchConfiguration.initialValues,
+        '--ctx-size': '2048',
+      },
+      argumentText: ' --device=CPU\n',
+    );
+    await fixture.catalog.saveLaunchDefaults(engineId, defaults);
+    await fixture.catalog.setModelLaunchMode(
+      engineId,
+      fixture.asset.id,
+      independent: true,
+    );
+    final copied = fixture.catalog.modelLaunchOverridesFor(
+      engineId,
+      fixture.asset.id,
+    );
+    expect(copied.configuration!.formValues['--ctx-size'], '2048');
+    expect(copied.configuration!.argumentText, ' --device=CPU\n');
+    final independent = EngineLaunchConfiguration(
+      formValues: {
+        ...EngineLaunchConfiguration.initialValues,
+        '--ctx-size': '1024',
+      },
+      argumentText: ' --threads 3\n',
+    );
+    await fixture.catalog.saveModelLaunchOverrides(
+      engineId,
+      fixture.asset.id,
+      independent,
+    );
+    await fixture.catalog.saveLaunchDefaults(
+      engineId,
+      EngineLaunchConfiguration(
+        formValues: {
+          ...EngineLaunchConfiguration.initialValues,
+          '--ctx-size': '8192',
+        },
+        argumentText: '--device=CPU',
+      ),
+    );
+    await HttpOverrides.runWithHttpOverrides(() async {
+      final running = await fixture.engine.start(fixture.asset.id);
+      expect(
+        running.launchCommand!.arguments,
+        containsAllInOrder(['--ctx-size', '1024', '--threads', '3']),
+      );
+      await fixture.catalog.setModelLaunchMode(
+        engineId,
+        fixture.asset.id,
+        independent: false,
+      );
+      expect(
+        fixture.engine.state.instances.single.status,
+        LlamaInstanceStatus.ready,
+      );
+      expect(fixture.io.startedArguments, hasLength(1));
+      expect(fixture.io.stopAttempts, 0);
+      expect(
+        fixture.engine.state.instances.single.launchCommand!.displayText,
+        running.launchCommand!.displayText,
+      );
+      await fixture.engine.stop(running.id);
+    }, _NetworkBoundary());
+    await fixture.reopen();
+    final inherited = fixture.catalog.modelLaunchOverridesFor(
+      engineId,
+      fixture.asset.id,
+    );
+    expect(inherited.enabled, isFalse);
+    expect(inherited.configuration!.formValues['--ctx-size'], '1024');
+    expect(inherited.configuration!.argumentText, ' --threads 3\n');
+    await HttpOverrides.runWithHttpOverrides(() async {
+      final inheritedRun = await fixture.engine.start(fixture.asset.id);
+      expect(
+        inheritedRun.launchCommand!.arguments,
+        containsAllInOrder(['--ctx-size', '8192', '--device=CPU']),
+      );
+      expect(
+        inheritedRun.launchCommand!.arguments,
+        isNot(contains('--threads')),
+      );
+      await fixture.engine.stop(inheritedRun.id);
+      await fixture.catalog.setModelLaunchMode(
+        engineId,
+        fixture.asset.id,
+        independent: true,
+      );
+      final restored = await fixture.engine.start(fixture.asset.id);
+      expect(
+        restored.launchCommand!.arguments,
+        containsAllInOrder(['--ctx-size', '1024', '--threads', '3']),
+      );
+      await fixture.engine.stop(restored.id);
+    }, _NetworkBoundary());
+    await fixture.catalog.saveModelLaunchOverrides(
+      engineId,
+      fixture.asset.id,
+      EngineLaunchConfiguration(formValues: const {}, argumentText: ''),
+    );
+    await fixture.reopen();
+    final empty = fixture.catalog.modelLaunchOverridesFor(
+      engineId,
+      fixture.asset.id,
+    );
+    expect(empty.enabled, isTrue);
+    expect(empty.configuration, isNotNull);
+    expect(empty.configuration!.formValues, isEmpty);
+    expect(empty.configuration!.argumentText, '');
+    await HttpOverrides.runWithHttpOverrides(() async {
+      final preview = await fixture.engine.previewLaunch(fixture.asset.id);
+      final running = await fixture.engine.start(fixture.asset.id);
+      expect(preview.arguments, hasLength(8));
+      expect(running.launchCommand!.arguments, hasLength(8));
+    }, _NetworkBoundary());
+  });
+  testWidgets(
+    'model run copies engine defaults into an independent full configuration',
+    (tester) async {
+      final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
+      addTearDown(() => tester.runAsync(fixture.close));
+      await _openTextEditor(tester, fixture);
+      await tester.enterText(find.widgetWithText(TextField, '上下文大小'), '2048');
+      const source = ' --device=CPU\n';
+      final text = find.widgetWithText(TextField, '启动参数文本');
+      await tester.ensureVisible(text);
+      await tester.enterText(text, source);
+      await tester.pump();
+      await _saveTextEditor(tester, fixture);
+      await tester.runAsync(() async {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildJevTheme(Brightness.light),
+            home: Scaffold(
+              body: LibraryPage(
+                library: fixture.library,
+                libraryPath: '${fixture.root.path}/models',
+                engines: fixture.catalog,
+              ),
+            ),
+          ),
+        );
+        await _settleFilesystemFrames(tester);
+        await tester.tap(find.widgetWithText(TextButton, '运行'));
+        await tester.pump();
+        await fixture.catalog.refresh();
+        await tester.pump();
+      });
+      await tester.pumpAndSettle();
+      expect(find.text('模型独立'), findsOneWidget);
+      await tester.runAsync(() async {
+        final selected = fixture.catalog.changes.firstWhere(
+          (state) => !state.busy,
+        );
+        await tester.tap(find.text('模型独立'));
+        await selected.timeout(const Duration(seconds: 5));
+        await tester.pump();
+      });
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(OutlinedButton, '编辑模型参数'));
+      await tester.pumpAndSettle();
+      final contextField = find.widgetWithText(TextField, '上下文大小');
+      expect(tester.widget<TextField>(contextField).controller!.text, '2048');
+      expect(tester.widget<TextField>(text).controller!.text, source);
+      expect(
+        find.descendant(
+          of: find.ancestor(
+            of: contextField,
+            matching: find.byType(AlertDialog),
+          ),
+          matching: find.textContaining(fixture.asset.files.single.path),
+        ),
+        findsOneWidget,
+      );
+      await tester.enterText(contextField, '1024');
+      await tester.pump();
+      await _saveTextEditor(tester, fixture);
+      expect(find.textContaining('--ctx-size 1024'), findsOneWidget);
+      await tester.runAsync(
+        () => HttpOverrides.runWithHttpOverrides(() async {
+          final ready = fixture.engine.changes.firstWhere(
+            (state) => state.instances.any(
+              (instance) => instance.status == LlamaInstanceStatus.ready,
+            ),
+          );
+          await tester.tap(find.widgetWithText(FilledButton, '运行'));
+          await ready.timeout(const Duration(seconds: 5));
+          await _settleFilesystemFrames(tester);
+        }, _NetworkBoundary()),
+      );
+      expect(
+        fixture.io.startedArguments.single,
+        containsAllInOrder(['--ctx-size', '1024', '--device=CPU']),
+      );
+      expect(
+        fixture.catalog
+            .launchDefaultsFor(EngineCatalog.officialId)
+            .formValues['--ctx-size'],
+        '2048',
+      );
+      expect(
+        fixture.catalog
+            .launchDefaultsFor(EngineCatalog.officialId)
+            .argumentText,
+        source,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
   testWidgets(
     'quoted option-looking values keep their parameter role through editor save and start',
     (tester) async {
@@ -129,6 +554,7 @@ void main() {
         await tester.pump();
         expect(find.textContaining('第 $position 位'), findsOneWidget);
         expect(find.byTooltip('复制命令'), findsNothing);
+        await tester.pumpAndSettle();
         await _saveTextEditor(tester, fixture);
         await _openTextEditor(tester, fixture);
         expect(tester.widget<TextField>(input).controller!.text, text);
@@ -314,6 +740,7 @@ void main() {
             .onPressed,
         isNotNull,
       );
+      await tester.pumpAndSettle();
       await _saveTextEditor(tester, fixture);
       await tester.runAsync(() async {
         await tester.pumpWidget(const SizedBox.shrink());
@@ -1733,17 +2160,20 @@ class _LaunchTextFixture {
     );
   }
 
-  Future<void> reopen() async {
+  Future<void> reopen({String? artifactId}) async {
     await catalog.stopManaged();
     catalog.close();
     engine.close();
     library.close();
     _open();
     await catalog.refresh();
-    asset = (await library.scan(
+    final assets = await library.scan(
       Directory('${root.path}/models'),
       verifyFiles: true,
-    )).single;
+    );
+    asset = artifactId == null
+        ? assets.single
+        : assets.singleWhere((asset) => asset.id == artifactId);
   }
 
   Future<void> close() async {

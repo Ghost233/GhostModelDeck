@@ -9,6 +9,7 @@ import 'chat_protocol.dart';
 import 'decision_protocol.dart';
 import 'engine_runtime.dart';
 import 'engine_launch_configuration.dart';
+import 'engine_parameter_recognition.dart';
 import 'jev_debug.dart';
 
 export 'engine_runtime.dart' show DecisionCancellation;
@@ -67,10 +68,12 @@ class LinkedLlamaInstallation {
     required this.path,
     required this.version,
     required Map<String, String> fingerprints,
+    this.helpOutput,
   }) : fingerprints = Map.unmodifiable(fingerprints);
   final String path;
   final String version;
   final Map<String, String> fingerprints;
+  final String? helpOutput;
   String get sha256 => fingerprints[path]!;
 }
 
@@ -179,6 +182,7 @@ Future<LinkedLlamaInstallation> inspectLinkedLlama(
     path: path,
     version: observed,
     fingerprints: after,
+    helpOutput: flags,
   );
 }
 
@@ -491,15 +495,29 @@ class LlamaEngine implements EngineRuntime {
                : null),
        release = release ?? officialLlamaRelease,
        io = io ?? NativeEngineProcessIO(),
-       useRegistry = useRegistry ?? ModelUseRegistry(library);
+       useRegistry = useRegistry ?? ModelUseRegistry(library),
+       _parameterRecognition = linkedInstallation?.helpOutput == null
+           ? EngineParameterRecognition.builtIn()
+           : EngineParameterRecognition.fromHelp(
+               linkedInstallation!.helpOutput!,
+               version: linkedInstallation.version,
+               executablePath: linkedInstallation.path,
+               contentFingerprint: linkedInstallation.sha256,
+             );
   final ModelLibrary library;
   final Directory installationDirectory;
   final EngineProcessIO io;
   final LlamaRelease release;
-  EngineLaunchConfiguration Function()? _readLaunchDefaults;
+  EngineParameterRecognition _parameterRecognition;
+  EngineParameterRecognition get parameterRecognition => _parameterRecognition;
+  EngineLaunchConfiguration Function(String artifactId)?
+  _readLaunchConfiguration;
   void readLaunchDefaultsFrom(
     EngineLaunchConfiguration Function() readDefaults,
-  ) => _readLaunchDefaults = readDefaults;
+  ) => _readLaunchConfiguration = (_) => readDefaults();
+  void readLaunchConfigurationFrom(
+    EngineLaunchConfiguration Function(String artifactId) readConfiguration,
+  ) => _readLaunchConfiguration = readConfiguration;
   final ModelUseRegistry useRegistry;
   final Duration loadTimeout;
   final LinkedLlamaInstallation? linkedInstallation;
@@ -594,12 +612,14 @@ class LlamaEngine implements EngineRuntime {
     final files = assets.single.files.toList()
       ..sort((a, b) => a.path.compareTo(b.path));
     final configuration =
-        _readLaunchDefaults?.call() ?? EngineLaunchConfiguration();
+        _readLaunchConfiguration?.call(artifactId) ??
+        EngineLaunchConfiguration();
     return configuration.command(
       executable: executable,
       // The library snapshot already stores canonical real-file paths. Preview
       // reads that snapshot; start still verifies the current file before use.
       modelPath: files.first.path,
+      recognition: _parameterRecognition,
     );
   }
 
@@ -623,9 +643,11 @@ class LlamaEngine implements EngineRuntime {
     return _serial(() async {
       // Freeze at operation admission, before any installation/model I/O.
       final configuration =
-          _readLaunchDefaults?.call() ?? EngineLaunchConfiguration();
+          _readLaunchConfiguration?.call(artifactId) ??
+          EngineLaunchConfiguration();
       checkStartup();
       if (_detached) throw const LlamaEngineException('该引擎关联已解除');
+      final recognition = _parameterRecognition;
       configuration.validateArgumentText();
       if (state.installation != LlamaInstallationStatus.installed ||
           executablePath == null ||
@@ -686,6 +708,7 @@ class LlamaEngine implements EngineRuntime {
           modelPath: path,
           alias: alias,
           port: port,
+          recognition: recognition,
         );
         var instance = LlamaInstance(
           id: alias,
@@ -1917,6 +1940,7 @@ class LlamaEngine implements EngineRuntime {
       final target = Directory('$root/${release.tag}');
       if (await target.exists()) {
         if (await _checkInstallation(target)) {
+          await _refreshParameterRecognition();
           _publish(
             LlamaEngineState(
               installation: LlamaInstallationStatus.installed,
@@ -1976,6 +2000,7 @@ class LlamaEngine implements EngineRuntime {
       _binarySha256 = (inventory['llama-server'] as Map)['sha256'] as String;
       executablePath = '${target.path}/llama-server';
       observedVersion = version;
+      await _refreshParameterRecognition();
       _publish(
         LlamaEngineState(
           installation: LlamaInstallationStatus.installed,
@@ -1998,6 +2023,64 @@ class LlamaEngine implements EngineRuntime {
       if (staging != null) await staging.delete(recursive: true);
     }
   });
+
+  Future<void> _refreshParameterRecognition() async {
+    final executable = executablePath!;
+    final version = observedVersion!;
+    final fingerprint = _binarySha256!;
+    final generation = _generation;
+    final previous = _parameterRecognition;
+    bool current() =>
+        !_shuttingDown &&
+        !_recycling &&
+        !_detached &&
+        !_changes.isClosed &&
+        generation == _generation &&
+        executablePath == executable &&
+        observedVersion == version &&
+        _binarySha256 == fingerprint;
+    EngineCommandResult? result;
+    try {
+      result = await io.run(executable, [
+        '--help',
+      ], timeout: const Duration(seconds: 10));
+    } catch (_) {
+      // The command I/O owns timeout/kill/drain; optional help is not an install gate.
+    }
+    if (!current()) return;
+    final actual = (await sha256.bind(File(executable).openRead()).first)
+        .toString();
+    if (!current()) return;
+    if (actual != fingerprint) {
+      _parameterRecognition = EngineParameterRecognition.builtIn(
+        notice: '帮助读取期间引擎内容变化，当前帮助规则不可用；保留内置规则与原配置。',
+      );
+      throw const LlamaEngineException('帮助读取期间引擎内容变化');
+    }
+    if (result != null && result.exitCode == 0) {
+      _parameterRecognition = EngineParameterRecognition.fromHelp(
+        '${result.stdout}\n${result.stderr}',
+        version: version,
+        executablePath: executable,
+        contentFingerprint: fingerprint,
+        previous: previous,
+      );
+    } else if (previous.hasObservedHelp &&
+        previous.executablePath == executable &&
+        previous.contentFingerprint == fingerprint) {
+      _parameterRecognition = previous.withReadFailure(
+        version: version,
+        notice: '本次帮助读取失败，沿用同一引擎内容上次读取的识别规则；参数仍交由引擎判断。',
+      );
+    } else {
+      _parameterRecognition = EngineParameterRecognition.builtIn(
+        version: version,
+        executablePath: executable,
+        contentFingerprint: fingerprint,
+        notice: '当前版本帮助读取失败，继续使用内置识别规则。',
+      );
+    }
+  }
 
   Future<void> refreshInstallation() => _serial(() async {
     executablePath = null;
@@ -2029,6 +2112,7 @@ class LlamaEngine implements EngineRuntime {
       if (!await _checkInstallation(target)) {
         throw const LlamaEngineException('引擎安装内容校验失败');
       }
+      await _refreshParameterRecognition();
       _publish(
         LlamaEngineState(
           installation: LlamaInstallationStatus.installed,
@@ -2050,6 +2134,7 @@ class LlamaEngine implements EngineRuntime {
   });
 
   void _invalidateInstallationEvidence(String reason) {
+    _discardUnverifiedParameters();
     executablePath = null;
     observedVersion = null;
     _binarySha256 = null;
@@ -2067,12 +2152,21 @@ class LlamaEngine implements EngineRuntime {
     }
   }
 
+  bool _discardUnverifiedParameters() {
+    if (!_shuttingDown && !_changes.isClosed) {
+      _parameterRecognition = EngineParameterRecognition.builtIn(
+        notice: '引擎身份核验未通过，当前帮助规则不可用；保留内置规则与原配置。',
+      );
+    }
+    return false;
+  }
+
   Future<bool> _checkInstallation(Directory target) async {
     try {
       final marker = File('${target.path}/installation.json');
       if (await FileSystemEntity.type(marker.path, followLinks: false) !=
           FileSystemEntityType.file) {
-        return false;
+        return _discardUnverifiedParameters();
       }
       final value = jsonDecode(await marker.readAsString());
       if (value is! Map ||
@@ -2089,12 +2183,14 @@ class LlamaEngine implements EngineRuntime {
           value['archiveSha256'] != release.sha256 ||
           value['platform'] != release.targetPlatform ||
           value['files'] is! Map) {
-        return false;
+        return _discardUnverifiedParameters();
       }
       final actual = await _inventory(target);
-      if (jsonEncode(actual) != jsonEncode(value['files'])) return false;
+      if (jsonEncode(actual) != jsonEncode(value['files'])) {
+        return _discardUnverifiedParameters();
+      }
       final version = await _version(File('${target.path}/llama-server'));
-      if (value['version'] is! String) return false;
+      if (value['version'] is! String) return _discardUnverifiedParameters();
       final recorded = LlamaBinaryVersion.parse(value['version'] as String);
       final observed = LlamaBinaryVersion.parse(version);
       if (recorded == null ||
@@ -2103,32 +2199,54 @@ class LlamaEngine implements EngineRuntime {
           recorded.build != observed.build ||
           recorded.commit != observed.commit ||
           recorded.platform != observed.platform) {
-        return false;
+        return _discardUnverifiedParameters();
       }
       _binarySha256 = (actual['llama-server'] as Map)['sha256'] as String;
       executablePath = '${target.path}/llama-server';
       observedVersion = version;
       return true;
     } catch (_) {
-      return false;
+      return _discardUnverifiedParameters();
     }
   }
 
   Future<bool> _checkLinked() async {
+    final generation = _generation;
     try {
       final expected = linkedInstallation!;
       final actual = await inspectLinkedLlama(File(expected.path), io);
-      if (actual.version != expected.version ||
+      final recordedIdentity = LlamaBinaryVersion.parse(expected.version);
+      final observedIdentity = LlamaBinaryVersion.parse(actual.version);
+      final sameVersion = recordedIdentity != null && observedIdentity != null
+          ? recordedIdentity.semanticVersion ==
+                    observedIdentity.semanticVersion &&
+                recordedIdentity.build == observedIdentity.build &&
+                recordedIdentity.commit == observedIdentity.commit &&
+                recordedIdentity.platform == observedIdentity.platform
+          : actual.version == expected.version;
+      if (!sameVersion ||
           jsonEncode(actual.fingerprints) !=
               jsonEncode(expected.fingerprints)) {
-        return false;
+        return _discardUnverifiedParameters();
       }
       executablePath = actual.path;
       _binarySha256 = actual.sha256;
       observedVersion = actual.version;
+      if (!_shuttingDown &&
+          !_detached &&
+          generation == _generation &&
+          !_changes.isClosed) {
+        _parameterRecognition = EngineParameterRecognition.fromHelp(
+          actual.helpOutput!,
+          version: actual.version,
+          executablePath: actual.path,
+          contentFingerprint: actual.sha256,
+          previous: _parameterRecognition,
+        );
+      }
       return true;
     } catch (_) {
-      return false;
+      return _discardUnverifiedParameters();
     }
   }
 

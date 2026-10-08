@@ -49,6 +49,11 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
   bool _loading = true;
   EngineLaunchCommand? _preview;
   bool _previewBlocked = false;
+  LibraryArtifact? get _configurationAsset => widget.variant.artifacts
+      .where(
+        (asset) => [AssetKind.decision, AssetKind.chat].contains(asset.kind),
+      )
+      .singleOrNull;
   @override
   void initState() {
     super.initState();
@@ -148,12 +153,92 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
     }
   }
 
+  Future<void> _setModelMode(bool independent) async {
+    final engineId = _engineId;
+    final asset = _configurationAsset;
+    if (_working || _loading || engineId == null || asset == null) return;
+    setState(() {
+      _working = true;
+      _error = null;
+    });
+    try {
+      await widget.catalog.setModelLaunchMode(
+        engineId,
+        asset.id,
+        independent: independent,
+      );
+      await _updatePreview();
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
+  Future<void> _updatePreview() async {
+    try {
+      final preview = await _previewFor(_engineId);
+      if (mounted) {
+        setState(() {
+          _preview = preview;
+          _previewBlocked = false;
+        });
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _preview = null;
+          _error = error.toString();
+          _previewBlocked = error is LaunchArgumentTextException;
+        });
+      }
+    }
+  }
+
+  Future<void> _editModelConfiguration() async {
+    final engineId = _engineId;
+    final asset = _configurationAsset;
+    if (_working || _loading || engineId == null || asset == null) return;
+    final entry = widget.catalog.state.entries.singleWhere(
+      (entry) => entry.id == engineId,
+    );
+    final configuration = widget.catalog
+        .modelLaunchOverridesFor(engineId, asset.id)
+        .configuration;
+    if (configuration == null) return;
+    final files = asset.files.toList()
+      ..sort((a, b) => a.path.compareTo(b.path));
+    setState(() => _error = null);
+    // The editor's own modal and saving guard own this interaction.
+    await showDialog<void>(
+      context: context,
+      builder: (_) => EngineLaunchEditor(
+        title: '${widget.variant.label} · 模型启动参数',
+        initialConfiguration: configuration,
+        executable: entry.path,
+        modelPath: files.first.path,
+        recognition: widget.catalog.parameterRecognitionFor(engineId),
+        onSave: (value) =>
+            widget.catalog.saveModelLaunchOverrides(engineId, asset.id, value),
+      ),
+    );
+    await _updatePreview();
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final entries = widget.catalog.state.entries
         .where((value) => value.status == LlamaInstallationStatus.installed)
         .toList();
+    final selectedEntry = entries
+        .where((entry) => entry.id == _engineId)
+        .singleOrNull;
+    final asset = _configurationAsset;
+    final selection =
+        selectedEntry?.family == EngineFamily.llamaCpp && asset != null
+        ? widget.catalog.modelLaunchOverridesFor(selectedEntry!.id, asset.id)
+        : null;
     return PopScope(
       canPop: !_working,
       child: AlertDialog(
@@ -222,6 +307,26 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
                   ],
                   onChanged: _working || _loading ? null : _selectEngine,
                 ),
+                if (selection != null) ...[
+                  const SizedBox(height: 16),
+                  SegmentedButton<bool>(
+                    segments: const [
+                      ButtonSegment(value: false, label: Text('引擎默认')),
+                      ButtonSegment(value: true, label: Text('模型独立')),
+                    ],
+                    selected: {selection.enabled},
+                    onSelectionChanged: _working || _loading
+                        ? null
+                        : (values) => _setModelMode(values.single),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton(
+                    onPressed: _working || _loading || !selection.enabled
+                        ? null
+                        : _editModelConfiguration,
+                    child: const Text('编辑模型参数'),
+                  ),
+                ],
                 if (_preview != null)
                   Padding(
                     padding: const EdgeInsets.only(top: 16),

@@ -6,12 +6,11 @@
 
 ## 当前状态
 
-- 当前实施：[打通参数文本优先、覆盖提示与实际启动](https://github.com/Ghost233/GhostModelDeck/issues/46)，负责人 Ghost233，执行者 `/root/implement_45`，协调者 `/root`。第一阶段已由 [引擎默认启动配置与完整命令预览](https://github.com/Ghost233/GhostModelDeck/pull/52) 合入集成分支，#45 已验收关闭。
-- 固定总基线与第一阶段基线：`d0d14efe5b90f9b1fe25aace9403df03f9fd581e`。已有显示名、SDK 菜单栏接入及确认规格分为三个提交，已从本地 main 推送并核验实际远端相同。
-- 当前分支：`codex/engine-launch-text`，第二阶段基线 `97c8ff6a22b096a97a38a409027cc563e022ed75`；第一阶段分支与集成分支本地/实际远端均已同步该 SHA；main 保持总基线。总 PR [引擎启动参数配置、文本优先与模型覆盖](https://github.com/Ghost233/GhostModelDeck/pull/53) 目标 main，当前为草稿。
-- 阶段候选以阶段提交及工作记录中的 SHA 为标识。五条定点场景已通过：表单保存/重建恢复、模型运行预览/复制/实际 argv、保存与清空仅影响后续手动启动、管理页即时预览/复制、受管 JEV/标准/关联登记项隔离及重建恢复。
-- merger 首核对与增量核对、Standards/Spec 双轴首审均为 0 项发现。修正预览冗余 I/O 后，原两个失败定点与受影响模块 43 项均通过；最终格式检查 92 文件零改动、分析零诊断、全量 548 项测试、Mac 构建及真实 JEV 检查均退出码 0，输入未变化。复盘无本阶段未关闭的已确认 P0/P1/P2，复审确认记录增量后才合入集成分支。
-- 第一阶段产品候选 `3223f3deacf2d6f4c87daae84e951f8015de9cca` 的首审、最终候选 `97c8ff6a22b096a97a38a409027cc563e022ed75` 的复审及复盘保存在 `.scratch/engine-launch-delivery/stage45/`，两轴均 0，已确认 P0/P1/P2 清零。阶段 PR 已实际合并，第二阶段已完成修复与验收，正在交付阶段 PR。
+- 当前实施：[打通模型独立配置、继承切换与 SDK 启动](https://github.com/Ghost233/GhostModelDeck/issues/47) 与 [提供当前引擎版本的参数识别与编辑提示](https://github.com/Ghost233/GhostModelDeck/issues/48)，均已分配 Ghost233。执行者分别为 `/root/implement_45` 与 `/root/engine_argument_grammar`，协调者 `/root`；共享 checkout 中按文件归属并行，登记/启动接线在 #47 冻结后串行补齐。
+- 总基线 `d0d14efe5b90f9b1fe25aace9403df03f9fd581e`，main 本地与实际远端保持该 SHA。已有品牌、SDK 菜单栏与规格基线分别提交；本次参数总 PR 尚未合入 main。
+- 第一阶段 [引擎默认启动配置与完整命令预览](https://github.com/Ghost233/GhostModelDeck/pull/52) 及第二阶段 [参数文本优先与真实启动诊断](https://github.com/Ghost233/GhostModelDeck/pull/54) 已实际合入集成分支，相应 #45/#46 已验收关闭。集成分支与第二阶段分支本地/实际远端均为 `1f35464c09d8a0f16301925fec248f7b63002214`；第一阶段分支本地/远端均保留 `97c8ff6a22b096a97a38a409027cc563e022ed75`。
+- 当前分支 `codex/engine-launch-overrides-recognition`，第三阶段基线 `1f35464c09d8a0f16301925fec248f7b63002214`。总 PR [引擎启动参数配置、文本优先与模型覆盖](https://github.com/Ghost233/GhostModelDeck/pull/53) 目标 main，当前为草稿。
+- 第一阶段最终格式/分析/548 项全量、Mac 和真实 JEV 通过，双轴复审为 0。第二阶段修复后的最终格式/分析/558 项全量、Mac 和真实 JEV 32 条断言通过；首审 P2 已关闭，产品及交付文档的双轴增量复审均为 0。报告与输入指纹保存在 `.scratch/engine-launch-delivery/stage45/`、`stage46/`，actual MERGED 与分支 hash 记录在相应 `integration.json`。
 - 有效作业、每次输入指纹、真实退出码及下一动作在 `.scratch/engine-launch-delivery/delivery.json` 和 `checks/*/result.json` 更新；恢复时先核对作业结果，不因原会话句柄失效重开作业。
 
 ## 真实路径证据
@@ -29,6 +28,18 @@
 第一阶段真实引擎检查保存上下文 `2048` 后预览并启动同一 Kev，实例记录的 argv 与真正传给 NativeEngineProcessIO 的数组相同，真实 `/props` 回报运行上下文为 2048。运行中再次保存默认值，PID、Ready 状态和原命令保持不变；结束后停止该实例并验证端口释放。最终证据：`.scratch/engine-launch-delivery/native-stage45-final/outcome.json`、`native-stage45-final-inputs.json`、`native-stage45-final.exit`，退出码 0。该检查不代替最后阶段的完整桌面、SDK、真实 llama.cpp/JEV 验收。
 
 使用原有 `Kev-0.8B-Q8_0.gguf`，812406304 字节，SHA-256 `27278f34eb3273bceea4c053dc50dd61a5161da21a718c4aacdf8fd5830771d0`；只加载本次实例，未替换已安装应用或修改模型文件。
+
+## 第三阶段当前验证
+
+模型启动覆盖按实际 `LocalModelVariant.id = artifact.id` 与具体登记引擎保存，整份表单及原文独立，继承时仍保留独立内容，空配置与未覆盖分别表达。公开 GUI 编辑/保存/重建/启动和真实 SDK Unix socket 用例已通过；SDK 沿现有 `runtimeFor → startRuntime` 读取同一选择，没有新增配置协议或运行管理器。登记 schema4 读取旧 schema1/2/3，全量解析成功后才注册，孤立登记键的配置保留供后继手动恢复。
+
+当前版本参数识别使用引擎唯一的瞬时元数据，绑定核验路径及内容指纹。帮助补充名称、可靠别名、说明和值边界；未知/语义问题仍仅提示。同一内容读取或解析不足可沿用已观察规则并提示限制；身份失败清除动态规则且原启动门禁拒绝，回收/退出后的晚到结果被丢弃。16 条公开识别用例通过，最终11文件211项相关回归通过；两条分析info以必要花括号及等价测试字符串插值修复，实际输入和业务条件不变，原始失败均保留。
+
+真实标准 llama.cpp 预检发现原关联核验按完整版本输出比较，初始化时间戳变化导致同一二进制被误判。定点红灯后复用已有类型化版本比较版本、build、commit、platform；无法解析时仍原文严格比较，原完整文件指纹、检查前后内容、架构及必需 help 门禁保持。四个真实身份字段、指纹、help 变化仍拒绝的成对回归通过。滚动旧用例的两次原失败均稳定重放；仅增加弹窗关闭前公开帧排空等待，原保存/位置/零启动断言保留，23 项所属文件回归通过。
+
+更新后的 `native-stage47-48-final2/outcome.json` 与 `native-standard-preflight-final2/outcome.json` 分别完成现有 Kev/JEV 与标准 b11146/Qwen 的 16 条真实断言：独立上下文1024生效，软件字段正确，实际 argv 等于命令快照，默认变化与继承切换不重启或改原 PID/命令，独立内容可恢复，模型完整性未变；各10个本次 child 全退出、端口释放。两份47项源码输入仍匹配，真实退出码均为0。`builds/stage47-48-final2/result.json` 的最终正确项目环境 Mac 构建退出0、输入未变。最终容器格式检查95文件零改动、静态分析零诊断、全量579项通过，三个真实退出码均为0且输入未变，记录在 `checks/stage47-48-*-final2/`。整合的正式双轴审查仍待完成，第三阶段尚未集成。
+
+标准权重恢复由用户明确同意，仅恢复原固定 revision `9217f5db79a29953eb74d5343926648285ec7e67` 的 Qwen 小模型到本次任务目录，491400032字节/SHA256 `74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db` 已全字节核对。curl退出0；原辅助脚本调用宿主Python3.9不支持的 `hashlib.file_digest` 而退出1，错误保留，兼容的流式SHA256独立验证退出0，不重新下载。该恢复不是本次验证生产下载器的证据。最初标准预检在时间戳误判处退出1、未加载模型，已保留；修复后新目录成功不覆盖旧结果。
 
 ## 已记录的执行故障
 

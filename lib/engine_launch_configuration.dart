@@ -1,4 +1,5 @@
 import 'launch_argument_text.dart';
+import 'engine_parameter_recognition.dart';
 
 export 'launch_argument_text.dart' show LaunchArgumentTextException;
 
@@ -28,23 +29,15 @@ class EngineLaunchConfiguration {
   final Map<String, String> formValues;
   final String argumentText;
   void validateArgumentText() => parseLaunchArgumentText(argumentText);
-  static const _formAliases = {
-    '-c': '--ctx-size',
-    '-b': '--batch-size',
-    '-ub': '--ubatch-size',
-    '-np': '--parallel',
-    '-ngl': '--n-gpu-layers',
-    '--gpu-layers': '--n-gpu-layers',
-    '-dev': '--device',
-  };
-  static const _managedAliases = {'-m': '--model', '-a': '--alias'};
 
   EngineLaunchCommand command({
     required String executable,
     required String modelPath,
     String? alias,
     int? port,
+    EngineParameterRecognition? recognition,
   }) {
+    final rules = recognition ?? EngineParameterRecognition.builtIn();
     final tokens = parseLaunchArgumentText(argumentText);
     final managed = {
       '--model': modelPath,
@@ -55,11 +48,11 @@ class EngineLaunchConfiguration {
     final arguments = <String>[];
     final managedNames = <String>{};
     final overridden = <String>{};
-    final notices = <String>{};
+    final notices = <String>{...rules.notices};
     for (var index = 0; index < tokens.length; index++) {
       final argument = tokens[index].value;
       final name = argument.split('=').first;
-      final controlled = _managedAliases[name] ?? name;
+      final controlled = rules.canonicalName(name);
       if (managed.containsKey(controlled)) {
         managedNames.add(controlled);
         if (!argument.contains('=') &&
@@ -70,12 +63,32 @@ class EngineLaunchConfiguration {
         continue;
       }
       arguments.add(argument);
-      final canonical = _formAliases[name] ?? name;
+      final canonical = rules.canonicalName(name);
+      final description = rules.descriptionFor(name);
+      if (rules.status == EngineHelpStatus.available ||
+          rules.status == EngineHelpStatus.partial) {
+        if (description != null && description.description.isNotEmpty) {
+          notices.add('$name：${description.description}');
+        }
+      }
       if (!formLabels.containsKey(canonical)) {
-        if (_looksLikeOption(name)) {
+        if (_looksLikeOption(name) && !rules.recognizes(name)) {
           notices.add('未知参数 $name，保留并交由引擎判断。');
-        } else if (index == 0) {
+        } else if (index == 0 && !_looksLikeOption(name)) {
           notices.add('文本仅填写参数；可执行文件由软件提供。');
+        }
+        if (description != null && description.valueHint.isNotEmpty) {
+          var remaining = description.valueHint.split(RegExp(r'\s+')).length;
+          if (argument.contains('=')) remaining--;
+          while (remaining > 0 &&
+              index + 1 < tokens.length &&
+              _isValue(tokens[index + 1])) {
+            arguments.add(tokens[++index].value);
+            remaining--;
+          }
+          if (remaining > 0) {
+            notices.add('$name 缺少值，仍保留并交由引擎判断。');
+          }
         }
         continue;
       }

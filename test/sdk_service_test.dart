@@ -15,6 +15,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/council.dart';
 import 'package:ghost_model_deck/council_mcp.dart';
 import 'package:ghost_model_deck/engine_catalog.dart';
+import 'package:ghost_model_deck/engine_launch_configuration.dart';
 import 'package:ghost_model_deck/engine_runtime.dart';
 import 'package:ghost_model_deck/app_theme.dart';
 import 'package:ghost_model_deck/library_page.dart';
@@ -31,6 +32,112 @@ import 'fixtures/decision_gguf.dart';
 import 'fixtures/engine_archive.dart';
 
 void main() {
+  _realNet('SDK startup reuses persisted model configuration and applies changes only after recycle', () async {
+    final fixture = await _SdkFixture.create(useAssetEntry: true);
+    addTearDown(fixture.close);
+    const id = EngineCatalog.officialId;
+    await fixture.catalog.saveModelLaunchOverrides(
+      id,
+      fixture.asset.id,
+      EngineLaunchConfiguration(
+        formValues: {
+          ...EngineLaunchConfiguration.initialValues,
+          '--ctx-size': '1024',
+        },
+        argumentText: '-b=2048 --device=CPU',
+      ),
+    );
+    final desktopPreview = await fixture.engine.previewLaunch(fixture.asset.id);
+    await fixture.connect();
+    await fixture.peer.call('start');
+    final first = await fixture.peer.call('status');
+    final firstResult = (first['result'] as Map).cast<String, Object?>();
+    expect(firstResult['state'], 'running');
+    expect(firstResult['ready'], isTrue);
+    expect(fixture.io.startCount, 1);
+    final original = fixture.engine.state.instances.single;
+    expect(original.status, LlamaInstanceStatus.ready);
+    expect(fixture.io.startedArguments.single.skip(8).toList(), [
+      '--ctx-size',
+      '1024',
+      '--ubatch-size',
+      '4096',
+      '--parallel',
+      '1',
+      '--n-gpu-layers',
+      '99',
+      '-b=2048',
+      '--device=CPU',
+    ]);
+    expect(
+      fixture.io.startedArguments.single.skip(8).toList(),
+      desktopPreview.arguments.skip(8).toList(),
+    );
+    expect(
+      original.launchCommand!.arguments,
+      fixture.io.startedArguments.single,
+    );
+    await fixture.catalog.saveModelLaunchOverrides(
+      id,
+      fixture.asset.id,
+      EngineLaunchConfiguration(
+        formValues: {
+          ...EngineLaunchConfiguration.initialValues,
+          '--ctx-size': '3072',
+        },
+        argumentText: '--device=CPU',
+      ),
+    );
+    await fixture.peer.call('start');
+    final repeated = await fixture.peer.call('status');
+    final repeatedResult = (repeated['result'] as Map).cast<String, Object?>();
+    expect(repeatedResult['instanceId'], firstResult['instanceId']);
+    expect(fixture.io.startCount, 1);
+    expect(
+      fixture.engine.state.instances.single.launchCommand!.displayText,
+      original.launchCommand!.displayText,
+    );
+    await fixture.peer.call('recycle');
+    expect(fixture.liveInstances, isEmpty);
+    await fixture.peer.call('start');
+    expect(fixture.io.startCount, 2);
+    final independent = fixture.engine.state.instances
+        .where((instance) => instance.hasLiveProcess)
+        .single;
+    expect(
+      independent.launchCommand!.arguments,
+      containsAllInOrder(['--ctx-size', '3072', '--device=CPU']),
+    );
+    await fixture.catalog.setModelLaunchMode(
+      id,
+      fixture.asset.id,
+      independent: false,
+    );
+    await fixture.peer.call('start');
+    expect(fixture.io.startCount, 2);
+    expect(
+      independent.launchCommand!.arguments,
+      containsAllInOrder(['--ctx-size', '3072']),
+    );
+    await fixture.peer.call('recycle');
+    await fixture.peer.call('start');
+    expect(fixture.io.startCount, 3);
+    final inherited = fixture.engine.state.instances
+        .where((instance) => instance.hasLiveProcess)
+        .single;
+    expect(
+      inherited.launchCommand!.arguments,
+      containsAllInOrder(['--ctx-size', '4096', '--device', 'MTL0']),
+    );
+    expect(inherited.launchCommand!.arguments, isNot(contains('--device=CPU')));
+    expect(
+      fixture.catalog
+          .modelLaunchOverridesFor(id, fixture.asset.id)
+          .configuration!
+          .formValues['--ctx-size'],
+      '3072',
+    );
+  });
   group('LauncherInferenceService 协议握手与状态', () {
     _realNet('hello 载荷与 app 能力声明符合固定契约', () async {
       final fixture = await _SdkFixture.create();
@@ -1310,6 +1417,7 @@ class _SdkIO implements EngineProcessIO {
   final List<String> events;
   final children = <_SdkChild>[];
   int startCount = 0;
+  final startedArguments = <List<String>>[];
   Future<void>? startGate;
 
   var _enteredWake = Completer<void>();
@@ -1343,6 +1451,7 @@ class _SdkIO implements EngineProcessIO {
   @override
   Future<EngineChild> start(String executable, List<String> arguments) async {
     startCount++;
+    startedArguments.add(List.of(arguments));
     final wake = _enteredWake;
     _enteredWake = Completer<void>();
     if (!wake.isCompleted) {

@@ -6,11 +6,41 @@ import 'dart:math';
 import 'llama_engine.dart';
 import 'engine_runtime.dart';
 import 'engine_launch_configuration.dart';
+import 'engine_parameter_recognition.dart';
 import 'model_library.dart';
 import 'omlx_engine.dart';
 import 'model_use_registry.dart';
 
 enum EngineSource { managed, linked }
+
+class ModelLaunchOverrides {
+  const ModelLaunchOverrides({this.enabled = false, this.configuration});
+  final bool enabled;
+  final EngineLaunchConfiguration? configuration;
+
+  factory ModelLaunchOverrides.fromJson(Object? value) {
+    if (value is! Map ||
+        value['enabled'] is! bool ||
+        !value.containsKey('configuration')) {
+      throw const FormatException('模型启动配置无效');
+    }
+    final configuration = value['configuration'] == null
+        ? null
+        : EngineLaunchConfiguration.fromJson(value['configuration']);
+    if (value['enabled'] == true && configuration == null) {
+      throw const FormatException('模型独立启动配置缺失');
+    }
+    return ModelLaunchOverrides(
+      enabled: value['enabled'] as bool,
+      configuration: configuration,
+    );
+  }
+
+  Map<String, Object?> toJson() => {
+    'enabled': enabled,
+    'configuration': configuration?.toJson(),
+  };
+}
 
 class EngineRegistration {
   const EngineRegistration({
@@ -102,7 +132,9 @@ class EngineCatalog {
     EngineProcessIO? io,
   }) : io = io ?? NativeEngineProcessIO() {
     for (final entry in _managed.entries) {
-      entry.value.readLaunchDefaultsFrom(() => launchDefaultsFor(entry.key));
+      entry.value.readLaunchConfigurationFrom(
+        (artifactId) => launchConfigurationFor(entry.key, artifactId),
+      );
       _subscriptions.add(entry.value.changes.listen((_) => _publish()));
     }
     _omlxSubscription = omlxEngine?.changes.listen((_) => _publish());
@@ -131,6 +163,7 @@ class EngineCatalog {
   final _linked = <String, LlamaEngine>{};
   final _names = <String, String>{};
   final _launchDefaults = <String, EngineLaunchConfiguration>{};
+  final _modelLaunchOverrides = <String, Map<String, ModelLaunchOverrides>>{};
   final _subscriptions = <StreamSubscription<LlamaEngineState>>[];
   Future<void> _operations = Future.value();
   bool _loaded = false;
@@ -274,7 +307,7 @@ class EngineCatalog {
         throw const LlamaEngineException('引擎登记文件无效');
       }
       if (value is! Map ||
-          ![1, 2, 3].contains(value['schema']) ||
+          ![1, 2, 3, 4].contains(value['schema']) ||
           value['linked'] is! List) {
         throw const LlamaEngineException('引擎登记文件无效');
       }
@@ -283,7 +316,7 @@ class EngineCatalog {
       final cppRows = <String, (String, LinkedLlamaInstallation)>{};
       final nativeRows = <String, _LinkedOmlx>{};
       final launchDefaults = <String, EngineLaunchConfiguration>{};
-      if (value['schema'] == 3) {
+      if ([3, 4].contains(value['schema'])) {
         final configurations = value['launchDefaults'];
         if (configurations is! Map) {
           throw const LlamaEngineException('引擎启动配置登记无效');
@@ -300,6 +333,33 @@ class EngineCatalog {
           }
         }
       }
+      final modelOverrides = <String, Map<String, ModelLaunchOverrides>>{};
+      if (value['schema'] == 4) {
+        final rows = value['modelLaunchOverrides'];
+        if (rows is! Map) {
+          throw const LlamaEngineException('模型启动配置登记无效');
+        }
+        for (final engine in rows.entries) {
+          if (engine.key is! String ||
+              (engine.key as String).isEmpty ||
+              engine.value is! Map) {
+            throw const LlamaEngineException('模型启动配置登记无效');
+          }
+          final selections = <String, ModelLaunchOverrides>{};
+          for (final artifact in (engine.value as Map).entries) {
+            if (artifact.key is! String || (artifact.key as String).isEmpty) {
+              throw const LlamaEngineException('模型启动配置登记无效');
+            }
+            try {
+              selections[artifact.key as String] =
+                  ModelLaunchOverrides.fromJson(artifact.value);
+            } on FormatException {
+              throw const LlamaEngineException('模型启动配置登记无效');
+            }
+          }
+          modelOverrides[engine.key as String] = Map.unmodifiable(selections);
+        }
+      }
       final ids = <String>{officialId, standardId, omlxId};
       for (final row in value['linked'] as List) {
         if (row is! Map ||
@@ -308,7 +368,7 @@ class EngineCatalog {
           throw const LlamaEngineException('关联引擎登记信息无效');
         }
         if (row['family'] == 'omlx') {
-          if (![2, 3].contains(value['schema']) ||
+          if (![2, 3, 4].contains(value['schema']) ||
               omlxEngine == null ||
               row['path'] is! String ||
               row['name'] is! String) {
@@ -352,6 +412,7 @@ class EngineCatalog {
       }
       _linkedOmlx.addAll(nativeRows);
       _launchDefaults.addAll(launchDefaults);
+      _modelLaunchOverrides.addAll(modelOverrides);
     }
     _loaded = true;
   }
@@ -365,7 +426,9 @@ class EngineCatalog {
       linkedInstallation: location,
       installationId: id,
     );
-    provider.readLaunchDefaultsFrom(() => launchDefaultsFor(id));
+    provider.readLaunchConfigurationFrom(
+      (artifactId) => launchConfigurationFor(id, artifactId),
+    );
     if (_shuttingDown) provider.beginShutdown();
     if (_recycling) {
       _admissionReleases[provider] = provider.holdStartAdmission();
@@ -378,21 +441,33 @@ class EngineCatalog {
   Future<void> _save({
     String? excluding,
     Map<String, EngineLaunchConfiguration>? launchDefaults,
+    Map<String, Map<String, ModelLaunchOverrides>>? modelLaunchOverrides,
   }) async {
     final configurations = launchDefaults ?? _launchDefaults;
+    final modelConfigurations = modelLaunchOverrides ?? _modelLaunchOverrides;
     await registryFile.parent.create(recursive: true);
     final temporary = File('${registryFile.path}.tmp');
     await temporary.writeAsString(
       jsonEncode({
-        'schema': configurations.isNotEmpty
+        'schema': modelConfigurations.isNotEmpty
+            ? 4
+            : configurations.isNotEmpty
             ? 3
             : _linkedOmlx.keys.any((id) => id != excluding)
             ? 2
             : 1,
-        if (configurations.isNotEmpty)
+        if (configurations.isNotEmpty || modelConfigurations.isNotEmpty)
           'launchDefaults': {
             for (final entry in configurations.entries)
               entry.key: entry.value.toJson(),
+          },
+        if (modelConfigurations.isNotEmpty)
+          'modelLaunchOverrides': {
+            for (final engine in modelConfigurations.entries)
+              engine.key: {
+                for (final artifact in engine.value.entries)
+                  artifact.key: artifact.value.toJson(),
+              },
           },
         'linked': [
           for (final entry in _linked.entries)
@@ -420,6 +495,9 @@ class EngineCatalog {
     await temporary.rename(registryFile.path);
   }
 
+  EngineParameterRecognition parameterRecognitionFor(String id) =>
+      providerFor(id).parameterRecognition;
+
   EngineLaunchConfiguration launchDefaultsFor(String id) {
     providerFor(id);
     return _launchDefaults[id] ?? EngineLaunchConfiguration();
@@ -434,6 +512,78 @@ class EngineCatalog {
     await _save(launchDefaults: {..._launchDefaults, id: configuration});
     _launchDefaults[id] = configuration;
   });
+
+  ModelLaunchOverrides modelLaunchOverridesFor(String id, String artifactId) {
+    providerFor(id);
+    return _modelLaunchOverrides[id]?[artifactId] ??
+        const ModelLaunchOverrides();
+  }
+
+  EngineLaunchConfiguration launchConfigurationFor(
+    String id,
+    String artifactId,
+  ) {
+    final selection = modelLaunchOverridesFor(id, artifactId);
+    return selection.enabled ? selection.configuration! : launchDefaultsFor(id);
+  }
+
+  Future<void> setModelLaunchMode(
+    String id,
+    String artifactId, {
+    required bool independent,
+  }) => _serial(() async {
+    await _load();
+    _requireModelConfigurationTarget(id, artifactId);
+    final previous = modelLaunchOverridesFor(id, artifactId);
+    await _saveModelSelection(
+      id,
+      artifactId,
+      ModelLaunchOverrides(
+        enabled: independent,
+        configuration:
+            previous.configuration ??
+            (independent ? launchDefaultsFor(id) : null),
+      ),
+    );
+  });
+
+  Future<void> saveModelLaunchOverrides(
+    String id,
+    String artifactId,
+    EngineLaunchConfiguration configuration,
+  ) => _serial(() async {
+    await _load();
+    _requireModelConfigurationTarget(id, artifactId);
+    await _saveModelSelection(
+      id,
+      artifactId,
+      ModelLaunchOverrides(enabled: true, configuration: configuration),
+    );
+  });
+
+  void _requireModelConfigurationTarget(String id, String artifactId) {
+    providerFor(id);
+    if (!library.state.artifacts.any(
+      (asset) =>
+          asset.id == artifactId &&
+          asset.format == 'GGUF' &&
+          [AssetKind.decision, AssetKind.chat].contains(asset.kind),
+    )) {
+      throw const LlamaEngineException('请选择当前模型库中的文本或决策 GGUF 变体');
+    }
+  }
+
+  Future<void> _saveModelSelection(
+    String id,
+    String artifactId,
+    ModelLaunchOverrides selection,
+  ) async {
+    final selections = {...?_modelLaunchOverrides[id], artifactId: selection};
+    await _save(
+      modelLaunchOverrides: {..._modelLaunchOverrides, id: selections},
+    );
+    _modelLaunchOverrides[id] = Map.unmodifiable(selections);
+  }
 
   Future<void> installOfficial({File? verifiedArchive}) =>
       installManaged(officialId, verifiedArchive: verifiedArchive);

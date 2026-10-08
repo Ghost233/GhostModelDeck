@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'engine_launch_configuration.dart';
+import 'engine_parameter_recognition.dart';
 
 class EngineLaunchCommandView extends StatelessWidget {
   const EngineLaunchCommandView({
@@ -63,12 +64,16 @@ class EngineLaunchEditor extends StatefulWidget {
     required this.initialConfiguration,
     required this.onSave,
     this.executable,
+    this.modelPath,
+    this.recognition,
   });
 
   final String title;
   final EngineLaunchConfiguration initialConfiguration;
   final Future<void> Function(EngineLaunchConfiguration configuration) onSave;
   final String? executable;
+  final String? modelPath;
+  final EngineParameterRecognition? recognition;
 
   @override
   State<EngineLaunchEditor> createState() => _EngineLaunchEditorState();
@@ -134,7 +139,8 @@ class _EngineLaunchEditorState extends State<EngineLaunchEditor> {
     try {
       command = _configuration.command(
         executable: widget.executable ?? '<安装后确定的引擎路径>',
-        modelPath: '<运行时选择的模型路径>',
+        modelPath: widget.modelPath ?? '<运行时选择的模型路径>',
+        recognition: widget.recognition,
       );
     } on LaunchArgumentTextException catch (error) {
       argumentError = error.toString();
@@ -154,6 +160,14 @@ class _EngineLaunchEditorState extends State<EngineLaunchEditor> {
                 children: [
                   const Text('保存后用于后续启动。清空表单项将使用引擎自身默认值。'),
                   const SizedBox(height: 16),
+                  if (widget.recognition?.version != null)
+                    Text('参数帮助版本：${widget.recognition!.version}'),
+                  if (command == null || widget.executable == null)
+                    for (final notice
+                        in command?.notices ??
+                            widget.recognition?.notices ??
+                            <String>[])
+                      Text(notice),
                   for (final field
                       in EngineLaunchConfiguration.formLabels.entries)
                     Padding(
@@ -164,7 +178,12 @@ class _EngineLaunchEditorState extends State<EngineLaunchEditor> {
                         onChanged: (_) => setState(() {}),
                         decoration: InputDecoration(
                           labelText: field.value,
-                          helperText: field.key,
+                          helperText:
+                              widget.recognition?.descriptionFor(field.key) ==
+                                  null
+                              ? field.key
+                              : '${widget.recognition!.descriptionFor(field.key)!.names.join(', ')} · ${widget.recognition!.descriptionFor(field.key)!.description}',
+                          helperMaxLines: 3,
                           errorText:
                               (command?.overriddenForm.contains(field.key) ??
                                   false)

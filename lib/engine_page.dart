@@ -61,6 +61,7 @@ class _EnginePageState extends State<EnginePage> {
       title: '${engineDisplayName(entry)} · 启动参数',
       initialConfiguration: widget.catalog.launchDefaultsFor(entry.id),
       executable: entry.path,
+      recognition: widget.catalog.parameterRecognitionFor(entry.id),
       onSave: (configuration) =>
           widget.catalog.saveLaunchDefaults(entry.id, configuration),
     ),
