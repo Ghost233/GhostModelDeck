@@ -1,0 +1,951 @@
+{
+  "recorded_at_utc": "2026-10-08T06:17:02.412415+00:00",
+  "stage": "acceptance_complete_pending_review_commit",
+  "source_sha": "51f8d962ca132b1d1d0179be93b0406b9726eff9",
+  "branch": "codex/jev-real-client-acceptance",
+  "scope": "Actual client and root GUI/lifecycle evidence with offline independent oracles; no product, GUI, model, application/user configuration or Git writes by this worker. Own temporary Hermes connection profile configured and released.",
+  "normative_issues": {
+    "37": "03a65420e4a64d9f8b426b159d21f60f2ed87ba3a4849060378f32043ae1ea2c",
+    "32": "cb9dc6029c38885d91853cd0d6e1ce5fd0d2fdc0038fec2f1c01c3e5f0523a4a"
+  },
+  "current_gate_input_comparison": {
+    "files": 98,
+    "all_match_current_worktree": true,
+    "differing_files": [],
+    "compact_manifest_sha256": "599a2a388cd2a425ae1e77dc938882505dffd4669138e2b7af8680af1e0298d2",
+    "line_manifest_sha256": "9ba7d91275016afc6ede6ed2322a1b655c5a2ee72ff52271392a8cb1fe48de96",
+    "actual_gate_records": "r36-identity-final-gates.json",
+    "tests": 540,
+    "new_gate_run": false
+  },
+  "prepared_cases": {
+    "http": 6,
+    "mcp_sdk": 6,
+    "hermes": 6,
+    "real_schema_validation": true,
+    "inference_executed": true
+  },
+  "evidence_digests": {
+    "accept37-cases.py": "28eb44dcea9aeb83d1dce592c5c041cbd352fe850e2af0e42353ad9f9f785ae4",
+    "accept37-oracle.py": "28e90de7e61ca28d389ec5687e74c14e7cf95b4c1777055b9c6b636fd13ca46e",
+    "accept37-oracle-run01-preserved.py": "033c6fc508e7c07c828f271e06db2a9df1180e2ce66fc5d4e0deb0bfb86260ce",
+    "accept37-client.py": "7ac55e596bcf3605cf590139f339a7e2a9d281b1ea4e17b77081fa25b48a8427",
+    "accept37-protocol-cases-prepared.json": "e8da0be0756053fd7c711bf47030e2bce75691b6bad777d4cac8039d8ed02db1",
+    "accept37-hermes-cases-prepared.json": "1f4b5cdff0a0d2507ce7a96f4f63b0f4d120e6c1b52354d65bb3135c77002aa3",
+    "accept37-discovery-initial.jsonl": "8ae7d7d759c3383afd9ee5b21332974f51023619140c0d40e1b162fd23df0c41",
+    "accept37-discovery-run02.json": "0d36eaae80e2d804a21acc32d07625d827d5be02cbe3e6a99635d8f0501db94e",
+    "accept37-ready.json": "43571ff52574d894799158f11edac324a4e5ab475c9453ccaa4c6917cfc88744",
+    "accept37-protocol-run01.jsonl": "f4c38669596a0072563a650132ebbbe1ed71cbea939a8b7983563063d510c356",
+    "accept37-protocol-run01.stdout": "8cc1ab49edbcfd29be4c8a5386d881b63c39d481ef61119428ea2f51ebc01d95",
+    "accept37-protocol-run01.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "accept37-run01-corrected-oracle.json": "bb3b9c435cc916d03bb33011d22ca4b1f3b30b5b1e05c0672fd82f8f2d64cc25",
+    "accept37-protocol-run02.jsonl": "dc9bf86876e774c6c1669af804836f145de3e6c595f98de4bf2c437b6923ab4d",
+    "accept37-protocol-run02.stdout": "496aa63e81f934484389d92670fbb7721d4656de74314add0105eb225b972b68",
+    "accept37-protocol-run02.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "accept37-protocol-results.jsonl": "10d56b7ef46cb6a88d1fed13c52e92b4a338a08175063f22fcf27e3d0b1b07ac",
+    "accept37-protocol-final-oracle.json": "0e863ef84f7d77d13ad37d798a821f47bc7c579a389c116845af5ccf9b81a772",
+    "hermes37-probe.py": "ac1914ffa3d9977dd5085e0ee6572e0c92151f94dd203386b323070f13c2ce09",
+    "accept37-hermes-run01.jsonl": "8475b707ae4faf126a430c95eff30296fd752bd5819cb19fda819e3af48039f2",
+    "accept37-hermes-run01.stdout": "e6efad413c50a2567d2d8df09adfbe0cb3965b50925df9a0c40e96c1916bc130",
+    "accept37-hermes-run01.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "accept37-hermes-profile-evidence.json": "53013ca8312204f0424efed390a938b5e04152a037e890e0e4098103dd1b574a",
+    "accept37-hermes-profile-cleanup.json": "1071117fe7e1a1ee7e7b0d29dbd3989c6ef2d912cb29e3de5c7932d5132e98e5",
+    "accept37-hermes-owned-profile.tar.gz": "0584536e9b435a7e242f061140983fc5a8a8361cfe5541f8a06452eb4caf8290",
+    "native37-artifact-and-preservation.json": "bf8a6a02e245099ecb91695285024a3ad0f47f530045be51c66214bc7596a47f",
+    "native-engine-prepared.json": "67aeb00b604c710dfb488df600d2b3daa4a75518b7116260cdcf3933fc34a222",
+    "native-assets-current.json": "15aa1d8f932852ac5c6f670f0727653d444dc8a42a019be6304b1cd97d638710",
+    "native37-build-result.json": "a19d0e7d685cff97d7d07be44d01027a8d18c74d1cd1f1271f939dc3e1adcf26",
+    "native37-offline-config.json": "e89311961c6a5a1e9f9e8d97f32198caf5cefb7cae3baf2e9f8ac6f1a0e9919c",
+    "native37-gui-records.json": "d32d1f5ad0b82c4855c2e2847784489fca7a066cdb5ae1baec8c3fdaffc68147",
+    "native37-gui-http-copy-debug.json": "27b6f6f2e368a70dfb4b2bb499f9441b86fb461d4c99c72d30843494c2b495d0",
+    "accept37-gui-oracle.py": "6bc15368238bec6babd38f9b6a6ebeb089c7ad56dc036398927b0a643a40796a",
+    "accept37-gui-oracle-results.json": "adf96b47d4192f80030b10b97c56f1d0f1541f01e63798ac28793ff3a9d6b2f4",
+    "accept37-gui-oracle.stdout": "4f820e5987563b162a889b761d0ac50bb3c5e3aed6664bd3e4c9c89b460881a4",
+    "accept37-gui-oracle.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "native37-gui-edit-default-discovery.json": "4ed5e3c7866001625a8a8ce1d084325e008f993e14ccc290ca84b34b041e9419",
+    "native37-window-close-http.json": "fba4206c35cfb32144fbef4cbecaad58a09c5bbddec5533b6334bd34c224fc76",
+    "native37-normal-quit.json": "bbeb1581d125552157c9e475251110113b0a9abeaf15930bf89a64413142e7fe",
+    "native37-restart-offline.json": "60110e4bf7689ace89cf77d14226be7c2c4026cdda8f23ae57d51d2f3899a73d",
+    "accept37-lifecycle-oracle.py": "0299f64e052626ef7c20332bf0a465377927598b64cb329983c1876b0a3c8fc7",
+    "accept37-lifecycle-oracle-results.json": "33b2ec83b076297cc5651a76a66192145221f1e5818d400de6c6cdcedef5722e",
+    "accept37-lifecycle-oracle.stdout": "f8b6122c0ef71aaee01664b2a02fe9dad9b0ec8d4800f49d2a7407ad2e157133",
+    "accept37-lifecycle-oracle.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "native37-restart-live.json": "152d9e2d3ca19da2aa677010047d2f0984a979b1f04fd11682e5959a045b7bdb",
+    "native37-gui-complex-record.json": "98a393365850bcf695013046b0afe6b9f4578ef394e9012171a58c27545cf984",
+    "native37-restart-authorization.json": "3968ee790ce31e943087ecd028de9cda62225a8d7b3d643451308cc27290d2e6",
+    "accept37-restart-oracle.py": "a354defd28ad56c33f7324f39bf00602456cf630e9d92afb52467fb21526663d",
+    "accept37-restart-oracle-results.json": "140bfe140aabd5d36862a6e10375b2991a60334077bc20778b1c45fae6cf8a41",
+    "accept37-restart-oracle.stdout": "e6a6e5844bc4f1c271c2713b8511c2e3738f6ca292240091251b461a11e6fe2f",
+    "accept37-restart-oracle.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "native37-final-cleanup-and-preservation.json": "2fd6a6aeb1fbd556ebd9e562eb347bca9f657298083104fee0a4405a2a36ea69",
+    "accept37-final-checks.py": "4fb8ad51af8d9641fe265cd66cf517e271806504c1bcbb38a483c631e46ad427",
+    "accept37-local-final-checks.json": "ea65053b906cd3ca4851a2ce66dd7cb504f2f3a442095060481de525663046a7",
+    "accept37-local-final-checks.stdout": "8fcab5be85f1a27ecb3e579396f56cea344b648a66b5be5c05a8c11abda489df",
+    "accept37-local-final-checks.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "retro37.md": "c387a95de8f0f09ae684ad0e48bbf77c8f47ca563cae7a00403f394596245a3d"
+  },
+  "pending": [
+    "Root unified review and Git commit/delivery"
+  ],
+  "authentication": {
+    "credentials_read": false,
+    "credentials_recorded": false,
+    "user_hermes_profile_read": false,
+    "client_config_credentials_present": false
+  },
+  "quality_scope": "No calibration, correctness, performance or seat independence guarantee",
+  "authorization": "User continued after explicit Kev/Laya model loading and acceptance confirmation; root confirmed actual Release UI Ready for both and all three names.",
+  "runtime": {
+    "source_sha": "51f8d962ca132b1d1d0179be93b0406b9726eff9",
+    "app_pid": 79681,
+    "http": "http://127.0.0.1:54841",
+    "mcp": "http://127.0.0.1:54842/mcp",
+    "identity_source": "Same-call successful actual debug; root actual Release UI confirmed linked Kev/Laya Ready.",
+    "instances": {
+      "716b7180cc1f3edee55fc48795aa6371ff89cf654a17ac0aa47857742940c1a4": {
+        "artifact_id": "716b7180cc1f3edee55fc48795aa6371ff89cf654a17ac0aa47857742940c1a4",
+        "engine_id": "6580cfaca3ddda78d6aa13f3c5725f58479b583e",
+        "instance_id": "jev-86a2302d56798f093e5a2eca9d194d8e03390babd3c1f99d",
+        "generation": 1,
+        "model_alias": "jev-86a2302d56798f093e5a2eca9d194d8e03390babd3c1f99d"
+      },
+      "dfbd29e122e9a78d3c66996972e9ebef163b91970cb60970174ab39413f07903": {
+        "artifact_id": "dfbd29e122e9a78d3c66996972e9ebef163b91970cb60970174ab39413f07903",
+        "engine_id": "6580cfaca3ddda78d6aa13f3c5725f58479b583e",
+        "instance_id": "jev-2240374b4306cb2891ad7331a1f5daf57f0e0d0b0894a428",
+        "generation": 2,
+        "model_alias": "jev-2240374b4306cb2891ad7331a1f5daf57f0e0d0b0894a428"
+      }
+    },
+    "latest_request_id": "accept37-mcp-native-kev-q8-mixed-debug",
+    "observed_at_utc": "2026-10-08T05:28:30.921922+00:00"
+  },
+  "protocol": {
+    "actual_schemas_discovered": true,
+    "all_cases_schema_validated_before_inference": true,
+    "http_models_match_mcp_models": true,
+    "tools": [
+      "decide_jev",
+      "decide_jev_batch",
+      "list_jev_models"
+    ],
+    "legacy_parallel_tools_absent": true,
+    "model_required_both_decision_tools": true,
+    "sdk": "Python MCP 2.0.0",
+    "adopted_protocol": "2025-11-25",
+    "server_info": {
+      "name": "ghostmodeldeck",
+      "title": null,
+      "version": "0.1.0",
+      "description": null,
+      "websiteUrl": null,
+      "icons": null
+    },
+    "cases": [
+      {
+        "id": "accept37-http-native-kev-q8-mixed-debug",
+        "transport": "http",
+        "model": "native-kev-q8",
+        "source": "native",
+        "debug": true,
+        "question_ids": [
+          "observed",
+          "strength",
+          "fact"
+        ],
+        "usage": {
+          "input_tokens": 209,
+          "output_tokens": 0
+        },
+        "started_at_utc": "2026-10-08T05:27:10.683371+00:00",
+        "finished_at_utc": "2026-10-08T05:27:10.811205+00:00",
+        "request_compact_json_sha256": "9d9477ed77cef7c6ea38ff9187b442820bef0178bc9e8e2a70420fbeb803665d"
+      },
+      {
+        "id": "accept37-http-hard-mixed-debug",
+        "transport": "http",
+        "model": "hard",
+        "source": "council",
+        "debug": true,
+        "question_ids": [
+          "observed",
+          "strength",
+          "fact"
+        ],
+        "usage": {
+          "input_tokens": 474,
+          "output_tokens": 0
+        },
+        "started_at_utc": "2026-10-08T05:27:10.812009+00:00",
+        "finished_at_utc": "2026-10-08T05:27:10.939658+00:00",
+        "request_compact_json_sha256": "86d7e21c2a8218c18440deec7cfaceb32e0ba0d93958062001ade61c4869a84c"
+      },
+      {
+        "id": "accept37-http-quick-choice-default",
+        "transport": "http",
+        "model": "quick",
+        "source": "council",
+        "debug": false,
+        "question_ids": [
+          "council_choice"
+        ],
+        "usage": {
+          "input_tokens": 43,
+          "output_tokens": 0
+        },
+        "started_at_utc": "2026-10-08T05:28:30.234171+00:00",
+        "finished_at_utc": "2026-10-08T05:28:30.270469+00:00",
+        "request_compact_json_sha256": "8a1ff9fb2bb45ee0aad2cdfad08d26523cd13c31d27eb49acea60197c532a9ee"
+      },
+      {
+        "id": "accept37-http-quick-mixed-debug",
+        "transport": "http",
+        "model": "quick",
+        "source": "council",
+        "debug": true,
+        "question_ids": [
+          "observed",
+          "strength",
+          "fact"
+        ],
+        "usage": {
+          "input_tokens": 209,
+          "output_tokens": 0
+        },
+        "started_at_utc": "2026-10-08T05:28:30.270680+00:00",
+        "finished_at_utc": "2026-10-08T05:28:30.373393+00:00",
+        "request_compact_json_sha256": "944e31a049603ce57a602e295fe5785b18247268844ac36d96ea7a5ff81ac5c1"
+      },
+      {
+        "id": "accept37-mcp-quick-choice-default",
+        "transport": "mcp",
+        "model": "quick",
+        "source": "council",
+        "debug": false,
+        "question_ids": [
+          "council_choice"
+        ],
+        "usage": {
+          "input_tokens": 43,
+          "output_tokens": 0
+        },
+        "started_at_utc": "2026-10-08T05:28:30.374141+00:00",
+        "finished_at_utc": "2026-10-08T05:28:30.481345+00:00",
+        "request_compact_json_sha256": "8a1ff9fb2bb45ee0aad2cdfad08d26523cd13c31d27eb49acea60197c532a9ee"
+      },
+      {
+        "id": "accept37-mcp-quick-mixed-debug",
+        "transport": "mcp",
+        "model": "quick",
+        "source": "council",
+        "debug": true,
+        "question_ids": [
+          "observed",
+          "strength",
+          "fact"
+        ],
+        "usage": {
+          "input_tokens": 118,
+          "output_tokens": 0
+        },
+        "started_at_utc": "2026-10-08T05:28:30.481505+00:00",
+        "finished_at_utc": "2026-10-08T05:28:30.574690+00:00",
+        "request_compact_json_sha256": "19e57020bb25aee5c90a211662dba9e67f28e1d9549fccb5ab0372c2446604bc"
+      },
+      {
+        "id": "accept37-http-hard-choice-default",
+        "transport": "http",
+        "model": "hard",
+        "source": "council",
+        "debug": false,
+        "question_ids": [
+          "council_choice"
+        ],
+        "usage": {
+          "input_tokens": 88,
+          "output_tokens": 0
+        },
+        "started_at_utc": "2026-10-08T05:28:30.575617+00:00",
+        "finished_at_utc": "2026-10-08T05:28:30.619034+00:00",
+        "request_compact_json_sha256": "ad5ef990a3f19375a95284670d53012bc0a61214d4e51af50d4084be501c0596"
+      },
+      {
+        "id": "accept37-mcp-hard-choice-default",
+        "transport": "mcp",
+        "model": "hard",
+        "source": "council",
+        "debug": false,
+        "question_ids": [
+          "council_choice"
+        ],
+        "usage": {
+          "input_tokens": 88,
+          "output_tokens": 0
+        },
+        "started_at_utc": "2026-10-08T05:28:30.619203+00:00",
+        "finished_at_utc": "2026-10-08T05:28:30.658109+00:00",
+        "request_compact_json_sha256": "ad5ef990a3f19375a95284670d53012bc0a61214d4e51af50d4084be501c0596"
+      },
+      {
+        "id": "accept37-mcp-hard-mixed-debug",
+        "transport": "mcp",
+        "model": "hard",
+        "source": "council",
+        "debug": true,
+        "question_ids": [
+          "observed",
+          "strength",
+          "fact"
+        ],
+        "usage": {
+          "input_tokens": 251,
+          "output_tokens": 0
+        },
+        "started_at_utc": "2026-10-08T05:28:30.658215+00:00",
+        "finished_at_utc": "2026-10-08T05:28:30.752151+00:00",
+        "request_compact_json_sha256": "b657d45f21ead2764c69fd85ed235bf6ff613b64c69eff2b1156038422becfd6"
+      },
+      {
+        "id": "accept37-http-native-kev-q8-choice-default",
+        "transport": "http",
+        "model": "native-kev-q8",
+        "source": "native",
+        "debug": false,
+        "question_ids": [
+          "council_choice"
+        ],
+        "usage": {
+          "input_tokens": 43,
+          "output_tokens": 0
+        },
+        "started_at_utc": "2026-10-08T05:28:30.753079+00:00",
+        "finished_at_utc": "2026-10-08T05:28:30.791667+00:00",
+        "request_compact_json_sha256": "392b502a5506ea868086b637684cf98fee96cc38ff432df11bd806c313e75d47"
+      },
+      {
+        "id": "accept37-mcp-native-kev-q8-choice-default",
+        "transport": "mcp",
+        "model": "native-kev-q8",
+        "source": "native",
+        "debug": false,
+        "question_ids": [
+          "council_choice"
+        ],
+        "usage": {
+          "input_tokens": 43,
+          "output_tokens": 0
+        },
+        "started_at_utc": "2026-10-08T05:28:30.791801+00:00",
+        "finished_at_utc": "2026-10-08T05:28:30.820124+00:00",
+        "request_compact_json_sha256": "392b502a5506ea868086b637684cf98fee96cc38ff432df11bd806c313e75d47"
+      },
+      {
+        "id": "accept37-mcp-native-kev-q8-mixed-debug",
+        "transport": "mcp",
+        "model": "native-kev-q8",
+        "source": "native",
+        "debug": true,
+        "question_ids": [
+          "observed",
+          "strength",
+          "fact"
+        ],
+        "usage": {
+          "input_tokens": 118,
+          "output_tokens": 0
+        },
+        "started_at_utc": "2026-10-08T05:28:30.820241+00:00",
+        "finished_at_utc": "2026-10-08T05:28:30.921826+00:00",
+        "request_compact_json_sha256": "23296da7abbe622dfb26cfd709ada4e7e2ff236952fc69c768b82ea4bbb2d33c"
+      }
+    ],
+    "same_point_oracle": {
+      "passed": 12,
+      "tolerance": 0.0001,
+      "product_calculation_imported": false,
+      "score_emd_units": "Ordinal index steps, no K-1 division",
+      "single_native_or_quick_raw_answers_usage_preserved": true,
+      "two_seat_full_batch_equal_mean_confidence_usage": true,
+      "mcp_text_equals_structuredContent": true
+    },
+    "sdk_cleanup": {
+      "new_pending_tasks": [],
+      "warnings": [],
+      "stderr_empty": true
+    }
+  },
+  "hermes": {
+    "runtime_identity": {
+      "commit": "bd0affe5e5f723579df8902852f5d0c47795f355",
+      "source_digest": "d38df9383c58ef71b90ba4b260fa500cc33c83104ba7dd1c643ad04a45c4fdac",
+      "dependency_metadata_digest": "c5bba5628d1e98435e1ce3f35fb973313d0d77bf60c405841060dc5a678d5fb6",
+      "python_digest": "5ab6a77c756d38d811a71c5b73c9b64e78da17dd82f6923a4c891a5cf099cdc6",
+      "wrapper_digest": "ff7e44e83b818139dcc32a09f78d7e11ed687011fca8c3e26bf2e9f10279e64e",
+      "abi": [
+        3,
+        14,
+        7
+      ],
+      "git_status": " M agent/status_output.py\n M gateway/display_config.py\n M gateway/warning_notifications.py\n",
+      "display_version": "0.21.5+6224.gbd0affe",
+      "source": "/Users/ghost233/.hermes/hermes-agent",
+      "venv": "/Users/ghost233/.hermes/installs/cc7ae4607e014ce8/environments/3b98f7252e4349d3aca8a92d303a9e1f/venv",
+      "python": "/Users/ghost233/.hermes/tools/python-3.14.7+20260901-darwin-arm64/bin/python3.14",
+      "dependency_hash_scope": "selection, pyvenv.cfg, selected lock, every dist-info METADATA/RECORD; not full package integrity"
+    },
+    "dependency_versions": {
+      "kind": "dependency_versions",
+      "phase": "imports",
+      "mcp": "2.0.0",
+      "jsonschema": "4.26.0"
+    },
+    "adopted_protocol": "2025-11-25",
+    "sdk_client_info": {
+      "name": "mcp",
+      "title": null,
+      "version": "0.1.0",
+      "description": null,
+      "websiteUrl": null,
+      "icons": null
+    },
+    "executor_path_observed": {
+      "handle_function_call": 7,
+      "dispatch": 7,
+      "_call_tool_racing_stdio_death": 21,
+      "call_tool": 28
+    },
+    "cases": [
+      {
+        "kind": "case_assertions_passed",
+        "phase": "inference",
+        "case_id": "accept37-hermes-quick-choice-default",
+        "source": "council",
+        "model_matches": true,
+        "primitive_ids_match": true,
+        "probability_tolerance": 0.0001,
+        "confidence_range": [
+          0,
+          1
+        ],
+        "noul_range": [
+          0,
+          1
+        ],
+        "positive_input_tokens": 43,
+        "output_tokens": 0
+      },
+      {
+        "kind": "case_assertions_passed",
+        "phase": "inference",
+        "case_id": "accept37-hermes-quick-mixed-default",
+        "source": "council",
+        "model_matches": true,
+        "primitive_ids_match": true,
+        "probability_tolerance": 0.0001,
+        "confidence_range": [
+          0,
+          1
+        ],
+        "noul_range": [
+          0,
+          1
+        ],
+        "positive_input_tokens": 209,
+        "output_tokens": 0
+      },
+      {
+        "kind": "case_assertions_passed",
+        "phase": "inference",
+        "case_id": "accept37-hermes-hard-choice-default",
+        "source": "council",
+        "model_matches": true,
+        "primitive_ids_match": true,
+        "probability_tolerance": 0.0001,
+        "confidence_range": [
+          0,
+          1
+        ],
+        "noul_range": [
+          0,
+          1
+        ],
+        "positive_input_tokens": 88,
+        "output_tokens": 0
+      },
+      {
+        "kind": "case_assertions_passed",
+        "phase": "inference",
+        "case_id": "accept37-hermes-hard-mixed-default",
+        "source": "council",
+        "model_matches": true,
+        "primitive_ids_match": true,
+        "probability_tolerance": 0.0001,
+        "confidence_range": [
+          0,
+          1
+        ],
+        "noul_range": [
+          0,
+          1
+        ],
+        "positive_input_tokens": 474,
+        "output_tokens": 0
+      },
+      {
+        "kind": "case_assertions_passed",
+        "phase": "inference",
+        "case_id": "accept37-hermes-native-kev-q8-choice-default",
+        "source": "native",
+        "model_matches": true,
+        "primitive_ids_match": true,
+        "probability_tolerance": 0.0001,
+        "confidence_range": [
+          0,
+          1
+        ],
+        "noul_range": [
+          0,
+          1
+        ],
+        "positive_input_tokens": 43,
+        "output_tokens": 0
+      },
+      {
+        "kind": "case_assertions_passed",
+        "phase": "inference",
+        "case_id": "accept37-hermes-native-kev-q8-mixed-default",
+        "source": "native",
+        "model_matches": true,
+        "primitive_ids_match": true,
+        "probability_tolerance": 0.0001,
+        "confidence_range": [
+          0,
+          1
+        ],
+        "noul_range": [
+          0,
+          1
+        ],
+        "positive_input_tokens": 209,
+        "output_tokens": 0
+      }
+    ],
+    "cleanup": {
+      "kind": "cleanup_state",
+      "phase": "cleanup",
+      "ledgers": {
+        "_servers": [],
+        "_server_connecting": [],
+        "_server_connect_errors": [],
+        "_server_scope_keys": [],
+        "_server_tool_scopes": [],
+        "_lazy_server_configs": [],
+        "_server_connect_retry_after": [],
+        "_server_connect_failures": [],
+        "_server_error_counts": [
+          "'gd'"
+        ],
+        "_server_breaker_opened_at": [],
+        "_mcp_tool_server_names": []
+      },
+      "pending_tasks": [],
+      "new_alive_threads": [],
+      "retained_loop_closed": true,
+      "retained_thread_alive": false,
+      "model_tools_loop_open": false,
+      "server_task_states": [
+        {
+          "done": true,
+          "session_present": false,
+          "inflight": 0,
+          "refresh": 0
+        }
+      ]
+    },
+    "final_status": {
+      "kind": "final_status",
+      "phase": "cleanup",
+      "original_failure": null,
+      "cleanup_failure": null,
+      "observed_call_path": {
+        "handle_function_call": 7,
+        "dispatch": 7,
+        "_call_tool_racing_stdio_death": 21,
+        "call_tool": 28
+      },
+      "runtime_probe_passed": true,
+      "acceptance_scope": "Installed Hermes executor discovery/dispatch/consumption only; app/model/GUI acceptance remains separate"
+    },
+    "stderr_empty": true,
+    "owned_profile_archived_and_removed": true,
+    "profile_archive_sha256": "0584536e9b435a7e242f061140983fc5a8a8361cfe5541f8a06452eb4caf8290",
+    "scope": "Installed Hermes discovery/executor/registry/handler/SDK/consumption; no remote LLM chat"
+  },
+  "commands": [
+    {
+      "evidence": "accept37-discovery-initial.jsonl",
+      "mode": "installed SDK initialize/list_tools/list_jev_models and HTTP GET /v1/models only",
+      "exit": 0
+    },
+    {
+      "evidence": "accept37-protocol-run01.jsonl",
+      "mode": "same-call native and hard complex HTTP debug",
+      "exit": 1,
+      "failure": "Oracle EMD incorrectly divided by K-1; successful raw preserved"
+    },
+    {
+      "evidence": "accept37-run01-corrected-oracle.json",
+      "mode": "offline saved-result recheck",
+      "exit": 0
+    },
+    {
+      "evidence": "accept37-protocol-run02.jsonl",
+      "mode": "rechecked two saved results, then remaining ten actual protocol decisions",
+      "exit": 0
+    },
+    {
+      "evidence": "accept37-hermes-run01.jsonl",
+      "mode": "prepared installed Hermes probe, six actual dispatcher decisions",
+      "exit": 0
+    },
+    {
+      "evidence": "accept37-hermes-profile-cleanup.json",
+      "mode": "first overstrict scaffold assumption failed before deletion; verified archive and owned cleanup succeeded",
+      "initial_exit": 1,
+      "final_exit": 0
+    },
+    {
+      "evidence": "accept37-protocol-final-oracle.json",
+      "mode": "offline union of twelve actual results, after initial missing-union file error",
+      "initial_exit": 1,
+      "final_exit": 0
+    },
+    {
+      "evidence": "accept37-gui-oracle-results.json",
+      "mode": "offline source/PID/three actual GUI same-call records and actual HTTP clipboard object verification",
+      "exit": 0
+    },
+    {
+      "evidence": "accept37-lifecycle-oracle-results.json",
+      "mode": "offline actual default/editor normal mixed/discovery/window close/quit/offline restart and C1 byte verification",
+      "exit": 0
+    },
+    {
+      "evidence": "accept37-restart-oracle-results.json",
+      "mode": "offline postrestart all three actual routes, stable C1/new aliases, complex GUI Form-JSON-preservation and same-call math",
+      "exit": 0
+    },
+    {
+      "evidence": "accept37-local-final-checks.json",
+      "mode": "final offline C0/recovery bytes and modes/assets record/current98 archived gates/current24 app regular files consistency",
+      "exit": 0
+    }
+  ],
+  "gui_partial_actual": {
+    "scope": "Offline check of actual root AX-displayed records and actual clipboard copy; no repeated inference",
+    "root_provenance": "Actual GhostModelDeck AX displayed per-call debug JSON captured through CUA; clipboard roundtrip for HTTP independently persisted",
+    "source_sha": "51f8d962ca132b1d1d0179be93b0406b9726eff9",
+    "app_pid": 79681,
+    "root_gui_sha256": "d32d1f5ad0b82c4855c2e2847784489fca7a066cdb5ae1baec8c3fdaffc68147",
+    "root_http_copy_sha256": "27b6f6f2e368a70dfb4b2bb499f9441b86fb461d4c99c72d30843494c2b495d0",
+    "results": [
+      {
+        "mode": "native",
+        "model": "jev-86a2302d56798f093e5a2eca9d194d8e03390babd3c1f99d",
+        "usage": {
+          "input_tokens": 118,
+          "output_tokens": 0
+        },
+        "assertions": {
+          "selected_same_ready_instance_generation": true,
+          "actual_request_preserved": true,
+          "raw_equals_result_equals_converted": true,
+          "native_alias_distinct_from_fixed_call_name": true
+        }
+      },
+      {
+        "mode": "http",
+        "model": "hard",
+        "usage": {
+          "input_tokens": 251,
+          "output_tokens": 0
+        },
+        "assertions": {
+          "default_standard_only": false,
+          "public_model_matches": true,
+          "finite_normalized_probabilities": true,
+          "exact_question_ids": true,
+          "noul_scalar_only": true,
+          "valid_usage_shape": true,
+          "same_point_converted_result": true,
+          "raw_actual_request_preserved": true,
+          "ready_instance_generation_binding": true,
+          "all_expected_seats_valid": true,
+          "single_raw_preserved": false,
+          "independent_two_seat_math": true,
+          "input_tokens_from_actual_complete_seats": 251,
+          "actual_clipboard_roundtrip_same_object": true
+        }
+      },
+      {
+        "mode": "mcp",
+        "model": "quick",
+        "usage": {
+          "input_tokens": 118,
+          "output_tokens": 0
+        },
+        "assertions": {
+          "default_standard_only": false,
+          "public_model_matches": true,
+          "finite_normalized_probabilities": true,
+          "exact_question_ids": true,
+          "noul_scalar_only": true,
+          "valid_usage_shape": true,
+          "same_point_converted_result": true,
+          "raw_actual_request_preserved": true,
+          "ready_instance_generation_binding": true,
+          "all_expected_seats_valid": true,
+          "single_raw_preserved": true,
+          "independent_two_seat_math": false,
+          "input_tokens_from_actual_complete_seats": 118
+        }
+      }
+    ],
+    "offline_command_exit": 0,
+    "stderr_empty": true,
+    "tool_obstacles": [
+      "CUA AX setValue/selection did not reliably change Flutter controller; initial invalid JSON not submitted; real mouse range selection fixed edit",
+      "New task diagnostic TextEdit document initially saved in default iCloud directory, then moved to task-local path and byte/URL checked; original documents untouched"
+    ]
+  },
+  "actual_default_close_quit_restart": {
+    "scope": "Offline verification of root actual records; no fresh calls, processes or GUI operations",
+    "root_evidence_sha256": {
+      "native37-gui-edit-default-discovery.json": "4ed5e3c7866001625a8a8ce1d084325e008f993e14ccc290ca84b34b041e9419",
+      "native37-window-close-http.json": "fba4206c35cfb32144fbef4cbecaad58a09c5bbddec5533b6334bd34c224fc76",
+      "native37-normal-quit.json": "bbeb1581d125552157c9e475251110113b0a9abeaf15930bf89a64413142e7fe",
+      "native37-restart-offline.json": "60110e4bf7689ace89cf77d14226be7c2c4026cdda8f23ae57d51d2f3899a73d"
+    },
+    "default_standard_only": true,
+    "normal_mixed_form_json_values_preserved": true,
+    "actual_mcp_discovery_matches": true,
+    "window_close_same_resident_raw_math": {
+      "default_standard_only": false,
+      "public_model_matches": true,
+      "finite_normalized_probabilities": true,
+      "exact_question_ids": true,
+      "noul_scalar_only": true,
+      "valid_usage_shape": true,
+      "same_point_converted_result": true,
+      "raw_actual_request_preserved": true,
+      "ready_instance_generation_binding": true,
+      "all_expected_seats_valid": true,
+      "single_raw_preserved": false,
+      "independent_two_seat_math": true,
+      "input_tokens_from_actual_complete_seats": 251
+    },
+    "normal_quit_owned_processes_and_four_ports_released": true,
+    "restart_offline_no_implicit_load": true,
+    "persisted_c1_byte_sha256": {
+      "engines.json": "171eb46c43b6740678041981534c3fdf84c0498f5c134a8e5a5660f04dce299f",
+      "jev_models.json": "8d3bae54977ef782ec4399b069383f0b1fae1e896225a5b303bcfeb029249914"
+    },
+    "offline_command_exit": 0,
+    "stderr_empty": true,
+    "tool_obstacle": "Initial ps subprocess EPERM after successful window-close HTTP response prevented durable record; targeted lsof record succeeded; original response not claimed as current proof",
+    "historical_remaining_at_checkpoint": [
+      "Complex JSON editor preservation",
+      "Postrestart explicit Ready stable bindings/results",
+      "Final application cleanup/C0 and assets preservation"
+    ]
+  },
+  "actual_postrestart_and_complex_gui": {
+    "scope": "Offline same-call verification; no new inference/UI/model operations",
+    "root_evidence_sha256": {
+      "native37-restart-live.json": "152d9e2d3ca19da2aa677010047d2f0984a979b1f04fd11682e5959a045b7bdb",
+      "native37-gui-complex-record.json": "98a393365850bcf695013046b0afe6b9f4578ef394e9012171a58c27545cf984",
+      "native37-restart-authorization.json": "3968ee790ce31e943087ecd028de9cda62225a8d7b3d643451308cc27290d2e6"
+    },
+    "app_pid": 6350,
+    "source_sha": "51f8d962ca132b1d1d0179be93b0406b9726eff9",
+    "new_instances": {
+      "716b7180cc1f3edee55fc48795aa6371ff89cf654a17ac0aa47857742940c1a4": {
+        "artifact_id": "716b7180cc1f3edee55fc48795aa6371ff89cf654a17ac0aa47857742940c1a4",
+        "engine_id": "6580cfaca3ddda78d6aa13f3c5725f58479b583e",
+        "instance_id": "jev-4abc1ba32176bd73839bff7fffecc74b3de2735a28fc4b7e",
+        "generation": 1,
+        "model_alias": "jev-4abc1ba32176bd73839bff7fffecc74b3de2735a28fc4b7e"
+      },
+      "dfbd29e122e9a78d3c66996972e9ebef163b91970cb60970174ab39413f07903": {
+        "artifact_id": "dfbd29e122e9a78d3c66996972e9ebef163b91970cb60970174ab39413f07903",
+        "engine_id": "6580cfaca3ddda78d6aa13f3c5725f58479b583e",
+        "instance_id": "jev-b18b267108a58a94fa56ededb42c4567caf99ef937db22d7",
+        "generation": 2,
+        "model_alias": "jev-b18b267108a58a94fa56ededb42c4567caf99ef937db22d7"
+      }
+    },
+    "unchanged_profile_bytes_new_alias_resolution": true,
+    "explicit_restart_permission": true,
+    "postrestart_actual_http_results": [
+      {
+        "model": "native-kev-q8",
+        "usage": {
+          "input_tokens": 209,
+          "output_tokens": 0
+        },
+        "assertions": {
+          "default_standard_only": false,
+          "public_model_matches": true,
+          "finite_normalized_probabilities": true,
+          "exact_question_ids": true,
+          "noul_scalar_only": true,
+          "valid_usage_shape": true,
+          "same_point_converted_result": true,
+          "raw_actual_request_preserved": true,
+          "ready_instance_generation_binding": true,
+          "all_expected_seats_valid": true,
+          "single_raw_preserved": true,
+          "independent_two_seat_math": false,
+          "input_tokens_from_actual_complete_seats": 209
+        }
+      },
+      {
+        "model": "quick",
+        "usage": {
+          "input_tokens": 209,
+          "output_tokens": 0
+        },
+        "assertions": {
+          "default_standard_only": false,
+          "public_model_matches": true,
+          "finite_normalized_probabilities": true,
+          "exact_question_ids": true,
+          "noul_scalar_only": true,
+          "valid_usage_shape": true,
+          "same_point_converted_result": true,
+          "raw_actual_request_preserved": true,
+          "ready_instance_generation_binding": true,
+          "all_expected_seats_valid": true,
+          "single_raw_preserved": true,
+          "independent_two_seat_math": false,
+          "input_tokens_from_actual_complete_seats": 209
+        }
+      },
+      {
+        "model": "hard",
+        "usage": {
+          "input_tokens": 474,
+          "output_tokens": 0
+        },
+        "assertions": {
+          "default_standard_only": false,
+          "public_model_matches": true,
+          "finite_normalized_probabilities": true,
+          "exact_question_ids": true,
+          "noul_scalar_only": true,
+          "valid_usage_shape": true,
+          "same_point_converted_result": true,
+          "raw_actual_request_preserved": true,
+          "ready_instance_generation_binding": true,
+          "all_expected_seats_valid": true,
+          "single_raw_preserved": false,
+          "independent_two_seat_math": true,
+          "input_tokens_from_actual_complete_seats": 474
+        }
+      }
+    ],
+    "actual_gui_complex_json_roundtrip_and_two_seat_result": {
+      "default_standard_only": false,
+      "public_model_matches": true,
+      "finite_normalized_probabilities": true,
+      "exact_question_ids": true,
+      "noul_scalar_only": true,
+      "valid_usage_shape": true,
+      "same_point_converted_result": true,
+      "raw_actual_request_preserved": true,
+      "ready_instance_generation_binding": true,
+      "all_expected_seats_valid": true,
+      "single_raw_preserved": false,
+      "independent_two_seat_math": true,
+      "input_tokens_from_actual_complete_seats": 474
+    },
+    "offline_command_exit": 0,
+    "stderr_empty": true,
+    "restart_authorization": {
+      "at": "2026-10-08T05:44:42.965827+00:00",
+      "human_reply": "允许重新加载这两份模型并完成验收",
+      "scope": "Restart existing Kev-0.8B-Q8_0.gguf and Laya-Q8_0.gguf in final app; stable binding acceptance and stop owned instances after",
+      "earlier_auto_review_rejection": "vague continue judged insufficient to authorize exact model restart; no rejected action executed",
+      "status": "explicit permission received; GUI restart resumed"
+    },
+    "cleanup_pending_at_that_checkpoint": true,
+    "final_cleanup_completed": true
+  },
+  "final_cleanup_and_local_checks": {
+    "at_utc": "2026-10-08T06:14:50.682609+00:00",
+    "source_sha": "51f8d962ca132b1d1d0179be93b0406b9726eff9",
+    "scope": "Offline record/filesystem/provenance verification; no new models/GUI/network/gate jobs",
+    "root_final_cleanup_sha256": "2fd6a6aeb1fbd556ebd9e562eb347bca9f657298083104fee0a4405a2a36ea69",
+    "root_actual_owned_runtime_release_verified": true,
+    "current_C0_four_target_absence": {
+      "settings.json": true,
+      "engines.json": true,
+      "jev_models.json": true,
+      "startup-models.json": true
+    },
+    "C1_equals_recoverable_C2_bytes_and_modes": {
+      "engines.json": {
+        "sha256": "171eb46c43b6740678041981534c3fdf84c0498f5c134a8e5a5660f04dce299f",
+        "mode": "0o644",
+        "recovery_path": "/Users/ghost233/Ghost233Code/GhostModelDeck/.tooling/native37-state-20261008/c2-final/engines.json"
+      },
+      "jev_models.json": {
+        "sha256": "8d3bae54977ef782ec4399b069383f0b1fae1e896225a5b303bcfeb029249914",
+        "mode": "0o644",
+        "recovery_path": "/Users/ghost233/Ghost233Code/GhostModelDeck/.tooling/native37-state-20261008/c2-final/jev_models.json"
+      }
+    },
+    "root_recomputed_shared_asset_hashes_equal_initial_and_current_sizes": {
+      "Kev": {
+        "path": "/Users/ghost233/.lmstudio/models/ggml-org/Kev-0.8B-GGUF/Kev-0.8B-Q8_0.gguf",
+        "size_bytes": 812406304,
+        "sha256": "27278f34eb3273bceea4c053dc50dd61a5161da21a718c4aacdf8fd5830771d0",
+        "unchanged": true
+      },
+      "Laya": {
+        "path": "/Users/ghost233/.lmstudio/models/ggml-org/Laya-GGUF/Laya-Q8_0.gguf",
+        "size_bytes": 449397600,
+        "sha256": "c06528c5746d3bb8baa72a27938be95abbfd0b226f8471e8a9e365ed0bb066d2",
+        "unchanged": true
+      }
+    },
+    "current_gate_inputs": 98,
+    "source_archives_logs_exits_verified": 3,
+    "existing_full_test_count": 540,
+    "current_app_regular_files_equal_initial": 24,
+    "app_manifest_encoding": "UTF-8 json.dumps(path-to-sha map, sort_keys=True, separators=(comma, colon)); excludes symlink aliases",
+    "app_compact_manifest_sha256": "25f8c319823f4cf780f6bbd708df6f88ffa69a9ed901f1cee1ef1933aab0810b",
+    "app_manifest_file_sha256": "296a2dfef9f380c8746e75a169c3dd186736669c1c2762d4f9c4f1a6aed8fef7",
+    "owned_Hermes_profile_removed": true,
+    "remaining_runtime_conditions": [],
+    "unclosed_P0_P1_P2": [],
+    "actual_exit": 0,
+    "stderr_empty": true
+  },
+  "acceptance37_conditions": {
+    "1": "satisfied",
+    "2": "satisfied",
+    "3": "satisfied",
+    "4": "satisfied",
+    "5": "satisfied",
+    "6": "satisfied",
+    "7": "satisfied"
+  },
+  "remaining_runtime_conditions": [],
+  "unclosed_P0_P1_P2": {
+    "P0": 0,
+    "P1": 0,
+    "P2": 0
+  },
+  "retro37_findings": "All concrete current findings closed by root retro37.md; original failures retained"
+}
