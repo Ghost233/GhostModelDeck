@@ -40,7 +40,23 @@ Dart 非流式 HttpResponse 的 `done` 不保证客户端 FIN/RST 后立即完�
 
 公开红用例 `run-iCIvZY` 证实三入口成功答案被替成字符串，`run-AMMn6v` 证实实际页面预览/复制被破坏；其中独立测试类型错误也按原始非零结果保留。补充的 `run-f9G3Sk` 防止过宽的 opaque answer 保护漏掉真实凭据 extras。最终 `run-oyZPsi` 11 个定点用例同时覆盖原生与真实 HTTP/MCP quick/hard/固定原生名的 default/显式 debug、实际页面发送预览/结果/debug 复制、委员会每席/完整总结果、真实凭据、raw JSON/畸形 JSON/原始 header/error 文本与已知 echo，全部通过。
 
-## 最终工程门禁
+## v2 补充审查与凭据边界修正
+
+对第一次 P2 修正提交 `328403bb4e02340563a6348b1074a0cc5057491b` 的 v2 双轴审查：Standards 0，Spec 1 项 P2。该 P2 包含两条具体泄漏路径：原生 default 的未知 `server_log` 文本缺少 whitelist 命中，关闭 debug 时无 raw_response 兄弟字段帮助收集凭据；有效 choice 答案的未知 `instructions: {API_KEY: ...}` 则因 type 被错误赋予请求问题数据的免疫。初审 0 → 第一次合法数据 P2 修正 → v2 未知凭据 P2 的审查历史均保留。
+
+当前修正仅改变共享 sealer。questions、answers 与委员会 aggregates 字典传递明确结构上下文；instructions/criteria 仅在请求问题中属于任务数据，答案的保留字段按实际题型限定，未知 typed 对象不获得整对象豁免。所有非任务字符串均扫描凭据，不再依赖特定字段名；完整 raw JSON 继续按结构处理，已知凭据的直接和 JSON 编码回显仍隐藏。实际推理输入、合法不透明 ID、描述、legend、概率及完整委员会证据保留。
+
+公开原生 default 红用例 `run-VmH97F`（宿主/job 1/1）直接复现 Authorization 文本泄漏，且无 debug 兄弟字段；最小修正后 `run-pxLRNZ`（0/0）通过。第二组初次 `run-TlHJk1`（1/1）为测试 JSON 返回类型/nullable map 访问的编译错误，单独保留，不计产品失败或通过。修正测试后 `run-GbN1wN`（1/1，2 通过/4 失败）从三种生产 adapter 与实际原生页面复制复现答案扩展免疫；fixture 凭据后来采用互不包含的值，避免一个已识别 secret 的子串替换掩盖另一条泄漏。`run-qn0HW5`（0/0）10 个定点用例全部通过。其后仅补齐一处 multiline 条件的花括号，最终源码由下方完整受影响与工程门禁覆盖。
+
+页面仍使用真实 JevPlaygroundPage、共享 controller/gateway/MCP 与 Clipboard 平台 I/O，extras/no-extras 和 default/debug 均覆盖发送预览、输出和 debug 复制。HTTP/MCP 用真实本机请求/SDK 客户端，原生使用实际受管入口；仅外部引擎进程/HTTP 与必要 fixture 文件受控。
+
+## 本次环境恢复与证据持久性
+
+旧 `/private/tmp/ghostmodeldeck-implementation-context` 和旧 macOS driver/log 已消失，无法重新读取；下方第一次 P2 门禁与 Mac 记录保留为历史，不把缺失材料记为当前通过。既有源码/结果归档仍保留在本 worktree `.tooling/container-tests/`。本次恢复、原始失败、当前门禁及新 Mac 证据保存到主工作区 `.scratch/jev-protocol-playground/continuation/`。
+
+`ghostmodeldeck-checks-r33b` native inspect 确认 Flutter seed、pub-cache 与 CJK font 的三个 `/private/tmp` bind 源缺失，重启原始退出 1/errno 2。未停止全局运行时或删除该容器。任务自有备用 `ghostmodeldeck-checks-r35` SDK/cache 完整，但原 one-shot seed initializer 在重启时拒绝已存在目录。保留原 initializer 与 SDK/cache，仅修复其 entrypoint 来验证固定 revision/bootstrap 后进入现有主 runner。entrypoint SHA-256 `6ac74de745f15ed47fc6051d36758a600db051326af5bae9b655c1ebed6fae7e`，bootstrap SHA-256 `480c4dd9fdc6bed083254bc2914e7d0d0832d0f97c73a7a1ec8c301badc2870e`；失败 docker cp 与 base64 校验恢复记录均持久保留。没有改动生产检查脚本、切换运行时、额外挂载或操作其他容器。
+
+## 第一次 P2 修正工程门禁（历史）
 
 Socktainer 上下文；专用容器 `ghostmodeldeck-checks-r33b`，长任务由容器主 runner 执行，每次在线 pub get。固定 Flutter 3.47.6 / Dart 3.13.5；锁文件未改，mcp_dart 为 2.4.2。P2 修正后的主线程独立复核记录为 `/private/tmp/ghostmodeldeck-implementation-context/r36-p2-gates-independent.json`。98 个最终输入的 compact-JSON manifest 为 `97608b10207e458396f78cb9f36f3fcb2ec438c38d9e723cc9bae73dec7ea4a3`，逐行内容 manifest 为 `dd1191db163bb5eee141b6997d4c73e774c94e9bf495278b79d08b8e8ab7a923`。
 
@@ -77,7 +93,7 @@ print(hashlib.sha256(manifest.encode("utf-8")).hexdigest())
 
 归档位于本 worktree 的 `.tooling/container-tests/<run>/`，保留 `source.tar.gz`、`job.sh`、`result.log`、`exit`；`/private/tmp/ghostmodeldeck-implementation-context/implementation36-status.json` 记录各阶段命令、基线、源码 manifest、归档/日志 SHA-256 与真实退出结果。红→绿包含缺失公开入口、JSON 原生选择/焦点、配置快照、凭据错误状态、Ready 过渡、HTTP 取消及接收边界的原始失败；测试工具的 FakeAsync barrier/旧 UI 状态/nullable fixture/100-continue 假设错误另按原始失败保留，不计通过。
 
-## macOS 有界回环证据
+## 第一次 P2 修正 macOS 回环记录（历史）
 
 使用 `/Users/ghost233/flutter/bin/cache/dart-sdk/bin/dart`（3.13.5 macos_arm64），读取既有依赖配置并在任务临时目录中固定到本 worktree。`stage36-mac-owned-http.dart` 通过当前生产 adapter、controller、gateway 与实际本机 HTTP 驱动；只替换外部引擎 I/O，不启动真实模型或 GUI。
 
@@ -86,6 +102,27 @@ print(hashlib.sha256(manifest.encode("utf-8")).hexdigest())
 修正后的共享 sealer SHA-256 为 `4f14eb970efdc16b8cdd5d839dd5dc01d08b83f0106498a1bb80b84da1b876c4`；Mac 有界回环使用这一版源码，gateway/adapter hash 保持上述值。
 
 初次阶段审查、后续 P2 发现与会话/环境复盘见 [审查与复盘记录](jev-playground-review-and-retro.md)；文档补记之后的最终整体双轴复审由主线程执行。
+
+## 最终工程门禁
+
+本次 v2 P2 修正使用 Socktainer/Apple container 1.2.0 arm64、任务自有 `ghostmodeldeck-checks-r35` 主 runner；每一任务在线 pub get，Flutter 3.47.6 / Dart 3.13.5，Flutter revision `5fc346839b5d0eef006ed8404392afb4dfae428d`。依赖锁文件未改。
+
+| 实际命令（均设置 GMD_TEST_CONTAINER） | 归档 run | 宿主/job 退出码 | 结果 |
+| --- | --- | --- | --- |
+| `./scripts/test-container.sh test test/jev_debug_test.dart test/jev_debug_protocol_test.dart test/jev_playground_test.dart test/jev_playground_page_test.dart test/jev_owned_http_test.dart test/jev_protocol_test.dart test/jev_json_input_test.dart test/council_page_test.dart` | `run-ywfyAD` | 0 / 0 | 80 tests passed |
+| `./scripts/test-container.sh format --output=none --set-exit-if-changed lib test benchmarks` | `run-ZwBx0K` | 0 / 0 | 90 files, 0 changed |
+| `./scripts/test-container.sh analyze` | `run-HNlrDA` | 0 / 0 | No issues found |
+| `./scripts/test-container.sh test` | `run-eHc7GE` | 0 / 0 | 528 tests passed |
+
+四个归档按上方同一编码分别核对 98 个最终输入，compact-JSON manifest 均为 `bb91f663fe3d7a50d37169651f3282aacbbd65a66ad629cabee7c78648e3707d`，逐行 manifest 均为 `1205422f8ebd9f5f13bb12c6a6933e7c5e8b164ce93222e767933949212bcd34`；源码逐文件与最终工作区一致。原始 `source.tar.gz/job.sh/result.log/exit` 保存在各 run 目录，归档及日志 SHA-256、完整命令、宿主/job 真实退出码保存在持久 `continuation/r36-projection-status.json` 与 `r36-final-gates.json`。后者的 validation HEAD 为 `328403b` 加本次待提交变更，最终内容由上述 manifest 固定。
+
+## 当前源码 macOS 有界回环
+
+原临时 driver/log 已丢失，本次新建最小 `continuation/r36-current-mac-owned-http.dart`，读取现有宿主依赖配置并将 GhostModelDeck package 固定到本 worktree。使用固定宿主 Dart 3.13.5 macos_arm64，通过生产 adapter/controller/gateway 与真实本机 HTTP；只替换外部引擎 I/O 和 synthetic fixture 文件，不启动原生模型或 GUI。
+
+最终 `r36-final-mac-owned-http.log/json` 记录宿主退出 0，本次 owned lease/许可在 15 ms 排空，另一待决调用和后续调用均成功；gateway/MCP 监听器仍 running，清理前驻留 kill 为 0，最终 owned registry/许可均为 0。此 proof 的 98 文件输入与当前工程门禁 manifest 相同，覆盖最终 multiline 花括号修正。
+
+当前 driver SHA-256 `8a0f8cf0f1e4e05b180d72ffee683fa54b2e9402d41bcf6aa37c712c9f79454c`，log SHA-256 `bbc28778064441a0ab7ad91fbee2f9f5b94916f330a460d70db336501edbfcc0`；共享 sealer SHA-256 `b8f23a28a2f113243fb14cf21f9e9eda900186b14967dbd6691cad21e2d97e35`。gateway 与 adapter SHA-256 仍分别为 `3244db601a61666914a37170c613890104c6e010d7993994f5b75fef0c1e1c3f`、`c9b8eb5e7bfd14d7a363dd0ab455dcd6e12b71df7ef9bc87525a32f8a1839f75`。持久目录的完整宿主路径为 `/Users/ghost233/Ghost233Code/GhostModelDeck/.scratch/jev-protocol-playground/continuation/`。
 
 ## 未覆盖
 

@@ -673,7 +673,7 @@ void main() {
   }
   for (final mode in JevPlaygroundMode.values) {
     testWidgets(
-      'actual $mode page preview and copied result preserve legal credential-looking JEV data',
+      'actual $mode page preview and copied result preserve legal task data and hide response credential extras',
       (tester) async {
         final fixture = (await tester.runAsync(
           () => HttpOverrides.runWithHttpOverrides(
@@ -738,83 +738,128 @@ void main() {
         final name = mode == JevPlaygroundMode.native
             ? fixture.runtime.engine.state.instances.first.id
             : 'quick';
-        for (final debug in [false, true]) {
-          final document = credentialNamedJevDocument(name, debug: debug);
-          await tester.ensureVisible(find.byKey(const Key('playground-json')));
-          await tester.enterText(
-            find.byKey(const Key('playground-json')),
-            jsonEncode(document),
-          );
-          FocusManager.instance.primaryFocus?.unfocus();
-          await tester.pumpAndSettle();
-          if (find.byKey(const Key('playground-preview')).evaluate().isEmpty) {
+        for (final extras in [false, true]) {
+          fixture.runtime.io.respond = extras
+              ? (body, raw) async => jsonEncode(credentialExtraJevResponse(raw))
+              : null;
+          for (final debug in [false, true]) {
+            final document = credentialNamedJevDocument(name, debug: debug);
             await tester.ensureVisible(
-              find.byKey(const Key('playground-preview-expand')),
+              find.byKey(const Key('playground-json')),
             );
-            await tester.tap(
-              find.byKey(const Key('playground-preview-expand')),
+            await tester.enterText(
+              find.byKey(const Key('playground-json')),
+              jsonEncode(document),
             );
+            FocusManager.instance.primaryFocus?.unfocus();
             await tester.pumpAndSettle();
-          }
-          await tester.ensureVisible(
-            find.byKey(const Key('playground-preview-copy')),
-          );
-          await tester.tap(find.byKey(const Key('playground-preview-copy')));
-          await tester.pump();
-          expect(
-            jsonDecode(copied!),
-            mode == JevPlaygroundMode.native
-                ? (Map<String, Object?>.from(document)..remove('debug'))
-                : document,
-          );
-          await tester.ensureVisible(
-            find.byKey(const Key('playground-submit')),
-          );
-          await tester.runAsync(
-            () => HttpOverrides.runWithHttpOverrides(() async {
-              await tester.tap(find.byKey(const Key('playground-submit')));
-              await tester.pump();
-              final deadline = DateTime.now().add(const Duration(seconds: 5));
-              while (find
-                  .byKey(const Key('playground-status'))
-                  .evaluate()
-                  .isEmpty) {
-                if (DateTime.now().isAfter(deadline)) {
-                  fail('public page call did not finish');
-                }
-                await Future<void>.delayed(const Duration(milliseconds: 10));
-                await tester.pump();
-              }
-            }, _Network()),
-          );
-          await tester.pumpAndSettle();
-          await tester.ensureVisible(
-            find.byKey(const Key('playground-output-copy')),
-          );
-          await tester.tap(find.byKey(const Key('playground-output-copy')));
-          await tester.pump();
-          expect(jsonDecode(copied!), {
-            'model': name,
-            'answers': credentialNamedJevAnswers,
-            'usage': {'input_tokens': 10, 'output_tokens': 0},
-          });
-          if (debug) {
+            if (find
+                .byKey(const Key('playground-preview'))
+                .evaluate()
+                .isEmpty) {
+              await tester.ensureVisible(
+                find.byKey(const Key('playground-preview-expand')),
+              );
+              await tester.tap(
+                find.byKey(const Key('playground-preview-expand')),
+              );
+              await tester.pumpAndSettle();
+            }
             await tester.ensureVisible(
-              find.byKey(const Key('playground-debug-expand')),
+              find.byKey(const Key('playground-preview-copy')),
             );
-            await tester.tap(find.byKey(const Key('playground-debug-expand')));
-            await tester.pumpAndSettle();
-            await tester.ensureVisible(
-              find.byKey(const Key('playground-debug-output-copy')),
-            );
-            await tester.tap(
-              find.byKey(const Key('playground-debug-output-copy')),
-            );
+            await tester.tap(find.byKey(const Key('playground-preview-copy')));
             await tester.pump();
             expect(
-              jsonDecode(copied!)['input']['questions'],
-              document['questions'],
+              jsonDecode(copied!),
+              mode == JevPlaygroundMode.native
+                  ? (Map<String, Object?>.from(document)..remove('debug'))
+                  : document,
             );
+            await tester.ensureVisible(
+              find.byKey(const Key('playground-submit')),
+            );
+            await tester.runAsync(
+              () => HttpOverrides.runWithHttpOverrides(() async {
+                await tester.tap(find.byKey(const Key('playground-submit')));
+                await tester.pump();
+                final deadline = DateTime.now().add(const Duration(seconds: 5));
+                while (find
+                    .byKey(const Key('playground-status'))
+                    .evaluate()
+                    .isEmpty) {
+                  if (DateTime.now().isAfter(deadline)) {
+                    fail('public page call did not finish');
+                  }
+                  await Future<void>.delayed(const Duration(milliseconds: 10));
+                  await tester.pump();
+                }
+              }, _Network()),
+            );
+            await tester.pumpAndSettle();
+            await tester.ensureVisible(
+              find.byKey(const Key('playground-output-copy')),
+            );
+            await tester.tap(find.byKey(const Key('playground-output-copy')));
+            await tester.pump();
+            expect(jsonDecode(copied!), {
+              'model': name,
+              'answers': mode == JevPlaygroundMode.native && extras
+                  ? {
+                      ...credentialNamedJevAnswers,
+                      'api_key': {
+                        ...credentialNamedJevAnswers['api_key']!,
+                        'instructions': {'API_KEY': '[redacted]'},
+                      },
+                    }
+                  : credentialNamedJevAnswers,
+              'usage': {'input_tokens': 10, 'output_tokens': 0},
+              if (mode == JevPlaygroundMode.native && extras) ...{
+                'server_log': 'Authorization: [redacted]',
+                'unlisted_trace': ['Cookie: [redacted]'],
+                'unrelated_typed': {
+                  'type': 'choice',
+                  'instructions': {'API_KEY': '[redacted]'},
+                },
+                'echo': '[redacted] [redacted] [redacted] [redacted]',
+              },
+            });
+            for (final secret in [
+              'answer-extra-secret',
+              'unknown-header-token',
+              'unlisted-cookie-token',
+              'typed-object-secret',
+            ]) {
+              expect(copied, isNot(contains(secret)));
+            }
+            if (debug) {
+              await tester.ensureVisible(
+                find.byKey(const Key('playground-debug-expand')),
+              );
+              await tester.tap(
+                find.byKey(const Key('playground-debug-expand')),
+              );
+              await tester.pumpAndSettle();
+              await tester.ensureVisible(
+                find.byKey(const Key('playground-debug-output-copy')),
+              );
+              await tester.tap(
+                find.byKey(const Key('playground-debug-output-copy')),
+              );
+              await tester.pump();
+              expect(
+                jsonDecode(copied!)['input']['questions'],
+                document['questions'],
+              );
+              for (final secret in [
+                'answer-extra-secret',
+                'unknown-header-token',
+                'unlisted-cookie-token',
+                'typed-object-secret',
+              ]) {
+                expect(copied, isNot(contains(secret)));
+              }
+            }
           }
         }
         expect(tester.takeException(), isNull);

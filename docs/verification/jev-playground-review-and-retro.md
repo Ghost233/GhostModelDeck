@@ -1,6 +1,6 @@
 # #36 审查与复盘记录
 
-日期：2026-10-08（Asia/Shanghai）。固定阶段基线为 `6359dc14be4d426874ed83e30a65492a8140efce`，实施候选为 `91b793b63b79db9dafe33c8b47fa94af1add714f`。本记录补记该候选的初次双轴审查与已完成的会话/环境复盘；文档补记候选 `bc6b5095ee91f0121bcdc005b3207ffc84af99ea` 的后续 Spec 补充审查发现 1 项 P2，见下节；修正后的 `6359...HEAD` 最终整体双轴复审仍由主线程执行，不将初审当作最终复审。
+日期：2026-10-08（Asia/Shanghai）。固定阶段基线为 `6359dc14be4d426874ed83e30a65492a8140efce`，实施候选为 `91b793b63b79db9dafe33c8b47fa94af1add714f`。本记录补记该候选的初次双轴审查与已完成的会话/环境复盘；文档补记候选 `bc6b5095ee91f0121bcdc005b3207ffc84af99ea` 的后续 Spec 补充审查发现 1 项 P2，见下节；第一次 P2 修正提交为 `328403bb4e02340563a6348b1074a0cc5057491b`；其后的 v2 审查再次确认 1 项未知凭据 P2，当前修正后的 `6359...HEAD` 最终整体双轴复审仍由主线程执行，不将初审当作最终复审。
 
 ## 初次审查与复盘结果
 
@@ -19,7 +19,19 @@
 
 公开原生/真实 HTTP/MCP 与实际页面预览/复制先红后绿。共享 sealer 现在区分标识字典、明确任务数据和凭据配置/诊断，完整 raw JSON 采用结构上下文；真实凭据 extras、raw header/error 与已知 echo 仍受保护。named council quick/hard 的每席和完整 aggregate/votes/legend、converted_result、input/request/raw_response 都加入断言。没有取消原有凭据保护，也没有修改推理输入或虚构响应字段。原始失败及精准修复范围见 [规范验证记录](jev-inference-playground.md#p2-补充审查修正)。
 
-## 修正后门禁及回环证据
+## v2 审查与当前修正
+
+| 环节 | 范围与结论 |
+| --- | --- |
+| v2 Standards | `6359...328403b` 完整阶段；发现 0。 |
+| v2 Spec | 同一范围；1 项 P2，涵盖原生 default 未知 plaintext 字段漏扫，以及有效答案的未知 instructions 字段继承请求问题豁免。 |
+| 当前修正 | 共享 sealer 按 questions/answers/aggregates 及实际题型区分任务数据，扫描所有非任务 plaintext；公开 adapter/page 红→绿，最终整体双轴复审仍待主线程执行。 |
+
+第一条公开红 `run-VmH97F` 宿主/job 1/1，绿 `run-pxLRNZ` 0/0；第二组编译错误 `run-TlHJk1` 1/1 单独保留，不能作为产品行为失败证据。随后真实行为红 `run-GbN1wN` 1/1，三种 adapter 和实际原生页面失败；`run-qn0HW5` 0/0，10 个定点用例通过。新的凭据 fixture 使用互不包含的值，避免子串脱敏掩盖漏扫。原先合法 ID/JSON 描述/legend、数值概率、input/converted/raw、委员会每席和完整总结果矩阵均保留；真实凭据字段、未知 extras 和 known echo 继续覆盖。
+
+临时证据目录与旧 Mac driver/log 消失；原记录保留为历史，本次以持久目录中的当前归档/日志与新建有界回环验收。r33b 重启失败的实因是三个临时 bind 源已不存在；任务自有 r35 保留 SDK/cache，修复 one-shot initializer 的重启入口后使用原 bootstrap 主 runner。未改产品检查脚本、全局重启运行时或操作其他容器。失败传输与实际校验恢复过程见 [当前环境记录](jev-inference-playground.md#本次环境恢复与证据持久性)。
+
+## 第一次 P2 修正门禁及回环记录（历史）
 
 完整命令、归档、原始失败边界与可复现 manifest 编码以 [测试场验证记录](jev-inference-playground.md#最终工程门禁) 为规范记录。原文档补记提交仅改变文档；后续 P2 修正改变了共享 sealer 与相关测试输入，以下采用重新验证的最终输入，不复用旧输入 hash。
 
@@ -34,6 +46,20 @@
 98 个最终产品输入的 compact-JSON manifest 为 `97608b10207e458396f78cb9f36f3fcb2ec438c38d9e723cc9bae73dec7ea4a3`；等价逐行 manifest 为 `dd1191db163bb5eee141b6997d4c73e774c94e9bf495278b79d08b8e8ab7a923`。macOS 回环验证的 gateway SHA-256 为 `3244db601a61666914a37170c613890104c6e010d7993994f5b75fef0c1e1c3f`，adapter SHA-256 为 `c9b8eb5e7bfd14d7a363dd0ab455dcd6e12b71df7ef9bc87525a32f8a1839f75`；脚本 SHA-256 为 `530576309522c4fb8d499f8df2d4b89c18017b34f406640fd54b2775bd14e900`。
 
 共享 sealer 的最终源码 SHA-256 为 `4f14eb970efdc16b8cdd5d839dd5dc01d08b83f0106498a1bb80b84da1b876c4`；独立门禁记录为 `r36-p2-gates-independent.json`。
+
+## 当前修正的最终证据
+
+| 检查 | 最终结果 |
+| --- | --- |
+| `run-ywfyAD` 受影响八文件 | 宿主/job 0/0，80 tests passed。 |
+| `run-ZwBx0K` format | 宿主/job 0/0，90 files / 0 changed。 |
+| `run-HNlrDA` analyze | 宿主/job 0/0，零诊断。 |
+| `run-eHc7GE` 全量回归 | 宿主/job 0/0，528 tests passed。 |
+| 当前源码 macOS 回环 | 宿主退出 0，15 ms 排空本次 lease/许可；待决同伴和后续调用成功，监听器继续运行，清理前驻留 kill 为 0，最终登记/许可归零。 |
+
+上述四个容器归档与最终工作区逐文件核对相同 98 个输入，compact-JSON `bb91f663fe3d7a50d37169651f3282aacbbd65a66ad629cabee7c78648e3707d`，逐行 `1205422f8ebd9f5f13bb12c6a6933e7c5e8b164ce93222e767933949212bcd34`。新 Mac driver SHA-256 `8a0f8cf0f1e4e05b180d72ffee683fa54b2e9402d41bcf6aa37c712c9f79454c`，最终 sealer SHA-256 `b8f23a28a2f113243fb14cf21f9e9eda900186b14967dbd6691cad21e2d97e35`；完整命令、归档/日志 hash 和宿主/job 退出码见 [最终门禁](jev-inference-playground.md#最终工程门禁) 与持久主工作区 `.scratch/jev-protocol-playground/continuation/r36-projection-status.json`、`r36-final-gates.json`、`r36-final-mac-owned-http.json`。
+
+当前证据修正了 v2 P2 的两条具体路径，并保留先前合法数据 P2 的行为要求。最终整体 Standards/Spec 双轴复审仍由主线程执行，本记录不先行宣称零发现。
 
 ## 保留的验收边界
 

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:ghost_model_deck/council.dart';
 import 'package:ghost_model_deck/council_mcp.dart';
 import 'package:ghost_model_deck/jev_models.dart';
@@ -169,3 +171,25 @@ const credentialNamedJevAnswers = {
   },
   'authorization': {'type': 'noul', 'noul': 0.8},
 };
+
+Map<String, Object?> credentialExtraJevResponse(String raw) {
+  final response = jsonDecode(raw) as Map;
+  final answers = response['answers'] as Map;
+  return {
+    ...response.cast<String, Object?>(),
+    'answers': {
+      ...answers,
+      'api_key': {
+        ...answers['api_key'] as Map,
+        'instructions': {'API_KEY': 'answer-extra-secret'},
+      },
+    },
+    'server_log': 'Authorization: Bearer unknown-header-token',
+    'unlisted_trace': ['Cookie: sid=unlisted-cookie-token'],
+    'unrelated_typed': {
+      'type': 'choice',
+      'instructions': {'API_KEY': 'typed-object-secret'},
+    },
+    'echo': 'answer-extra-secret unknown-header-token unlisted-cookie-token typed-object-secret',
+  };
+}

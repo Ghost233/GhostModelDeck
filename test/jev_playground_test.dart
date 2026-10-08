@@ -518,6 +518,115 @@ void main() {
   });
   for (final mode in JevPlaygroundMode.values) {
     test(
+      '$mode response answer extras cannot inherit request question credential immunity',
+      () async {
+        final fixture = await PlaygroundRuntime.create();
+        addTearDown(fixture.close);
+        fixture.runtime.io.respond = (body, raw) async =>
+            jsonEncode(credentialExtraJevResponse(raw));
+        final source = fixture.playground.nativeSources.first;
+        for (final name
+            in mode == JevPlaygroundMode.native
+                ? [source.model]
+                : ['quick', 'hard', 'native-kev']) {
+          for (final debug in [false, true]) {
+            final document = credentialNamedJevDocument(name, debug: debug);
+            final result = await fixture.playground.run(
+              mode,
+              jsonEncode(document),
+              nativeSource: source,
+            );
+            expect(result.status, JevPlaygroundStatus.success);
+            final answers = result.output!['answers'] as Map;
+            expect(answers['cookie'], credentialNamedJevAnswers['cookie']);
+            expect(
+              answers['authorization'],
+              credentialNamedJevAnswers['authorization'],
+            );
+            expect(answers['api_key']['probabilities'], {
+              'authorization': 0.25,
+              'cookie': 0.75,
+            });
+            if (mode == JevPlaygroundMode.native) {
+              expect(answers['api_key']['instructions'], {
+                'API_KEY': '[redacted]',
+              });
+              expect(result.output!['server_log'], 'Authorization: [redacted]');
+              expect(result.output!['unrelated_typed'], {
+                'type': 'choice',
+                'instructions': {'API_KEY': '[redacted]'},
+              });
+            }
+            if (debug) {
+              expect(
+                (result.debug!['input'] as Map)['questions'],
+                document['questions'],
+              );
+              final ios = result.debug!['source'] == 'council'
+                  ? result.debug!['seats'] as List
+                  : [result.debug!['native']];
+              for (final io in ios) {
+                final raw = jsonDecode((io as Map)['raw_response'] as String);
+                expect(raw['answers']['api_key']['instructions'], {
+                  'API_KEY': '[redacted]',
+                });
+                expect(
+                  raw['answers']['cookie'],
+                  credentialNamedJevAnswers['cookie'],
+                );
+                expect(raw['server_log'], 'Authorization: [redacted]');
+              }
+            } else {
+              expect(result.debug, isNull);
+            }
+            for (final secret in [
+              'answer-extra-secret',
+              'unknown-header-token',
+              'unlisted-cookie-token',
+              'typed-object-secret',
+            ]) {
+              expect(jsonEncode(result.output), isNot(contains(secret)));
+              expect(jsonEncode(result.debug), isNot(contains(secret)));
+            }
+          }
+        }
+        expect(fixture.runtime.io.requests, isNotEmpty);
+        for (final body in fixture.runtime.io.requests) {
+          expect(
+            body['questions'],
+            credentialNamedJevDocument('ignored')['questions'],
+          );
+        }
+      },
+    );
+  }
+  test('native default output redacts unknown plaintext credential extras without a debug sibling', () async {
+    final fixture = await PlaygroundRuntime.create();
+    addTearDown(fixture.close);
+    final source = fixture.playground.nativeSources.first;
+    fixture.runtime.io.respond = (body, raw) async => jsonEncode({
+      ...jsonDecode(raw) as Map,
+      'server_log': 'Authorization: Bearer extra-secret',
+      'unlisted_trace': ['Cookie: sid=extra-cookie-secret'],
+      'echo': 'extra-secret extra-cookie-secret',
+    });
+    final result = await fixture.playground.run(
+      JevPlaygroundMode.native,
+      jsonEncode(credentialNamedJevDocument(source.model)),
+      nativeSource: source,
+    );
+    expect(result.status, JevPlaygroundStatus.success);
+    expect(result.debug, isNull);
+    expect(result.output!['answers'], credentialNamedJevAnswers);
+    expect(result.output!['server_log'], 'Authorization: [redacted]');
+    expect(result.output!['unlisted_trace'], ['Cookie: [redacted]']);
+    expect(result.output!['echo'], '[redacted] [redacted]');
+    for (final secret in ['extra-secret', 'extra-cookie-secret']) {
+      expect(jsonEncode(result.output), isNot(contains(secret)));
+    }
+  });
+  for (final mode in JevPlaygroundMode.values) {
+    test(
       '$mode legal credential-looking JEV IDs and JSON descriptions survive native and real HTTP/MCP default and debug',
       () async {
         final fixture = await PlaygroundRuntime.create();
