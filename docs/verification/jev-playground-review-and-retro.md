@@ -69,7 +69,15 @@
 
 当前证据修正了 v2 P2 的两条具体路径，并保留先前合法数据 P2 的行为要求。最终整体 Standards/Spec 双轴复审仍由主线程执行，本记录不先行宣称零发现。
 
-## 当前上下文来源修正的最终证据
+## 后续合法调用身份 P2 与当前修正
+
+完整 13 文件 `6359...54ec9e6` 审查：Standards 0，Spec 1 项不同 P2。嵌套形状与 per-call DTO 来源修正已通过审查；新发现是原生固定调用名列表与页面发现 ID 的通用扫描错误收集合法 header 风格名称，从而损坏本次证据与可调用的复制名称。
+
+修正只增加明确 caller-owned configuration 固定调用名列表和 discovery `instances[].model/data[].id` 字符串位置；发现其他字段仍通用扫描，未知形状不授予角色。非空 trimmed String 的名称契约、全局唯一、无强制前缀保持。
+
+测试作者错误 `run-cZ5r5m` 1/1 独立保留；真实公开红 `run-en8QHm` 1/1（2 通过/4 失败）揭示原生证据及 HTTP/MCP 页面复制被破坏。绿 `run-krCWCO` 0/0，7 个定点通过：实际三种发现/页面复制、复制名称的后续显式调用、固定原生名/委员会名、合法复杂描述与 raw/converted，同时另一个真实凭据和未知发现 extras 受保护。此前各轮 Spec 发现与失败历史继续保留；当前完整阶段双轴复审由主线程执行。
+
+## 上下文来源修正最终证据（历史）
 
 | 检查 | 实际结果 |
 | --- | --- |
@@ -83,6 +91,24 @@
 四份最终容器归档与工作区逐文件核对相同 98 个输入：compact-JSON `ac4ef1e497368e5507b805f903dae7ad2ce9e17562a47444190833606741a8e3`，逐行 `aafbb804adfaa9cf3a42c89898f71c43eff340ea5a3b679578c16f7531e08175`。新的 sealer SHA-256 为 `117ee68707308224383ee1528ad28df160197b9736120c60aea16090c47650de`。当前 [工程与 Mac 证据](jev-inference-playground.md#最终工程门禁) 保存到持久 `continuation/r36-bounded-projection-status.json`、`r36-bounded-final-gates.json`、`r36-bounded-final-mac-owned-http.json`，主线程的独立核验为 `r36-bounded-independent.json`。
 
 后续审查揭示的嵌套形状缺陷和本轮暴露的取消证据误脱敏均据真实公开失败修正；此前各轮失败/通过记录保留，没有使用 HTTP 状态、测试数量或已取消结果推断成功。最终完整 13 文件 Standards/Spec 审查与复盘仍由主线程执行，此处不提前宣称零发现。
+
+## 当前合法身份修正的最终证据
+
+| 检查 | 结果 |
+| --- | --- |
+| `run-krCWCO` 身份/发现定点 | 宿主/job 0/0，7 passed。 |
+| `run-vuVmQs` 三处测试 lint 定点 | 宿主/job 0/0，零诊断。 |
+| `run-VBF1xV` 最终受影响八文件 | 宿主/job 0/0，92 passed。 |
+| `run-lsRKPc` format | 宿主/job 0/0，90 files / 0 changed。 |
+| `run-KI6bzw` analyze | 宿主/job 0/0，零诊断。 |
+| `run-kA1KET` 全量 | 宿主/job 0/0，540 passed。 |
+| 最终源码 Mac 回环 | 宿主退出 0，19 ms 排空，待决同伴/后续请求成功，服务与驻留实例保留，登记/许可为 0。 |
+
+三处新增页面测试 multiline if lint 的 `run-uCuL6h` 1/1，以及未匹配首次缩进编辑的 `run-Y9xdMT` 1/1 保留为真实检查失败。精准修复后重新完成最终门禁，未把零诊断前的结果计为通过，也未复用测试输入变化前的 source manifest。
+
+最终四份容器归档与工作区 98 个输入一致：compact-JSON `599a2a388cd2a425ae1e77dc938882505dffd4669138e2b7af8680af1e0298d2`，逐行 `9ba7d91275016afc6ede6ed2322a1b655c5a2ee72ff52271392a8cb1fe48de96`。当前 [工程与 Mac 证据](jev-inference-playground.md#最终工程门禁) 位于 `continuation/r36-identity-projection-status.json`、`r36-identity-final-gates.json`、`r36-identity-final-mac-owned-http.json`；独立核验 `r36-identity-independent.json` 与完整类别审计 `r36-projection-boundary-audit.md` 均由主线程保存。
+
+类别审计覆盖八个生产 sealer 调用位置和有限成对代表，缺口集合 0。 本轮有界恢复复盘见持久 `continuation/retro36-recovery-supplement.md`：没有未闭环的环境 P0/P1/P2，既有 CI 护栏 P3 继续 deferred。主线程已采用用户授权的新收尾流程，后续以当前有效覆盖执行一次 IMPACT 复审，复盘仅补本轮新的修复/恢复事实，再处理阶段 PR；此处不把旧零发现自动当作当前候选审查结论。
 
 ## 保留的验收边界
 

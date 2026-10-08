@@ -216,3 +216,59 @@ Map<String, Object?> nestedCredentialJevResponse(String raw) => {
   ],
   'echo': 'shape-secret response-legend-token unique-secret encoded-question-token encoded-answer-token',
 };
+
+const headerNamedNativeModels = [
+  'Authorization: allow',
+  'Cookie: simple label',
+];
+const headerNamedCouncilModels = [
+  'Authorization: council allow',
+  'Cookie: council label',
+];
+
+Future<void> saveHeaderNamedJevModels(PlaygroundRuntime fixture) async {
+  final source = fixture.playground.nativeSources.first;
+  final binding = fixture.council.models.availableBindings.firstWhere(
+    (b) =>
+        b.engineId == source.engineId &&
+        b.artifactId == source.instance.asset.id,
+  );
+  for (final name in headerNamedNativeModels) {
+    await fixture.council.models.save(
+      JevModelDefinition.native(name: name, binding: binding),
+    );
+  }
+  for (final name in headerNamedCouncilModels) {
+    await fixture.council.models.save(
+      JevModelDefinition.council(
+        name: name,
+        seats: fixture.council.models.availableBindings,
+        timeout: const Duration(seconds: 3),
+      ),
+    );
+  }
+}
+
+Map<String, Object?> headerNamedJevDocument(String model) {
+  final document = credentialNamedJevDocument(model, debug: true);
+  (document['state'] as Map)['cookie_label'] = 'simple label';
+  ((document['questions'] as Map)['cookie'] as Map)['criteria'] = [
+    'Authorization: allow',
+    {'api_key': 'Cookie: simple label'},
+  ];
+  return document;
+}
+
+final headerNamedJevAnswers = {
+  ...credentialNamedJevAnswers,
+  'cookie': {
+    'type': 'score',
+    'score': 0.75,
+    'confidence': 0.5,
+    'legend': {
+      '0': 'Authorization: allow',
+      '1': {'api_key': 'Cookie: simple label'},
+    },
+    'probabilities': {'0': 0.25, '1': 0.75},
+  },
+};

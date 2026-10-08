@@ -673,6 +673,185 @@ void main() {
   }
   for (final mode in JevPlaygroundMode.values) {
     testWidgets(
+      'actual $mode page copies header-looking discovery IDs and calls the copied name',
+      (tester) async {
+        final fixture = (await tester.runAsync(
+          () => HttpOverrides.runWithHttpOverrides(
+            PlaygroundRuntime.create,
+            _Network(),
+          ),
+        ))!;
+        addTearDown(() async {
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.runAsync(fixture.close);
+        });
+        await tester.runAsync(() => saveHeaderNamedJevModels(fixture));
+        fixture.runtime.io.respond = (body, raw) async => jsonEncode({
+          ...jsonDecode(raw) as Map,
+          'diagnostic': {'API_KEY': 'page-identity-private-token'},
+        });
+        tester.view.physicalSize = const Size(1000, 1200);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        String? copied;
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          (call) async {
+            if (call.method == 'Clipboard.setData') {
+              copied = (call.arguments as Map)['text'] as String;
+            }
+            return null;
+          },
+        );
+        addTearDown(
+          () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            SystemChannels.platform,
+            null,
+          ),
+        );
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: JevPlaygroundPage(
+                controller: fixture.council,
+                gateway: fixture.gateway,
+                mcp: fixture.mcp,
+              ),
+            ),
+          ),
+        );
+        if (mode != JevPlaygroundMode.native) {
+          await tester.tap(find.byKey(const Key('playground-mode')));
+          await tester.pumpAndSettle();
+          await tester.tap(
+            find
+                .text(
+                  mode == JevPlaygroundMode.http
+                      ? 'Jev HTTP · 本机服务'
+                      : 'MCP · 本机服务',
+                )
+                .last,
+          );
+          await tester.pumpAndSettle();
+        }
+        await tester.ensureVisible(
+          find.byKey(const Key('playground-discover')),
+        );
+        await tester.runAsync(
+          () => HttpOverrides.runWithHttpOverrides(() async {
+            await tester.tap(find.byKey(const Key('playground-discover')));
+            final deadline = DateTime.now().add(const Duration(seconds: 5));
+            while (find
+                .byKey(const Key('playground-discovery'))
+                .evaluate()
+                .isEmpty) {
+              if (DateTime.now().isAfter(deadline)) {
+                fail('actual discovery did not finish');
+              }
+              await Future<void>.delayed(const Duration(milliseconds: 10));
+              await tester.pump();
+            }
+          }, _Network()),
+        );
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const Key('playground-discovery-copy')),
+        );
+        await tester.tap(find.byKey(const Key('playground-discovery-copy')));
+        await tester.pump();
+        final discovery = jsonDecode(copied!) as Map;
+        final ids = mode == JevPlaygroundMode.native
+            ? (discovery['instances'] as List)
+                  .map((row) => row['model'] as String)
+                  .toList()
+            : (discovery['data'] as List)
+                  .map((row) => row['id'] as String)
+                  .toList();
+        final names = mode == JevPlaygroundMode.native
+            ? [fixture.playground.nativeSources.first.model]
+            : [...headerNamedNativeModels, ...headerNamedCouncilModels];
+        expect(ids, containsAll(names));
+        await tester.ensureVisible(
+          find.byKey(const Key('playground-json-mode')),
+        );
+        await tester.tap(find.byKey(const Key('playground-json-mode')));
+        await tester.pump();
+        for (final name in ids.where(names.contains)) {
+          final document = headerNamedJevDocument(name);
+          await tester.ensureVisible(find.byKey(const Key('playground-json')));
+          await tester.enterText(
+            find.byKey(const Key('playground-json')),
+            jsonEncode(document),
+          );
+          FocusManager.instance.primaryFocus?.unfocus();
+          await tester.pumpAndSettle();
+          await tester.ensureVisible(
+            find.byKey(const Key('playground-submit')),
+          );
+          await tester.runAsync(
+            () => HttpOverrides.runWithHttpOverrides(() async {
+              await tester.tap(find.byKey(const Key('playground-submit')));
+              await tester.pump();
+              final deadline = DateTime.now().add(const Duration(seconds: 5));
+              while (find
+                  .byKey(const Key('playground-status'))
+                  .evaluate()
+                  .isEmpty) {
+                if (DateTime.now().isAfter(deadline)) {
+                  fail('copied discovery name did not complete');
+                }
+                await Future<void>.delayed(const Duration(milliseconds: 10));
+                await tester.pump();
+              }
+            }, _Network()),
+          );
+          await tester.pumpAndSettle();
+          await tester.ensureVisible(
+            find.byKey(const Key('playground-output-copy')),
+          );
+          await tester.tap(find.byKey(const Key('playground-output-copy')));
+          await tester.pump();
+          final output = jsonDecode(copied!) as Map;
+          expect(output['model'], name);
+          expect(output['answers'], headerNamedJevAnswers);
+          await tester.ensureVisible(
+            find.byKey(const Key('playground-debug-expand')),
+          );
+          if (find
+              .byKey(const Key('playground-debug-output'))
+              .evaluate()
+              .isEmpty) {
+            await tester.tap(find.byKey(const Key('playground-debug-expand')));
+            await tester.pumpAndSettle();
+          }
+          await tester.ensureVisible(
+            find.byKey(const Key('playground-debug-output-copy')),
+          );
+          await tester.tap(
+            find.byKey(const Key('playground-debug-output-copy')),
+          );
+          await tester.pump();
+          final debug = jsonDecode(copied!) as Map;
+          expect(debug['input']['state'], document['state']);
+          expect(debug['input']['questions'], document['questions']);
+          expect(debug['converted_result'], output);
+          if (mode == JevPlaygroundMode.native) {
+            expect(
+              debug['configuration']['fixed_call_names'],
+              containsAll(headerNamedNativeModels),
+            );
+          } else {
+            expect(debug['configuration']['name'], name);
+          }
+          expect(copied, isNot(contains('page-identity-private-token')));
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+  for (final mode in JevPlaygroundMode.values) {
+    testWidgets(
       'actual $mode page preview and copied result preserve legal task data and hide response credential extras and nested response shapes',
       (tester) async {
         final fixture = (await tester.runAsync(

@@ -415,7 +415,12 @@ class _JevPlaygroundPageState extends State<JevPlaygroundPage> {
               key: const Key('playground-discovery-error'),
             ),
           if (_discovery != null)
-            _jsonBlock('本次发现', _discovery!, 'playground-discovery'),
+            _jsonBlock(
+              '本次发现',
+              _discovery!,
+              'playground-discovery',
+              projection: JevDebugProjection.discovery,
+            ),
           Wrap(
             spacing: 12,
             children: [

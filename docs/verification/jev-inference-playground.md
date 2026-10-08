@@ -134,7 +134,15 @@ print(hashlib.sha256(manifest.encode("utf-8")).hexdigest())
 
 当前 driver SHA-256 `8a0f8cf0f1e4e05b180d72ffee683fa54b2e9402d41bcf6aa37c712c9f79454c`，log SHA-256 `bbc28778064441a0ab7ad91fbee2f9f5b94916f330a460d70db336501edbfcc0`；共享 sealer SHA-256 `b8f23a28a2f113243fb14cf21f9e9eda900186b14967dbd6691cad21e2d97e35`。gateway 与 adapter SHA-256 仍分别为 `3244db601a61666914a37170c613890104c6e010d7993994f5b75fef0c1e1c3f`、`c9b8eb5e7bfd14d7a363dd0ab455dcd6e12b71df7ef9bc87525a32f8a1839f75`。持久目录的完整宿主路径为 `/Users/ghost233/Ghost233Code/GhostModelDeck/.scratch/jev-protocol-playground/continuation/`。
 
-## 最终工程门禁
+## 后续完整审查：合法调用身份被当作凭据
+
+完整 `6359...54ec9e6` 的 13 文件审查为 Standards 0 / Spec 1 项不同的 P2。先前嵌套形状问题已解决，本次发现合法 API Name `Authorization: allow` 出现在原生 debug 的固定调用名列表时，仍会从 generic text 错误收集 allow，破坏实际输入、legend、raw 与 converted 调试证据；实际 HTTP/MCP 发现的 `data[].id` 在页面通用投影中也被改成不可调用的名字。名称契约仍为非空且无首尾空白、全局唯一，不新增字符限制或强制前缀。
+
+当前修正仅扩展调用方声明的身份位置：实际 configuration 中的字符串固定调用名列表、discovery 根的 `instances[].model` 与 `data[].id` 标识字符串。三种实际发现入口与页面显示/复制使用同一明确 discovery 角色。发现整对象及其其他字段不获得免疫，任意嵌套字段名/形状也不能提升上下文；原先真凭据、unknown extras、known echo、验证 DTO 与取消证据边界保持。
+
+`run-cZ5r5m` 宿主/job 1/1 为新增 fixture 的 const map 重复键编译错误，单独保留。修正 fixture 后 `run-en8QHm` 1/1，2 通过/4 失败：原生 adapter 及实际原生页面错误改写 allow/simple label，HTTP/MCP 页面复制的四个已登记合法名字错误改写。`run-krCWCO` 0/0，7 个定点用例通过：两个固定原生名和两个委员会名均经过真实发现/页面 Clipboard，再用复制的名字完成显式原生/HTTP/MCP 调用；实际 request/legend/已验证 raw/converted 保留，另一个真实凭据隐藏。既有公共 sealer 接缝另验证 discovery 真实身份字段以外的 API key、Cookie、伪装嵌套 ID 与 echo 仍隐藏，没有把整份发现设为 opaque。
+
+## 上下文来源修正工程门禁（历史）
 
 本次上下文来源修正使用已恢复且独占的 `ghostmodeldeck-checks-r35` 主 runner，Socktainer/Apple container 1.2.0 arm64，每次在线 pub get。固定 Flutter 3.47.6 / Dart 3.13.5、Flutter revision `5fc346839b5d0eef006ed8404392afb4dfae428d`，锁文件未改。
 
@@ -149,13 +157,36 @@ print(hashlib.sha256(manifest.encode("utf-8")).hexdigest())
 
 四份归档按上方同一编码核对 98 个输入，compact-JSON manifest 均为 `ac4ef1e497368e5507b805f903dae7ad2ce9e17562a47444190833606741a8e3`，逐行 manifest 均为 `aafbb804adfaa9cf3a42c89898f71c43eff340ea5a3b679578c16f7531e08175`，与当前源码逐文件一致。validation HEAD 为 `a5c55bf` 加本次变更，内容由 manifest 固定。各 run 的 source/job/log/exit 保留在 worktree `.tooling/container-tests/`；完整命令、源码/归档/日志 SHA-256 与真实退出码保存于持久 `continuation/r36-bounded-projection-status.json`、`r36-bounded-final-gates.json`。主线程独立核验见 `r36-bounded-independent.json`，未因文档编辑重跑相同门禁。
 
-## 当前源码 macOS 有界回环
+## 上下文来源修正 macOS 回环（历史）
 
 沿用持久的新 driver `r36-current-mac-owned-http.dart` 与固定宿主 Dart 3.13.5，GhostModelDeck package 指向本 worktree。生产 adapter/controller/gateway 与真实本机 HTTP 运行，仅替换外部引擎 I/O 与 synthetic fixture 文件。
 
 本次 `r36-bounded-final-mac-owned-http.log/json` 宿主退出 0，11 ms 排空本次 owned lease/许可，待决同伴和后续调用均成功；监听器仍 running，清理前驻留 kill 为 0，最终登记与许可为 0。该 proof 与上述 98 文件 manifest 相同；报告另外固定五个生产文件的 SHA-256 与宿主 package config SHA-256。
 
 driver SHA-256 `8a0f8cf0f1e4e05b180d72ffee683fa54b2e9402d41bcf6aa37c712c9f79454c`，log SHA-256 `c9a2480368fe1eade2fb1f3949ef97018e9741f526981950cdf116f5ea27ad42`；sealer `117ee68707308224383ee1528ad28df160197b9736120c60aea16090c47650de`，adapter `a074f0caba9f26afc996092396a9cb3764376ba5d07ddd406cb3428fcff964b1`，page `bc0c0edd4a48d1439a348ed0669d5ffb4ab88be57ef4bd9dcaed86a245d8c821`，models `93c4564a6136115c639501bd1b762184e46f649f41051d2b686a723e159e96a4`，gateway `3244db601a61666914a37170c613890104c6e010d7993994f5b75fef0c1e1c3f`。
+
+## 最终工程门禁
+
+本次合法身份修正继续使用独占的 `ghostmodeldeck-checks-r35` 主 runner，无重启或新容器；Socktainer/Apple container 1.2.0 arm64，每次在线 pub get。Flutter 3.47.6 / Dart 3.13.5、revision `5fc346839b5d0eef006ed8404392afb4dfae428d` 与锁文件保持。
+
+新页面测试的三处 multiline if 缺花括号使 `run-uCuL6h` analyze 宿主/job 1/1（3 info）；此前 `run-D91ikS` format 0/0。第一次按缩进替换未生效，`run-Y9xdMT` 定点 analyze 1/1 保留；随后断言恰好三个匹配并复核源码，`run-vuVmQs` 对失败文件定点分析 0/0、零诊断。最终受影响与全量门禁按修正后的测试输入重新完成，未复用旧 364c… manifest。此过程不涉及生产行为改动。
+
+| 实际命令（均设置 GMD_TEST_CONTAINER） | 归档 run | 宿主/job | 结果 |
+| --- | --- | --- | --- |
+| `./scripts/test-container.sh test test/jev_debug_test.dart test/jev_debug_protocol_test.dart test/jev_playground_test.dart test/jev_playground_page_test.dart test/jev_owned_http_test.dart test/jev_protocol_test.dart test/jev_json_input_test.dart test/council_page_test.dart` | `run-VBF1xV` | 0 / 0 | 92 tests passed |
+| `./scripts/test-container.sh format --output=none --set-exit-if-changed lib test benchmarks` | `run-lsRKPc` | 0 / 0 | 90 files, 0 changed |
+| `./scripts/test-container.sh analyze` | `run-KI6bzw` | 0 / 0 | No issues found |
+| `./scripts/test-container.sh test` | `run-kA1KET` | 0 / 0 | 540 tests passed |
+
+四个最终归档与当前源码逐文件核对相同 98 个输入：compact-JSON `599a2a388cd2a425ae1e77dc938882505dffd4669138e2b7af8680af1e0298d2`，逐行 `9ba7d91275016afc6ede6ed2322a1b655c5a2ee72ff52271392a8cb1fe48de96`。validation HEAD 为 `54ec9e6` 加本次变更，内容由 manifest 固定。命令、源归档/日志 SHA-256 与真实退出码保存在 `continuation/r36-identity-projection-status.json`、`r36-identity-final-gates.json`，主线程独立核验为 `r36-identity-independent.json`。各 run 的 source/job/log/exit 仍在 worktree `.tooling/container-tests/`；旧失败门禁另保存在 `r36-identity-final-gates-before-test-braces.json`。
+
+## 当前源码 macOS 有界回环与类别审计
+
+固定宿主 Dart 3.13.5 使用持久 driver、当前 worktree package 和生产 adapter/controller/gateway/真实本机 HTTP，仅替换外部引擎 I/O 与 synthetic fixture 文件。最终 `r36-identity-final-mac-owned-http.log/json` 宿主退出 0，19 ms 排空本次 lease/许可；同伴及后续调用成功，监听器 running，清理前驻留 kill 为 0，最终登记/许可为 0。proof 的 98 文件 manifest 与本次最终门禁相同，五个生产文件 hash 也独立核对当前内容。
+
+driver SHA-256 `8a0f8cf0f1e4e05b180d72ffee683fa54b2e9402d41bcf6aa37c712c9f79454c`，log `e054dcf01f18af7b18d3ccdc1dd54fffbb5bca313a13e7d186c18b659755f066`；sealer `5ae918fe82eff0aaec4e3e62e55488b8655b3f5d5a73b4dcd59ae8814a01edaf`，adapter `d0ad31e207caf5c19bcd599bd127592c0f496186090261036b96cfca9316eefc`，page `f987b4fd6d75ad05ec8cad4c5639d0052274a90d79ab41ee35401b21e03b8426`；models/gateway 保持上次当前记录的 hash。
+
+主线程的完整投影 source×business role×output boundary 类别审计覆盖全部八个调用位置与有限成对代表，缺口集合为 0，记录为 `continuation/r36-projection-boundary-audit.md`。后续按已授权的新收尾工作流对候选执行一次 IMPACT 复审并完成复盘/阶段 PR；本实现记录不提前代替该审查或 #37 原生验收。
 
 ## 未覆盖
 

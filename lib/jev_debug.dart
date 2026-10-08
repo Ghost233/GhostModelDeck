@@ -47,7 +47,14 @@ Object? freezeDebugJson(Object? value) => switch (value) {
 };
 
 /// Caller-owned business root; unknown nested JSON cannot establish a role.
-enum JevDebugProjection { generic, request, response, debug, playgroundResult }
+enum JevDebugProjection {
+  generic,
+  request,
+  response,
+  debug,
+  playgroundResult,
+  discovery,
+}
 
 /// Redacts display copies only; actual engine input remains intact.
 Map<String, Object?> sealDebugJson(
@@ -60,6 +67,7 @@ Map<String, Object?> sealDebugJson(
     JevDebugProjection.response => _JevProjection.response,
     JevDebugProjection.debug => _JevProjection.debug,
     JevDebugProjection.playgroundResult => _JevProjection.playgroundResult,
+    JevDebugProjection.discovery => _JevProjection.discovery,
   };
   final redactor = _CredentialRedactor()..collect(value, context: context);
   return freezeDebugJson(redactor.redact(value, context: context))
@@ -73,6 +81,9 @@ enum _JevProjection {
   debug,
   playgroundResult,
   configuration,
+  discovery,
+  nativeDiscovery,
+  modelDiscovery,
   io,
   council,
   councilSeat,
@@ -150,7 +161,21 @@ class _CredentialRedactor {
         return true;
       }
     }
-    if (context == _JevProjection.configuration && key == 'name') {
+    if (context == _JevProjection.configuration &&
+        (key == 'name' ||
+            key == 'fixed_call_names' &&
+                parent[key] is List &&
+                (parent[key] as List).every((name) => name is String))) {
+      return true;
+    }
+    if (context == _JevProjection.nativeDiscovery &&
+        key == 'model' &&
+        parent[key] is String) {
+      return true;
+    }
+    if (context == _JevProjection.modelDiscovery &&
+        key == 'id' &&
+        parent[key] is String) {
       return true;
     }
     if (context == _JevProjection.council &&
@@ -176,6 +201,11 @@ class _CredentialRedactor {
     String key,
     _JevProjection context,
   ) => switch (context) {
+    _JevProjection.discovery => switch (key) {
+      'instances' => _JevProjection.nativeDiscovery,
+      'data' => _JevProjection.modelDiscovery,
+      _ => _JevProjection.none,
+    },
     _JevProjection.playgroundResult => switch (key) {
       'output' => _JevProjection.response,
       'debug' => _JevProjection.debug,

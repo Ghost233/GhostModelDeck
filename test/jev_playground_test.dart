@@ -516,6 +516,86 @@ void main() {
       selected.model,
     );
   });
+  for (final mode in JevPlaygroundMode.values) {
+    test(
+      '$mode header-looking API identities survive discovery and remain callable with faithful debug',
+      () async {
+        final fixture = await PlaygroundRuntime.create();
+        addTearDown(fixture.close);
+        await saveHeaderNamedJevModels(fixture);
+        fixture.runtime.io.respond = (body, raw) async => jsonEncode({
+          ...jsonDecode(raw) as Map,
+          'diagnostic': {'API_KEY': 'identity-unrelated-token'},
+          'echo': 'identity-unrelated-token',
+        });
+        final source = fixture.playground.nativeSources.first;
+        final discovery = await fixture.playground.discover(mode);
+        final ids = mode == JevPlaygroundMode.native
+            ? (discovery['instances'] as List)
+                  .map((row) => row['model'] as String)
+                  .toList()
+            : (discovery['data'] as List)
+                  .map((row) => row['id'] as String)
+                  .toList();
+        final names = mode == JevPlaygroundMode.native
+            ? [source.model]
+            : [...headerNamedNativeModels, ...headerNamedCouncilModels];
+        expect(ids, containsAll(names));
+        for (final name in ids.where(names.contains)) {
+          final document = headerNamedJevDocument(name);
+          final result = await fixture.playground.run(
+            mode,
+            jsonEncode(document),
+            nativeSource: source,
+          );
+          expect(result.status, JevPlaygroundStatus.success);
+          expect(result.output!['model'], name);
+          expect(result.output!['answers'], headerNamedJevAnswers);
+          expect((result.debug!['input'] as Map)['state'], document['state']);
+          expect(
+            (result.debug!['input'] as Map)['questions'],
+            document['questions'],
+          );
+          expect(result.debug!['converted_result'], result.output);
+          final ios = result.debug!['source'] == 'council'
+              ? result.debug!['seats'] as List
+              : [result.debug!['native']];
+          for (final io in ios) {
+            final record = io as Map;
+            expect(record['request']['state'], document['state']);
+            expect(record['request']['questions'], document['questions']);
+            expect(
+              jsonDecode(record['request_body'] as String)['questions'],
+              document['questions'],
+            );
+            expect(
+              jsonDecode(record['raw_response'] as String)['answers'],
+              headerNamedJevAnswers,
+            );
+            expect(jsonDecode(record['raw_response'] as String)['diagnostic'], {
+              'API_KEY': '[redacted]',
+            });
+          }
+          if (mode == JevPlaygroundMode.native) {
+            expect(
+              (result.debug!['configuration'] as Map)['fixed_call_names'],
+              containsAll(headerNamedNativeModels),
+            );
+          } else {
+            expect((result.debug!['configuration'] as Map)['name'], name);
+          }
+          expect(
+            jsonEncode(result.debug),
+            isNot(contains('identity-unrelated-token')),
+          );
+          expect(
+            jsonEncode(result.output),
+            isNot(contains('identity-unrelated-token')),
+          );
+        }
+      },
+    );
+  }
   test('native cancellation retains validated raw task data and hides unknown credentials', () async {
     final fixture = await PlaygroundRuntime.create();
     addTearDown(fixture.close);

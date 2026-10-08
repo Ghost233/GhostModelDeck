@@ -165,20 +165,26 @@ class JevPlayground {
               'reason': s.reason(null),
             },
         ],
-      });
+      }, projection: JevDebugProjection.discovery);
     }
     if (mode == JevPlaygroundMode.http) {
       if (gateway.state != PublicGatewayState.running ||
           gateway.baseUrl == null) {
         throw StateError('HTTP 服务未运行：${gateway.error ?? gateway.state.name}');
       }
-      return (await _http(
-        gateway.baseUrl!.resolve('/v1/models'),
-        null,
-        cancellation,
-      )).$2;
+      return sealDebugJson(
+        (await _http(
+          gateway.baseUrl!.resolve('/v1/models'),
+          null,
+          cancellation,
+        )).$2,
+        projection: JevDebugProjection.discovery,
+      );
     }
-    return _mcp(CouncilMcpServer.discoveryToolName, const {}, cancellation);
+    return sealDebugJson(
+      await _mcp(CouncilMcpServer.discoveryToolName, const {}, cancellation),
+      projection: JevDebugProjection.discovery,
+    );
   }
 
   Future<JevPlaygroundResult> run(

@@ -915,6 +915,59 @@ void main() {
     );
     expect(runtime.io.killedChildren, 0);
   });
+  test('declared discovery protects only identity strings while inspecting credential extras', () {
+    final result = sealDebugJson({
+      'data': [
+        {
+          'id': 'Authorization: allow',
+          'API_KEY': 'discovery-private-token',
+          'extra': {'id': 'Cookie: hidden-label-secret'},
+        },
+        {'id': 'Cookie: simple label', 'source': 'council'},
+      ],
+      'instances': [
+        {
+          'model': 'Authorization: native alias',
+          'diagnostic': {'Cookie': 'sid=native-discovery-secret'},
+        },
+      ],
+      'unknown': {
+        'data': [
+          {'id': 'Authorization: Bearer unknown-id-secret'},
+        ],
+        'instances': [
+          {'model': 'Authorization: Bearer unknown-model-secret'},
+        ],
+        'fixed_call_names': ['Cookie: untrusted-name-secret'],
+      },
+      'echo': 'discovery-private-token native-discovery-secret unknown-id-secret unknown-model-secret untrusted-name-secret hidden-label-secret',
+    }, projection: JevDebugProjection.discovery);
+    expect((result['data'] as List).map((row) => row['id']).toList(), [
+      'Authorization: allow',
+      'Cookie: simple label',
+    ]);
+    expect(
+      (result['instances'] as List).single['model'],
+      'Authorization: native alias',
+    );
+    expect((result['data'] as List).first['API_KEY'], '[redacted]');
+    expect((result['data'] as List).first['extra'], {
+      'id': 'Cookie: [redacted]',
+    });
+    expect((result['instances'] as List).single['diagnostic'], {
+      'Cookie': '[redacted]',
+    });
+    for (final secret in [
+      'discovery-private-token',
+      'native-discovery-secret',
+      'unknown-id-secret',
+      'unknown-model-secret',
+      'untrusted-name-secret',
+      'hidden-label-secret',
+    ]) {
+      expect(jsonEncode(result), isNot(contains(secret)));
+    }
+  });
   test('contextual projection preserves legal typed data but redacts credential extras and known echoes', () {
     final wire =
         '{\n  "model": "native", "answers": {"api_key": {"type": "choice", "choice": "cookie", "confidence": 0.5, "probabilities": {"authorization": 0.25, "cookie": 0.75}, "diagnostic": {"API_KEY": "extra-secret"}}}, "usage": {"input_tokens": 10, "output_tokens": 0}, "server_log": "Authorization: Bearer raw-header-secret"\n}';
