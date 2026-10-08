@@ -51,7 +51,7 @@ oMLX 共用配置、编辑器、文本优先及语法保存。family 显式标�
 
 Merger 首轮确认oMLX登记未保留实际版本/参数来源的P2，以公开save→unlink→restart→history→restore红灯复现，最小字段及来源映射修复。有效CLI观测提供当前版本，未刷新/失败仍未知；已有configurationVersions用显式null保留未知参数来源，多次往返不伪造目标版本。所属11条公开配置回归通过，整数来源JSON整份拒绝。有限merger复核关闭P2，新增P0/P1/P2为0。
 
-最终97文件格式零改动、静态分析零诊断、全量601项测试、Mac构建均真实退出0，输入未变。记录 `checks/stage49-50-*-final2/`、`builds/stage49-50-final2/result.json`。真实JEV/Kev与标准b11146/Qwen各23断言通过，包含保存/继承、解除、新身份不自动套用及显式恢复后再次Ready/n_ctx1024、实际argv一致；各23个本次child退出、两端口回收，47项源输入匹配。证据 `native-stage49-50/outcome.json`、`native-standard-stage49-50/outcome.json`。本阶段正式双轴审查尚待完成，第五阶段完整GUI/SDK/33条故事总验收仍未执行。
+最终97文件格式零改动、静态分析零诊断、全量601项测试、Mac构建均真实退出0，输入未变。记录 `checks/stage49-50-*-final2/`、`builds/stage49-50-final2/result.json`。真实JEV/Kev与标准b11146/Qwen各23断言通过，包含保存/继承、解除、新身份不自动套用及显式恢复后再次Ready/n_ctx1024、实际argv一致；各23个本次child退出、两端口回收，47项源输入匹配。证据 `native-stage49-50/outcome.json`、`native-standard-stage49-50/outcome.json`。正式候选 `b2a917a5a9d2abf785752c2fe5886ecc4302886f` 双轴首审均为0，复盘未新增需关闭的P0/P1/P2；报告 `stage49-50/standards-first.md`、`spec-first.md` 与 `retro.md`。最终记录增量复审及阶段PR交付正在进行，第五阶段完整GUI/SDK/33条故事总验收仍未执行。
 
 原九模块178pass/1旧oMLX文案失败不计整轮通过，精准同步规格限制文案后定点与整个页面5项通过。两个oMLX测试调度中断保留为invalid，即使runner取消退出0也未记通过；精确pump后有效model/help红灯与绿色均有原日志。四条分析info按必要花括号修正，无规则抑制；旧schema来源扩展误强绑定点修复，原业务断言保留。所有失败、副本与当前输入记录由stage49/stage50 handoff索引。
 
