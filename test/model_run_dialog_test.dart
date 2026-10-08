@@ -20,6 +20,503 @@ import 'fixtures/decision_gguf.dart';
 import 'fixtures/engine_archive.dart';
 
 void main() {
+  testWidgets(
+    'unrepresentable NUL and trailing escape remain saved but cannot spawn',
+    (tester) async {
+      final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
+      addTearDown(() => tester.runAsync(fixture.close));
+      for (final (text, position) in [
+        ('--device CPU\u0000ignored', 13),
+        (
+          r'--device CPU\'
+              '\u0000ignored',
+          14,
+        ),
+        (r'--device CPU\', 13),
+      ]) {
+        await _openTextEditor(tester, fixture);
+        final input = find.widgetWithText(TextField, '启动参数文本');
+        await tester.ensureVisible(input);
+        await tester.enterText(input, text);
+        await tester.pump();
+        expect(find.textContaining('第 $position 位'), findsOneWidget);
+        expect(find.byTooltip('复制命令'), findsNothing);
+        await _saveTextEditor(tester, fixture);
+        await _openTextEditor(tester, fixture);
+        expect(tester.widget<TextField>(input).controller!.text, text);
+        await tester.tap(find.widgetWithText(TextButton, '取消'));
+        await tester.pumpAndSettle();
+        await tester.runAsync(() async {
+          await expectLater(
+            fixture.engine.start(fixture.asset.id),
+            throwsA(
+              predicate<Object>(
+                (error) => error.toString().contains('第 $position 位'),
+              ),
+            ),
+          );
+          expect(fixture.io.startedArguments, isEmpty);
+          expect(fixture.engine.state.instances, isEmpty);
+        });
+      }
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets('user stop before a late native exit remains cancellation', (
+    tester,
+  ) async {
+    final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
+    addTearDown(() => tester.runAsync(fixture.close));
+    await _openTextEditor(tester, fixture);
+    final input = find.widgetWithText(TextField, '启动参数文本');
+    await tester.ensureVisible(input);
+    await tester.enterText(input, '--ctx-size bananas');
+    await tester.pump();
+    await _saveTextEditor(tester, fixture);
+    const diagnostic = 'error: invalid value for --ctx-size: bananas';
+    fixture.io.startupError = diagnostic;
+    addTearDown(() {
+      final gate = fixture.io.startupExitGate;
+      if (gate != null && !gate.isCompleted) {
+        gate.complete();
+      }
+    });
+    await tester.runAsync(
+      () => HttpOverrides.runWithHttpOverrides(() async {
+        for (final recycle in [false, true]) {
+          fixture.io.startupExitGate = Completer<void>();
+          final started = fixture.engine.changes.firstWhere(
+            (state) =>
+                state.instances.any((instance) => instance.hasLiveProcess),
+          );
+          Object? startError;
+          final start = fixture.engine
+              .start(fixture.asset.id)
+              .then<void>(
+                (_) =>
+                    fail('an unready native child must not complete startup'),
+                onError: (Object error) => startError = error,
+              );
+          final state = await started.timeout(const Duration(seconds: 5));
+          final instanceId = state.instances
+              .singleWhere((instance) => instance.hasLiveProcess)
+              .id;
+          final stop = recycle
+              ? fixture.engine.stopManaged()
+              : fixture.engine.stop(instanceId);
+          fixture.io.startupExitGate!.complete();
+          await start;
+          await stop;
+          expect(
+            startError,
+            isA<LlamaEngineException>().having(
+              (error) => error.message,
+              'reason',
+              contains('已取消'),
+            ),
+          );
+          expect(startError.toString(), isNot(contains(diagnostic)));
+          expect(
+            fixture.engine.state.instances
+                .singleWhere((instance) => instance.id == instanceId)
+                .status,
+            LlamaInstanceStatus.stopped,
+          );
+          expect(
+            fixture.engine.state.instances.every(
+              (instance) => !instance.hasLiveProcess,
+            ),
+            isTrue,
+          );
+        }
+      }, _NetworkBoundary()),
+    );
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets(
+    'native argument rejection shows stderr and never publishes Ready',
+    (tester) async {
+      final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
+      addTearDown(() => tester.runAsync(fixture.close));
+      await _openTextEditor(tester, fixture);
+      final input = find.widgetWithText(TextField, '启动参数文本');
+      await tester.ensureVisible(input);
+      await tester.enterText(input, '--ctx-size bananas');
+      await tester.pump();
+      await _saveTextEditor(tester, fixture);
+      const diagnostic = 'error: invalid value for --ctx-size: bananas';
+      fixture.io.startupError = diagnostic;
+      final statuses = <LlamaInstanceStatus>[];
+      final observations = fixture.engine.changes.listen((state) {
+        statuses.addAll(state.instances.map((instance) => instance.status));
+      });
+      addTearDown(observations.cancel);
+      await tester.runAsync(() async {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildJevTheme(Brightness.light),
+            home: Scaffold(
+              body: LibraryPage(
+                library: fixture.library,
+                libraryPath: '${fixture.root.path}/models',
+                engines: fixture.catalog,
+              ),
+            ),
+          ),
+        );
+        await _settleFilesystemFrames(tester);
+        await tester.tap(find.widgetWithText(TextButton, '运行'));
+        await tester.pump();
+        await fixture.catalog.refresh();
+        await tester.pump();
+      });
+      await tester.pumpAndSettle();
+      await tester.runAsync(
+        () => HttpOverrides.runWithHttpOverrides(() async {
+          final failed = fixture.engine.changes.firstWhere(
+            (state) => state.instances.any(
+              (instance) => instance.status == LlamaInstanceStatus.failed,
+            ),
+          );
+          await tester.tap(find.widgetWithText(FilledButton, '运行'));
+          await failed.timeout(const Duration(seconds: 5));
+          await fixture.catalog.refresh();
+          await tester.pump();
+          await _settleFilesystemFrames(tester, dialogRemainsOpen: true);
+        }, _NetworkBoundary()),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: find.widgetWithText(AlertDialog, '运行模型'),
+          matching: find.textContaining(diagnostic),
+        ),
+        findsOneWidget,
+      );
+      expect(statuses, isNot(contains(LlamaInstanceStatus.ready)));
+      final failed = fixture.engine.state.instances.single;
+      expect(failed.status, LlamaInstanceStatus.failed);
+      expect(failed.hasLiveProcess, isFalse);
+      expect(failed.capabilities, isEmpty);
+      expect(failed.error, contains(diagnostic));
+      expect(
+        failed.launchCommand!.arguments,
+        fixture.io.startedArguments.single,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets(
+    'unclosed quote is saved but has no executable preview or spawned process',
+    (tester) async {
+      final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
+      addTearDown(() => tester.runAsync(fixture.close));
+      await _openTextEditor(tester, fixture);
+      const text = '--device "CPU';
+      final input = find.widgetWithText(TextField, '启动参数文本');
+      await tester.ensureVisible(input);
+      await tester.enterText(input, text);
+      await tester.pump();
+      expect(find.textContaining('第 10 位'), findsOneWidget);
+      expect(find.text('完整启动命令'), findsNothing);
+      expect(find.byTooltip('复制命令'), findsNothing);
+      expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, '保存'))
+            .onPressed,
+        isNotNull,
+      );
+      await _saveTextEditor(tester, fixture);
+      await tester.runAsync(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await fixture.reopen();
+      });
+      await _openTextEditor(tester, fixture);
+      expect(tester.widget<TextField>(input).controller!.text, text);
+      await tester.runAsync(() async {
+        final positionedError = throwsA(
+          predicate<Object>((error) => error.toString().contains('第 10 位')),
+        );
+        await expectLater(
+          fixture.engine.previewLaunch(fixture.asset.id),
+          positionedError,
+        );
+        await expectLater(
+          fixture.engine.start(fixture.asset.id),
+          positionedError,
+        );
+        expect(fixture.io.startedArguments, isEmpty);
+        expect(fixture.engine.state.instances, isEmpty);
+      });
+      await tester.ensureVisible(input);
+      await tester.enterText(input, '--device "CPU"');
+      await tester.pump();
+      expect(tester.widget<TextField>(input).decoration!.errorText, isNull);
+      // InputDecorator fades the previous error label after the corrected frame.
+      await tester.pumpAndSettle();
+      expect(find.textContaining('第 10 位'), findsNothing);
+      expect(find.text('完整启动命令'), findsOneWidget);
+      await _saveTextEditor(tester, fixture);
+      await tester.runAsync(
+        () => HttpOverrides.runWithHttpOverrides(() async {
+          final instance = await fixture.engine.start(fixture.asset.id);
+          expect(instance.status, LlamaInstanceStatus.ready);
+          expect(
+            fixture.io.startedArguments.single,
+            containsAllInOrder(['--device', 'CPU']),
+          );
+        }, _NetworkBoundary()),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets(
+    'unknown and semantically invalid options warn without blocking native input',
+    (tester) async {
+      final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
+      addTearDown(() => tester.runAsync(fixture.close));
+      await _openTextEditor(tester, fixture);
+      const text =
+          r'--brand-new=opaque --ctx-size bananas --batch-size '
+          r'--parallel=2 /bin/echo ; | $HOME';
+      final input = find.widgetWithText(TextField, '启动参数文本');
+      await tester.ensureVisible(input);
+      await tester.enterText(input, text);
+      await tester.pump();
+      expect(find.textContaining('未知参数 --brand-new'), findsOneWidget);
+      expect(find.textContaining('--ctx-size 通常需要整数'), findsOneWidget);
+      expect(find.textContaining('--batch-size 缺少值'), findsOneWidget);
+      expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, '保存'))
+            .onPressed,
+        isNotNull,
+      );
+      await _saveTextEditor(tester, fixture);
+      await tester.runAsync(
+        () => HttpOverrides.runWithHttpOverrides(() async {
+          final preview = await fixture.engine.previewLaunch(fixture.asset.id);
+          final instance = await fixture.engine.start(fixture.asset.id);
+          const tokens = [
+            '--brand-new=opaque',
+            '--ctx-size',
+            'bananas',
+            '--batch-size',
+            '--parallel=2',
+            '/bin/echo',
+            ';',
+            '|',
+            r'$HOME',
+          ];
+          expect(fixture.io.startedArguments.single.skip(14).toList(), tokens);
+          expect(preview.arguments.skip(14).toList(), tokens);
+          expect(
+            fixture.io.startedExecutables.single,
+            fixture.engine.executablePath,
+          );
+          expect(instance.status, LlamaInstanceStatus.ready);
+        }, _NetworkBoundary()),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets(
+    'managed model listener and identity text is removed without rewriting source',
+    (tester) async {
+      final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
+      addTearDown(() => tester.runAsync(fixture.close));
+      await _openTextEditor(tester, fixture);
+      const text =
+          '-m /foreign/model.gguf --alias=outside --host 0.0.0.0 '
+          '--port=9999 -h --no-host';
+      final input = find.widgetWithText(TextField, '启动参数文本');
+      await tester.ensureVisible(input);
+      await tester.enterText(input, text);
+      await tester.pump();
+      expect(find.textContaining('由软件管理'), findsNWidgets(4));
+      await _saveTextEditor(tester, fixture);
+      await tester.runAsync(
+        () => HttpOverrides.runWithHttpOverrides(() async {
+          final preview = await fixture.engine.previewLaunch(fixture.asset.id);
+          final instance = await fixture.engine.start(fixture.asset.id);
+          final actual = fixture.io.startedArguments.single;
+          expect(actual.take(8).toList(), [
+            '--model',
+            fixture.asset.files.single.path,
+            '--alias',
+            instance.id,
+            '--host',
+            '127.0.0.1',
+            '--port',
+            '${instance.endpoint.port}',
+          ]);
+          expect(actual.skip(8).toList(), [
+            '--ctx-size',
+            '4096',
+            '--batch-size',
+            '4096',
+            '--ubatch-size',
+            '4096',
+            '--parallel',
+            '1',
+            '--n-gpu-layers',
+            '99',
+            '--device',
+            'MTL0',
+            '-h',
+            '--no-host',
+          ]);
+          expect(preview.arguments.last, '--no-host');
+          expect(instance.status, LlamaInstanceStatus.ready);
+        }, _NetworkBoundary()),
+      );
+      await _openTextEditor(tester, fixture);
+      expect(tester.widget<TextField>(input).controller!.text, text);
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets(
+    'quoted repeated and empty argument values retain their native boundaries',
+    (tester) async {
+      final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
+      addTearDown(() => tester.runAsync(fixture.close));
+      await _openTextEditor(tester, fixture);
+      const text = r'''--device "CPU fallback" -c=1024 --device 'CPU final'
+--experimental "" --pair=a=b --literal '$HOME ; echo nope | cat'
+--escaped one\ two --slash "a\qb" --quote "say \"hi\"" --single 'a\b' '' ''';
+      final input = find.widgetWithText(TextField, '启动参数文本');
+      await tester.ensureVisible(input);
+      await tester.enterText(input, text);
+      await tester.pump();
+      await _saveTextEditor(tester, fixture);
+      await tester.runAsync(
+        () => HttpOverrides.runWithHttpOverrides(() async {
+          final preview = await fixture.engine.previewLaunch(fixture.asset.id);
+          final instance = await fixture.engine.start(fixture.asset.id);
+          const tokens = [
+            '--device',
+            'CPU fallback',
+            '-c=1024',
+            '--device',
+            'CPU final',
+            '--experimental',
+            '',
+            '--pair=a=b',
+            '--literal',
+            r'$HOME ; echo nope | cat',
+            '--escaped',
+            'one two',
+            '--slash',
+            r'a\qb',
+            '--quote',
+            'say "hi"',
+            '--single',
+            r'a\b',
+            '',
+          ];
+          expect(fixture.io.startedArguments.single.skip(16).toList(), tokens);
+          expect(preview.arguments.skip(16).toList(), tokens);
+          expect(instance.status, LlamaInstanceStatus.ready);
+        }, _NetworkBoundary()),
+      );
+      await _openTextEditor(tester, fixture);
+      expect(tester.widget<TextField>(input).controller!.text, text);
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets('removing a text alias restores the preserved form value', (
+    tester,
+  ) async {
+    final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
+    addTearDown(() => tester.runAsync(fixture.close));
+    await _openTextEditor(tester, fixture);
+    final contextField = find.widgetWithText(TextField, '上下文大小');
+    await tester.enterText(contextField, '2048');
+    final arguments = find.widgetWithText(TextField, '启动参数文本');
+    await tester.ensureVisible(arguments);
+    await tester.enterText(arguments, '-c=1024');
+    await tester.pump();
+    expect(
+      tester.widget<TextField>(contextField).decoration!.errorText,
+      '已被文本覆盖',
+    );
+    await _saveTextEditor(tester, fixture);
+    await _openTextEditor(tester, fixture);
+    await tester.ensureVisible(arguments);
+    await tester.enterText(arguments, '');
+    await tester.pump();
+    expect(tester.widget<TextField>(contextField).controller!.text, '2048');
+    expect(
+      tester.widget<TextField>(contextField).decoration!.errorText,
+      isNull,
+    );
+    await _saveTextEditor(tester, fixture);
+    await tester.runAsync(
+      () => HttpOverrides.runWithHttpOverrides(() async {
+        final instance = await fixture.engine.start(fixture.asset.id);
+        expect(
+          fixture.io.startedArguments.single,
+          containsAllInOrder(['--ctx-size', '2048']),
+        );
+        expect(fixture.io.startedArguments.single, isNot(contains('-c=1024')));
+        expect(instance.status, LlamaInstanceStatus.ready);
+      }, _NetworkBoundary()),
+    );
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets(
+    'launch text retains its source and overrides known form aliases',
+    (tester) async {
+      final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
+      addTearDown(() => tester.runAsync(fixture.close));
+      await _openTextEditor(tester, fixture);
+      await tester.enterText(find.widgetWithText(TextField, '上下文大小'), '2048');
+      const text = '  -c 1024  --device=CPU\n';
+      final arguments = find.widgetWithText(TextField, '启动参数文本');
+      expect(arguments, findsOneWidget);
+      await tester.ensureVisible(arguments);
+      await tester.enterText(arguments, text);
+      await tester.pump();
+      final contextField = tester.widget<TextField>(
+        find.widgetWithText(TextField, '上下文大小'),
+      );
+      expect(contextField.controller!.text, '2048');
+      expect(contextField.decoration!.errorText, '已被文本覆盖');
+      await _saveTextEditor(tester, fixture);
+      await tester.runAsync(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await fixture.reopen();
+      });
+      await _openTextEditor(tester, fixture);
+      expect(tester.widget<TextField>(arguments).controller!.text, text);
+      expect(
+        tester
+            .widget<TextField>(find.widgetWithText(TextField, '上下文大小'))
+            .controller!
+            .text,
+        '2048',
+      );
+      await tester.tap(find.widgetWithText(TextButton, '取消'));
+      await tester.pumpAndSettle();
+      await tester.runAsync(
+        () => HttpOverrides.runWithHttpOverrides(() async {
+          final preview = await fixture.engine.previewLaunch(fixture.asset.id);
+          final instance = await fixture.engine.start(fixture.asset.id);
+          final actual = fixture.io.startedArguments.single;
+          expect(actual, isNot(contains('--ctx-size')));
+          expect(actual, isNot(contains('--device')));
+          expect(actual.skip(16).toList(), ['-c', '1024', '--device=CPU']);
+          expect(preview.arguments.skip(16).toList(), [
+            '-c',
+            '1024',
+            '--device=CPU',
+          ]);
+          expect(instance.status, LlamaInstanceStatus.ready);
+        }, _NetworkBoundary()),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
   test('managed standard JEV and linked launch defaults remain independent after reopening', () async {
     final root = await Directory.systemTemp.createTemp(
       'gmd-isolated-defaults-',
@@ -1092,12 +1589,129 @@ void main() {
 
 class _NetworkBoundary extends HttpOverrides {}
 
-Future<void> _settleFilesystemFrames(WidgetTester tester) async {
+class _LaunchTextFixture {
+  _LaunchTextFixture(this.root, this.release, this.io);
+  final Directory root;
+  final LlamaRelease release;
+  final _RuntimeIO io;
+  late ModelLibrary library;
+  late LlamaEngine engine;
+  late EngineCatalog catalog;
+  late LibraryArtifact asset;
+
+  static Future<_LaunchTextFixture> create() async {
+    final root = await Directory.systemTemp.createTemp('gmd-launch-text-');
+    final data = engineArchive();
+    final fixture = _LaunchTextFixture(
+      root,
+      LlamaRelease(
+        tag: 'b11381',
+        commit: '836d57176',
+        url: Uri.parse('https://github.com/fixture'),
+        sha256: sha256.convert(data).toString(),
+        sizeBytes: data.length,
+      ),
+      _RuntimeIO(),
+    );
+    final archive = await File('${root.path}/engine.tar.gz').writeAsBytes(data);
+    final models = Directory('${root.path}/models');
+    await writeDecisionKev(models, ordinaryChat: true);
+    fixture._open();
+    await fixture.catalog.installOfficial(verifiedArchive: archive);
+    fixture.asset = (await fixture.library.scan(
+      models,
+      verifyFiles: true,
+    )).single;
+    return fixture;
+  }
+
+  void _open() {
+    library = ModelLibrary();
+    final use = ModelUseRegistry(library);
+    engine = LlamaEngine(
+      library: library,
+      installationDirectory: Directory('${root.path}/engines'),
+      useRegistry: use,
+      release: release,
+      io: io,
+      loadTimeout: const Duration(seconds: 2),
+    );
+    catalog = EngineCatalog(
+      library: library,
+      officialEngine: engine,
+      useRegistry: use,
+      registryFile: File('${root.path}/engines.json'),
+      io: io,
+    );
+  }
+
+  Future<void> reopen() async {
+    await catalog.stopManaged();
+    catalog.close();
+    engine.close();
+    library.close();
+    _open();
+    await catalog.refresh();
+    asset = (await library.scan(
+      Directory('${root.path}/models'),
+      verifyFiles: true,
+    )).single;
+  }
+
+  Future<void> close() async {
+    await catalog.stopManaged();
+    catalog.close();
+    engine.close();
+    library.close();
+    await root.delete(recursive: true);
+  }
+}
+
+Future<void> _openTextEditor(
+  WidgetTester tester,
+  _LaunchTextFixture fixture,
+) async {
+  await tester.runAsync(() async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildJevTheme(Brightness.light),
+        home: Scaffold(
+          body: EnginePage(
+            catalog: fixture.catalog,
+            pickEngineDirectory: () async => null,
+          ),
+        ),
+      ),
+    );
+    await fixture.catalog.refresh();
+  });
+  await tester.pumpAndSettle();
+  await tester.tap(find.byTooltip('启动参数'));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _saveTextEditor(
+  WidgetTester tester,
+  _LaunchTextFixture fixture,
+) async {
+  await tester.runAsync(() async {
+    final saved = fixture.catalog.changes.firstWhere((state) => !state.busy);
+    await tester.tap(find.widgetWithText(FilledButton, '保存'));
+    await saved.timeout(const Duration(seconds: 5));
+    await tester.pump();
+  });
+  await tester.pumpAndSettle();
+}
+
+Future<void> _settleFilesystemFrames(
+  WidgetTester tester, {
+  bool dialogRemainsOpen = false,
+}) async {
   for (var n = 0; n < 100; n++) {
     await tester.pump(const Duration(milliseconds: 16));
     if (find.byType(CircularProgressIndicator).evaluate().isEmpty &&
         find.byType(LinearProgressIndicator).evaluate().isEmpty &&
-        find.text('运行模型').evaluate().isEmpty) {
+        (dialogRemainsOpen || find.text('运行模型').evaluate().isEmpty)) {
       return;
     }
     await Future<void>.delayed(const Duration(milliseconds: 5));
@@ -1110,6 +1724,8 @@ class _RuntimeIO implements EngineProcessIO {
   final bool standard;
   final startedExecutables = <String>[];
   final startedArguments = <List<String>>[];
+  String? startupError;
+  Completer<void>? startupExitGate;
   bool stopFailure = false;
   int stopAttempts = 0;
   Completer<void>? stopRelease;
@@ -1157,6 +1773,9 @@ class _RuntimeIO implements EngineProcessIO {
   Future<EngineChild> start(String executable, List<String> arguments) async {
     startedExecutables.add(executable);
     startedArguments.add(List.of(arguments));
+    if (startupError != null) {
+      return _RejectedRuntimeChild(startupError!, startupExitGate?.future);
+    }
     String arg(String name) => arguments[arguments.indexOf(name) + 1];
     final server = await HttpServer.bind(
       InternetAddress.loopbackIPv4,
@@ -1251,4 +1870,21 @@ class _RuntimeChild implements EngineChild {
     });
     return true;
   }
+}
+
+class _RejectedRuntimeChild implements EngineChild {
+  _RejectedRuntimeChild(this.diagnostic, Future<void>? exitGate)
+    : _exitCode = (exitGate ?? Future<void>.value()).then((_) => 64);
+  final String diagnostic;
+  final Future<int> _exitCode;
+  @override
+  int get pid => 42422;
+  @override
+  Future<int> get exitCode => _exitCode;
+  @override
+  Stream<List<int>> get stdout => const Stream.empty();
+  @override
+  Stream<List<int>> get stderr => Stream.value(utf8.encode('$diagnostic\n'));
+  @override
+  bool kill(ProcessSignal signal) => true;
 }

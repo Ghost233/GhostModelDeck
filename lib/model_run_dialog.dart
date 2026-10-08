@@ -48,6 +48,7 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
   bool _working = false;
   bool _loading = true;
   EngineLaunchCommand? _preview;
+  bool _previewBlocked = false;
   @override
   void initState() {
     super.initState();
@@ -62,6 +63,7 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
           .where((value) => value.status == LlamaInstallationStatus.installed)
           .toList();
       final engineId = installed.firstOrNull?.id;
+      _engineId = engineId;
       final preview = await _previewFor(engineId);
       if (!mounted) return;
       setState(() {
@@ -73,6 +75,7 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
       if (mounted) {
         setState(() {
           _error = error.toString();
+          _previewBlocked = error is LaunchArgumentTextException;
           _loading = false;
         });
       }
@@ -100,12 +103,18 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
       _preview = null;
       _loading = true;
       _error = null;
+      _previewBlocked = false;
     });
     try {
       final preview = await _previewFor(engineId);
       if (mounted) setState(() => _preview = preview);
     } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
+      if (mounted) {
+        setState(() {
+          _error = error.toString();
+          _previewBlocked = error is LaunchArgumentTextException;
+        });
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -248,7 +257,10 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
             child: const Text('取消'),
           ),
           FilledButton(
-            onPressed: _working || _loading || _engineId == null ? null : _run,
+            onPressed:
+                _working || _loading || _engineId == null || _previewBlocked
+                ? null
+                : _run,
             child: Text(_working ? '启动中' : '运行'),
           ),
         ],

@@ -1,6 +1,12 @@
+import 'launch_argument_text.dart';
+
+export 'launch_argument_text.dart' show LaunchArgumentTextException;
+
 class EngineLaunchConfiguration {
-  EngineLaunchConfiguration({Map<String, String> formValues = initialValues})
-    : formValues = Map.unmodifiable(formValues);
+  EngineLaunchConfiguration({
+    Map<String, String> formValues = initialValues,
+    this.argumentText = '',
+  }) : formValues = Map.unmodifiable(formValues);
 
   static const formLabels = {
     '--ctx-size': '上下文大小',
@@ -20,28 +26,119 @@ class EngineLaunchConfiguration {
   };
 
   final Map<String, String> formValues;
+  final String argumentText;
+  void validateArgumentText() => splitLaunchArgumentText(argumentText);
+  static const _formAliases = {
+    '-c': '--ctx-size',
+    '-b': '--batch-size',
+    '-ub': '--ubatch-size',
+    '-np': '--parallel',
+    '-ngl': '--n-gpu-layers',
+    '--gpu-layers': '--n-gpu-layers',
+    '-dev': '--device',
+  };
+  static const _managedAliases = {'-m': '--model', '-a': '--alias'};
 
   EngineLaunchCommand command({
     required String executable,
     required String modelPath,
     String? alias,
     int? port,
-  }) => EngineLaunchCommand(
-    executable: executable,
-    provisional: alias == null || port == null,
-    arguments: [
-      '--model',
-      modelPath,
-      '--alias',
-      alias ?? '<启动时分配的模型标识>',
-      '--host',
-      '127.0.0.1',
-      '--port',
-      port?.toString() ?? '<启动时分配的端口>',
-      for (final name in formLabels.keys)
-        if (formValues[name]?.isNotEmpty ?? false) ...[name, formValues[name]!],
-    ],
-  );
+  }) {
+    final tokens = splitLaunchArgumentText(argumentText);
+    final managed = {
+      '--model': modelPath,
+      '--alias': alias ?? '<启动时分配的模型标识>',
+      '--host': '127.0.0.1',
+      '--port': port?.toString() ?? '<启动时分配的端口>',
+    };
+    final arguments = <String>[];
+    final managedNames = <String>{};
+    final overridden = <String>{};
+    final notices = <String>{};
+    for (var index = 0; index < tokens.length; index++) {
+      final argument = tokens[index];
+      final name = argument.split('=').first;
+      final controlled = _managedAliases[name] ?? name;
+      if (managed.containsKey(controlled)) {
+        managedNames.add(controlled);
+        if (!argument.contains('=') &&
+            index + 1 < tokens.length &&
+            !_looksLikeOption(tokens[index + 1])) {
+          index++;
+        }
+        continue;
+      }
+      arguments.add(argument);
+      final canonical = _formAliases[name] ?? name;
+      if (!formLabels.containsKey(canonical)) {
+        if (_looksLikeOption(name)) {
+          notices.add('未知参数 $name，保留并交由引擎判断。');
+        } else if (index == 0) {
+          notices.add('文本仅填写参数；可执行文件由软件提供。');
+        }
+        continue;
+      }
+      overridden.add(canonical);
+      String? value;
+      final separator = argument.indexOf('=');
+      if (separator >= 0) {
+        value = argument.substring(separator + 1);
+      } else if (index + 1 < tokens.length &&
+          !_looksLikeOption(tokens[index + 1])) {
+        value = tokens[++index];
+        arguments.add(value);
+      }
+      final notice = _valueNotice(canonical, value);
+      if (notice != null) notices.add(notice);
+    }
+    for (final entry in formValues.entries) {
+      if (overridden.contains(entry.key) || entry.value.isEmpty) continue;
+      final notice = _valueNotice(entry.key, entry.value);
+      if (notice != null) notices.add(notice);
+    }
+    return EngineLaunchCommand(
+      executable: executable,
+      provisional: alias == null || port == null,
+      overriddenForm: overridden,
+      notices: [
+        for (final name in managedNames) '$name 由软件管理，实际采用 ${managed[name]}',
+        ...notices,
+      ],
+      arguments: [
+        '--model',
+        modelPath,
+        '--alias',
+        alias ?? '<启动时分配的模型标识>',
+        '--host',
+        '127.0.0.1',
+        '--port',
+        port?.toString() ?? '<启动时分配的端口>',
+        for (final name in formLabels.keys)
+          if (!overridden.contains(name) &&
+              (formValues[name]?.isNotEmpty ?? false)) ...[
+            name,
+            formValues[name]!,
+          ],
+        ...arguments,
+      ],
+    );
+  }
+
+  static bool _looksLikeOption(String value) =>
+      value.startsWith('-') && !RegExp(r'^-\d').hasMatch(value);
+
+  static String? _valueNotice(String name, String? value) {
+    if (value == null || value.isEmpty) {
+      return '$name 缺少值，仍保留并交由引擎判断。';
+    }
+    if (name != '--device' &&
+        int.tryParse(value) == null &&
+        !(name == '--n-gpu-layers' && ['auto', 'all'].contains(value))) {
+      return '$name 通常需要整数值，仍保留并交由引擎判断。';
+    }
+    return null;
+  }
 
   factory EngineLaunchConfiguration.fromJson(Object? value) {
     if (value is! Map || value['formValues'] is! Map) {
@@ -56,10 +153,15 @@ class EngineLaunchConfiguration {
       }
       values[entry.key as String] = entry.value as String;
     }
-    return EngineLaunchConfiguration(formValues: values);
+    final text = value.containsKey('argumentText') ? value['argumentText'] : '';
+    if (text is! String) throw const FormatException('引擎启动文本无效');
+    return EngineLaunchConfiguration(formValues: values, argumentText: text);
   }
 
-  Map<String, Object> toJson() => {'formValues': formValues};
+  Map<String, Object> toJson() => {
+    'formValues': formValues,
+    'argumentText': argumentText,
+  };
 }
 
 class EngineLaunchCommand {
@@ -67,11 +169,17 @@ class EngineLaunchCommand {
     required this.executable,
     required List<String> arguments,
     this.provisional = false,
-  }) : arguments = List.unmodifiable(arguments);
+    Set<String> overriddenForm = const {},
+    List<String> notices = const [],
+  }) : arguments = List.unmodifiable(arguments),
+       overriddenForm = Set.unmodifiable(overriddenForm),
+       notices = List.unmodifiable(notices);
 
   final String executable;
   final List<String> arguments;
   final bool provisional;
+  final Set<String> overriddenForm;
+  final List<String> notices;
 
   /// Display and copying only. Execution receives the original argument array.
   String get displayText => [executable, ...arguments].map(_quote).join(' ');

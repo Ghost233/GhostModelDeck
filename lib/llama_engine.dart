@@ -626,6 +626,7 @@ class LlamaEngine implements EngineRuntime {
           _readLaunchDefaults?.call() ?? EngineLaunchConfiguration();
       checkStartup();
       if (_detached) throw const LlamaEngineException('该引擎关联已解除');
+      configuration.validateArgumentText();
       if (state.installation != LlamaInstallationStatus.installed ||
           executablePath == null ||
           !(linkedInstallation != null
@@ -654,6 +655,7 @@ class LlamaEngine implements EngineRuntime {
           'jev-${List.generate(24, (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0')).join()}';
       _reserved[alias] = asset.files.map((value) => value.path).toSet();
       _Running? running;
+      var unexpectedStartupExit = false;
       try {
         await _protect();
         final verified = (await library.verify([asset.id])).single;
@@ -725,6 +727,10 @@ class LlamaEngine implements EngineRuntime {
         });
         child.exitCode.then((code) async {
           owned.exitCode = code;
+          // A native argument rejection seals admission too. Remember whether
+          // it preceded a user stop so its stderr is not reported as cancellation.
+          unexpectedStartupExit =
+              !owned.stopping && !owned.startupCancellation.isCancelled;
           // An in-flight stop owns its terminal publication. A failed stop,
           // however, leaves a sealed live residual whose later exit we own.
           final residual =
@@ -873,7 +879,14 @@ class LlamaEngine implements EngineRuntime {
         _publishInstances();
         return owned.instance;
       } catch (error) {
-        final reason = error is LlamaEngineException
+        final reason =
+            unexpectedStartupExit &&
+                running != null &&
+                !_shuttingDown &&
+                generation == _generation
+            ? '引擎启动时退出 (${running.exitCode})'
+                  '${running.log.isEmpty ? '' : ': ${_failureReason(running.log)}'}'
+            : error is LlamaEngineException
             ? error.message
             : error is DecisionProtocolException
             ? error.message

@@ -6,15 +6,19 @@
 
 ## 当前状态
 
-- 当前实施：[打通引擎默认表单参数的编辑、预览与启动](https://github.com/Ghost233/GhostModelDeck/issues/45)，负责人 Ghost233，执行者 `/root/implement_45`，协调者 `/root`。
+- 当前实施：[打通参数文本优先、覆盖提示与实际启动](https://github.com/Ghost233/GhostModelDeck/issues/46)，负责人 Ghost233，执行者 `/root/implement_45`，协调者 `/root`。第一阶段已由 [引擎默认启动配置与完整命令预览](https://github.com/Ghost233/GhostModelDeck/pull/52) 合入集成分支，#45 已验收关闭。
 - 固定总基线与第一阶段基线：`d0d14efe5b90f9b1fe25aace9403df03f9fd581e`。已有显示名、SDK 菜单栏接入及确认规格分为三个提交，已从本地 main 推送并核验实际远端相同。
-- 第一阶段分支：`codex/engine-launch-defaults`；集成分支：`codex/engine-launch-configuration`；总 PR 目标：main。
+- 当前分支：`codex/engine-launch-text`，第二阶段基线 `97c8ff6a22b096a97a38a409027cc563e022ed75`；第一阶段分支与集成分支本地/实际远端均已同步该 SHA；main 保持总基线。总 PR [引擎启动参数配置、文本优先与模型覆盖](https://github.com/Ghost233/GhostModelDeck/pull/53) 目标 main，当前为草稿。
 - 阶段候选以阶段提交及工作记录中的 SHA 为标识。五条定点场景已通过：表单保存/重建恢复、模型运行预览/复制/实际 argv、保存与清空仅影响后续手动启动、管理页即时预览/复制、受管 JEV/标准/关联登记项隔离及重建恢复。
 - merger 首核对与增量核对、Standards/Spec 双轴首审均为 0 项发现。修正预览冗余 I/O 后，原两个失败定点与受影响模块 43 项均通过；最终格式检查 92 文件零改动、分析零诊断、全量 548 项测试、Mac 构建及真实 JEV 检查均退出码 0，输入未变化。复盘无本阶段未关闭的已确认 P0/P1/P2，复审确认记录增量后才合入集成分支。
-- 产品候选 `3223f3deacf2d6f4c87daae84e951f8015de9cca` 的首审报告及复盘保存在 `.scratch/engine-launch-delivery/stage45/`。已确认本阶段 P0/P1/P2 均为 0；阶段 PR 与工单验收仍以实际集成及远端记录为准。
+- 第一阶段产品候选 `3223f3deacf2d6f4c87daae84e951f8015de9cca` 的首审、最终候选 `97c8ff6a22b096a97a38a409027cc563e022ed75` 的复审及复盘保存在 `.scratch/engine-launch-delivery/stage45/`，两轴均 0，已确认 P0/P1/P2 清零。阶段 PR 已实际合并，第二阶段尚待实现与验收。
 - 有效作业、每次输入指纹、真实退出码及下一动作在 `.scratch/engine-launch-delivery/delivery.json` 和 `checks/*/result.json` 更新；恢复时先核对作业结果，不因原会话句柄失效重开作业。
 
 ## 真实路径证据
+
+第二阶段实现已冻结并完成所属 144 项测试和最终联网门禁：93 个格式文件零改动、分析零诊断、557 项全量测试通过。真实 JEV 验收 32 条业务断言通过：文本 `-c 1024` 覆盖表单 2048，软件管理字段保持真实路径/标识/监听，`/props.n_ctx=1024`；保存保持运行 PID 与原命令；非法整数到达原生进程并显示 stderr，未出现 Ready；未闭合引号可保存、位置10错误且无进程或实例创建。全部本次进程退出、端口释放。证据在 `.scratch/engine-launch-delivery/native-stage46/outcome.json` 与 `native-stage46.exit`，Mac 构建 `stage46-build.exit` 均为 0，输入未变化。第二阶段 merger 暂无已确认 P0/P1/P2，固定候选的双轴审查与复盘仍需完成。
+
+原生拒绝曾被内部退出取消状态遮蔽；修复仅区分意外启动退出与主动 stop/回收，成对测试保持取消优先。词法及 UI 等待的原始失败、容器恢复时未真正运行测试的环境失败，以及测试字面量静态提示均保留在 `checks/stage46-*/`，没有作为成功证据。
 
 最小预检经真实公开关联/模型核验/启动路径加载现有 Kev，达到 Ready 并具备 choice、score、noul 能力；正常停止后模型端口释放，所有本次进程退出。证据：`.scratch/engine-launch-delivery/native-preflight/outcome.json`，退出码 0。
 

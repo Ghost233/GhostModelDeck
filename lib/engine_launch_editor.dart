@@ -46,6 +46,11 @@ class EngineLaunchCommandView extends StatelessWidget {
           command.displayText,
           style: theme.textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
         ),
+        for (final notice in command.notices)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(notice, style: theme.textTheme.bodySmall),
+          ),
       ],
     );
   }
@@ -71,10 +76,12 @@ class EngineLaunchEditor extends StatefulWidget {
 
 class _EngineLaunchEditorState extends State<EngineLaunchEditor> {
   late final Map<String, TextEditingController> _controllers;
+  late final TextEditingController _argumentText;
   bool _saving = false;
   String? _error;
 
   EngineLaunchConfiguration get _configuration => EngineLaunchConfiguration(
+    argumentText: _argumentText.text,
     formValues: {
       for (final entry in _controllers.entries)
         if (entry.value.text.isNotEmpty) entry.key: entry.value.text,
@@ -84,6 +91,9 @@ class _EngineLaunchEditorState extends State<EngineLaunchEditor> {
   @override
   void initState() {
     super.initState();
+    _argumentText = TextEditingController(
+      text: widget.initialConfiguration.argumentText,
+    );
     _controllers = {
       for (final name in EngineLaunchConfiguration.formLabels.keys)
         name: TextEditingController(
@@ -94,6 +104,7 @@ class _EngineLaunchEditorState extends State<EngineLaunchEditor> {
 
   @override
   void dispose() {
+    _argumentText.dispose();
     for (final controller in _controllers.values) {
       controller.dispose();
     }
@@ -117,66 +128,92 @@ class _EngineLaunchEditorState extends State<EngineLaunchEditor> {
   }
 
   @override
-  Widget build(BuildContext context) => PopScope(
-    canPop: !_saving,
-    child: AlertDialog(
-      title: Text(widget.title),
-      content: SizedBox(
-        width: 520,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 420),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('保存后用于后续启动。清空表单项将使用引擎自身默认值。'),
-                const SizedBox(height: 16),
-                for (final field
-                    in EngineLaunchConfiguration.formLabels.entries)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: TextField(
-                      controller: _controllers[field.key],
-                      enabled: !_saving,
-                      onChanged: (_) => setState(() {}),
-                      decoration: InputDecoration(
-                        labelText: field.value,
-                        helperText: field.key,
+  Widget build(BuildContext context) {
+    EngineLaunchCommand? command;
+    String? argumentError;
+    try {
+      command = _configuration.command(
+        executable: widget.executable ?? '<安装后确定的引擎路径>',
+        modelPath: '<运行时选择的模型路径>',
+      );
+    } on LaunchArgumentTextException catch (error) {
+      argumentError = error.toString();
+    }
+    return PopScope(
+      canPop: !_saving,
+      child: AlertDialog(
+        title: Text(widget.title),
+        content: SizedBox(
+          width: 520,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 420),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('保存后用于后续启动。清空表单项将使用引擎自身默认值。'),
+                  const SizedBox(height: 16),
+                  for (final field
+                      in EngineLaunchConfiguration.formLabels.entries)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: TextField(
+                        controller: _controllers[field.key],
+                        enabled: !_saving,
+                        onChanged: (_) => setState(() {}),
+                        decoration: InputDecoration(
+                          labelText: field.value,
+                          helperText: field.key,
+                          errorText:
+                              (command?.overriddenForm.contains(field.key) ??
+                                  false)
+                              ? '已被文本覆盖'
+                              : null,
+                        ),
                       ),
                     ),
-                  ),
-                if (widget.executable != null)
-                  EngineLaunchCommandView(
-                    command: _configuration.command(
-                      executable: widget.executable!,
-                      modelPath: '<运行时选择的模型路径>',
-                    ),
-                  )
-                else
-                  const Text('安装或关联引擎后显示完整启动命令。'),
-                if (_error != null)
-                  Text(
-                    _error!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
+                  TextField(
+                    controller: _argumentText,
+                    enabled: !_saving,
+                    minLines: 3,
+                    maxLines: 6,
+                    onChanged: (_) => setState(() {}),
+                    decoration: InputDecoration(
+                      labelText: '启动参数文本',
+                      helperText: '仅填写参数；文本优先，表单值仍保留。',
+                      errorText: argumentError,
+                      errorMaxLines: 3,
                     ),
                   ),
-              ],
+                  const SizedBox(height: 16),
+                  if (argumentError == null && widget.executable != null)
+                    EngineLaunchCommandView(command: command!)
+                  else if (argumentError == null)
+                    const Text('安装或关联引擎后显示完整启动命令。'),
+                  if (_error != null)
+                    Text(
+                      _error!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
+        actions: [
+          TextButton(
+            onPressed: _saving ? null : () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: _saving ? null : _save,
+            child: Text(_saving ? '保存中' : '保存'),
+          ),
+        ],
       ),
-      actions: [
-        TextButton(
-          onPressed: _saving ? null : () => Navigator.pop(context),
-          child: const Text('取消'),
-        ),
-        FilledButton(
-          onPressed: _saving ? null : _save,
-          child: Text(_saving ? '保存中' : '保存'),
-        ),
-      ],
-    ),
-  );
+    );
+  }
 }
