@@ -1,13 +1,20 @@
 import 'launch_argument_text.dart';
+import 'engine_runtime.dart';
 import 'engine_parameter_recognition.dart';
 
 export 'launch_argument_text.dart' show LaunchArgumentTextException;
 
 class EngineLaunchConfiguration {
   EngineLaunchConfiguration({
-    Map<String, String> formValues = initialValues,
+    Map<String, String>? formValues,
+    this.family = EngineFamily.llamaCpp,
     this.argumentText = '',
-  }) : formValues = Map.unmodifiable(formValues);
+  }) : formValues = Map.unmodifiable(
+         formValues ??
+             (family == EngineFamily.llamaCpp
+                 ? initialValues
+                 : const <String, String>{}),
+       );
 
   static const formLabels = {
     '--ctx-size': '上下文大小',
@@ -26,6 +33,15 @@ class EngineLaunchConfiguration {
     '--device': 'MTL0',
   };
 
+  static const omlxFormLabels = {
+    '--max-concurrent-requests': '最大并发请求数',
+    '--memory-guard': '内存保护级别',
+    '--hot-cache-max-size': '内存缓存上限',
+  };
+  static Map<String, String> labelsFor(EngineFamily family) =>
+      family == EngineFamily.llamaCpp ? formLabels : omlxFormLabels;
+
+  final EngineFamily family;
   final Map<String, String> formValues;
   final String argumentText;
   void validateArgumentText() => parseLaunchArgumentText(argumentText);
@@ -37,14 +53,25 @@ class EngineLaunchConfiguration {
     int? port,
     EngineParameterRecognition? recognition,
   }) {
-    final rules = recognition ?? EngineParameterRecognition.builtIn();
+    final rules =
+        recognition ?? EngineParameterRecognition.builtIn(family: family);
+    final labels = labelsFor(family);
+    final configurationOnly = family == EngineFamily.omlx;
     final tokens = parseLaunchArgumentText(argumentText);
-    final managed = {
-      '--model': modelPath,
-      '--alias': alias ?? '<启动时分配的模型标识>',
-      '--host': '127.0.0.1',
-      '--port': port?.toString() ?? '<启动时分配的端口>',
-    };
+    final managed = configurationOnly
+        ? {
+            '--model-dir': '当前未分配实际模型目录',
+            '--host': '当前未分配实际监听地址',
+            '--port': '当前未分配实际监听端口',
+            '--base-path': '当前未分配私有数据目录',
+            '--api-key': '当前未分配软件鉴权凭据',
+          }
+        : {
+            '--model': modelPath,
+            '--alias': alias ?? '<启动时分配的模型标识>',
+            '--host': '127.0.0.1',
+            '--port': port?.toString() ?? '<启动时分配的端口>',
+          };
     final arguments = <String>[];
     final managedNames = <String>{};
     final overridden = <String>{};
@@ -71,7 +98,7 @@ class EngineLaunchConfiguration {
           notices.add('$name：${description.description}');
         }
       }
-      if (!formLabels.containsKey(canonical)) {
+      if (!labels.containsKey(canonical)) {
         if (_looksLikeOption(name) && !rules.recognizes(name)) {
           notices.add('未知参数 $name，保留并交由引擎判断。');
         } else if (index == 0 && !_looksLikeOption(name)) {
@@ -101,32 +128,30 @@ class EngineLaunchConfiguration {
         value = tokens[++index].value;
         arguments.add(value);
       }
-      final notice = _valueNotice(canonical, value);
+      final notice = _valueNotice(canonical, value, family);
       if (notice != null) notices.add(notice);
     }
     for (final entry in formValues.entries) {
       if (overridden.contains(entry.key) || entry.value.isEmpty) continue;
-      final notice = _valueNotice(entry.key, entry.value);
+      final notice = _valueNotice(entry.key, entry.value, family);
       if (notice != null) notices.add(notice);
     }
     return EngineLaunchCommand(
       executable: executable,
-      provisional: alias == null || port == null,
+      provisional: !configurationOnly && (alias == null || port == null),
+      isConfigurationOnly: configurationOnly,
       overriddenForm: overridden,
       notices: [
-        for (final name in managedNames) '$name 由软件管理，实际采用 ${managed[name]}',
+        for (final name in managedNames)
+          configurationOnly
+              ? '$name 由软件管理；生产运行尚未接通，当前未确定实际值。'
+              : '$name 由软件管理，实际采用 ${managed[name]}',
         ...notices,
       ],
       arguments: [
-        '--model',
-        modelPath,
-        '--alias',
-        alias ?? '<启动时分配的模型标识>',
-        '--host',
-        '127.0.0.1',
-        '--port',
-        port?.toString() ?? '<启动时分配的端口>',
-        for (final name in formLabels.keys)
+        if (!configurationOnly)
+          for (final entry in managed.entries) ...[entry.key, entry.value],
+        for (final name in labels.keys)
           if (!overridden.contains(name) &&
               (formValues[name]?.isNotEmpty ?? false)) ...[
             name,
@@ -143,9 +168,19 @@ class EngineLaunchConfiguration {
   static bool _isValue(LaunchArgumentToken token) =>
       token.hasLiteralPrefix || !_looksLikeOption(token.value);
 
-  static String? _valueNotice(String name, String? value) {
+  static String? _valueNotice(String name, String? value, EngineFamily family) {
     if (value == null || value.isEmpty) {
       return '$name 缺少值，仍保留并交由引擎判断。';
+    }
+    if (family == EngineFamily.omlx) {
+      if (name == '--max-concurrent-requests' && int.tryParse(value) == null) {
+        return '$name 通常需要整数值，仍保留并交由引擎判断。';
+      }
+      if (name == '--memory-guard' &&
+          !['off', 'safe', 'balanced', 'aggressive'].contains(value)) {
+        return '$name 常用值为 off、safe、balanced、aggressive，仍保留并交由引擎判断。';
+      }
+      return null;
     }
     if (name != '--device' &&
         int.tryParse(value) == null &&
@@ -159,10 +194,18 @@ class EngineLaunchConfiguration {
     if (value is! Map || value['formValues'] is! Map) {
       throw const FormatException('引擎启动配置无效');
     }
+    final familyValue = value.containsKey('family')
+        ? value['family']
+        : 'llamaCpp';
+    final family = EngineFamily.values
+        .where((item) => item.name == familyValue)
+        .singleOrNull;
+    if (family == null) throw const FormatException('引擎启动配置家族无效');
+    final labels = labelsFor(family);
     final values = <String, String>{};
     for (final entry in (value['formValues'] as Map).entries) {
       if (entry.key is! String ||
-          !formLabels.containsKey(entry.key) ||
+          !labels.containsKey(entry.key) ||
           entry.value is! String) {
         throw const FormatException('引擎启动表单无效');
       }
@@ -170,10 +213,15 @@ class EngineLaunchConfiguration {
     }
     final text = value.containsKey('argumentText') ? value['argumentText'] : '';
     if (text is! String) throw const FormatException('引擎启动文本无效');
-    return EngineLaunchConfiguration(formValues: values, argumentText: text);
+    return EngineLaunchConfiguration(
+      family: family,
+      formValues: values,
+      argumentText: text,
+    );
   }
 
   Map<String, Object> toJson() => {
+    if (family != EngineFamily.llamaCpp) 'family': family.name,
     'formValues': formValues,
     'argumentText': argumentText,
   };
@@ -184,6 +232,7 @@ class EngineLaunchCommand {
     required this.executable,
     required List<String> arguments,
     this.provisional = false,
+    this.isConfigurationOnly = false,
     Set<String> overriddenForm = const {},
     List<String> notices = const [],
   }) : arguments = List.unmodifiable(arguments),
@@ -193,11 +242,15 @@ class EngineLaunchCommand {
   final String executable;
   final List<String> arguments;
   final bool provisional;
+  final bool isConfigurationOnly;
   final Set<String> overriddenForm;
   final List<String> notices;
 
   /// Display and copying only. Execution receives the original argument array.
-  String get displayText => [executable, ...arguments].map(_quote).join(' ');
+  String get displayText => [
+    if (!isConfigurationOnly) executable,
+    ...arguments,
+  ].map(_quote).join(' ');
 
   static final _unquoted = RegExp(r'^[a-zA-Z0-9_@%+=:,./-]+$');
   static String _quote(String value) => _unquoted.hasMatch(value)

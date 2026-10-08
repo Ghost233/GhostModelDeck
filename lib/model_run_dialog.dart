@@ -92,13 +92,25 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
     final entry = widget.catalog.state.entries.singleWhere(
       (entry) => entry.id == engineId,
     );
-    if (entry.family != EngineFamily.llamaCpp) return null;
     final assets = widget.variant.artifacts
         .where(
           (asset) => [AssetKind.decision, AssetKind.chat].contains(asset.kind),
         )
         .toList();
     if (assets.length != 1) return null;
+    if (entry.family == EngineFamily.omlx) {
+      if (assets.single.format != 'Safetensors' ||
+          assets.single.kind != AssetKind.chat) {
+        return null;
+      }
+      return widget.catalog
+          .launchConfigurationFor(engineId, assets.single.id)
+          .command(
+            executable: entry.path ?? '',
+            modelPath: '',
+            recognition: widget.catalog.parameterRecognitionFor(engineId),
+          );
+    }
     return widget.catalog.providerFor(engineId).previewLaunch(assets.single.id);
   }
 
@@ -127,6 +139,11 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
 
   Future<void> _run() async {
     if (_engineId == null || _working || _loading) return;
+    if (widget.catalog.state.entries.any(
+      (entry) => entry.id == _engineId && entry.family == EngineFamily.omlx,
+    )) {
+      return;
+    }
     setState(() {
       _working = true;
       _error = null;
@@ -235,9 +252,13 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
         .where((entry) => entry.id == _engineId)
         .singleOrNull;
     final asset = _configurationAsset;
+    final omlx = selectedEntry?.family == EngineFamily.omlx;
     final selection =
-        selectedEntry?.family == EngineFamily.llamaCpp && asset != null
-        ? widget.catalog.modelLaunchOverridesFor(selectedEntry!.id, asset.id)
+        selectedEntry != null &&
+            asset != null &&
+            (!omlx ||
+                asset.format == 'Safetensors' && asset.kind == AssetKind.chat)
+        ? widget.catalog.modelLaunchOverridesFor(selectedEntry.id, asset.id)
         : null;
     return PopScope(
       canPop: !_working,
@@ -307,6 +328,11 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
                   ],
                   onChanged: _working || _loading ? null : _selectEngine,
                 ),
+                if (omlx)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 12),
+                    child: Text('仅保存配置；生产模型运行尚未接通，参数未实际生效。'),
+                  ),
                 if (selection != null) ...[
                   const SizedBox(height: 16),
                   SegmentedButton<bool>(
@@ -363,7 +389,11 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
           ),
           FilledButton(
             onPressed:
-                _working || _loading || _engineId == null || _previewBlocked
+                _working ||
+                    _loading ||
+                    _engineId == null ||
+                    _previewBlocked ||
+                    omlx
                 ? null
                 : _run,
             child: Text(_working ? '启动中' : '运行'),

@@ -2250,16 +2250,18 @@ class LlamaEngine implements EngineRuntime {
   bool get hasLiveInstances =>
       _reserved.isNotEmpty ||
       _running.values.any((running) => running.exitCode == null);
-  Future<void> detachLinked() => _serial(() async {
-    if (linkedInstallation == null) {
-      throw const LlamaEngineException('仅可解除外部引擎关联');
-    }
-    if (hasLiveInstances) throw const LlamaEngineException('请先停止该引擎的模型实例');
-    _detached = true;
-    executablePath = null;
-    observedVersion = null;
-    _publish(const LlamaEngineState());
-  });
+  Future<void> detachLinked({Future<void> Function()? persistRemoval}) =>
+      _serial(() async {
+        if (linkedInstallation == null) {
+          throw const LlamaEngineException('仅可解除外部引擎关联');
+        }
+        if (hasLiveInstances) throw const LlamaEngineException('请先停止该引擎的模型实例');
+        await persistRemoval?.call();
+        _detached = true;
+        executablePath = null;
+        observedVersion = null;
+        _publish(const LlamaEngineState());
+      });
   Future<LlamaRemovalPlan> prepareRemoval() => _serial(() async {
     if (linkedInstallation != null) {
       throw const LlamaEngineException('外部引擎只能解除关联');

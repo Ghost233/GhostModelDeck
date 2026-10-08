@@ -230,7 +230,7 @@ void main() {
       });
       await tester.pumpAndSettle();
       expect(find.text('oMLX · 官方 0.7.0'), findsOneWidget);
-      expect(find.text('完整官方 app · 模型池未实现 · 不可运行'), findsOneWidget);
+      expect(find.text('完整官方 app · 生产模型运行尚未接通'), findsOneWidget);
       expect(find.text('安装'), findsNWidgets(2));
       expect(find.text('Ready'), findsNothing);
       expect(tester.takeException(), isNull);

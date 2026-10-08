@@ -483,7 +483,7 @@ void main() {
       addTearDown(engine.close);
       final receipt = await engine.inspectLinked(app);
       expect(receipt.releaseLabel, '0.7.0');
-      expect(io.pythonLaunches, 2);
+      expect(io.pythonLaunches, 3);
     },
   );
 
@@ -524,7 +524,7 @@ void main() {
       addTearDown(engine.close);
       final receipt = await engine.inspectLinked(app);
       expect(receipt.releaseLabel, '0.7.0');
-      expect(io.pythonLaunches, 2);
+      expect(io.pythonLaunches, 3);
     },
   );
 
@@ -930,7 +930,7 @@ void main() {
     expect(receipt.dmgSha256, isNull);
     expect(receipt.bundleManifestSha256, matches(RegExp(r'^[a-f0-9]{64}$')));
     expect(receipt.runtimeIdentity.python, '3.11.10');
-    expect(io.pythonLaunches, 2);
+    expect(io.pythonLaunches, 3);
     expect(await bundle.exists(), isTrue);
   });
   test(

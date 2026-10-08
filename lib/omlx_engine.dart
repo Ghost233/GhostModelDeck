@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart';
 
 import 'chat_protocol.dart';
 import 'engine_runtime.dart';
+import 'engine_parameter_recognition.dart';
 import 'model_library.dart';
 import 'model_use_registry.dart';
 
@@ -33,6 +34,7 @@ class OmlxReceipt {
     required this.sizeBytes,
     required this.runtimeIdentity,
     this.dmgSha256,
+    this.parameterRecognition,
   });
   String get releaseLabel => '0.7.0';
   String get build => '2987';
@@ -41,6 +43,9 @@ class OmlxReceipt {
   final int sizeBytes;
   final String? dmgSha256;
   final OmlxRuntimeIdentity runtimeIdentity;
+  // Current inspection only; help observations are never installation identity
+  // or persisted rules. The receipt is published after validation and cleanup.
+  final EngineParameterRecognition? parameterRecognition;
   Map<String, Object?> toJson() => {
     'release': releaseLabel,
     'build': build,
@@ -688,8 +693,9 @@ class OmlxEngine implements EngineRuntime {
     Directory app,
     Directory cwd,
     String executable,
-    List<String> arguments,
-  ) async {
+    List<String> arguments, {
+    bool optionalHelp = false,
+  }) async {
     await _builderGate();
     await _safeDirectory(cwd.path, await _uid(), private: true);
     await _bundleOwnership(app);
@@ -697,24 +703,36 @@ class OmlxEngine implements EngineRuntime {
     // again immediately before each launch, not only before that enumeration.
     await _builderGate();
     final resources = '${app.path}/Contents/Resources';
-    final result = await _run(
-      executable,
-      arguments,
-      timeout: Duration(seconds: executable.endsWith('/omlx-cli') ? 60 : 120),
-      cwd: cwd.path,
-      env: {
-        'HOME': cwd.path,
-        'TMPDIR': cwd.path,
-        'PYTHONNOUSERSITE': '1',
-        'PYTHONDONTWRITEBYTECODE': '1',
-        if (executable.endsWith('/python3'))
-          'PYTHONHOME': '$resources/Python/cpython-3.11',
-        if (executable.endsWith('/python3'))
-          'PYTHONPATH':
-              '$resources:$resources/Python/framework-mlx-base/lib/python3.11/site-packages',
-      },
-    );
-    return result;
+    try {
+      return await _run(
+        executable,
+        arguments,
+        timeout: Duration(
+          seconds: optionalHelp
+              ? 10
+              : executable.endsWith('/omlx-cli')
+              ? 60
+              : 120,
+        ),
+        cwd: cwd.path,
+        env: {
+          'HOME': cwd.path,
+          'TMPDIR': cwd.path,
+          'PYTHONNOUSERSITE': '1',
+          'PYTHONDONTWRITEBYTECODE': '1',
+          if (executable.endsWith('/python3'))
+            'PYTHONHOME': '$resources/Python/cpython-3.11',
+          if (executable.endsWith('/python3'))
+            'PYTHONPATH':
+                '$resources:$resources/Python/framework-mlx-base/lib/python3.11/site-packages',
+        },
+      );
+    } catch (_) {
+      if (!optionalHelp) rethrow;
+      // Only optional command I/O is soft. All private builder/ownership guards
+      // above and the inspection's identity/content gates remain mandatory.
+      return ProcessResult(0, 1, '', '');
+    }
   }
 
   static const _identityProbe = '''
@@ -736,6 +754,7 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
     Directory app,
     int epoch, {
     String? dmgSha256,
+    EngineParameterRecognition? previousRecognition,
   }) async {
     if (_inspectionResiduals.isNotEmpty ||
         _state.residualDirectory != null ||
@@ -751,6 +770,7 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
     final before = await _inventory(canonical);
     await _signature(canonical);
     final cwd = await _privateDirectory('.inspect-');
+    late OmlxReceipt receipt;
     try {
       _check(epoch);
       final version = await _python(
@@ -810,16 +830,50 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
         }
       }
       _check(epoch);
+      final executable = '${canonical.path}/Contents/MacOS/omlx-cli';
+      final builtIn = EngineParameterRecognition.builtIn(
+        family: EngineFamily.omlx,
+        version: '0.7.0',
+        executablePath: executable,
+        contentFingerprint: before.digest,
+      );
+      final previous =
+          previousRecognition != null &&
+              previousRecognition.family == EngineFamily.omlx &&
+              previousRecognition.executablePath == executable &&
+              previousRecognition.contentFingerprint == before.digest
+          ? previousRecognition
+          : null;
+      final help = await _python(canonical, cwd, executable, [
+        'serve',
+        '--help',
+      ], optionalHelp: true);
+      _check(epoch);
+      final text = '${help.stdout}\n${help.stderr}';
+      final recognition = help.exitCode == 0 && text.length <= 512 * 1024
+          ? EngineParameterRecognition.fromHelp(
+              text,
+              family: EngineFamily.omlx,
+              version: '0.7.0',
+              executablePath: executable,
+              contentFingerprint: before.digest,
+              previous: previous,
+            )
+          : (previous ?? builtIn).withReadFailure(
+              version: '0.7.0',
+              notice: '当前 oMLX 帮助读取失败、超时或输出过大；保留已有识别规则与原配置。',
+            );
       await _signature(canonical);
       final after = await _inventory(canonical);
       if (before.digest != after.digest) {
         throw const OmlxException('oMLX 验证期间 app 发生变化');
       }
-      return OmlxReceipt(
+      receipt = OmlxReceipt(
         bundleManifestSha256: after.digest,
         entries: after.entries,
         sizeBytes: after.bytes,
         dmgSha256: dmgSha256,
+        parameterRecognition: recognition,
         runtimeIdentity: const OmlxRuntimeIdentity(
           python: '3.11.10',
           architecture: 'arm64',
@@ -845,11 +899,20 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
         throw const OmlxException('oMLX 私有检查目录清理未完成，保留现场');
       }
     }
+    _check(epoch);
+    return receipt;
   }
 
-  Future<OmlxReceipt> inspectLinked(Directory app) => _serial((epoch) async {
+  Future<OmlxReceipt> inspectLinked(
+    Directory app, {
+    OmlxReceipt? previousReceipt,
+  }) => _serial((epoch) async {
     try {
-      return await _inspect(app.absolute, epoch);
+      return await _inspect(
+        app.absolute,
+        epoch,
+        previousRecognition: previousReceipt?.parameterRecognition,
+      );
     } on OmlxException {
       rethrow;
     } catch (_) {
@@ -1154,7 +1217,12 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
       if (expected.dmgSha256 != dmgDigest) {
         throw const OmlxException('oMLX 受管来源未验证');
       }
-      final actual = await _inspect(bundle, epoch, dmgSha256: dmgDigest);
+      final actual = await _inspect(
+        bundle,
+        epoch,
+        dmgSha256: dmgDigest,
+        previousRecognition: _state.receipt?.parameterRecognition,
+      );
       if (actual.bundleManifestSha256 != expected.bundleManifestSha256) {
         throw const OmlxException('oMLX app 内容已变化');
       }

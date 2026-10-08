@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import 'engine_launch_configuration.dart';
 import 'engine_parameter_recognition.dart';
+import 'engine_runtime.dart';
 
 class EngineLaunchCommandView extends StatelessWidget {
   const EngineLaunchCommandView({
@@ -23,9 +24,14 @@ class EngineLaunchCommandView extends StatelessWidget {
       children: [
         Row(
           children: [
-            Expanded(child: Text(title, style: theme.textTheme.titleSmall)),
+            Expanded(
+              child: Text(
+                command.isConfigurationOnly ? '配置参数结果（当前不可执行）' : title,
+                style: theme.textTheme.titleSmall,
+              ),
+            ),
             IconButton(
-              tooltip: '复制命令',
+              tooltip: command.isConfigurationOnly ? '复制配置参数' : '复制命令',
               icon: const Icon(Icons.copy, size: 18),
               onPressed: () async {
                 await Clipboard.setData(
@@ -35,6 +41,8 @@ class EngineLaunchCommandView extends StatelessWidget {
             ),
           ],
         ),
+        if (command.isConfigurationOnly)
+          const Text('生产模型运行尚未接通；配置保存和识别不表示参数已实际生效。'),
         if (command.provisional)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
@@ -86,6 +94,7 @@ class _EngineLaunchEditorState extends State<EngineLaunchEditor> {
   String? _error;
 
   EngineLaunchConfiguration get _configuration => EngineLaunchConfiguration(
+    family: widget.initialConfiguration.family,
     argumentText: _argumentText.text,
     formValues: {
       for (final entry in _controllers.entries)
@@ -100,7 +109,9 @@ class _EngineLaunchEditorState extends State<EngineLaunchEditor> {
       text: widget.initialConfiguration.argumentText,
     );
     _controllers = {
-      for (final name in EngineLaunchConfiguration.formLabels.keys)
+      for (final name in EngineLaunchConfiguration.labelsFor(
+        widget.initialConfiguration.family,
+      ).keys)
         name: TextEditingController(
           text: widget.initialConfiguration.formValues[name] ?? '',
         ),
@@ -158,7 +169,11 @@ class _EngineLaunchEditorState extends State<EngineLaunchEditor> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('保存后用于后续启动。清空表单项将使用引擎自身默认值。'),
+                  Text(
+                    widget.initialConfiguration.family == EngineFamily.omlx
+                        ? '仅保存配置；生产模型运行尚未接通。清空表单项不生成自定义参数。'
+                        : '保存后用于后续启动。清空表单项将使用引擎自身默认值。',
+                  ),
                   const SizedBox(height: 16),
                   if (widget.recognition?.version != null)
                     Text('参数帮助版本：${widget.recognition!.version}'),
@@ -168,8 +183,9 @@ class _EngineLaunchEditorState extends State<EngineLaunchEditor> {
                             widget.recognition?.notices ??
                             <String>[])
                       Text(notice),
-                  for (final field
-                      in EngineLaunchConfiguration.formLabels.entries)
+                  for (final field in EngineLaunchConfiguration.labelsFor(
+                    widget.initialConfiguration.family,
+                  ).entries)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 12),
                       child: TextField(
@@ -206,7 +222,9 @@ class _EngineLaunchEditorState extends State<EngineLaunchEditor> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  if (argumentError == null && widget.executable != null)
+                  if (argumentError == null &&
+                      (widget.executable != null ||
+                          command!.isConfigurationOnly))
                     EngineLaunchCommandView(command: command!)
                   else if (argumentError == null)
                     const Text('安装或关联引擎后显示完整启动命令。'),

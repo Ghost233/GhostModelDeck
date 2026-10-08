@@ -13,6 +13,85 @@ import 'model_use_registry.dart';
 
 enum EngineSource { managed, linked }
 
+class UnlinkedLaunchConfiguration {
+  UnlinkedLaunchConfiguration({
+    required this.registrationId,
+    required this.name,
+    required this.family,
+    required this.path,
+    this.version,
+    this.fingerprint,
+    this.defaults,
+    Map<String, ModelLaunchOverrides> models = const {},
+  }) : models = Map.unmodifiable(models);
+
+  final String registrationId;
+  final String name;
+  final EngineFamily family;
+  final String path;
+  final String? version;
+  final String? fingerprint;
+  final EngineLaunchConfiguration? defaults;
+  final Map<String, ModelLaunchOverrides> models;
+
+  factory UnlinkedLaunchConfiguration.fromJson(String id, Object? value) {
+    if (id.isEmpty ||
+        value is! Map ||
+        value['name'] is! String ||
+        value['path'] is! String ||
+        !['llamaCpp', 'omlx'].contains(value['family']) ||
+        value['version'] != null && value['version'] is! String ||
+        value['fingerprint'] != null && value['fingerprint'] is! String ||
+        !value.containsKey('defaults') ||
+        value['models'] is! Map) {
+      throw const FormatException('未关联启动配置无效');
+    }
+    final models = <String, ModelLaunchOverrides>{};
+    for (final model in (value['models'] as Map).entries) {
+      if (model.key is! String || (model.key as String).isEmpty) {
+        throw const FormatException('未关联模型配置无效');
+      }
+      models[model.key as String] = ModelLaunchOverrides.fromJson(model.value);
+    }
+    final family = value['family'] == 'omlx'
+        ? EngineFamily.omlx
+        : EngineFamily.llamaCpp;
+    final defaults = value['defaults'] == null
+        ? null
+        : EngineLaunchConfiguration.fromJson(value['defaults']);
+    if (defaults != null && defaults.family != family ||
+        models.values.any(
+          (selection) =>
+              selection.configuration != null &&
+              selection.configuration!.family != family,
+        )) {
+      throw const FormatException('未关联启动配置与引擎家族不一致');
+    }
+    return UnlinkedLaunchConfiguration(
+      registrationId: id,
+      name: value['name'] as String,
+      family: family,
+      path: value['path'] as String,
+      version: value['version'] as String?,
+      fingerprint: value['fingerprint'] as String?,
+      defaults: defaults,
+      models: models,
+    );
+  }
+
+  Map<String, Object?> toJson() => {
+    'name': name,
+    'family': family.name,
+    'path': path,
+    'version': version,
+    'fingerprint': fingerprint,
+    'defaults': defaults?.toJson(),
+    'models': {
+      for (final model in models.entries) model.key: model.value.toJson(),
+    },
+  };
+}
+
 class ModelLaunchOverrides {
   const ModelLaunchOverrides({this.enabled = false, this.configuration});
   final bool enabled;
@@ -164,6 +243,10 @@ class EngineCatalog {
   final _names = <String, String>{};
   final _launchDefaults = <String, EngineLaunchConfiguration>{};
   final _modelLaunchOverrides = <String, Map<String, ModelLaunchOverrides>>{};
+  final _unlinkedConfigurations = <String, UnlinkedLaunchConfiguration>{};
+  final _configurationVersions = <String, String?>{};
+  List<UnlinkedLaunchConfiguration> get unlinkedConfigurations =>
+      List.unmodifiable(_unlinkedConfigurations.values);
   final _subscriptions = <StreamSubscription<LlamaEngineState>>[];
   Future<void> _operations = Future.value();
   bool _loaded = false;
@@ -195,6 +278,9 @@ class EngineCatalog {
             OmlxInstallationStatus.failed => LlamaInstallationStatus.failed,
           },
           path: omlxEngine!.bundle.path,
+          version: omlxEngine!.state.status == OmlxInstallationStatus.installed
+              ? omlxEngine!.state.receipt?.parameterRecognition?.version
+              : null,
           omlxReceipt: omlxEngine!.state.receipt,
           archiveSha256: omlxEngine!.state.receipt?.dmgSha256,
           error: omlxEngine!.state.error,
@@ -209,6 +295,9 @@ class EngineCatalog {
               ? LlamaInstallationStatus.installed
               : LlamaInstallationStatus.failed,
           path: row.value.path,
+          version: row.value.error == null
+              ? row.value.receipt.parameterRecognition?.version
+              : null,
           omlxReceipt: row.value.receipt,
           error: row.value.error,
         ),
@@ -281,6 +370,7 @@ class EngineCatalog {
       try {
         final receipt = await omlxEngine!.inspectLinked(
           Directory(row.value.path),
+          previousReceipt: row.value.receipt,
         );
         if (receipt.bundleManifestSha256 !=
             row.value.receipt.bundleManifestSha256) {
@@ -307,7 +397,7 @@ class EngineCatalog {
         throw const LlamaEngineException('引擎登记文件无效');
       }
       if (value is! Map ||
-          ![1, 2, 3, 4].contains(value['schema']) ||
+          ![1, 2, 3, 4, 5].contains(value['schema']) ||
           value['linked'] is! List) {
         throw const LlamaEngineException('引擎登记文件无效');
       }
@@ -316,7 +406,7 @@ class EngineCatalog {
       final cppRows = <String, (String, LinkedLlamaInstallation)>{};
       final nativeRows = <String, _LinkedOmlx>{};
       final launchDefaults = <String, EngineLaunchConfiguration>{};
-      if ([3, 4].contains(value['schema'])) {
+      if ([3, 4, 5].contains(value['schema'])) {
         final configurations = value['launchDefaults'];
         if (configurations is! Map) {
           throw const LlamaEngineException('引擎启动配置登记无效');
@@ -334,7 +424,7 @@ class EngineCatalog {
         }
       }
       final modelOverrides = <String, Map<String, ModelLaunchOverrides>>{};
-      if (value['schema'] == 4) {
+      if ([4, 5].contains(value['schema'])) {
         final rows = value['modelLaunchOverrides'];
         if (rows is! Map) {
           throw const LlamaEngineException('模型启动配置登记无效');
@@ -360,7 +450,42 @@ class EngineCatalog {
           modelOverrides[engine.key as String] = Map.unmodifiable(selections);
         }
       }
+      final unlinked = <String, UnlinkedLaunchConfiguration>{};
+      if (value['schema'] == 5) {
+        final histories = value['unlinkedConfigurations'];
+        if (histories is! Map) throw const LlamaEngineException('未关联启动配置登记无效');
+        for (final history in histories.entries) {
+          if (history.key is! String) {
+            throw const LlamaEngineException('未关联启动配置登记无效');
+          }
+          try {
+            unlinked[history.key
+                as String] = UnlinkedLaunchConfiguration.fromJson(
+              history.key as String,
+              history.value,
+            );
+          } on FormatException {
+            throw const LlamaEngineException('未关联启动配置登记无效');
+          }
+        }
+      }
       final ids = <String>{officialId, standardId, omlxId};
+      final configurationVersions = <String, String?>{};
+      final versions = value['configurationVersions'];
+      if (versions != null) {
+        if (versions is! Map) {
+          throw const LlamaEngineException('启动配置来源版本无效');
+        }
+        for (final entry in versions.entries) {
+          if (entry.key is! String ||
+              (entry.key as String).isEmpty ||
+              entry.value != null &&
+                  (entry.value is! String || (entry.value as String).isEmpty)) {
+            throw const LlamaEngineException('启动配置来源版本无效');
+          }
+          configurationVersions[entry.key as String] = entry.value as String?;
+        }
+      }
       for (final row in value['linked'] as List) {
         if (row is! Map ||
             row['id'] is! String ||
@@ -368,7 +493,7 @@ class EngineCatalog {
           throw const LlamaEngineException('关联引擎登记信息无效');
         }
         if (row['family'] == 'omlx') {
-          if (![2, 3, 4].contains(value['schema']) ||
+          if (![2, 3, 4, 5].contains(value['schema']) ||
               omlxEngine == null ||
               row['path'] is! String ||
               row['name'] is! String) {
@@ -407,12 +532,39 @@ class EngineCatalog {
           ),
         );
       }
+      final families = <String, EngineFamily>{
+        for (final history in unlinked.values)
+          history.registrationId: history.family,
+        for (final id in _managed.keys) id: EngineFamily.llamaCpp,
+        if (omlxEngine != null) omlxId: EngineFamily.omlx,
+        for (final id in cppRows.keys) id: EngineFamily.llamaCpp,
+        for (final id in nativeRows.keys) id: EngineFamily.omlx,
+      };
+      for (final entry in launchDefaults.entries) {
+        final family = families[entry.key];
+        if (family != null && entry.value.family != family) {
+          throw const LlamaEngineException('引擎启动配置与登记家族不一致');
+        }
+      }
+      for (final entry in modelOverrides.entries) {
+        final family = families[entry.key];
+        if (family != null &&
+            entry.value.values.any(
+              (selection) =>
+                  selection.configuration != null &&
+                  selection.configuration!.family != family,
+            )) {
+          throw const LlamaEngineException('模型启动配置与登记家族不一致');
+        }
+      }
       for (final row in cppRows.entries) {
         _register(row.key, row.value.$1, row.value.$2);
       }
       _linkedOmlx.addAll(nativeRows);
       _launchDefaults.addAll(launchDefaults);
       _modelLaunchOverrides.addAll(modelOverrides);
+      _unlinkedConfigurations.addAll(unlinked);
+      _configurationVersions.addAll(configurationVersions);
     }
     _loaded = true;
   }
@@ -442,26 +594,37 @@ class EngineCatalog {
     String? excluding,
     Map<String, EngineLaunchConfiguration>? launchDefaults,
     Map<String, Map<String, ModelLaunchOverrides>>? modelLaunchOverrides,
+    Map<String, UnlinkedLaunchConfiguration>? unlinkedConfigurations,
+    Map<String, String?>? configurationVersions,
   }) async {
     final configurations = launchDefaults ?? _launchDefaults;
     final modelConfigurations = modelLaunchOverrides ?? _modelLaunchOverrides;
+    final histories = unlinkedConfigurations ?? _unlinkedConfigurations;
+    final versions = configurationVersions ?? _configurationVersions;
     await registryFile.parent.create(recursive: true);
     final temporary = File('${registryFile.path}.tmp');
     await temporary.writeAsString(
       jsonEncode({
-        'schema': modelConfigurations.isNotEmpty
+        'schema': histories.isNotEmpty || versions.isNotEmpty
+            ? 5
+            : modelConfigurations.isNotEmpty
             ? 4
             : configurations.isNotEmpty
             ? 3
             : _linkedOmlx.keys.any((id) => id != excluding)
             ? 2
             : 1,
-        if (configurations.isNotEmpty || modelConfigurations.isNotEmpty)
+        if (configurations.isNotEmpty ||
+            modelConfigurations.isNotEmpty ||
+            histories.isNotEmpty ||
+            versions.isNotEmpty)
           'launchDefaults': {
             for (final entry in configurations.entries)
               entry.key: entry.value.toJson(),
           },
-        if (modelConfigurations.isNotEmpty)
+        if (modelConfigurations.isNotEmpty ||
+            histories.isNotEmpty ||
+            versions.isNotEmpty)
           'modelLaunchOverrides': {
             for (final engine in modelConfigurations.entries)
               engine.key: {
@@ -469,6 +632,12 @@ class EngineCatalog {
                   artifact.key: artifact.value.toJson(),
               },
           },
+        if (histories.isNotEmpty || versions.isNotEmpty)
+          'unlinkedConfigurations': {
+            for (final history in histories.entries)
+              history.key: history.value.toJson(),
+          },
+        if (versions.isNotEmpty) 'configurationVersions': versions,
         'linked': [
           for (final entry in _linked.entries)
             if (entry.key != excluding)
@@ -495,12 +664,72 @@ class EngineCatalog {
     await temporary.rename(registryFile.path);
   }
 
-  EngineParameterRecognition parameterRecognitionFor(String id) =>
-      providerFor(id).parameterRecognition;
+  EngineRegistration _configurationRegistration(String id) {
+    final entry = state.entries.where((entry) => entry.id == id).singleOrNull;
+    if (entry == null) throw const LlamaEngineException('引擎登记已变化');
+    return entry;
+  }
+
+  EngineParameterRecognition parameterRecognitionFor(String id) {
+    final entry = _configurationRegistration(id);
+    if (entry.family == EngineFamily.llamaCpp) {
+      return providerFor(id).parameterRecognition;
+    }
+    final receipt = entry.omlxReceipt;
+    final current = receipt?.parameterRecognition;
+    if (entry.status == LlamaInstallationStatus.installed &&
+        receipt != null &&
+        current != null &&
+        current.family == entry.family &&
+        current.executablePath == '${entry.path}/Contents/MacOS/omlx-cli' &&
+        current.contentFingerprint == receipt.bundleManifestSha256) {
+      return current;
+    }
+    return EngineParameterRecognition.builtIn(
+      family: entry.family,
+      notice: '当前 oMLX 帮助不可用；使用内置规则，仅保存配置，生产模型运行尚未接通。',
+    );
+  }
 
   EngineLaunchConfiguration launchDefaultsFor(String id) {
-    providerFor(id);
-    return _launchDefaults[id] ?? EngineLaunchConfiguration();
+    final entry = _configurationRegistration(id);
+    return _launchDefaults[id] ??
+        EngineLaunchConfiguration(family: entry.family);
+  }
+
+  String? configurationVersionNoticeFor(String id) {
+    final entry = _configurationRegistration(id);
+    final source = _configurationVersions[id];
+    final current = entry.version;
+    if (source == null || current == null) return null;
+    final previous = LlamaBinaryVersion.parse(source);
+    final observed = LlamaBinaryVersion.parse(current);
+    final unchanged =
+        entry.family == EngineFamily.llamaCpp &&
+            previous != null &&
+            observed != null
+        ? previous.semanticVersion == observed.semanticVersion &&
+              previous.build == observed.build &&
+              previous.commit == observed.commit &&
+              previous.platform == observed.platform
+        : source == current;
+    return unchanged ? null : '参数来源版本已变化；已保留原表单与参数文本，请核对当前帮助。';
+  }
+
+  Map<String, String?> _versionsForSave(String id) {
+    final versions = {..._configurationVersions};
+    final current = _configurationRegistration(id).version;
+    versions.putIfAbsent(id, () => current);
+    return versions;
+  }
+
+  void _requireConfigurationFamily(
+    String id,
+    EngineLaunchConfiguration configuration,
+  ) {
+    if (_configurationRegistration(id).family != configuration.family) {
+      throw const LlamaEngineException('启动配置与引擎家族不一致');
+    }
   }
 
   Future<void> saveLaunchDefaults(
@@ -508,13 +737,18 @@ class EngineCatalog {
     EngineLaunchConfiguration configuration,
   ) => _serial(() async {
     await _load();
-    providerFor(id);
-    await _save(launchDefaults: {..._launchDefaults, id: configuration});
+    _requireConfigurationFamily(id, configuration);
+    final versions = _versionsForSave(id);
+    await _save(
+      launchDefaults: {..._launchDefaults, id: configuration},
+      configurationVersions: versions,
+    );
     _launchDefaults[id] = configuration;
+    _configurationVersions.addAll(versions);
   });
 
   ModelLaunchOverrides modelLaunchOverridesFor(String id, String artifactId) {
-    providerFor(id);
+    _configurationRegistration(id);
     return _modelLaunchOverrides[id]?[artifactId] ??
         const ModelLaunchOverrides();
   }
@@ -554,6 +788,7 @@ class EngineCatalog {
   ) => _serial(() async {
     await _load();
     _requireModelConfigurationTarget(id, artifactId);
+    _requireConfigurationFamily(id, configuration);
     await _saveModelSelection(
       id,
       artifactId,
@@ -562,14 +797,20 @@ class EngineCatalog {
   });
 
   void _requireModelConfigurationTarget(String id, String artifactId) {
-    providerFor(id);
+    final family = _configurationRegistration(id).family;
     if (!library.state.artifacts.any(
       (asset) =>
           asset.id == artifactId &&
-          asset.format == 'GGUF' &&
-          [AssetKind.decision, AssetKind.chat].contains(asset.kind),
+          (family == EngineFamily.llamaCpp
+              ? asset.format == 'GGUF' &&
+                    [AssetKind.decision, AssetKind.chat].contains(asset.kind)
+              : asset.format == 'Safetensors' && asset.kind == AssetKind.chat),
     )) {
-      throw const LlamaEngineException('请选择当前模型库中的文本或决策 GGUF 变体');
+      throw LlamaEngineException(
+        family == EngineFamily.llamaCpp
+            ? '请选择当前模型库中的文本或决策 GGUF 变体'
+            : '请选择当前模型库中的聊天 Safetensors 变体；仅保存配置',
+      );
     }
   }
 
@@ -579,10 +820,13 @@ class EngineCatalog {
     ModelLaunchOverrides selection,
   ) async {
     final selections = {...?_modelLaunchOverrides[id], artifactId: selection};
+    final versions = _versionsForSave(id);
     await _save(
       modelLaunchOverrides: {..._modelLaunchOverrides, id: selections},
+      configurationVersions: versions,
     );
     _modelLaunchOverrides[id] = Map.unmodifiable(selections);
+    _configurationVersions.addAll(versions);
   }
 
   Future<void> installOfficial({File? verifiedArchive}) =>
@@ -728,7 +972,15 @@ class EngineCatalog {
                 plan._linkedDigest) {
               throw const OmlxException('oMLX 解除关联前内容变化');
             }
-            await _save(excluding: current.id);
+            final history = _unlinkedSnapshot(current);
+            await _save(
+              excluding: current.id,
+              unlinkedConfigurations: {
+                ..._unlinkedConfigurations,
+                current.id: history,
+              },
+            );
+            _unlinkedConfigurations[current.id] = history;
             _linkedOmlx.remove(current.id);
           }
           return;
@@ -738,11 +990,115 @@ class EngineCatalog {
           await provider.removeInstallation(plan._managed!, confirmed: true);
           return;
         }
-        await provider.detachLinked();
-        await _save(excluding: plan.entry.id);
-        _linked.remove(plan.entry.id);
-        _names.remove(plan.entry.id);
-        provider.close();
+        final releaseAdmission = provider.holdStartAdmission();
+        try {
+          final history = _unlinkedSnapshot(plan.entry);
+          await provider.detachLinked(
+            persistRemoval: () => _save(
+              excluding: plan.entry.id,
+              unlinkedConfigurations: {
+                ..._unlinkedConfigurations,
+                plan.entry.id: history,
+              },
+            ),
+          );
+          _unlinkedConfigurations[plan.entry.id] = history;
+          _linked.remove(plan.entry.id);
+          _names.remove(plan.entry.id);
+          provider.close();
+        } finally {
+          releaseAdmission();
+        }
+      });
+
+  UnlinkedLaunchConfiguration _unlinkedSnapshot(EngineRegistration entry) =>
+      UnlinkedLaunchConfiguration(
+        registrationId: entry.id,
+        name: entry.name,
+        family: entry.family,
+        path: entry.path!,
+        version:
+            entry.version ??
+            _linked[entry.id]?.linkedInstallation?.version ??
+            entry.omlxReceipt?.releaseLabel,
+        fingerprint:
+            entry.binarySha256 ??
+            entry.omlxReceipt?.bundleManifestSha256 ??
+            entry.sha256,
+        defaults: _launchDefaults[entry.id],
+        models: _modelLaunchOverrides[entry.id] ?? const {},
+      );
+
+  Future<void> restoreUnlinkedConfiguration(String sourceId, String targetId) =>
+      _serial(() async {
+        await _load();
+        final source = _unlinkedConfigurations[sourceId];
+        final target = state.entries
+            .where((entry) => entry.id == targetId)
+            .firstOrNull;
+        if (source == null || target == null || sourceId == targetId) {
+          throw const LlamaEngineException('请选择未关联配置与当前恢复目标');
+        }
+        if (source.family != target.family) {
+          throw const LlamaEngineException('来源与目标引擎家族不同，不能恢复');
+        }
+        if (target.family == EngineFamily.llamaCpp) {
+          final provider = providerFor(targetId);
+          await provider.refreshInstallation();
+          if (provider.state.installation !=
+              LlamaInstallationStatus.installed) {
+            throw const LlamaEngineException('恢复目标未通过当前安装或关联核验');
+          }
+        } else if (target.source == EngineSource.managed) {
+          await omlxEngine!.refreshInstallation();
+          if (omlxEngine!.state.status != OmlxInstallationStatus.installed) {
+            throw const OmlxException('恢复目标未通过当前 oMLX 安装核验');
+          }
+        } else {
+          final previous = _linkedOmlx[targetId]!;
+          try {
+            final receipt = await omlxEngine!.inspectLinked(
+              Directory(previous.path),
+              previousReceipt: previous.receipt,
+            );
+            if (receipt.bundleManifestSha256 !=
+                previous.receipt.bundleManifestSha256) {
+              throw const OmlxException('恢复目标 oMLX 内容变化');
+            }
+            _linkedOmlx[targetId] = _LinkedOmlx(previous.path, receipt);
+          } catch (_) {
+            _linkedOmlx[targetId] = _LinkedOmlx(
+              previous.path,
+              previous.receipt,
+              error: 'oMLX 关联 app 重新验证失败',
+            );
+            rethrow;
+          }
+        }
+        final defaults = {..._launchDefaults};
+        if (source.defaults == null) {
+          defaults.remove(targetId);
+        } else {
+          defaults[targetId] = source.defaults!;
+        }
+        final models = {..._modelLaunchOverrides, targetId: source.models};
+        final versions = {..._configurationVersions};
+        final sourceVersion = versions.containsKey(sourceId)
+            ? versions[sourceId]
+            : source.version;
+        versions[targetId] = sourceVersion;
+        await _save(
+          launchDefaults: defaults,
+          modelLaunchOverrides: models,
+          configurationVersions: versions,
+        );
+        _launchDefaults
+          ..clear()
+          ..addAll(defaults);
+        _modelLaunchOverrides[targetId] = source.models;
+        _configurationVersions
+          ..clear()
+          ..addAll(versions);
       });
   EngineRuntime runtimeFor(String id) {
     if (id == omlxId || _linkedOmlx.containsKey(id)) {

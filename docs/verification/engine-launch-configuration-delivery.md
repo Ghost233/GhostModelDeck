@@ -6,11 +6,11 @@
 
 ## 当前状态
 
-- 当前实施：[打通模型独立配置、继承切换与 SDK 启动](https://github.com/Ghost233/GhostModelDeck/issues/47) 与 [提供当前引擎版本的参数识别与编辑提示](https://github.com/Ghost233/GhostModelDeck/issues/48)，均已分配 Ghost233。执行者分别为 `/root/implement_45` 与 `/root/engine_argument_grammar`，协调者 `/root`；共享 checkout 中按文件归属并行，登记/启动接线在 #47 冻结后串行补齐。
-- 总基线 `d0d14efe5b90f9b1fe25aace9403df03f9fd581e`，main 本地与实际远端保持该 SHA。已有品牌、SDK 菜单栏与规格基线分别提交；本次参数总 PR 尚未合入 main。
-- 第一阶段 [引擎默认启动配置与完整命令预览](https://github.com/Ghost233/GhostModelDeck/pull/52) 及第二阶段 [参数文本优先与真实启动诊断](https://github.com/Ghost233/GhostModelDeck/pull/54) 已实际合入集成分支，相应 #45/#46 已验收关闭。集成分支与第二阶段分支本地/实际远端均为 `1f35464c09d8a0f16301925fec248f7b63002214`；第一阶段分支本地/远端均保留 `97c8ff6a22b096a97a38a409027cc563e022ed75`。
-- 当前分支 `codex/engine-launch-overrides-recognition`，第三阶段基线 `1f35464c09d8a0f16301925fec248f7b63002214`。总 PR [引擎启动参数配置、文本优先与模型覆盖](https://github.com/Ghost233/GhostModelDeck/pull/53) 目标 main，当前为草稿。
-- 第一阶段最终格式/分析/548 项全量、Mac 和真实 JEV 通过，双轴复审为 0。第二阶段修复后的最终格式/分析/558 项全量、Mac 和真实 JEV 32 条断言通过；首审 P2 已关闭，产品及交付文档的双轴增量复审均为 0。报告与输入指纹保存在 `.scratch/engine-launch-delivery/stage45/`、`stage46/`，actual MERGED 与分支 hash 记录在相应 `integration.json`。
+- 当前实施：[保留升级与解除关联后的启动配置并支持手动恢复](https://github.com/Ghost233/GhostModelDeck/issues/49) 与 [提供 oMLX 参数保存与识别并明确当前运行限制](https://github.com/Ghost233/GhostModelDeck/issues/50)，均分配 Ghost233，执行者 `/root/implement_45` 与 `/root/engine_argument_grammar`，协调 `/root`。共享 checkout 按文件所有权与单一检查租约协调。
+- 总基线 `d0d14efe5b90f9b1fe25aace9403df03f9fd581e`，main 本地与实际远端保持该 SHA，参数总 PR 尚未合入 main。
+- 前三阶段 [默认启动配置与完整预览](https://github.com/Ghost233/GhostModelDeck/pull/52)、[文本优先与原生诊断](https://github.com/Ghost233/GhostModelDeck/pull/54)、[模型独立启动配置与当前版本参数识别](https://github.com/Ghost233/GhostModelDeck/pull/55) 已实际合入集成分支，#45–#48 已验收关闭。集成与第三阶段分支本地/实际远端均为 `09d5ff2f8b64be1c5452d67a9d98a6b809d05ef2`；第一、二阶段分支分别保留已同步的 `97c8ff6a22b096a97a38a409027cc563e022ed75`、`1f35464c09d8a0f16301925fec248f7b63002214`。
+- 当前分支 `codex/engine-launch-lifecycle-omlx`，第四阶段基线 `09d5ff2f8b64be1c5452d67a9d98a6b809d05ef2`。总 PR [引擎启动参数配置、文本优先与模型覆盖](https://github.com/Ghost233/GhostModelDeck/pull/53) 目标 main，仍为草稿。
+- 第三阶段最终95文件格式/零诊断分析/583项全量、Mac、JEV与标准各16条真实断言通过。首审两P2经20公开回归、复盘及双轴增量复审关闭，最终记录增量复审亦为0；实际 MERGED 与同步 hash 在 `stage47-48/integration.json`。
 - 有效作业、每次输入指纹、真实退出码及下一动作在 `.scratch/engine-launch-delivery/delivery.json` 和 `checks/*/result.json` 更新；恢复时先核对作业结果，不因原会话句柄失效重开作业。
 
 ## 真实路径证据
@@ -37,9 +37,23 @@
 
 真实标准 llama.cpp 预检发现原关联核验按完整版本输出比较，初始化时间戳变化导致同一二进制被误判。定点红灯后复用已有类型化版本比较版本、build、commit、platform；无法解析时仍原文严格比较，原完整文件指纹、检查前后内容、架构及必需 help 门禁保持。四个真实身份字段、指纹、help 变化仍拒绝的成对回归通过。滚动旧用例的两次原失败均稳定重放；仅增加弹窗关闭前公开帧排空等待，原保存/位置/零启动断言保留，23 项所属文件回归通过。
 
-更新后的 `native-stage47-48-p2-final/outcome.json` 与 `native-standard-preflight-p2-final/outcome.json` 分别完成现有 Kev/JEV 与标准 b11146/Qwen 的 16 条真实断言：独立上下文1024生效，软件字段正确，实际 argv 等于命令快照，默认变化与继承切换不重启或改原 PID/命令，独立内容可恢复，模型完整性未变；各10个本次 child 全退出、端口释放。两份47项源码输入仍匹配，真实退出码均为0。`builds/stage47-48-p2-final/result.json` 的最终正确项目环境 Mac 构建退出0、输入未变。最终容器格式检查95文件零改动、静态分析零诊断、全量583项通过，三个真实退出码均为0且输入未变，记录在 `checks/stage47-48-*-p2-final/`。双轴首审各发现一项P2：本次无调用旧读取方法已删除，同内容部分帮助重列动态别名的canonical关系已修复。真实保存/刷新/预览/启动成对RED→20用例GREEN及修复后最终门禁均通过；复盘在 `stage47-48/retro.md`。修复候选 `02f5ce86fccd9bdf82aed16a174a5da1185951c9` 已完成独立增量复审，两项首审P2均关闭，新增P0/P1/P2各0。报告 `stage47-48/standards-final.md`、`stage47-48/spec-final.md` 与首审共同覆盖第三阶段基线至修复候选。第三阶段正在交付阶段PR，尚未集成。
+更新后的 `native-stage47-48-p2-final/outcome.json` 与 `native-standard-preflight-p2-final/outcome.json` 分别完成现有 Kev/JEV 与标准 b11146/Qwen 的 16 条真实断言：独立上下文1024生效，软件字段正确，实际 argv 等于命令快照，默认变化与继承切换不重启或改原 PID/命令，独立内容可恢复，模型完整性未变；各10个本次 child 全退出、端口释放。两份47项源码输入仍匹配，真实退出码均为0。`builds/stage47-48-p2-final/result.json` 的最终正确项目环境 Mac 构建退出0、输入未变。最终容器格式检查95文件零改动、静态分析零诊断、全量583项通过，三个真实退出码均为0且输入未变，记录在 `checks/stage47-48-*-p2-final/`。双轴首审各发现一项P2：本次无调用旧读取方法已删除，同内容部分帮助重列动态别名的canonical关系已修复。真实保存/刷新/预览/启动成对RED→20用例GREEN及修复后最终门禁均通过；复盘在 `stage47-48/retro.md`。修复候选 `02f5ce86fccd9bdf82aed16a174a5da1185951c9` 已完成独立增量复审，两项首审P2均关闭，新增P0/P1/P2各0。报告 `stage47-48/standards-final.md`、`stage47-48/spec-final.md` 与首审共同覆盖第三阶段基线至修复候选。第三阶段已经由PR55实际合入集成分支，#47/#48已关闭。
 
 标准权重恢复由用户明确同意，仅恢复原固定 revision `9217f5db79a29953eb74d5343926648285ec7e67` 的 Qwen 小模型到本次任务目录，491400032字节/SHA256 `74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db` 已全字节核对。curl退出0；原辅助脚本调用宿主Python3.9不支持的 `hashlib.file_digest` 而退出1，错误保留，兼容的流式SHA256独立验证退出0，不重新下载。该恢复不是本次验证生产下载器的证据。最初标准预检在时间戳误判处退出1、未加载模型，已保留；修复后新目录成功不覆盖旧结果。
+
+## 第四阶段当前验证
+
+配置生命周期使用 schema5 未关联历史及来源记录，兼容旧 schema1–4；默认配置与模型选择/独立内容整份保留，重启可查看具体模型身份、表单和原文。同路径重新登记产生新身份，初始配置保持不变，用户明确选择来源和目标才恢复。受管当前/下一本地固定 curated release 重建保留配置并刷新帮助；外部引擎变更仍要求原核验、重新关联，来源差异按真实版本字段比较，不把时间戳当升级。
+
+解除关联的保存放在原 provider 串行边界内：等待已接受启动，检查无活跃实例，原子保存成功后才解除；Catalog 对新启动持 admission hold。真实写入失败与已接受但尚在身份 I/O 的启动成对回归均通过，失败保留磁盘及内存登记。family 不匹配的默认、模型及历史 payload 全量拒绝，不部分应用。
+
+oMLX 共用配置、编辑器、文本优先及语法保存。family 显式标记，CPP旧payload保持；三个可靠资源字段初始空，当前预览只展示配置结果与不可执行限制。当前帮助在原私有CLI与完整签名/版本/manifest/清理/晚到守卫内取得，可选I/O失败仅提示；配置操作不启池、不载模型，不接通生产运行或Splash。
+
+Merger 首轮确认oMLX登记未保留实际版本/参数来源的P2，以公开save→unlink→restart→history→restore红灯复现，最小字段及来源映射修复。有效CLI观测提供当前版本，未刷新/失败仍未知；已有configurationVersions用显式null保留未知参数来源，多次往返不伪造目标版本。所属11条公开配置回归通过，整数来源JSON整份拒绝。有限merger复核关闭P2，新增P0/P1/P2为0。
+
+最终97文件格式零改动、静态分析零诊断、全量601项测试、Mac构建均真实退出0，输入未变。记录 `checks/stage49-50-*-final2/`、`builds/stage49-50-final2/result.json`。真实JEV/Kev与标准b11146/Qwen各23断言通过，包含保存/继承、解除、新身份不自动套用及显式恢复后再次Ready/n_ctx1024、实际argv一致；各23个本次child退出、两端口回收，47项源输入匹配。证据 `native-stage49-50/outcome.json`、`native-standard-stage49-50/outcome.json`。本阶段正式双轴审查尚待完成，第五阶段完整GUI/SDK/33条故事总验收仍未执行。
+
+原九模块178pass/1旧oMLX文案失败不计整轮通过，精准同步规格限制文案后定点与整个页面5项通过。两个oMLX测试调度中断保留为invalid，即使runner取消退出0也未记通过；精确pump后有效model/help红灯与绿色均有原日志。四条分析info按必要花括号修正，无规则抑制；旧schema来源扩展误强绑定点修复，原业务断言保留。所有失败、副本与当前输入记录由stage49/stage50 handoff索引。
 
 ## 已记录的执行故障
 

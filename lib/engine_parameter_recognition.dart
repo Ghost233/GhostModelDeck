@@ -79,6 +79,10 @@ class EngineParameterRecognition {
             '--port': '监听端口',
             '--base-path': '私有数据目录',
             '--no-hf-cache': '关闭 HF 缓存发现',
+            '--api-key': '软件管理的鉴权凭据',
+            '--max-concurrent-requests': '最大并发请求数',
+            '--memory-guard': '内存保护级别',
+            '--hot-cache-max-size': '内存缓存上限',
           };
     final aliases = family == EngineFamily.llamaCpp
         ? _llamaAliases

@@ -55,6 +55,169 @@ class _EnginePageState extends State<EnginePage> {
     }
   }
 
+  Future<void> _showUnlinkedConfigurations() => showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('未关联启动配置'),
+      content: SizedBox(
+        width: 620,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final history in widget.catalog.unlinkedConfigurations) ...[
+                Text(
+                  history.name,
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                Text(engineVersionLabel(history.version)),
+                SelectableText(history.path),
+                const SizedBox(height: 8),
+                if (history.defaults != null) ...[
+                  for (final value in history.defaults!.formValues.entries)
+                    Text('${value.key}: ${value.value}'),
+                  SelectableText(history.defaults!.argumentText),
+                ] else
+                  const Text('未保存自定义默认参数'),
+                Text('${history.models.length} 个模型启动配置已保留'),
+                for (final model in history.models.entries) ...[
+                  SelectableText(model.key),
+                  Text(
+                    model.value.enabled
+                        ? model.value.configuration!.formValues.isEmpty &&
+                                  model
+                                      .value
+                                      .configuration!
+                                      .argumentText
+                                      .isEmpty
+                              ? '模型独立 · 空配置'
+                              : '模型独立配置'
+                        : model.value.configuration == null
+                        ? '继承引擎默认'
+                        : '继承引擎默认 · 独立内容已保留',
+                  ),
+                  if (model.value.configuration != null) ...[
+                    for (final value
+                        in model.value.configuration!.formValues.entries)
+                      Text('${value.key}: ${value.value}'),
+                    SelectableText(model.value.configuration!.argumentText),
+                  ],
+                  const SizedBox(height: 8),
+                ],
+                OutlinedButton(
+                  onPressed: () => _restoreHistory(history),
+                  child: const Text('选择目标恢复'),
+                ),
+                const Divider(height: 28),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('关闭'),
+        ),
+      ],
+    ),
+  );
+
+  Future<void> _restoreHistory(UnlinkedLaunchConfiguration source) async {
+    String? targetId;
+    String? error;
+    var saving = false;
+    final targets = widget.catalog.state.entries
+        .where(
+          (entry) =>
+              entry.family == source.family &&
+              entry.status == LlamaInstallationStatus.installed,
+        )
+        .toList();
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, update) => PopScope(
+          canPop: !saving,
+          child: AlertDialog(
+            title: Text('恢复 ${source.name} 的启动配置'),
+            content: SizedBox(
+              width: 580,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SelectableText(source.path),
+                  Text(engineVersionLabel(source.version)),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    initialValue: targetId,
+                    isExpanded: true,
+                    decoration: const InputDecoration(labelText: '恢复到引擎'),
+                    items: [
+                      for (final entry in targets)
+                        DropdownMenuItem(
+                          value: entry.id,
+                          child: Text('${entry.name} · ${entry.path}'),
+                        ),
+                    ],
+                    onChanged: saving
+                        ? null
+                        : (value) => update(() => targetId = value),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('将替换目标的默认参数与模型配置。已有实例继续使用原参数。'),
+                  if (error != null)
+                    Text(
+                      error!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: saving ? null : () => Navigator.pop(dialogContext),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: saving || targetId == null
+                    ? null
+                    : () async {
+                        update(() {
+                          saving = true;
+                          error = null;
+                        });
+                        try {
+                          await widget.catalog.restoreUnlinkedConfiguration(
+                            source.registrationId,
+                            targetId!,
+                          );
+                          if (dialogContext.mounted) {
+                            Navigator.pop(dialogContext);
+                          }
+                        } catch (failure) {
+                          if (dialogContext.mounted) {
+                            update(() => error = failure.toString());
+                          }
+                        } finally {
+                          if (dialogContext.mounted) {
+                            update(() => saving = false);
+                          }
+                        }
+                      },
+                child: Text(saving ? '恢复中' : '恢复到所选引擎'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _configure(EngineRegistration entry) => showDialog<void>(
     context: context,
     builder: (_) => EngineLaunchEditor(
@@ -126,7 +289,7 @@ class _EnginePageState extends State<EnginePage> {
               [
                 engineSourceLabel(entry),
                 if (entry.family == EngineFamily.omlx) ...[
-                  '完整官方 app · 模型池未实现 · 不可运行',
+                  '完整官方 app · 生产模型运行尚未接通',
                   OmlxEngine.artifactUrl,
                   if (entry.omlxReceipt != null) ...[
                     '发行标签 ${entry.omlxReceipt!.releaseLabel} · app 构建 ${entry.omlxReceipt!.build}',
@@ -190,6 +353,13 @@ class _EnginePageState extends State<EnginePage> {
                   icon: const Icon(Icons.link, size: 18),
                   label: const Text('关联引擎'),
                 ),
+                if (widget.catalog.unlinkedConfigurations.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  OutlinedButton(
+                    onPressed: busy ? null : _showUnlinkedConfigurations,
+                    child: const Text('未关联启动配置'),
+                  ),
+                ],
               ],
             ),
           ),
@@ -215,6 +385,8 @@ class _EnginePageState extends State<EnginePage> {
                   separatorBuilder: (_, _) => const Divider(),
                   itemBuilder: (context, index) {
                     final entry = state.entries[index];
+                    final configurationNotice = widget.catalog
+                        .configurationVersionNoticeFor(entry.id);
                     final linked = entry.source == EngineSource.linked;
                     final installed =
                         entry.status == LlamaInstallationStatus.installed;
@@ -252,7 +424,7 @@ class _EnginePageState extends State<EnginePage> {
                                     const SizedBox(height: 4),
                                     Text(
                                       entry.family == EngineFamily.omlx
-                                          ? '完整官方 app · 模型池未实现 · 不可运行'
+                                          ? '完整官方 app · 生产模型运行尚未接通'
                                           : entry.version == null
                                           ? '${entry.release?.tag ?? '未知版本'} · macOS arm64'
                                           : engineVersionLabel(entry.version),
@@ -269,14 +441,13 @@ class _EnginePageState extends State<EnginePage> {
                                 icon: const Icon(Icons.info_outline, size: 18),
                               ),
                               const SizedBox(width: 8),
-                              if (entry.family == EngineFamily.llamaCpp)
-                                IconButton(
-                                  tooltip: '启动参数',
-                                  onPressed: busy
-                                      ? null
-                                      : () => _configure(entry),
-                                  icon: const Icon(Icons.tune, size: 18),
-                                ),
+                              IconButton(
+                                tooltip: '启动参数',
+                                onPressed: busy
+                                    ? null
+                                    : () => _configure(entry),
+                                icon: const Icon(Icons.tune, size: 18),
+                              ),
                               if (!linked && !installed)
                                 FilledButton(
                                   onPressed: busy
@@ -308,6 +479,14 @@ class _EnginePageState extends State<EnginePage> {
                                 style: theme.textTheme.bodySmall?.copyWith(
                                   color: theme.colorScheme.error,
                                 ),
+                              ),
+                            ),
+                          if (configurationNotice != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 12),
+                              child: Text(
+                                configurationNotice,
+                                style: theme.textTheme.bodySmall,
                               ),
                             ),
                         ],
