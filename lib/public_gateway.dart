@@ -511,11 +511,19 @@ class PublicGatewayServer {
         bytes.add(body.current);
         if (bytes.length > decisionMaxRequestBytes) {
           request.response.persistentConnection = false;
-          throw const JevRequestException(
+          // Cancelling an unread dart:io request destroys its socket. Finish
+          // the bounded rejection first so clients receive the actual 413.
+          _sendJson(
+            request.response,
             413,
-            'invalid_input',
-            'typed 请求超出字节上限',
+            const JevRequestException(
+              413,
+              'invalid_input',
+              'typed 请求超出字节上限',
+            ).toJson(),
           );
+          await request.response.done;
+          return;
         }
       }
     } finally {

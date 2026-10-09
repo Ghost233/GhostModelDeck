@@ -8,8 +8,13 @@ import 'package:ghost_model_deck/benchmark_run_store.dart';
 import 'package:ghost_model_deck/decidebench.dart';
 import 'package:ghost_model_deck/jev_playground.dart';
 import 'package:ghost_model_deck/decision_protocol.dart';
+import 'package:ghost_model_deck/council.dart';
+import 'package:ghost_model_deck/council_mcp.dart';
+import 'package:ghost_model_deck/jev_models.dart';
+import 'package:ghost_model_deck/public_gateway.dart';
 
 import 'fixtures/playground_runtime.dart';
+import 'fixtures/council_runtime.dart';
 
 void main() {
   test('one ready public HTTP target executes the complete original 400 items and persists 200 pairs', () async {
@@ -536,6 +541,518 @@ void main() {
       timeout: const Timeout(Duration(minutes: 3)),
     );
   }
+  for (final stop in ['cancel', 'interrupt', 'close']) {
+    test(
+      '$stop during second batch initial save preserves old cancelled history and seals unexecuted new batch',
+      () async {
+        final fixture = await PlaygroundRuntime.create();
+        final suite = await DecideBenchSuite.load(
+          Directory('benchmarks/sources/decidebench'),
+        );
+        final firstArrived = Completer<void>(), firstHeld = Completer<void>();
+        fixture.runtime.io.requests.clear();
+        fixture.runtime.io.respond = (body, raw) async {
+          if (!firstArrived.isCompleted) firstArrived.complete();
+          await firstHeld.future;
+          return raw;
+        };
+        final store = BenchmarkRunStore(
+          directory: Directory(
+            '${fixture.runtime.root.path}/startup-interruption',
+          ),
+        );
+        final runner = BenchmarkRunner(
+          client: fixture.playground,
+          store: store,
+          models: fixture.council.models,
+        );
+        final entered = Completer<void>(), release = Completer<void>();
+        Future<BenchmarkRun>? second;
+        Future<void>? closing;
+        try {
+          final first = runner.run(suite: suite, model: 'native-kev');
+          await firstArrived.future.timeout(const Duration(seconds: 5));
+          runner.cancel();
+          final previous = await first;
+          final previousBytes = jsonEncode(
+            (await store.load(previous.id)).toJson(),
+          );
+          firstHeld.complete();
+          final filesystem = Zone.current;
+          second = IOOverrides.runZoned(
+            () => runner.run(
+              suite: suite,
+              modelNames: ['native-kev', 'quick'],
+              channels: JevPlaygroundMode.values,
+            ),
+            fseGetType: (path, followLinks) async {
+              if (path.startsWith('${store.directory.path}/run-') &&
+                  path.endsWith('.json') &&
+                  !path.contains(previous.id) &&
+                  !entered.isCompleted) {
+                entered.complete();
+                await release.future;
+              }
+              return filesystem.run(
+                () => FileSystemEntity.type(path, followLinks: followLinks),
+              );
+            },
+          );
+          await entered.future.timeout(const Duration(seconds: 5));
+          expect(runner.current!.id, previous.id);
+          if (stop == 'cancel') {
+            runner.cancel();
+          } else {
+            closing = stop == 'close' ? runner.close() : runner.interrupt();
+          }
+          release.complete();
+          final interrupted = await second!.timeout(const Duration(seconds: 5));
+          if (closing != null) {
+            await closing.timeout(const Duration(seconds: 5));
+          }
+          expect(
+            interrupted.status,
+            stop == 'cancel'
+                ? BenchmarkRunStatus.cancelled
+                : BenchmarkRunStatus.interrupted,
+          );
+          expect(interrupted.id, isNot(previous.id));
+          expect(
+            interrupted.evaluations.every(
+              (entry) =>
+                  entry.items.isEmpty && entry.summary['complete'] == false,
+            ),
+            isTrue,
+          );
+          expect(fixture.runtime.io.requests, hasLength(1));
+          expect(
+            jsonEncode((await store.load(previous.id)).toJson()),
+            previousBytes,
+          );
+          expect(
+            fixture.council.models.definitions.any(
+              (entry) => fixture.council.models.isEvaluationLocked(entry.name),
+            ),
+            isFalse,
+          );
+          final restarted = BenchmarkRunner(
+            client: fixture.playground,
+            store: store,
+            models: fixture.council.models,
+          );
+          expect(restarted.running, isFalse);
+          expect(
+            (await restarted.store.load(interrupted.id)).status,
+            interrupted.status,
+          );
+          await restarted.close();
+        } finally {
+          if (!firstHeld.isCompleted) firstHeld.complete();
+          if (!release.isCompleted) release.complete();
+          await runner.close();
+          if (second != null) await second;
+          if (closing != null) await closing;
+          await fixture.close();
+        }
+      },
+    );
+  }
+  for (final mode in JevPlaygroundMode.values) {
+    for (final stop in ['cancel', 'interrupt', 'close']) {
+      test(
+        '$stop during second batch actual ${mode.name} discovery seals an unexecuted plan instead of losing history',
+        () async {
+          final fixture = await PlaygroundRuntime.create();
+          final suite = await DecideBenchSuite.load(
+            Directory('benchmarks/sources/decidebench'),
+          );
+          final firstArrived = Completer<void>(), firstHeld = Completer<void>();
+          fixture.runtime.io.requests.clear();
+          fixture.runtime.io.respond = (body, raw) async {
+            if (!firstArrived.isCompleted) firstArrived.complete();
+            await firstHeld.future;
+            return raw;
+          };
+          final store = BenchmarkRunStore(
+            directory: Directory(
+              '${fixture.runtime.root.path}/discovery-interruption',
+            ),
+          );
+          final runner = BenchmarkRunner(
+            client: fixture.playground,
+            store: store,
+            models: fixture.council.models,
+          );
+          final entered = Completer<void>(), release = Completer<void>();
+          Socket? connection;
+          Future<BenchmarkRun>? second;
+          Future<void>? stopping;
+          Object? stopError;
+          try {
+            final first = runner.run(suite: suite, model: 'native-kev');
+            await firstArrived.future.timeout(const Duration(seconds: 5));
+            runner.cancel();
+            final previous = await first;
+            final previousBytes = jsonEncode(
+              (await store.load(previous.id)).toJson(),
+            );
+            firstHeld.complete();
+            final network = Zone.current;
+            second = IOOverrides.runZoned(
+              () => runner.run(
+                suite: suite,
+                model: 'native-kev',
+                channels: [mode],
+              ),
+              socketStartConnect:
+                  (host, port, {sourceAddress, sourcePort = 0}) async {
+                    final task = await network.run(
+                      () => Socket.startConnect(
+                        host,
+                        port,
+                        sourceAddress: sourceAddress,
+                        sourcePort: sourcePort,
+                      ),
+                    );
+                    if (port ==
+                            (mode == JevPlaygroundMode.http
+                                ? fixture.gateway.baseUrl!.port
+                                : fixture.mcp.endpoint!.port) &&
+                        !entered.isCompleted) {
+                      connection = await task.socket;
+                      entered.complete();
+                      await release.future;
+                    }
+                    return task;
+                  },
+            );
+            final outcome = second!.then<Object>(
+              (record) => record,
+              onError: (Object error) => error,
+            );
+            await entered.future.timeout(const Duration(seconds: 5));
+            if (stop == 'cancel') {
+              runner.cancel();
+            } else {
+              stopping = (stop == 'close' ? runner.close() : runner.interrupt())
+                  .then<void>(
+                    (_) {},
+                    onError: (Object error) {
+                      stopError = error;
+                    },
+                  );
+            }
+            release.complete();
+            final result = await outcome.timeout(const Duration(seconds: 5));
+            if (stopping != null) await stopping;
+            expect(result, isA<BenchmarkRun>());
+            final interrupted = result as BenchmarkRun;
+            expect(
+              interrupted.status,
+              stop == 'cancel'
+                  ? BenchmarkRunStatus.cancelled
+                  : BenchmarkRunStatus.interrupted,
+            );
+            expect(interrupted.id, isNot(previous.id));
+            expect(interrupted.items, isEmpty);
+            expect(interrupted.summary['complete'], isFalse);
+            expect(interrupted.summary['accuracy'], isNull);
+            expect(
+              (await store.load(interrupted.id)).status,
+              interrupted.status,
+            );
+            expect(
+              jsonEncode((await store.load(previous.id)).toJson()),
+              previousBytes,
+            );
+            expect(fixture.runtime.io.requests, hasLength(1));
+            expect(stopError, isNull);
+            expect(
+              fixture.council.models.isEvaluationLocked('native-kev'),
+              isFalse,
+            );
+          } finally {
+            if (!firstHeld.isCompleted) firstHeld.complete();
+            if (!release.isCompleted) release.complete();
+            await runner.close().catchError((Object error) {
+              if (stopError == null) throw error;
+            });
+            if (stopping != null) await stopping;
+            connection?.destroy();
+            await fixture.close();
+          }
+        },
+      );
+    }
+  }
+  test('actual discovery failure remains failed rather than interrupted and leaves a sealed zero-item record', () async {
+    final fixture = await PlaygroundRuntime.create();
+    addTearDown(fixture.close);
+    final suite = await DecideBenchSuite.load(
+      Directory('benchmarks/sources/decidebench'),
+    );
+    final store = BenchmarkRunStore(
+      directory: Directory(
+        '${fixture.runtime.root.path}/startup-service-failure',
+      ),
+    );
+    final runner = BenchmarkRunner(
+      client: fixture.playground,
+      store: store,
+      models: fixture.council.models,
+    );
+    addTearDown(runner.close);
+    await fixture.gateway.stop();
+    await expectLater(
+      runner.run(suite: suite, model: 'native-kev'),
+      throwsStateError,
+    );
+    final record = (await store.list()).single;
+    expect(record.status, BenchmarkRunStatus.failed);
+    expect(record.items, isEmpty);
+    expect(record.summary['accuracy'], isNull);
+    expect(record.summary['error'], contains('HTTP 服务未运行'));
+    expect(
+      fixture.runtime.io.requests.where(
+        (body) => body['state'] == suite.items.first.state,
+      ),
+      isEmpty,
+    );
+    expect(fixture.council.models.isEvaluationLocked('native-kev'), isFalse);
+  });
+  for (final stop in ['cancel', 'interrupt', 'close']) {
+    test(
+      '$stop during second batch queued registry lock seals a truthful plan and releases acquired locks',
+      () async {
+        final graph = await _StartupLockGraph.create();
+        final suite = await DecideBenchSuite.load(
+          Directory('benchmarks/sources/decidebench'),
+        );
+        final firstArrived = Completer<void>(), firstHeld = Completer<void>();
+        graph.runtime.io.requests.clear();
+        graph.runtime.io.respond = (body, raw) async {
+          if (!firstArrived.isCompleted) firstArrived.complete();
+          await firstHeld.future;
+          return raw;
+        };
+        final store = BenchmarkRunStore(
+          directory: Directory('${graph.runtime.root.path}/lock-interruption'),
+        );
+        final runner = BenchmarkRunner(
+          client: JevPlayground(gateway: graph.gateway, mcp: graph.mcp),
+          store: store,
+          models: graph.council.models,
+        );
+        Future<void>? writing;
+        Future<BenchmarkRun>? second;
+        Future<void>? stopping;
+        StreamSubscription<BenchmarkRun>? watching;
+        try {
+          final first = runner.run(suite: suite, model: 'native-kev');
+          await firstArrived.future.timeout(const Duration(seconds: 5));
+          runner.cancel();
+          final previous = await first;
+          final previousBytes = jsonEncode(
+            (await store.load(previous.id)).toJson(),
+          );
+          firstHeld.complete();
+          graph.registry.hold = true;
+          final definition = graph.council.models.definitions.singleWhere(
+            (entry) => entry.name == 'native-kev',
+          );
+          writing = graph.council.models.save(
+            definition,
+            replacing: definition.name,
+          );
+          await graph.registry.entered.future.timeout(
+            const Duration(seconds: 5),
+          );
+          final published = Completer<BenchmarkRun>();
+          watching = runner.changes.listen((record) {
+            if (record.id != previous.id && !published.isCompleted) {
+              published.complete(record);
+            }
+          });
+          second = runner.run(
+            suite: suite,
+            modelNames: ['native-kev', 'quick'],
+            channels: JevPlaygroundMode.values,
+          );
+          final plan = await published.future.timeout(
+            const Duration(seconds: 5),
+          );
+          expect(
+            plan.evaluations.every(
+              (entry) => entry.identity['selection_status'] == 'not_acquired',
+            ),
+            isTrue,
+          );
+          expect(
+            graph.council.models.isEvaluationLocked('native-kev'),
+            isFalse,
+          );
+          if (stop == 'cancel') {
+            runner.cancel();
+          } else {
+            stopping = stop == 'close' ? runner.close() : runner.interrupt();
+          }
+          graph.registry.release.complete();
+          await writing;
+          final result = await second.timeout(const Duration(seconds: 5));
+          if (stopping != null) await stopping;
+          expect(
+            result.status,
+            stop == 'cancel'
+                ? BenchmarkRunStatus.cancelled
+                : BenchmarkRunStatus.interrupted,
+          );
+          expect(
+            result.evaluations.every(
+              (entry) =>
+                  entry.items.isEmpty && entry.summary['accuracy'] == null,
+            ),
+            isTrue,
+          );
+          for (final entry in result.evaluations.where(
+            (entry) => entry.model == 'native-kev',
+          )) {
+            expect(entry.identity['configuration'], definition.toJson());
+          }
+          expect(graph.runtime.io.requests, hasLength(1));
+          expect(
+            jsonEncode((await store.load(previous.id)).toJson()),
+            previousBytes,
+          );
+          expect(
+            graph.council.models.definitions.any(
+              (entry) => graph.council.models.isEvaluationLocked(entry.name),
+            ),
+            isFalse,
+          );
+          final restarted = BenchmarkRunner(
+            client: JevPlayground(gateway: graph.gateway, mcp: graph.mcp),
+            store: store,
+            models: graph.council.models,
+          );
+          expect(restarted.running, isFalse);
+          expect(restarted.current, isNull);
+          expect((await restarted.store.load(result.id)).status, result.status);
+          await restarted.close();
+        } finally {
+          if (!firstHeld.isCompleted) firstHeld.complete();
+          if (!graph.registry.release.isCompleted) {
+            graph.registry.release.complete();
+          }
+          if (writing != null) await writing;
+          await runner.close();
+          if (second != null) await second;
+          if (stopping != null) await stopping;
+          await watching?.cancel();
+          await graph.close();
+        }
+      },
+    );
+  }
+  test('completed then cancelled and interrupted histories cannot filter later startup intents', () async {
+    final fixture = await PlaygroundRuntime.create();
+    final suite = await DecideBenchSuite.load(
+      Directory('benchmarks/sources/decidebench'),
+    );
+    _originalGoldReplies(fixture, suite);
+    final store = BenchmarkRunStore(
+      directory: Directory('${fixture.runtime.root.path}/consecutive-startup'),
+    );
+    final runner = BenchmarkRunner(
+      client: fixture.playground,
+      store: store,
+      models: fixture.council.models,
+    );
+    try {
+      var previous = await runner.run(suite: suite, model: 'native-kev');
+      expect(previous.status, BenchmarkRunStatus.completed);
+      final completedBytes = jsonEncode(previous.toJson());
+      for (final stop in ['cancel', 'interrupt', 'close']) {
+        final bytes = jsonEncode((await store.load(previous.id)).toJson());
+        final entered = Completer<void>(), release = Completer<void>();
+        final filesystem = Zone.current;
+        final operation = IOOverrides.runZoned(
+          () => runner.run(
+            suite: suite,
+            modelNames: ['native-kev', 'quick'],
+            channels: JevPlaygroundMode.values,
+          ),
+          fseGetType: (path, followLinks) async {
+            if (path.startsWith('${store.directory.path}/run-') &&
+                path.endsWith('.json') &&
+                !path.contains(previous.id) &&
+                !entered.isCompleted) {
+              entered.complete();
+              await release.future;
+            }
+            return filesystem.run(
+              () => FileSystemEntity.type(path, followLinks: followLinks),
+            );
+          },
+        );
+        Future<void>? stopping;
+        try {
+          await entered.future.timeout(const Duration(seconds: 5));
+          expect(runner.current!.id, previous.id);
+          if (stop == 'cancel') {
+            runner.cancel();
+          } else {
+            stopping = stop == 'close' ? runner.close() : runner.interrupt();
+          }
+        } finally {
+          if (!release.isCompleted) release.complete();
+        }
+        final result = await operation.timeout(const Duration(seconds: 5));
+        if (stopping != null) await stopping;
+        expect(
+          result.status,
+          stop == 'cancel'
+              ? BenchmarkRunStatus.cancelled
+              : BenchmarkRunStatus.interrupted,
+        );
+        expect(result.id, isNot(previous.id));
+        expect(
+          result.evaluations.every(
+            (entry) =>
+                entry.items.isEmpty &&
+                entry.summary['complete'] == false &&
+                entry.identity['selection_status'] == 'not_acquired',
+          ),
+          isTrue,
+        );
+        expect(jsonEncode((await store.load(previous.id)).toJson()), bytes);
+        previous = result;
+      }
+      expect(fixture.runtime.io.requests, hasLength(400));
+      final records = await store.list();
+      expect(records, hasLength(4));
+      expect(
+        jsonEncode(
+          records
+              .singleWhere(
+                (entry) => entry.status == BenchmarkRunStatus.completed,
+              )
+              .toJson(),
+        ),
+        completedBytes,
+      );
+      final restarted = BenchmarkRunner(
+        client: fixture.playground,
+        store: store,
+        models: fixture.council.models,
+      );
+      expect(restarted.current, isNull);
+      expect(restarted.running, isFalse);
+      await restarted.close();
+    } finally {
+      await runner.close();
+      await fixture.close();
+    }
+  }, timeout: const Timeout(Duration(minutes: 2)));
   test('batch cancellation closes only its normal public request and seals incomplete history', () async {
     final fixture = await PlaygroundRuntime.create();
     final suite = await DecideBenchSuite.load(
@@ -1125,4 +1642,76 @@ void _originalGoldReplies(
     };
     return jsonEncode(reply);
   };
+}
+
+class _StartupRegistryIO extends NativeJevRegistryIO {
+  bool hold = false;
+  final entered = Completer<void>(), release = Completer<void>();
+  @override
+  Future<void> write(File file, String contents) async {
+    if (hold) {
+      if (!entered.isCompleted) entered.complete();
+      await release.future;
+    }
+    await super.write(file, contents);
+  }
+}
+
+class _StartupLockGraph {
+  _StartupLockGraph(
+    this.runtime,
+    this.registry,
+    this.council,
+    this.routes,
+    this.gateway,
+    this.mcp,
+  );
+  final CouncilRuntime runtime;
+  final _StartupRegistryIO registry;
+  final CouncilController council;
+  final PublicModelRoutes routes;
+  final PublicGatewayServer gateway;
+  final CouncilMcpServer mcp;
+  static Future<_StartupLockGraph> create() async {
+    final runtime = await CouncilRuntime.create();
+    final registry = _StartupRegistryIO();
+    final council = CouncilController(
+      catalog: runtime.catalog,
+      modelRegistryFile: File('${runtime.root.path}/jev.json'),
+      modelRegistryIO: registry,
+    );
+    final bindings = council.models.availableBindings;
+    await council.models.save(
+      JevModelDefinition.native(name: 'native-kev', binding: bindings.last),
+    );
+    await council.models.save(
+      JevModelDefinition.council(
+        name: 'quick',
+        seats: [bindings.first],
+        timeout: const Duration(seconds: 2),
+      ),
+    );
+    final routes = PublicModelRoutes(
+      library: runtime.library,
+      runtimes: [runtime.engine],
+    );
+    final gateway = PublicGatewayServer(
+      routes: routes,
+      jevModels: council.models,
+      port: 0,
+    );
+    final mcp = CouncilMcpServer(controller: council, port: 0);
+    await gateway.start();
+    await mcp.start();
+    return _StartupLockGraph(runtime, registry, council, routes, gateway, mcp);
+  }
+
+  Future<void> close() async {
+    await mcp.close();
+    await gateway.stop();
+    gateway.close();
+    routes.close();
+    await council.close();
+    await runtime.close();
+  }
 }

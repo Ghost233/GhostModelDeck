@@ -96,34 +96,19 @@ class BenchmarkRunner {
     final id = 'run-${started.microsecondsSinceEpoch}';
     var status = BenchmarkRunStatus.running;
     try {
-      final discovered = <JevPlaygroundMode, List<JevDiscoveredModel>>{};
-      for (final channel in channels) {
-        discovered[channel] = await targets(
-          channel: channel,
-          cancellation: cancellation,
-        );
-        for (final name in names) {
-          if (!discovered[channel]!.any((entry) => entry.id == name)) {
-            throw StateError('$name 未在公开 ${channel.name.toUpperCase()} 入口中可调用');
-          }
-        }
-      }
-      // Every participant is locked before the first question, including
-      // later objects and channels. These locks never own model processes.
+      await models.load();
       for (final name in names) {
-        selections[name] = await models.lockForEvaluation(name);
-      }
-      for (final name in names) {
+        final definition = models.definitions
+            .where((entry) => entry.name == name)
+            .firstOrNull;
+        if (definition == null) throw StateError('$name 未在模型注册配置中');
         for (final channel in channels) {
           evaluations.add(
             _Evaluation(
               suite: suite,
               model: name,
               channel: channel,
-              target: discovered[channel]!.firstWhere(
-                (entry) => entry.id == name,
-              ),
-              selection: selections[name]!,
+              declaredSource: definition.source.name,
               timeout: timeout,
               started: started,
               id: batch ? '$id-${evaluations.length}' : id,
@@ -131,6 +116,7 @@ class BenchmarkRunner {
           );
         }
       }
+      var preparing = true;
 
       void applyCancellation() {
         if (_requestedStatus == null) return;
@@ -161,18 +147,61 @@ class BenchmarkRunner {
       Future<void> persist() async {
         applyCancellation();
         var record = snapshot();
-        await store.save(record);
+        try {
+          await store.save(record);
+        } catch (error, stack) {
+          _terminalFailure ??= (error: error, stack: stack);
+          rethrow;
+        }
         while (_requestedStatus != null && record.status != _requestedStatus) {
           applyCancellation();
           record = snapshot();
-          await store.save(record);
+          try {
+            await store.save(record);
+          } catch (error, stack) {
+            _terminalFailure ??= (error: error, stack: stack);
+            rethrow;
+          }
         }
         current = record;
         _changes.add(record);
       }
 
       try {
+        // Persist an honest zero-execution plan before asynchronous admission.
+        // A source here describes registered kind, not public readiness.
         await persist();
+        for (final name in names) {
+          if (_requestedStatus != null) break;
+          final selection = await models.lockForEvaluation(name);
+          selections[name] = selection;
+          for (final evaluation in evaluations.where(
+            (entry) => entry.model == name,
+          )) {
+            evaluation.selection = selection;
+          }
+        }
+        for (final channel in channels) {
+          if (_requestedStatus != null) break;
+          final available = await targets(
+            channel: channel,
+            cancellation: cancellation,
+          );
+          for (final evaluation in evaluations.where(
+            (entry) => entry.channel == channel,
+          )) {
+            if (!available.any(
+              (entry) =>
+                  entry.id == evaluation.model &&
+                  entry.source == evaluation.source,
+            )) {
+              throw StateError(
+                '${evaluation.model} 未在公开 ${channel.name.toUpperCase()} 入口中可调用',
+              );
+            }
+          }
+        }
+        preparing = false;
         final unavailable = <String>{};
         for (final evaluation in evaluations) {
           if (_requestedStatus != null) break;
@@ -184,7 +213,7 @@ class BenchmarkRunner {
           }
           for (final item in suite.items) {
             if (_requestedStatus != null) break;
-            if (!evaluation.selection.isCurrent) {
+            if (!evaluation.selection!.isCurrent) {
               evaluation.status = BenchmarkRunStatus.targetUnavailable;
               evaluation.failure = '参赛对象已不可用或运行身份已变化';
               break;
@@ -197,7 +226,7 @@ class BenchmarkRunner {
               if (!available.any(
                 (entry) =>
                     entry.id == evaluation.model &&
-                    entry.source == evaluation.target.source,
+                    entry.source == evaluation.source,
               )) {
                 throw StateError('参赛对象已不在公开发现中');
               }
@@ -226,7 +255,7 @@ class BenchmarkRunner {
               remove();
             }
             evaluation.record(item, reply);
-            if (!evaluation.selection.isCurrent && _requestedStatus == null) {
+            if (!evaluation.selection!.isCurrent && _requestedStatus == null) {
               evaluation.status = BenchmarkRunStatus.targetUnavailable;
               evaluation.failure = '参赛对象已不可用或运行身份已变化；本次响应已留存';
             }
@@ -252,6 +281,10 @@ class BenchmarkRunner {
         await persist();
         return current!;
       } catch (error, stack) {
+        if (preparing && _requestedStatus != null && _terminalFailure == null) {
+          await persist();
+          return current!;
+        }
         status = BenchmarkRunStatus.failed;
         for (final evaluation in evaluations) {
           if (evaluation.status == BenchmarkRunStatus.running ||
@@ -260,8 +293,17 @@ class BenchmarkRunner {
             evaluation.failure = '执行或保存评测记录失败：$error';
           }
         }
-        _terminalFailure ??= (error: error, stack: stack);
+        if (!preparing) _terminalFailure ??= (error: error, stack: stack);
         current = snapshot();
+        if (preparing && _terminalFailure == null) {
+          try {
+            await store.save(current!);
+          } catch (saveError, saveStack) {
+            // Retain the original admission error; shutdown also reports
+            // the separate persistence failure instead of calling it sealed.
+            _terminalFailure = (error: saveError, stack: saveStack);
+          }
+        }
         _changes.add(current!);
         Error.throwWithStackTrace(error, stack);
       }
@@ -279,8 +321,7 @@ class BenchmarkRunner {
   }
 
   void _requestInterruption() {
-    if (_operation != null &&
-        (current == null || current!.status == BenchmarkRunStatus.running)) {
+    if (_operation != null) {
       _requestedStatus = BenchmarkRunStatus.interrupted;
       _batchCancellation?.cancel();
     }
@@ -322,8 +363,7 @@ class _Evaluation {
     required this.suite,
     required this.model,
     required this.channel,
-    required this.target,
-    required this.selection,
+    required this.declaredSource,
     required this.timeout,
     required this.started,
     required this.id,
@@ -335,8 +375,10 @@ class _Evaluation {
   final DecideBenchSuite suite;
   final String model;
   final JevPlaygroundMode channel;
-  final JevDiscoveredModel target;
-  final JevEvaluationLock selection;
+  final String declaredSource;
+  JevEvaluationLock? selection;
+  String get source =>
+      selection?.identity['source'] as String? ?? declaredSource;
   final Duration timeout;
   final DateTime started;
   final String id;
@@ -417,11 +459,11 @@ class _Evaluation {
           : (finishedAt ??= DateTime.now().toUtc()).toIso8601String(),
       'status': status.name,
       'model': model,
-      'source': target.source,
+      'source': source,
       'channel': channel.name,
       'timeout_us': timeout.inMicroseconds,
       'suite': suite.identity,
-      'identity': selection.identity,
+      'identity': selection?.identity ?? {'selection_status': 'not_acquired'},
       'items': results,
       'groups': [
         for (final pair in byPair.entries)
