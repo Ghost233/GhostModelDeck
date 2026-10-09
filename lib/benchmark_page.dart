@@ -32,6 +32,14 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
   _resourceSubscription;
   List<JevDiscoveredModel> _targets = const [];
   String? _model;
+  final _selected = <String>{};
+  String _channelChoice = 'http';
+  int _evaluationIndex = 0;
+  List<JevPlaygroundMode> get _channels => switch (_channelChoice) {
+    'mcp' => [JevPlaygroundMode.mcp],
+    'both' => [JevPlaygroundMode.http, JevPlaygroundMode.mcp],
+    _ => [JevPlaygroundMode.http],
+  };
   bool _discovering = true;
   bool _starting = false;
   BenchmarkRun? _record;
@@ -99,11 +107,31 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
       _error = null;
     });
     try {
-      final targets = await widget.runner.targets(cancellation: token);
+      List<JevDiscoveredModel>? targets;
+      for (final channel in _channels) {
+        final found = await widget.runner.targets(
+          channel: channel,
+          cancellation: token,
+        );
+        targets = targets == null
+            ? found
+            : targets
+                  .where(
+                    (target) => found.any(
+                      (other) =>
+                          other.id == target.id &&
+                          other.source == target.source,
+                    ),
+                  )
+                  .toList();
+      }
       if (mounted && identical(token, _discoveryToken)) {
         setState(() {
-          _targets = targets;
-          if (!targets.any((target) => target.id == _model)) _model = null;
+          _targets = targets ?? const [];
+          _selected.removeWhere(
+            (name) => !_targets.any((target) => target.id == name),
+          );
+          if (!_targets.any((target) => target.id == _model)) _model = null;
         });
       }
     } catch (error) {
@@ -111,7 +139,8 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
         setState(() {
           _targets = const [];
           _model = null;
-          _error = '公开 HTTP 发现失败：$error';
+          _selected.clear();
+          _error = '所选公开通道发现失败：$error';
         });
       }
     } finally {
@@ -123,9 +152,10 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
   }
 
   Future<void> _start() async {
-    final model = _model;
+    final names = _selected.toList();
+    final channels = _channels;
     final deadline = _deadline;
-    if (_busy || model == null || deadline == null) return;
+    if (_busy || names.isEmpty || deadline == null) return;
     final resources = widget.resources;
     final runner = widget.runner;
     final token = DecisionCancellation();
@@ -135,12 +165,18 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
       _error = null;
       _viewingHistory = false;
       _detail = 0;
+      _evaluationIndex = 0;
     });
     try {
       final suite = await resources.prepareSuite(token);
       preparingStage = false;
       // Leaving this page does not abandon the prepared application batch.
-      await runner.run(suite: suite, model: model, timeout: deadline);
+      await runner.run(
+        suite: suite,
+        modelNames: names,
+        channels: channels,
+        timeout: deadline,
+      );
     } on BenchmarkResourceCancelled {
       // The resource owner publishes its terminal cancellation to every page.
     } catch (error) {
@@ -181,6 +217,7 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
           _viewingHistory = current?.id != record.id;
           _record = _viewingHistory ? record : current;
           _detail = 0;
+          _evaluationIndex = 0;
           _fileStatus = null;
         });
       }
@@ -339,6 +376,59 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
   }
 
   Widget _report(BenchmarkRun record) {
+    if (!record.isBatch) return _evaluationReport(record, owner: record);
+    final evaluations = record.evaluations;
+    final selected =
+        evaluations[_evaluationIndex.clamp(0, evaluations.length - 1)];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          '对照批次 · ${_status(record.status)}',
+          key: const Key('benchmark-batch-status'),
+        ),
+        Text(
+          '${record.model} · 已执行 ${record.summary['attempted']} / ${record.summary['expected']} · 按对象和通道顺序',
+        ),
+        if (record.status == BenchmarkRunStatus.running)
+          LinearProgressIndicator(
+            value:
+                (record.summary['attempted'] as int) /
+                (record.summary['expected'] as int),
+          ),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (var index = 0; index < evaluations.length; index++)
+              ChoiceChip(
+                key: Key('benchmark-result-$index'),
+                label: Text(
+                  '${evaluations[index].model} · ${evaluations[index].channel.toUpperCase()} · ${_status(evaluations[index].status)}',
+                ),
+                selected: index == _evaluationIndex,
+                onSelected: (_) => setState(() {
+                  _evaluationIndex = index;
+                  _detail = 0;
+                }),
+              ),
+          ],
+        ),
+        const Text('委员会收益与代价：仅比较同批完整结果及同一通道；名称不代表速度、难度或质量。'),
+        if (record.comparisons.isEmpty) const Text('选择同批原生模型及委员会后可显示对照。'),
+        for (final comparison in record.comparisons)
+          Text(
+            '${comparison['council']} 对 ${comparison['native']} · ${(comparison['channel'] as String).toUpperCase()} · '
+            '${comparison['comparable'] == true ? "accuracy Δ ${comparison['accuracy_delta']} / pair accuracy Δ ${comparison['pair_accuracy_delta']} · P50 Δ ${comparison['latency_success_p50_ms_delta']} ms / P95 Δ ${comparison['latency_success_p95_ms_delta']} ms · 失败 Δ ${comparison['failures_delta']}" : "未完成，不能计算完整成绩差值"}',
+          ),
+        const Text('成功席位覆盖：未在性能请求中取得公开席位证据，未知；配置成员数不表示成功席位数。'),
+        const SizedBox(height: 12),
+        _evaluationReport(selected, owner: record),
+      ],
+    );
+  }
+
+  Widget _evaluationReport(BenchmarkRun record, {required BenchmarkRun owner}) {
     final summary = record.summary;
     final completed = summary['complete'] == true;
     return Column(
@@ -346,7 +436,7 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
       children: [
         Text('批次报告', style: Theme.of(context).textTheme.titleLarge),
         Text(
-          '${record.model} · HTTP · ${_status(record.status)}',
+          '${record.model} · ${record.channel.toUpperCase()} · ${_status(record.status)}',
           key: const Key('benchmark-current-status'),
         ),
         Text(
@@ -397,8 +487,7 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
               ),
             TextButton.icon(
               key: const Key('benchmark-export'),
-              onPressed:
-                  _fileBusy || record.status == BenchmarkRunStatus.running
+              onPressed: _fileBusy || owner.status == BenchmarkRunStatus.running
                   ? null
                   : _export,
               icon: const Icon(Icons.save_alt),
@@ -406,8 +495,7 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
             ),
             TextButton.icon(
               key: const Key('benchmark-delete'),
-              onPressed:
-                  _fileBusy || record.status == BenchmarkRunStatus.running
+              onPressed: _fileBusy || owner.status == BenchmarkRunStatus.running
                   ? null
                   : _delete,
               icon: const Icon(Icons.delete_outline),
@@ -532,14 +620,30 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
               ),
           ],
           const SizedBox(height: 16),
-          const Text('单个 Ready 对象 · 普通公开 HTTP；不启动模型，不修改服务端预算。'),
+          const Text('多个 Ready 对象 · 普通公开 HTTP / MCP；不启动模型，不修改服务端预算。'),
+          DropdownButtonFormField<String>(
+            key: const Key('benchmark-channels'),
+            initialValue: _channelChoice,
+            decoration: const InputDecoration(labelText: '评测通道'),
+            items: const [
+              DropdownMenuItem(value: 'http', child: Text('HTTP')),
+              DropdownMenuItem(value: 'mcp', child: Text('MCP')),
+              DropdownMenuItem(value: 'both', child: Text('HTTP / MCP 分别评测')),
+            ],
+            onChanged: _busy
+                ? null
+                : (value) {
+                    setState(() => _channelChoice = value!);
+                    unawaited(_discover());
+                  },
+          ),
           if (_discovering)
             const LinearProgressIndicator()
           else
             DropdownButtonFormField<String>(
               key: const Key('benchmark-target'),
               initialValue: _model,
-              decoration: const InputDecoration(labelText: '公开 HTTP 评测对象'),
+              decoration: const InputDecoration(labelText: '选择一个对象或在下方多选'),
               isExpanded: true,
               items: [
                 for (final target in _targets)
@@ -547,8 +651,28 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
               ],
               onChanged: _busy
                   ? null
-                  : (model) => setState(() => _model = model),
+                  : (model) => setState(() {
+                      _model = model;
+                      _selected.clear();
+                      if (model != null) _selected.add(model);
+                    }),
             ),
+          for (final target in _targets)
+            CheckboxListTile(
+              key: Key('benchmark-select-${target.id}'),
+              title: Text(target.label),
+              value: _selected.contains(target.id),
+              onChanged: _busy
+                  ? null
+                  : (selected) => setState(() {
+                      if (selected == true) {
+                        _selected.add(target.id);
+                      } else {
+                        _selected.remove(target.id);
+                      }
+                    }),
+            ),
+          const Text('所选对象须在每个所选通道中公开可调用；运行全程锁定所有参赛名称与配置。'),
           if (!_discovering && _targets.isEmpty)
             const Text('没有 Ready 且公开可调用的 JEV 对象，请在引擎中准备。'),
           TextButton(
@@ -573,7 +697,7 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
             children: [
               FilledButton(
                 key: const Key('benchmark-run'),
-                onPressed: _busy || _model == null || _deadline == null
+                onPressed: _busy || _selected.isEmpty || _deadline == null
                     ? null
                     : _start,
                 child: const Text('完整评测 · 400 题'),
@@ -610,7 +734,7 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
                     key: Key('benchmark-history-${saved.id}'),
                     title: Text('${saved.model} · ${_status(saved.status)}'),
                     subtitle: Text(
-                      '${saved.createdAt.toLocal()} · HTTP · ${saved.summary['attempted']} / 400 · ${saved.suite['pin']}',
+                      '${saved.createdAt.toLocal()} · ${saved.isBatch ? '独立通道对照' : saved.channel.toUpperCase()} · ${saved.summary['attempted']} / ${saved.summary['expected'] ?? 400} · ${saved.suite['pin']}',
                     ),
                     selected: saved.id == _record?.id,
                     onTap: () => _view(saved),

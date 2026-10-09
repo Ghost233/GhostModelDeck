@@ -9,10 +9,208 @@ import 'package:ghost_model_deck/benchmark_resources.dart';
 import 'package:ghost_model_deck/benchmark_runner.dart';
 import 'package:ghost_model_deck/benchmark_run_store.dart';
 import 'package:ghost_model_deck/decidebench.dart';
+import 'package:ghost_model_deck/jev_playground.dart';
 
 import 'fixtures/playground_runtime.dart';
 
 void main() {
+  testWidgets(
+    'multi-channel batch survives leaving the page and exports the whole batch from a selected result',
+    (tester) async {
+      final previous = HttpOverrides.current;
+      HttpOverrides.global = _Network();
+      addTearDown(() => HttpOverrides.global = previous);
+      late PlaygroundRuntime fixture;
+      late BenchmarkRunner runner;
+      late BenchmarkResources resources;
+      late Future<BenchmarkRun> pending;
+      late Completer<void> held;
+      await tester.runAsync(() async {
+        fixture = await PlaygroundRuntime.create();
+        runner = BenchmarkRunner(
+          client: fixture.playground,
+          store: BenchmarkRunStore(
+            directory: Directory(
+              '${fixture.runtime.root.path}/batch-ui-history',
+            ),
+          ),
+          models: fixture.council.models,
+        );
+        resources = BenchmarkResources(
+          Directory('${fixture.runtime.root.path}/batch-ui-sources'),
+        );
+        final suite = await DecideBenchSuite.load(
+          Directory('benchmarks/sources/decidebench'),
+        );
+        final arrived = Completer<void>();
+        held = Completer<void>();
+        fixture.runtime.io.respond = (body, raw) async {
+          if (!arrived.isCompleted) arrived.complete();
+          await held.future;
+          return raw;
+        };
+        pending = runner.run(
+          suite: suite,
+          modelNames: ['native-kev', 'quick', 'hard'],
+          channels: [JevPlaygroundMode.http, JevPlaygroundMode.mcp],
+        );
+        await arrived.future.timeout(const Duration(seconds: 5));
+      });
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.runAsync(() async {
+          if (!held.isCompleted) held.complete();
+          await runner.close();
+          await pending;
+          await resources.close();
+          await fixture.close();
+        });
+      });
+      tester.view.physicalSize = const Size(1100, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      Widget screen() => MaterialApp(
+        home: Scaffold(
+          body: BenchmarkPage(resources: resources, runner: runner),
+        ),
+      );
+      await tester.runAsync(() async {
+        await tester.pumpWidget(screen());
+        await _wait(tester, find.byKey(const Key('benchmark-target')));
+      });
+      await tester.pump();
+      expect(
+        tester
+            .widget<CheckboxListTile>(
+              find.byKey(const Key('benchmark-select-hard')),
+            )
+            .onChanged,
+        isNull,
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+      expect(runner.running, isTrue);
+      expect(held.isCompleted, isFalse);
+      await tester.runAsync(() async {
+        await tester.pumpWidget(screen());
+        await _wait(tester, find.byKey(const Key('benchmark-target')));
+      });
+      await tester.pump();
+      await tester.ensureVisible(find.byKey(const Key('benchmark-cancel')));
+      await tester.runAsync(() async {
+        await tester.tap(find.byKey(const Key('benchmark-cancel')));
+        await pending.timeout(const Duration(seconds: 5));
+        await tester.pump();
+      });
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('benchmark-result-5')), findsOneWidget);
+      await tester.ensureVisible(find.byKey(const Key('benchmark-result-5')));
+      await tester.tap(find.byKey(const Key('benchmark-result-5')));
+      await tester.pump();
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('benchmark-current-status')))
+            .data,
+        contains('hard · MCP'),
+      );
+      expect(find.textContaining('成功席位覆盖：'), findsOneWidget);
+      await tester.ensureVisible(find.byKey(const Key('benchmark-export')));
+      await tester.tap(find.byKey(const Key('benchmark-export')));
+      await tester.pumpAndSettle();
+      final path = '${fixture.runtime.root.path}/whole-batch-export.json';
+      await tester.enterText(
+        find.byKey(const Key('benchmark-export-path')),
+        path,
+      );
+      await tester.runAsync(() async {
+        await tester.tap(find.byKey(const Key('benchmark-export-save')));
+        await _wait(tester, find.byKey(const Key('benchmark-file-status')));
+      });
+      await tester.pumpAndSettle();
+      final document = await tester.runAsync(
+        () async => jsonDecode(await File(path).readAsString()) as Map,
+      );
+      expect(document!['id'], runner.current!.id);
+      expect(document['evaluations'], hasLength(6));
+      expect(runner.current!.status, BenchmarkRunStatus.cancelled);
+      expect(held.isCompleted, isFalse);
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets(
+    'ready native and named councils can be selected together with separate HTTP/MCP channels',
+    (tester) async {
+      final previous = HttpOverrides.current;
+      HttpOverrides.global = _Network();
+      addTearDown(() => HttpOverrides.global = previous);
+      late PlaygroundRuntime fixture;
+      late BenchmarkRunner runner;
+      late BenchmarkResources resources;
+      await tester.runAsync(() async {
+        fixture = await PlaygroundRuntime.create();
+        runner = BenchmarkRunner(
+          client: fixture.playground,
+          store: BenchmarkRunStore(
+            directory: Directory(
+              '${fixture.runtime.root.path}/multi-ui-history',
+            ),
+          ),
+          models: fixture.council.models,
+        );
+        resources = BenchmarkResources(
+          Directory('${fixture.runtime.root.path}/multi-ui-sources'),
+        );
+      });
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.runAsync(() async {
+          await runner.close();
+          await resources.close();
+          await fixture.close();
+        });
+      });
+      tester.view.physicalSize = const Size(1000, 1500);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.runAsync(() async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: BenchmarkPage(resources: resources, runner: runner),
+            ),
+          ),
+        );
+        await _wait(tester, find.byKey(const Key('benchmark-target')));
+      });
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('benchmark-channels')), findsOneWidget);
+      for (final name in ['native-kev', 'quick', 'hard']) {
+        final checkbox = find.byKey(Key('benchmark-select-$name'));
+        await tester.ensureVisible(checkbox);
+        await tester.tap(checkbox);
+        await tester.pump();
+        expect(tester.widget<CheckboxListTile>(checkbox).value, isTrue);
+      }
+      await tester.ensureVisible(find.byKey(const Key('benchmark-channels')));
+      await tester.tap(find.byKey(const Key('benchmark-channels')));
+      await tester.pumpAndSettle();
+      await tester.runAsync(() async {
+        await tester.tap(find.text('HTTP / MCP 分别评测').last);
+        await tester.pump();
+        await _wait(tester, find.byKey(const Key('benchmark-target')));
+      });
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const Key('benchmark-run')))
+            .onPressed,
+        isNotNull,
+      );
+      expect(fixture.runtime.io.requests, isEmpty);
+      expect(runner.running, isFalse);
+    },
+  );
   testWidgets(
     'historical summary corruption is a visible read error without inference or file overwrite',
     (tester) async {

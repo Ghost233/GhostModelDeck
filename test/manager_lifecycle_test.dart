@@ -215,27 +215,56 @@ void main() {
       ],
     );
     final package = ModelPackage.discover(repository).single;
-    final shutdownStarted = Completer<void>();
-    Future<void>? shutdown;
+    final installationPaused = Completer<void>();
+    final resumeInstallation = Completer<void>();
+    late final Future<void> shutdown;
     var activeAtExit = false;
     var transferFinished = false;
-    final watch = formal.watch(events: FileSystemEvent.create).listen((event) {
-      if (event.path.endsWith('.gguf') && !shutdownStarted.isCompleted) {
-        activeAtExit = downloader.state.isActive;
-        shutdown = manager.shutdown();
-        shutdownStarted.complete();
-      }
-    });
-    addTearDown(watch.cancel);
-    final transfer = downloader
-        .downloadPackage(
-          selection: package.selectVariant(package.variants.single.id),
-          currentRepository: repository,
-          libraryDirectory: models,
-        )
-        .whenComplete(() => transferFinished = true);
-    await shutdownStarted.future.timeout(const Duration(seconds: 5));
-    await shutdown!.timeout(const Duration(seconds: 5));
+    final installed = File('${formal.path}/Model-00002-of-00032.gguf');
+    final nextTarget =
+        '${await formal.resolveSymbolicLinks()}/Model-00003-of-00032.gguf';
+    final filesystemZone = Zone.current;
+    final transfer = IOOverrides.runZoned(
+      () => downloader
+          .downloadPackage(
+            selection: package.selectVariant(package.variants.single.id),
+            currentRepository: repository,
+            libraryDirectory: models,
+          )
+          .whenComplete(() => transferFinished = true),
+      fseGetType: (path, followLinks) async {
+        final type = await filesystemZone.run(
+          () => FileSystemEntity.type(path, followLinks: followLinks),
+        );
+        // A creation event can refer to the old shared file or arrive after
+        // installation. Pause real FS work only after a new formal file exists.
+        if (path == nextTarget &&
+            !installationPaused.isCompleted &&
+            await filesystemZone.run(
+                  () =>
+                      FileSystemEntity.type(installed.path, followLinks: false),
+                ) ==
+                FileSystemEntityType.file) {
+          installationPaused.complete();
+          await resumeInstallation.future;
+        }
+        return type;
+      },
+    );
+    try {
+      await installationPaused.future.timeout(const Duration(seconds: 5));
+      expect(await installed.readAsString(), 'abc');
+      expect(
+        await FileSystemEntity.type(nextTarget, followLinks: false),
+        FileSystemEntityType.notFound,
+      );
+      expect(transferFinished, isFalse);
+      activeAtExit = downloader.state.isActive;
+      shutdown = manager.shutdown();
+    } finally {
+      resumeInstallation.complete();
+    }
+    await shutdown.timeout(const Duration(seconds: 5));
     expect(activeAtExit, isTrue);
     expect(transferFinished, isTrue);
     await transfer;

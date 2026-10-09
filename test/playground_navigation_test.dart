@@ -10,7 +10,12 @@ import 'package:ghost_model_deck/jev_playground_page.dart';
 import 'package:ghost_model_deck/settings_page.dart';
 import 'package:ghost_model_deck/council_page.dart';
 
+import 'fixtures/actual_app_environment.dart';
+
 void main() {
+  late ActualAppEnvironment environment;
+  setUp(() async => environment = await ActualAppEnvironment.create());
+  tearDown(() => environment.close());
   testWidgets('顶层区域先于侧栏，引擎六入口与共享设置可访问', (tester) async {
     tester.view.physicalSize = const Size(900, 560);
     tester.view.devicePixelRatio = 1;

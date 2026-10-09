@@ -18,12 +18,13 @@ enum BenchmarkRunStatus {
 /// One immutable session or historical snapshot. It never starts inference.
 class BenchmarkRun {
   factory BenchmarkRun.fromJson(Map<String, Object?> value) {
+    if (value['schema_version'] == 2) return _batchFromJson(value);
     if (value['schema_version'] != 1 ||
         !_validId(value['id']) ||
         value['model'] is! String ||
         (value['model'] as String).isEmpty ||
         !const {'native', 'council'}.contains(value['source']) ||
-        value['channel'] != 'http' ||
+        !const {'http', 'mcp'}.contains(value['channel']) ||
         !BenchmarkRunStatus.values.any((s) => s.name == value['status']) ||
         value['timeout_us'] is! int ||
         (value['timeout_us'] as int) <= 0 ||
@@ -102,6 +103,7 @@ class BenchmarkRun {
           result,
           model: value['model'] as String,
           expectedRequest: request,
+          channel: value['channel'] as String,
         );
       }
     }
@@ -121,8 +123,150 @@ class BenchmarkRun {
       sealDebugJson(value, projection: JevDebugProjection.benchmarkRun),
     );
   }
+  factory BenchmarkRun.batch({
+    required String id,
+    required DateTime createdAt,
+    required BenchmarkRunStatus status,
+    required List<BenchmarkRun> evaluations,
+  }) {
+    if (evaluations.isEmpty || evaluations.any((run) => run.isBatch)) {
+      throw const FormatException('对照批次需要独立对象/通道结果');
+    }
+    final names = evaluations.map((run) => run.model).toSet();
+    final attempted = evaluations.fold<int>(
+      0,
+      (sum, run) => sum + (run.summary['attempted'] as int),
+    );
+    return BenchmarkRun._(
+      freezeDebugJson({
+        'schema_version': 2,
+        'id': id,
+        'created_at': createdAt.toIso8601String(),
+        'finished_at': status == BenchmarkRunStatus.running
+            ? null
+            : DateTime.now().toUtc().toIso8601String(),
+        'status': status.name,
+        'model': names.join(', '),
+        'source': 'comparison',
+        'channel': 'separate',
+        'timeout_us': evaluations.first.timeout.inMicroseconds,
+        'suite': evaluations.first.suite,
+        'identity': {},
+        'items': [],
+        'groups': [],
+        'summary': {
+          'expected': evaluations.length * 400,
+          'attempted': attempted,
+          'missing': evaluations.length * 400 - attempted,
+          'complete':
+              status == BenchmarkRunStatus.completed &&
+              evaluations.every((run) => run.summary['complete'] == true),
+          'evaluations': evaluations.length,
+        },
+        'evaluations': [for (final run in evaluations) run.toJson()],
+      }) as Map<String, Object?>,
+    );
+  }
+
+  static BenchmarkRun _batchFromJson(Map<String, Object?> value) {
+    final entries = value['evaluations'];
+    if (!_validId(value['id']) ||
+        !_validDate(value['created_at']) ||
+        value['finished_at'] != null && !_validDate(value['finished_at']) ||
+        !BenchmarkRunStatus.values.any(
+          (status) => status.name == value['status'],
+        ) ||
+        entries is! List ||
+        entries.isEmpty ||
+        entries.any((entry) => entry is! Map || entry['schema_version'] != 1)) {
+      throw const FormatException('对照批次身份、状态或独立结果无效');
+    }
+    final evaluations = [
+      for (final entry in entries)
+        BenchmarkRun.fromJson(Map<String, Object?>.from(entry as Map)),
+    ];
+    final pairs = <String>{};
+    final identities = <String, Map<String, Object?>>{};
+    for (final run in evaluations) {
+      final identity = identities.putIfAbsent(run.model, () => run.identity);
+      if (!_sameJson(identity, run.identity) ||
+          !pairs.add(jsonEncode([run.model, run.channel])) ||
+          run.timeout != evaluations.first.timeout ||
+          !_sameJson(run.suite, evaluations.first.suite)) {
+        throw const FormatException('对照批次对象/通道重复或题库/期限/运行身份不一致');
+      }
+    }
+    final rebuilt = BenchmarkRun.batch(
+      id: value['id'] as String,
+      createdAt: DateTime.parse(value['created_at'] as String),
+      status: BenchmarkRunStatus.values.byName(value['status'] as String),
+      evaluations: evaluations,
+    );
+    if (!_sameJson(value['summary'], rebuilt.summary) ||
+        value['model'] != rebuilt.model ||
+        value['timeout_us'] != rebuilt.timeout.inMicroseconds ||
+        !_sameJson(value['suite'], rebuilt.suite)) {
+      throw const FormatException('对照批次摘要与独立结果不一致');
+    }
+    return BenchmarkRun._(
+      freezeDebugJson({
+        ...rebuilt.toJson(),
+        'finished_at': value['finished_at'],
+      }) as Map<String, Object?>,
+    );
+  }
+
   const BenchmarkRun._(this._json);
   final Map<String, Object?> _json;
+  bool get isBatch => _json['schema_version'] == 2;
+  String get channel => _json['channel'] as String;
+  List<BenchmarkRun> get evaluations => isBatch
+      ? List.unmodifiable(
+          (_json['evaluations'] as List).map(
+            (entry) => BenchmarkRun._(entry as Map<String, Object?>),
+          ),
+        )
+      : [this];
+
+  /// Gains and costs compare only same-batch complete results in one channel.
+  /// Seat-level success is unknown without public debug from that exact call.
+  List<Map<String, Object?>> get comparisons {
+    if (!isBatch) return const [];
+    final rows = <Map<String, Object?>>[];
+    for (final council in evaluations.where((run) => run.source == 'council')) {
+      for (final native in evaluations.where(
+        (run) => run.source == 'native' && run.channel == council.channel,
+      )) {
+        double? difference(String key) {
+          final left = council.summary[key], right = native.summary[key];
+          return council.summary['complete'] == true &&
+                  native.summary['complete'] == true &&
+                  left is num &&
+                  right is num
+              ? (left - right).toDouble()
+              : null;
+        }
+
+        rows.add({
+          'council': council.model,
+          'native': native.model,
+          'channel': council.channel,
+          'comparable':
+              council.summary['complete'] == true &&
+              native.summary['complete'] == true,
+          'accuracy_delta': difference('accuracy'),
+          'pair_accuracy_delta': difference('pair_accuracy'),
+          'latency_success_p50_ms_delta': difference('latency_success_p50_ms'),
+          'latency_success_p95_ms_delta': difference('latency_success_p95_ms'),
+          'failures_delta': difference('failures'),
+          'probability_coverage_delta': difference('probability_coverage'),
+          'successful_seat_coverage': null,
+        });
+      }
+    }
+    return List.unmodifiable(rows);
+  }
+
   String get id => _json['id'] as String;
   String get model => _json['model'] as String;
   String get source => _json['source'] as String;
@@ -180,11 +324,12 @@ class BenchmarkRun {
   static void _validateResult(
     Object value, {
     required String model,
+    required String channel,
     Object? expectedRequest,
   }) {
     if (value is! Map ||
         !JevPlaygroundStatus.values.any((s) => s.name == value['status']) ||
-        value['channel'] != 'http' ||
+        value['channel'] != channel ||
         value['message'] is! String ||
         value['timeout_us'] is! int ||
         value['elapsed_us'] is! int ||

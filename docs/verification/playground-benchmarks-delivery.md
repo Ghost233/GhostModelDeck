@@ -2,7 +2,21 @@
 
 规格：[#62](https://github.com/Ghost233/GhostModelDeck/issues/62)。起点：`07729aec710cb5516e77ae853b152f529ab3b897`。
 
-用户已授权 dev 集成分支、阶段分支/PR；最终 dev → main 总 PR 保持 ready 待合并。阶段一 #63–#65 已验收并通过 [阶段 PR #74](https://github.com/Ghost233/GhostModelDeck/pull/74) 合入 dev（`8da3777caf5a2eab8fffa8e230cdead28578caa4`）。当前阶段二 #66–#67，#66 实施中，#67 等待 #66 验收。全部五项基准和真实完整评测仍属于总验收，不降低规模。
+用户已授权 dev 集成分支、阶段分支/PR；最终 dev → main 总 PR 保持 ready 待合并。阶段一 #63–#65 已验收并通过 [阶段 PR #74](https://github.com/Ghost233/GhostModelDeck/pull/74) 合入 dev（`8da3777caf5a2eab8fffa8e230cdead28578caa4`）。当前阶段二 #66–#67。#66 已验收提交后发现新增超时边界，工单重新打开；#67 正在实施。全部五项基准和真实完整评测仍属于总验收，不降低规模。
+
+## 当前交付状态（2026-10-10，macOS arm64）
+
+阶段二 [PR #75](https://github.com/Ghost233/GhostModelDeck/pull/75) 目标 dev，保持 draft。已提交分支为 `75068fee38b729545da70c3a385aab007fc25987`；#67 后续修改尚未提交。阶段二整体审查、最终完整宿主门禁和真实模型六份完整对照尚待。主线程负责 Git、门禁和实机队列，`comparison_67` 负责本次代码及定点修复。
+
+#67 已加入多对象选择、HTTP/MCP 独立结果、顺序执行和批次锁。完整六项公开 I/O fixture 曾在原 8 分钟期限内超时（run-HDAaVR，退出 1）。缓存已封存对象快照后，原用例 run-jAcx4X 退出 0，用时 6 分 33 秒，完整执行 2,400 题、1,200 对。题量、期限、逐题保存和断言均保留。后续修改仍需最终候选回归，不能用这一结果声称最终门禁通过。
+
+新增 P2：普通客户端首题超时会取消传入 token，旧 runner 将该 token 复用于整批。原用例 run-On5mnc 退出 1，批次错误地变成 targetUnavailable。已重新打开 [#66](https://github.com/Ghost233/GhostModelDeck/issues/66#issuecomment-6084625304)。每题 token 监听整批取消、结束后解绑的最小修复，通过 HTTP 原失败回归 run-oPPwCe：400 题全部尝试，399 有效、1 客户端超时，无重试。MCP 同类边界 run-SItKmU 退出 0，也完整尝试 400 题。终态缓存与取消／退出封存两项 run-e8jjYz 退出 0，已完成对象的结果字节保持不变，后续部分及晚到结果封存。最终受影响六文件回归 run-8hAw5R 的 38 项已通过，源码前后摘要一致。首次完整门禁 run-Y13jG8 格式、分析通过，测试 702 项通过、2 项失败，真实退出 1。两个原失败分别用真实安装文件系统控制点和应用外部 I/O 隔离修正；安装生命周期完整 7 项、导航与桌面布局完整 37 项均通过，所有原断言及用户文件摘要保留。最终完整门禁 run-tlWsEX 已通过：格式检查 121 文件零改动，全仓分析零诊断，完整 704 项测试全部通过，三个步骤及整体退出码均为 0。全部输入摘要与当前源码一致且运行期间未变。记录为 ignored 67-final-host-gates.json。
+
+#66 先前 694 项完整宿主门禁、真实 Mac 400 题、上游评分及退出／历史证据仍保留。真实 400 题没有超时，不覆盖此次新增边界。新候选需收齐修复后重新完成必需门禁；原生六份对照在门禁通过后放行。真实应用和模型验收尚未启动；用户配置、模型、22 个题源缓存、两份 #66 历史均保留。 Sentinel 会话现已启动安装版 0.1.3／build 8 和其选定模型，54841／54842 正在监听。settings.json、jev_models.json、public_models.json 与旧恢复基线不同。当前仅只读记录差异，暂停实机放行，继续独立宿主门禁和阶段审查。切换前需落实共享服务安排及新配置基线，不覆盖或停止其他会话资源。
+
+JEVal 三族来源后续核查已完成。作者论文证实 Decider、JevBench 和 JevForge 的原项目指针；JevBench 的 200 行均唯一映射到公开原题。作者历史导入提交及其他两族逐行绑定仍未知。报告为 ignored `jeval-source-identity-followup.md`，不代表 #68 产品或模型验收。
+
+## 历史执行记录
 
 当前记录入口：`.scratch/playground-benchmarks/implementation/delivery-state.json`。阶段二主线程负责应用组装、退出、配置锁、检查与 Git；实现者分别拥有资源与原题解析、公开请求执行与记录、评测页面。以下记录按发生时间保留原始失败及阶段证据，旧的待验收描述由较新记录更新。
 
@@ -87,7 +101,7 @@ JEVal前置解码技术预检与阶段二实现独立：隔离固定纯Dart包li
 已向唯一native_66执行者放行同候选Mac构建与真实完整400题流程。build实际0、86构建输入前后一致、版本0.1.4；固定Flutter默认生成universal arm64+x86_64 Mach-O，验收与实际运行仅macOSarm64，该Intel slice不形成支持或待验收要求，也不准备x64运行时。本轮没有全局SDK配置修改、thin或正式发布。真实模型400、独立评分、正常退出与重启历史仍执行中，未以构建或694项测试宣称这些已通过。阶段二没有commit/PR，#66/#62继续OPEN；Git方案和同期修改保留规则不变。
 
 
-## 当前交付入口（2026-10-09，macOS arm64）
+## #66 已验收候选记录（2026-10-09，macOS arm64）
 
 本次仅适配 macOS arm64，所有检查在该宿主机执行。Linux、Windows、Intel/x64 不属于本次验收；不新建或恢复容器。规格、#62 及开放子工单 #66–#73 已更新这一范围，原生题目、固定 submodule、公开 HTTP/MCP、委员会对照、五项完整基准、Jevman 100 局及无快速试跑要求保持。
 

@@ -28,6 +28,7 @@ import 'package:ghost_model_deck/model_run_dialog.dart';
 import 'package:ghost_model_deck/model_search_page.dart';
 import 'package:ghost_model_deck/settings_page.dart';
 
+import 'fixtures/actual_app_environment.dart';
 import 'fixtures/council_runtime.dart';
 import 'fixtures/test_environment.dart';
 
@@ -73,6 +74,8 @@ void main() {
     testWidgets(
       'production shell preserves minimum desktop layout (${brightness.name}-1.5x)',
       (tester) async {
+        final environment = await tester.runAsync(ActualAppEnvironment.create);
+        addTearDown(environment!.close);
         tester.view.physicalSize = _window;
         tester.view.devicePixelRatio = 1;
         tester.platformDispatcher.textScaleFactorTestValue = 1.5;

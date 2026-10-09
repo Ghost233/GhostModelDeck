@@ -7,6 +7,7 @@ import 'package:ghost_model_deck/benchmark_runner.dart';
 import 'package:ghost_model_deck/benchmark_run_store.dart';
 import 'package:ghost_model_deck/decidebench.dart';
 import 'package:ghost_model_deck/jev_playground.dart';
+import 'package:ghost_model_deck/decision_protocol.dart';
 
 import 'fixtures/playground_runtime.dart';
 
@@ -63,6 +64,478 @@ void main() {
     expect(restored.summary['accuracy'], 1.0);
     expect(restored.toJson()['identity'], isNotEmpty);
   }, timeout: const Timeout(Duration(minutes: 2)));
+  test('complete original suite uses ordinary MCP discovery and tools with separate channel evidence', () async {
+    final fixture = await PlaygroundRuntime.create();
+    addTearDown(fixture.close);
+    final suite = await DecideBenchSuite.load(
+      Directory('benchmarks/sources/decidebench'),
+    );
+    _originalGoldReplies(fixture, suite);
+    final runner = BenchmarkRunner(
+      client: fixture.playground,
+      store: BenchmarkRunStore(
+        directory: Directory('${fixture.runtime.root.path}/mcp-history'),
+      ),
+      models: fixture.council.models,
+    );
+    addTearDown(runner.close);
+    final completed = await runner.run(
+      suite: suite,
+      model: 'native-kev',
+      channels: [JevPlaygroundMode.mcp],
+    );
+    expect(completed.status, BenchmarkRunStatus.completed);
+    expect(completed.toJson()['channel'], 'mcp');
+    expect(completed.items, hasLength(400));
+    expect(completed.summary['accuracy'], 1.0);
+    expect(
+      completed.items.every(
+        (item) => (item['result'] as Map)['channel'] == 'mcp',
+      ),
+      isTrue,
+    );
+    expect(
+      (await runner.store.load(completed.id)).toJson(),
+      completed.toJson(),
+    );
+  }, timeout: const Timeout(Duration(minutes: 2)));
+  test('multi-object batch locks all selected names and MCP cancellation seals every planned channel', () async {
+    final fixture = await PlaygroundRuntime.create();
+    final suite = await DecideBenchSuite.load(
+      Directory('benchmarks/sources/decidebench'),
+    );
+    final held = Completer<void>(), arrived = Completer<void>();
+    fixture.runtime.io.respond = (body, raw) async {
+      if (!arrived.isCompleted) arrived.complete();
+      await held.future;
+      return raw;
+    };
+    final runner = BenchmarkRunner(
+      client: fixture.playground,
+      store: BenchmarkRunStore(
+        directory: Directory('${fixture.runtime.root.path}/multi-cancel'),
+      ),
+      models: fixture.council.models,
+    );
+    Future<BenchmarkRun>? pending;
+    try {
+      pending = runner.run(
+        suite: suite,
+        modelNames: ['quick', 'native-kev', 'hard'],
+        channels: [JevPlaygroundMode.mcp, JevPlaygroundMode.http],
+      );
+      await arrived.future.timeout(const Duration(seconds: 5));
+      expect(
+        [
+          'quick',
+          'native-kev',
+          'hard',
+        ].every(fixture.council.models.isEvaluationLocked),
+        isTrue,
+      );
+      for (final definition in fixture.council.models.definitions) {
+        await expectLater(
+          fixture.council.models.save(definition),
+          throwsA(isA<DecisionProtocolException>()),
+        );
+        await expectLater(
+          fixture.council.models.delete(definition.name),
+          throwsA(isA<DecisionProtocolException>()),
+        );
+      }
+      runner.cancel();
+      final batch = await pending.timeout(const Duration(seconds: 5));
+      expect(batch.status, BenchmarkRunStatus.cancelled);
+      expect(batch.evaluations, hasLength(6));
+      expect(batch.evaluations.map((run) => '${run.model}/${run.channel}'), [
+        'quick/mcp',
+        'quick/http',
+        'native-kev/mcp',
+        'native-kev/http',
+        'hard/mcp',
+        'hard/http',
+      ]);
+      expect(
+        batch.evaluations.every((run) => run.summary['complete'] == false),
+        isTrue,
+      );
+      expect(
+        batch.evaluations.skip(1).every((run) => run.items.isEmpty),
+        isTrue,
+      );
+      expect(
+        [
+          'quick',
+          'native-kev',
+          'hard',
+        ].any(fixture.council.models.isEvaluationLocked),
+        isFalse,
+      );
+      expect((await runner.store.load(batch.id)).toJson(), batch.toJson());
+      final changed =
+          jsonDecode(jsonEncode(batch.toJson())) as Map<String, dynamic>;
+      changed['evaluations'][1]['identity']['configuration']['timeout_us'] =
+          123456;
+      expect(
+        () => BenchmarkRun.fromJson(changed),
+        throwsA(isA<FormatException>()),
+      );
+      expect(held.isCompleted, isFalse);
+      expect(fixture.gateway.activeOwnedRequests, 0);
+    } finally {
+      if (!held.isCompleted) held.complete();
+      await runner.close();
+      if (pending != null) await pending;
+      await fixture.close();
+    }
+  });
+  test('native and two named councils execute all six original object/channel suites with independent gains and costs', () async {
+    final fixture = await PlaygroundRuntime.create();
+    addTearDown(fixture.close);
+    final suite = await DecideBenchSuite.load(
+      Directory('benchmarks/sources/decidebench'),
+    );
+    _originalGoldReplies(fixture, suite);
+    final runner = BenchmarkRunner(
+      client: fixture.playground,
+      store: BenchmarkRunStore(
+        directory: Directory('${fixture.runtime.root.path}/complete-six'),
+      ),
+      models: fixture.council.models,
+    );
+    addTearDown(runner.close);
+    final transitions = <String>[];
+    var overlaps = false;
+    final subscription = runner.changes.listen((batch) {
+      final entries = batch.evaluations;
+      final active = entries.indexWhere(
+        (entry) =>
+            entry.items.isNotEmpty &&
+            entry.status == BenchmarkRunStatus.running,
+      );
+      if (active >= 0) {
+        final key = '${entries[active].model}/${entries[active].channel}';
+        if (transitions.isEmpty || transitions.last != key) {
+          transitions.add(key);
+        }
+        overlaps |= entries
+            .take(active)
+            .any((entry) => entry.summary['complete'] != true);
+      }
+    });
+    addTearDown(subscription.cancel);
+    final batch = await runner.run(
+      suite: suite,
+      modelNames: ['native-kev', 'quick', 'hard'],
+      channels: [JevPlaygroundMode.http, JevPlaygroundMode.mcp],
+    );
+    expect(batch.status, BenchmarkRunStatus.completed);
+    expect(batch.evaluations, hasLength(6));
+    expect(transitions, [
+      'native-kev/http',
+      'native-kev/mcp',
+      'quick/http',
+      'quick/mcp',
+      'hard/http',
+      'hard/mcp',
+    ]);
+    expect(overlaps, isFalse);
+    expect(batch.summary['attempted'], 2400);
+    expect(batch.summary.containsKey('accuracy'), isFalse);
+    for (final evaluation in batch.evaluations) {
+      expect(evaluation.items, hasLength(400));
+      expect(evaluation.groups, hasLength(200));
+      expect(
+        evaluation.items.map((item) => item['id']),
+        orderedEquals(suite.items.map((item) => item.id)),
+      );
+      expect(evaluation.summary['accuracy'], 1.0);
+      expect(evaluation.summary['pair_accuracy'], 1.0);
+      expect(evaluation.summary['probability_coverage'], 400);
+      expect(
+        evaluation.items.every(
+          (item) =>
+              (item['request'] as Map)['model'] == evaluation.model &&
+              (item['result'] as Map)['channel'] == evaluation.channel,
+        ),
+        isTrue,
+      );
+    }
+    expect(batch.comparisons, hasLength(4));
+    expect(
+      batch.comparisons.every(
+        (row) =>
+            row['comparable'] == true &&
+            row['accuracy_delta'] == 0.0 &&
+            row['successful_seat_coverage'] == null,
+      ),
+      isTrue,
+    );
+    expect(
+      batch.comparisons.every(
+        (row) => row['latency_success_p50_ms_delta'] is double,
+      ),
+      isTrue,
+    );
+    final restarted = BenchmarkRunStore(directory: runner.store.directory);
+    expect((await restarted.load(batch.id)).toJson(), batch.toJson());
+    final exported = File('${fixture.runtime.root.path}/six-export.json');
+    await restarted.exportTo(batch.id, exported);
+    expect(
+      BenchmarkRun.fromJson(
+        Map<String, Object?>.from(
+          jsonDecode(await exported.readAsString()) as Map,
+        ),
+      ).evaluations,
+      hasLength(6),
+    );
+    await expectLater(
+      restarted.exportTo(batch.id, exported),
+      throwsA(isA<FileSystemException>()),
+    );
+    await restarted.delete(batch.id);
+    expect(await restarted.list(), isEmpty);
+    expect(await exported.exists(), isTrue);
+    expect(
+      fixture.runtime.engine.state.instances.every(
+        (instance) => instance.status.name == 'ready',
+      ),
+      isTrue,
+    );
+  }, timeout: const Timeout(Duration(minutes: 8)));
+
+  test('manual stop invalidates one selected object and its later channel while an independent council still completes', () async {
+    final fixture = await PlaygroundRuntime.create();
+    final suite = await DecideBenchSuite.load(
+      Directory('benchmarks/sources/decidebench'),
+    );
+    _originalGoldReplies(fixture, suite);
+    final gold = fixture.runtime.io.respond!;
+    final held = Completer<void>(), arrived = Completer<void>();
+    var first = true;
+    fixture.runtime.io.respond = (body, raw) async {
+      if (first) {
+        first = false;
+        arrived.complete();
+        await held.future;
+      }
+      return gold(body, raw);
+    };
+    final runner = BenchmarkRunner(
+      client: fixture.playground,
+      store: BenchmarkRunStore(
+        directory: Directory('${fixture.runtime.root.path}/one-unavailable'),
+      ),
+      models: fixture.council.models,
+    );
+    Future<BenchmarkRun>? pending;
+    try {
+      pending = runner.run(
+        suite: suite,
+        modelNames: ['native-kev', 'quick'],
+        channels: [JevPlaygroundMode.http, JevPlaygroundMode.mcp],
+      );
+      await arrived.future.timeout(const Duration(seconds: 5));
+      final binding = fixture.council.models.definitions
+          .singleWhere((entry) => entry.name == 'native-kev')
+          .bindings
+          .single;
+      final instance = fixture.runtime.engine.state.instances.singleWhere(
+        (entry) => entry.asset.id == binding.artifactId,
+      );
+      await fixture.runtime.engine.stop(instance.id);
+      final batch = await pending.timeout(const Duration(minutes: 3));
+      expect(batch.status, BenchmarkRunStatus.targetUnavailable);
+      final native = batch.evaluations.take(2).toList();
+      expect(
+        native.every(
+          (entry) => entry.status == BenchmarkRunStatus.targetUnavailable,
+        ),
+        isTrue,
+      );
+      expect(native.first.items, hasLength(1));
+      expect(native.last.items, isEmpty);
+      expect(native.first.summary['error'], contains('身份已变化'));
+      expect(
+        batch.evaluations
+            .skip(2)
+            .every(
+              (entry) =>
+                  entry.summary['complete'] == true &&
+                  entry.items.length == 400,
+            ),
+        isTrue,
+      );
+      expect(
+        batch.comparisons.every(
+          (row) => row['comparable'] == false && row['accuracy_delta'] == null,
+        ),
+        isTrue,
+      );
+      expect(
+        (await runner.store.load(batch.id))
+            .evaluations
+            .last
+            .summary['accuracy'],
+        1.0,
+      );
+      expect(held.isCompleted, isFalse);
+    } finally {
+      if (!held.isCompleted) held.complete();
+      await runner.close();
+      if (pending != null) await pending;
+      await fixture.close();
+    }
+  }, timeout: const Timeout(Duration(minutes: 4)));
+  for (final mode in JevPlaygroundMode.values) {
+    test(
+      'a first ${mode.name.toUpperCase()} client timeout records its failure and continues all remaining 399 original questions',
+      () async {
+        final fixture = await PlaygroundRuntime.create();
+        final suite = await DecideBenchSuite.load(
+          Directory('benchmarks/sources/decidebench'),
+        );
+        _originalGoldReplies(fixture, suite);
+        final gold = fixture.runtime.io.respond!;
+        final held = Completer<void>();
+        var first = true;
+        fixture.runtime.io.respond = (body, raw) async {
+          if (first) {
+            first = false;
+            await held.future;
+          }
+          return gold(body, raw);
+        };
+        final runner = BenchmarkRunner(
+          client: fixture.playground,
+          store: BenchmarkRunStore(
+            directory: Directory(
+              '${fixture.runtime.root.path}/one-client-timeout',
+            ),
+          ),
+          models: fixture.council.models,
+        );
+        try {
+          final completed = await runner.run(
+            suite: suite,
+            model: 'native-kev',
+            channels: [mode],
+            timeout: const Duration(milliseconds: 500),
+          );
+          expect(completed.status, BenchmarkRunStatus.completed);
+          expect(completed.items, hasLength(400));
+          expect(
+            completed.items.first['status'],
+            JevPlaygroundStatus.timedOut.name,
+          );
+          expect(completed.summary['client_timeouts'], 1);
+          expect(completed.summary['valid'], 399);
+          expect(completed.summary['probability_coverage'], 399);
+          expect(completed.summary['accuracy'], 0.9975);
+          expect(completed.summary['pair_accuracy'], 0.995);
+          expect(fixture.runtime.io.requests, hasLength(400));
+          expect(
+            (await runner.store.load(completed.id)).summary['complete'],
+            isTrue,
+          );
+          expect(held.isCompleted, isFalse);
+        } finally {
+          if (!held.isCompleted) held.complete();
+          await runner.close();
+          await fixture.close();
+        }
+      },
+      timeout: const Timeout(Duration(minutes: 2)),
+    );
+  }
+  for (final stop in ['cancel', 'interrupt']) {
+    test(
+      'already sealed first object stays byte-stable when the later object receives $stop',
+      () async {
+        final fixture = await PlaygroundRuntime.create();
+        final suite = await DecideBenchSuite.load(
+          Directory('benchmarks/sources/decidebench'),
+        );
+        _originalGoldReplies(fixture, suite);
+        final gold = fixture.runtime.io.respond!;
+        final arrived = Completer<void>(), held = Completer<void>();
+        var requests = 0;
+        fixture.runtime.io.respond = (body, raw) async {
+          if (++requests == 401) {
+            arrived.complete();
+            await held.future;
+          }
+          return gold(body, raw);
+        };
+        final runner = BenchmarkRunner(
+          client: fixture.playground,
+          store: BenchmarkRunStore(
+            directory: Directory('${fixture.runtime.root.path}/sealed-$stop'),
+          ),
+          models: fixture.council.models,
+        );
+        final sealed = Completer<String>();
+        final subscription = runner.changes.listen((batch) {
+          final first = batch.evaluations.first;
+          if (first.status == BenchmarkRunStatus.completed &&
+              !sealed.isCompleted) {
+            sealed.complete(jsonEncode(first.toJson()));
+          }
+        });
+        Future<BenchmarkRun>? pending;
+        try {
+          pending = runner.run(
+            suite: suite,
+            modelNames: ['quick', 'native-kev'],
+          );
+          await arrived.future.timeout(const Duration(minutes: 2));
+          final bytes = await sealed.future.timeout(const Duration(seconds: 2));
+          if (stop == 'cancel') {
+            runner.cancel();
+          } else {
+            await runner.interrupt();
+          }
+          final batch = await pending.timeout(const Duration(seconds: 5));
+          expect(
+            batch.status,
+            stop == 'cancel'
+                ? BenchmarkRunStatus.cancelled
+                : BenchmarkRunStatus.interrupted,
+          );
+          expect(jsonEncode(batch.evaluations.first.toJson()), bytes);
+          expect(batch.evaluations.first.summary['complete'], isTrue);
+          expect(batch.evaluations.last.summary['complete'], isFalse);
+          expect(batch.evaluations.last.items, hasLength(1));
+          final restored = await runner.store.load(batch.id);
+          expect(jsonEncode(restored.evaluations.first.toJson()), bytes);
+          final frozen = jsonEncode(restored.toJson());
+          held.complete();
+          await Future<void>.delayed(const Duration(milliseconds: 30));
+          expect(
+            jsonEncode((await runner.store.load(batch.id)).toJson()),
+            frozen,
+          );
+          final restarted = BenchmarkRunner(
+            client: fixture.playground,
+            store: runner.store,
+            models: fixture.council.models,
+          );
+          expect(restarted.running, isFalse);
+          expect(restarted.current, isNull);
+          expect((await restarted.store.list()).single.status, batch.status);
+          expect(fixture.runtime.io.requests, hasLength(401));
+          await restarted.close();
+        } finally {
+          if (!held.isCompleted) held.complete();
+          await runner.close();
+          if (pending != null) await pending;
+          await subscription.cancel();
+          await fixture.close();
+        }
+      },
+      timeout: const Timeout(Duration(minutes: 3)),
+    );
+  }
   test('batch cancellation closes only its normal public request and seals incomplete history', () async {
     final fixture = await PlaygroundRuntime.create();
     final suite = await DecideBenchSuite.load(

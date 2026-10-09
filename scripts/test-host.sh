@@ -134,7 +134,8 @@ run_check() {
   local step_exit=0
   "$@" > "$run_dir/$step.log" 2>&1 || step_exit=$?
   printf '%s\n' "$step_exit" > "$run_dir/$step.exit"
-  cat "$run_dir/$step.log"
+  tail -n 20 "$run_dir/$step.log"
+  printf 'Step %s exit %s. Full log: %s\n' "$step" "$step_exit" "$run_dir/$step.log"
   return "$step_exit"
 }
 if [[ "$host_mode" == prepare ]]; then
