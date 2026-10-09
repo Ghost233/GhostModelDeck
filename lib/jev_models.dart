@@ -117,6 +117,28 @@ class NativeJevRegistryIO implements JevRegistryIO {
   }
 }
 
+/// Holds configuration identity only; inference and cancellation stay public.
+class JevEvaluationLock {
+  JevEvaluationLock._({
+    required this.identity,
+    required this._isCurrent,
+    required this._release,
+  });
+
+  final Map<String, Object?> identity;
+  final bool Function() _isCurrent;
+  final void Function() _release;
+  bool _released = false;
+
+  bool get isCurrent => !_released && _isCurrent();
+
+  void release() {
+    if (_released) return;
+    _released = true;
+    _release();
+  }
+}
+
 /// One named-model registry for desktop, HTTP and MCP on the same running graph.
 class JevModels {
   JevModels({
@@ -139,8 +161,127 @@ class JevModels {
   ({Object error, StackTrace stack})? _storageFailure;
   Future<void>? _shutdown;
   Future<void>? _close;
+  final Map<String, JevEvaluationLock> _evaluationLocks = {};
   Stream<void> get changes => _changes.stream;
   List<JevModelDefinition> get definitions => _definitions;
+
+  bool isEvaluationLocked(String name) => _evaluationLocks.containsKey(name);
+
+  Future<JevEvaluationLock> lockForEvaluation(String name) async {
+    late JevEvaluationLock selection;
+    await _serial(() async {
+      await _restore();
+      if (isEvaluationLocked(name)) {
+        throw const DecisionProtocolException('模型正在参与评测');
+      }
+      final snapshot = _evaluationIdentity(name);
+      if (snapshot == null) {
+        throw const DecisionProtocolException('模型未就绪，不能开始评测');
+      }
+      final signature = jsonEncode(snapshot);
+      selection = JevEvaluationLock._(
+        identity: sealDebugJson(snapshot, projection: JevDebugProjection.debug),
+        isCurrent: () => jsonEncode(_evaluationIdentity(name)) == signature,
+        release: () {
+          if (identical(_evaluationLocks[name], selection)) {
+            _evaluationLocks.remove(name);
+            _publish();
+          }
+        },
+      );
+      _evaluationLocks[name] = selection;
+      _publish();
+    });
+    return selection;
+  }
+
+  Map<String, Object?>? _evaluationIdentity(String name) {
+    final definition = _definitions.where((m) => m.name == name).firstOrNull;
+    if (definition == null || !_availability(definition).available) return null;
+    return {
+      'model': definition.name,
+      'source': definition.source.name,
+      'configuration': definition.toJson(),
+      'bindings': [
+        for (final binding in definition.bindings) _evaluationBinding(binding),
+      ],
+    };
+  }
+
+  Map<String, Object?> _evaluationBinding(JevModelBinding binding) {
+    CouncilSeat? seat;
+    try {
+      seat = _resolve(binding);
+    } on JevRequestException {
+      // A partially ready council is publicly callable. This is availability
+      // at selection time, never a claim about which seats answered a request.
+    }
+    final instance = seat?.instance;
+    final asset =
+        instance?.asset ??
+        controller.catalog.library.state.artifacts
+            .where((a) => a.id == binding.artifactId)
+            .firstOrNull;
+    final engine =
+        seat?.engine ??
+        controller.catalog.state.entries
+            .where((e) => e.id == binding.engineId)
+            .firstOrNull;
+    final command = instance?.launchCommand;
+    final arguments = command?.arguments;
+    return {
+      'binding': binding.toJson(),
+      'available_at_selection': instance != null,
+      'asset': asset == null
+          ? null
+          : {
+              'id': asset.id,
+              'name': asset.name,
+              'architecture': asset.architecture,
+              'format': asset.format,
+              'quantization': asset.quantization,
+              'repository': asset.repoId,
+              'revision': asset.revision,
+              'source_verified': asset.sourceVerified,
+              'files': [
+                for (final file in asset.files)
+                  {
+                    'path': file.path,
+                    'bytes': file.sizeBytes,
+                    'sha256': file.sha256,
+                  },
+              ],
+            },
+      'engine': engine == null
+          ? null
+          : {
+              'id': engine.id,
+              'name': engine.name,
+              'source': engine.source.name,
+              'version': engine.version,
+              'path': engine.path,
+              'sha256': instance?.binarySha256 ?? engine.sha256,
+            },
+      'instance': instance == null
+          ? null
+          : {
+              'id': instance.id,
+              'generation': instance.generation,
+              'endpoint': instance.endpoint.toString(),
+              'native_alias': instance.nativeAlias,
+            },
+      'launch_configuration': command == null
+          ? null
+          : {
+              'executable': command.executable,
+              'arguments': arguments,
+              // Seed known credentials before projecting argument copies.
+              if (arguments != null)
+                for (var i = 0; i + 1 < arguments.length; i++)
+                  if (arguments[i] == '--api-key') 'api_key': arguments[i + 1],
+            },
+    };
+  }
 
   List<JevModelBinding> get availableBindings => List.unmodifiable([
     for (final engine in controller.catalog.state.entries)
@@ -584,6 +725,10 @@ class JevModels {
   Future<void> save(JevModelDefinition definition, {String? replacing}) =>
       _serial(() async {
         await _restore();
+        if (isEvaluationLocked(definition.name) ||
+            replacing != null && isEvaluationLocked(replacing)) {
+          throw const DecisionProtocolException('模型正在参与评测，配置与调用名已锁定');
+        }
         if (replacing != null &&
             !_definitions.any((m) => m.name == replacing)) {
           throw const DecisionProtocolException('待编辑的模型配置不存在');
@@ -606,6 +751,9 @@ class JevModels {
 
   Future<void> delete(String name) => _serial(() async {
     await _restore();
+    if (isEvaluationLocked(name)) {
+      throw const DecisionProtocolException('模型正在参与评测，配置与调用名已锁定');
+    }
     if (!_definitions.any((m) => m.name == name)) {
       throw const DecisionProtocolException('模型配置不存在');
     }

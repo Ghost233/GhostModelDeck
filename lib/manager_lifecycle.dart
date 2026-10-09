@@ -1,3 +1,5 @@
+import 'benchmark_resources.dart';
+import 'benchmark_runner.dart';
 import 'council.dart';
 import 'council_mcp.dart';
 import 'engine_catalog.dart';
@@ -15,12 +17,16 @@ class ManagerLifecycle {
     required this.downloader,
     this.gateway,
     this.launcher,
+    this.benchmarks,
+    this.benchmarkResources,
   });
   final CouncilController council;
   final CouncilMcpServer mcp;
   final EngineCatalog engines;
   final ModelDownloader downloader;
   final PublicGatewayServer? gateway;
+  final BenchmarkRunner? benchmarks;
+  final BenchmarkResources? benchmarkResources;
 
   /// MacLauncher SDK 连接：仅明确退出时收尾（dispose 只关通信不回收业务）。
   final LauncherInferenceService? launcher;
@@ -33,18 +39,28 @@ class ManagerLifecycle {
   Future<void> shutdown() {
     if (_shutdown != null) return _shutdown!;
     state = ManagerLifecycleState.stopping;
+    final benchmarkRuns = benchmarks?.close() ?? Future<void>.value();
+    final resources = benchmarkResources?.close() ?? Future<void>.value();
+    benchmarkRuns.ignore();
+    resources.ignore();
     council.beginShutdown();
     engines.beginShutdown();
     // 公开 API 先于引擎排空封入场并取消在途请求，不复制引擎许可逻辑。
     gateway?.beginShutdown();
     final downloads = downloader.close();
     downloads.ignore();
-    return _shutdown = _finish(downloads);
+    return _shutdown = _finish(downloads, benchmarkRuns, resources);
   }
 
-  Future<void> _finish(Future<void> downloads) async {
+  Future<void> _finish(
+    Future<void> downloads,
+    Future<void> benchmarkRuns,
+    Future<void> resources,
+  ) async {
     final failures = <String>[];
     for (final step in [
+      ('基准记录', () => benchmarkRuns),
+      ('基准资源', () => resources),
       ('MCP', mcp.stop),
       ('公开 API', () => gateway?.stop() ?? Future<void>.value()),
       ('委员会', council.shutdown),

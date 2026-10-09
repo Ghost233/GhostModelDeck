@@ -41,7 +41,7 @@ void main() {
       expect(find.text('基准评测'), findsNothing);
     });
   });
-  testWidgets('测试场能力Tab、基础入口及两区共享设置只使用既有页面', (tester) async {
+  testWidgets('测试场能力Tab、基础入口、JEV完整基准及两区共享设置可访问', (tester) async {
     tester.view.physicalSize = const Size(900, 560);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -81,6 +81,23 @@ void main() {
         tester.widget<JevPlaygroundPage>(find.byType(JevPlaygroundPage)).active,
         isTrue,
       );
+      expect(_navigation('基准评测'), findsOneWidget);
+      await _tap(tester, _navigation('基准评测'));
+      expect(find.textContaining('400 题 / 200 对'), findsOneWidget);
+      expect(
+        tester
+            .widget<JevPlaygroundPage>(
+              find.byType(JevPlaygroundPage, skipOffstage: false),
+            )
+            .active,
+        isFalse,
+      );
+      await _tap(tester, find.text('通用 LLM'));
+      expect(_navigation('基准评测'), findsNothing);
+      await _tap(tester, find.text('JEV'));
+      expect(find.textContaining('400 题 / 200 对'), findsOneWidget);
+      await _tap(tester, _navigation('基础测试'));
+      expect(find.byType(JevPlaygroundPage), findsOneWidget);
       await _tap(tester, find.text('引擎'));
       expect(_navigation('发现模型'), findsOneWidget);
       expect(

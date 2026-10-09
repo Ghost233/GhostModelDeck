@@ -39,7 +39,7 @@ void main() {
     final shared = File('${formal.path}/Model-00001-of-00032.gguf');
     await shared.writeAsString('abc');
     final sharedModified = (await shared.stat()).modified;
-    late File removedTemporary;
+    File? removedTemporary;
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     addTearDown(() => server.close(force: true));
     server.listen((request) async {
@@ -87,8 +87,9 @@ void main() {
       ],
     );
     final package = ModelPackage.discover(repository).single;
-    final shutdownStarted = Completer<void>();
-    Future<void>? shutdown;
+    final installationPaused = Completer<void>();
+    final resumeInstallation = Completer<void>();
+    late final Future<void> shutdown;
     var activeAtExit = false;
     final changesFinished = Completer<void>();
     final changes = downloader.changes.listen(
@@ -97,28 +98,53 @@ void main() {
     );
     addTearDown(changes.cancel);
     final blocked = File('${formal.path}/Model-00003-of-00032.gguf');
-    final watch = formal.watch(events: FileSystemEvent.create).listen((event) {
-      if (event.path == blocked.path && !shutdownStarted.isCompleted) {
-        activeAtExit = downloader.state.isActive;
-        // Interference at the real FS boundary makes rollback's identity check
-        // fail. Other newly linked files must still be removed safely.
-        removedTemporary.deleteSync();
-        shutdown = manager.shutdown();
-        shutdown!.ignore();
-        shutdownStarted.complete();
-      }
-    });
-    addTearDown(watch.cancel);
-    final transfer = downloader
-        .downloadPackage(
-          selection: package.selectVariant(package.variants.single.id),
-          currentRepository: repository,
-          libraryDirectory: models,
-        )
-        .then<Object?>((_) => null, onError: (Object error) => error);
-    await shutdownStarted.future.timeout(const Duration(seconds: 5));
+    final nextTarget =
+        '${await formal.resolveSymbolicLinks()}/Model-00004-of-00032.gguf';
+    final filesystemZone = Zone.current;
+    final transfer = IOOverrides.runZoned(
+      () => downloader
+          .downloadPackage(
+            selection: package.selectVariant(package.variants.single.id),
+            currentRepository: repository,
+            libraryDirectory: models,
+          )
+          .then<Object?>((_) => null, onError: (Object error) => error),
+      fseGetType: (path, followLinks) async {
+        final type = await filesystemZone.run(
+          () => FileSystemEntity.type(path, followLinks: followLinks),
+        );
+        // Pause a real FS operation after the preceding hardlink exists.
+        // macOS creation notifications can arrive after staging is removed.
+        if (path == nextTarget &&
+            removedTemporary != null &&
+            !installationPaused.isCompleted &&
+            await filesystemZone.run(
+                  () => FileSystemEntity.type(blocked.path, followLinks: false),
+                ) ==
+                FileSystemEntityType.file) {
+          installationPaused.complete();
+          await resumeInstallation.future;
+        }
+        return type;
+      },
+    );
+    try {
+      await installationPaused.future.timeout(const Duration(seconds: 5));
+      activeAtExit = downloader.state.isActive;
+      final temporary = removedTemporary!;
+      expect(
+        await FileSystemEntity.identical(temporary.path, blocked.path),
+        isTrue,
+      );
+      // Break the real rollback identity check while staging is still owned.
+      temporary.deleteSync();
+      shutdown = manager.shutdown();
+      shutdown.ignore();
+    } finally {
+      resumeInstallation.complete();
+    }
     await expectLater(
-      shutdown!.timeout(const Duration(seconds: 5)),
+      shutdown.timeout(const Duration(seconds: 5)),
       throwsStateError,
     );
     expect(activeAtExit, isTrue);

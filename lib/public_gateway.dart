@@ -592,6 +592,7 @@ class PublicGatewayServer {
     DecisionCancellation cancellation,
   ) async {
     final parsed = await _readChat(request);
+    if (parsed == null) return;
     final target = _routes.resolve(parsed.model);
     if (parsed.stream) {
       unawaited(
@@ -606,18 +607,28 @@ class PublicGatewayServer {
     }
   }
 
-  Future<_ParsedChat> _readChat(HttpRequest request) async {
+  Future<_ParsedChat?> _readChat(HttpRequest request) async {
     final builder = BytesBuilder(copy: false);
-    await for (final chunk in request) {
-      builder.add(chunk);
-      if (builder.length > _bodyLimit) {
-        request.response.persistentConnection = false;
-        throw const PublicRequestException(
-          413,
-          'invalid_request_error',
-          '请求体超过 1MiB 上限',
-        );
+    final body = StreamIterator<List<int>>(request);
+    try {
+      while (await body.moveNext()) {
+        builder.add(body.current);
+        if (builder.length > _bodyLimit) {
+          request.response.persistentConnection = false;
+          // Cancelling an unread dart:io request destroys its socket. Finish
+          // the bounded rejection first so clients receive the actual 413.
+          _sendError(
+            request.response,
+            413,
+            'invalid_request_error',
+            '请求体超过 1MiB 上限',
+          );
+          await request.response.done;
+          return null;
+        }
       }
+    } finally {
+      await body.cancel();
     }
     final Object? decoded;
     try {

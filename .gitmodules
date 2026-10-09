@@ -1,0 +1,3 @@
+[submodule "benchmarks/sources/decidebench"]
+	path = benchmarks/sources/decidebench
+	url = https://github.com/choyiny/decidebench.git

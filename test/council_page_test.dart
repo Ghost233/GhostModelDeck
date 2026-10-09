@@ -10,6 +10,7 @@ import 'package:ghost_model_deck/council_page.dart';
 import 'package:ghost_model_deck/jev_playground_page.dart';
 
 import 'fixtures/playground_runtime.dart';
+import 'fixtures/test_environment.dart';
 
 void main() {
   testWidgets('委员会配置只保留创建编辑删除，配置操作不发起内部咨询', (tester) async {
@@ -79,10 +80,7 @@ void main() {
 
   const layoutFont = 'Council Noto CJK';
   setUpAll(() async {
-    final font = File(
-      Platform.environment['JEV_LAYOUT_FONT'] ??
-          '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
-    );
+    final font = layoutFontFile;
     expect(await font.exists(), isTrue, reason: 'Noto CJK font is required');
     final loader = FontLoader(layoutFont)
       ..addFont(Future.value(ByteData.sublistView(await font.readAsBytes())));
