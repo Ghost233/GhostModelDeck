@@ -8,6 +8,7 @@ import 'chat_protocol.dart';
 import 'decision_protocol.dart';
 import 'engine_runtime.dart';
 import 'jev_models.dart';
+import 'jev_debug.dart';
 import 'llama_engine.dart';
 import 'model_library.dart';
 import 'omlx_engine.dart';
@@ -526,19 +527,64 @@ class PublicGatewayServer {
     final parsed = JevModelRequest.parse(
       jsonDecode(utf8.decode(bytes.takeBytes())),
     );
-    unawaited(
-      request.response.done.then(
-        (_) => cancellation.cancel(),
-        onError: (Object _) => cancellation.cancel(),
-      ),
+    await _jsonConnection(request, cancellation, () async {
+      final result = await jevModels!.decide(
+        parsed.model,
+        parsed.request,
+        cancellation: cancellation,
+        debug: parsed.debug,
+      );
+      return (200, result);
+    });
+  }
+
+  /// Own the accepted non-streaming connection while inference is pending.
+  /// HttpResponse.done otherwise observes a disconnect only after a write;
+  /// detaching lets an ordinary client's socket close cancel without sending
+  /// early success headers or requiring an in-process cancellation handle.
+  Future<void> _jsonConnection(
+    HttpRequest request,
+    DecisionCancellation cancellation,
+    Future<(int, Object)> Function() operation,
+  ) async {
+    final socket = await request.response.detachSocket(writeHeaders: false);
+    var peerClosed = false;
+    void disconnected() {
+      peerClosed = true;
+      cancellation.cancel();
+    }
+
+    final subscription = socket.listen(
+      (_) {},
+      onDone: disconnected,
+      onError: (Object _) => disconnected(),
     );
-    final result = await jevModels!.decide(
-      parsed.model,
-      parsed.request,
-      cancellation: cancellation,
-      debug: parsed.debug,
-    );
-    _sendJson(request.response, 200, result);
+    try {
+      late (int, Object) reply;
+      try {
+        reply = await operation();
+      } on JevRequestException catch (error) {
+        reply = (error.statusCode, error.toJson());
+      }
+      if (!peerClosed) {
+        final bytes = utf8.encode(jsonEncode(reply.$2));
+        socket.add(
+          ascii.encode(
+            'HTTP/1.1 ${reply.$1} Response\r\n'
+            'Content-Type: application/json; charset=utf-8\r\n'
+            'Content-Length: ${bytes.length}\r\n'
+            'Connection: close\r\n\r\n',
+          ),
+        );
+        socket.add(bytes);
+        await socket.flush();
+      }
+    } on SocketException {
+      cancellation.cancel();
+    } finally {
+      await subscription.cancel();
+      socket.destroy();
+    }
   }
 
   Future<void> _chat(
@@ -547,15 +593,13 @@ class PublicGatewayServer {
   ) async {
     final parsed = await _readChat(request);
     final target = _routes.resolve(parsed.model);
-    // An idle client disconnect cancels the upstream request. Cancellation
-    // after a normal close is a no-op.
-    unawaited(
-      request.response.done.then(
-        (_) => cancellation.cancel(),
-        onError: (Object _) => cancellation.cancel(),
-      ),
-    );
     if (parsed.stream) {
+      unawaited(
+        request.response.done.then(
+          (_) => cancellation.cancel(),
+          onError: (Object _) => cancellation.cancel(),
+        ),
+      );
       await _chatStream(request, parsed, target, cancellation);
     } else {
       await _chatOnce(request, parsed, target, cancellation);
@@ -722,31 +766,36 @@ class PublicGatewayServer {
     PublicRouteTarget target,
     DecisionCancellation cancellation,
   ) async {
-    try {
-      final result = await target.runtime.generateText(
-        target.instance.id,
-        parsed.request,
-        cancellation: cancellation,
-      );
-      _sendJson(request.response, 200, {
-        'id': _nextCompletionId(),
-        'object': 'chat.completion',
-        'created': _nowSeconds(),
-        'model': target.publicId,
-        'choices': [
-          {
-            'index': 0,
-            'message': {'role': 'assistant', 'content': result.text},
-            'finish_reason': result.finishReason,
-          },
-        ],
-        'usage': result.usage,
-      });
-    } on LlamaRequestException catch (error) {
-      _sendUpstreamError(request.response, error.kind.name);
-    } on OmlxRequestException catch (error) {
-      _sendUpstreamError(request.response, error.kind.name);
-    }
+    await _jsonConnection(request, cancellation, () async {
+      try {
+        final result = await target.runtime.generateText(
+          target.instance.id,
+          parsed.request,
+          cancellation: cancellation,
+        );
+        return (
+          200,
+          sealDebugJson({
+            'id': _nextCompletionId(),
+            'object': 'chat.completion',
+            'created': _nowSeconds(),
+            'model': target.publicId,
+            'choices': [
+              {
+                'index': 0,
+                'message': {'role': 'assistant', 'content': result.text},
+                'finish_reason': result.finishReason,
+              },
+            ],
+            'usage': result.usage,
+          }, projection: JevDebugProjection.llmResponse),
+        );
+      } on LlamaRequestException catch (error) {
+        return _upstreamError(error.kind.name);
+      } on OmlxRequestException catch (error) {
+        return _upstreamError(error.kind.name);
+      }
+    });
   }
 
   Future<void> _chatStream(
@@ -852,14 +901,14 @@ class PublicGatewayServer {
       ..headers.contentType = ContentType('text', 'event-stream')
       ..bufferOutput = false;
     response.write(
-      'data: ${jsonEncode({
+      'data: ${jsonEncode(sealDebugJson({
         'id': _nextCompletionId(),
         'object': 'chat.completion.chunk',
         'created': _nowSeconds(),
         'model': publicId,
         'choices': [choice],
         'usage': ?usage,
-      })}\n\n',
+      }, projection: JevDebugProjection.llmResponse))}\n\n',
     );
   }
 
@@ -871,29 +920,35 @@ class PublicGatewayServer {
   }) {
     // Headers are only mutable before the first frame commits them.
     response.write(
-      'data: ${jsonEncode({
+      'data: ${jsonEncode(sealDebugJson({
         'id': _nextCompletionId(),
         'object': 'chat.completion.chunk',
         'created': _nowSeconds(),
         'model': publicId,
         'choices': [choice],
         'usage': ?usage,
-      })}\n\n',
+      }, projection: JevDebugProjection.llmResponse))}\n\n',
+    );
+  }
+
+  (int, Map<String, Object?>) _upstreamError(String kind) {
+    final (status, type, message) = switch (kind) {
+      'notReady' => (503, 'model_not_ready', '模型实例未就绪'),
+      'cancelled' => (499, 'cancelled', '请求已取消'),
+      'timedOut' || 'timeout' => (504, 'upstream_timeout', '上游生成超时'),
+      _ => (502, 'upstream_error', '上游引擎请求失败'),
+    };
+    return (
+      status,
+      {
+        'error': {'message': message, 'type': type},
+      },
     );
   }
 
   void _sendUpstreamError(HttpResponse response, String kind) {
-    switch (kind) {
-      case 'notReady':
-        _sendError(response, 503, 'model_not_ready', '模型实例未就绪');
-      case 'cancelled':
-        _sendError(response, 499, 'cancelled', '请求已取消');
-      case 'timedOut':
-      case 'timeout':
-        _sendError(response, 504, 'upstream_timeout', '上游生成超时');
-      default:
-        _sendError(response, 502, 'upstream_error', '上游引擎请求失败');
-    }
+    final (status, body) = _upstreamError(kind);
+    _sendJson(response, status, body);
   }
 
   String _nextCompletionId() => 'chatcmpl-gmd-${++_requestCounter}';

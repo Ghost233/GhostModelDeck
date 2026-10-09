@@ -476,6 +476,39 @@ void main() {
       expect(listed.body, isNot(contains(fixture.instanceId)));
     });
 
+    test('ordinary public chat protects credential metadata while retaining actual usage', () async {
+      final fixture = await _GatewayFixture.create();
+      addTearDown(fixture.close);
+      await fixture.enableReady();
+      fixture.io.textUsage = {
+        'prompt_tokens': 4,
+        'completion_tokens': 2,
+        'total_tokens': 6,
+        'prompt_tokens_details': {'cached_tokens': 3},
+        'api_key': 'upstream-private-credential',
+      };
+      final response = await _post(
+        '${fixture.gateway.baseUrl}/v1/chat/completions',
+        {
+          'model': 'gmd-${fixture.asset.id}',
+          'messages': [
+            {'role': 'user', 'content': 'Say hello'},
+          ],
+        },
+      );
+      expect(response.status, 200);
+      expect(response.body, isNot(contains('upstream-private-credential')));
+      final body = jsonDecode(response.body) as Map;
+      expect(body['choices'].single['message']['content'], 'Hello.');
+      expect(body['usage'], {
+        'prompt_tokens': 4,
+        'completion_tokens': 2,
+        'total_tokens': 6,
+        'prompt_tokens_details': {'cached_tokens': 3},
+        'api_key': '[redacted]',
+      });
+    });
+
     test('non-stream chat completion passes real messages through and binds the public ID', () async {
       final fixture = await _GatewayFixture.create();
       addTearDown(fixture.close);
@@ -526,6 +559,76 @@ void main() {
       expect(upstream['temperature'], 0.5);
       expect(upstream['top_p'], 0.8);
       expect(upstream['stream'], false);
+    });
+
+    test('ordinary public SSE protects credential metadata and preserves task text', () async {
+      final fixture = await _GatewayFixture.create();
+      addTearDown(fixture.close);
+      await fixture.enableReady();
+      fixture.io.streamResponse = (response, alias, body) async {
+        for (final frame in [
+          {
+            'model': alias,
+            'choices': [
+              {
+                'index': 0,
+                'delta': {
+                  'role': 'assistant',
+                  'content': 'Authorization: allow',
+                },
+                'finish_reason': null,
+              },
+            ],
+          },
+          {
+            'model': alias,
+            'choices': [
+              {
+                'index': 0,
+                'delta': <String, Object?>{},
+                'finish_reason': 'stop',
+              },
+            ],
+            'usage': {
+              'prompt_tokens': 4,
+              'completion_tokens': 2,
+              'total_tokens': 6,
+              'api_key': 'upstream-sse-private',
+            },
+          },
+        ]) {
+          response.write('data: ${jsonEncode(frame)}\n\n');
+          await response.flush();
+        }
+        response.write('data: [DONE]\n\n');
+      };
+      final client = _SseClient();
+      addTearDown(client.destroy);
+      expect(
+        await client.open('${fixture.gateway.baseUrl}/v1/chat/completions', {
+          'model': 'gmd-${fixture.asset.id}',
+          'messages': [
+            {'role': 'user', 'content': 'Say hello'},
+          ],
+          'stream': true,
+        }),
+        200,
+      );
+      final raw = await client.body();
+      expect(raw, contains('Authorization: allow'));
+      expect(raw, contains('data: [DONE]'));
+      expect(raw, isNot(contains('upstream-sse-private')));
+      final frames = raw
+          .split('\n\n')
+          .where((frame) => frame.startsWith('data: {'))
+          .map((frame) => jsonDecode(frame.substring(6)) as Map)
+          .toList();
+      expect(frames.last['usage'], {
+        'prompt_tokens': 4,
+        'completion_tokens': 2,
+        'total_tokens': 6,
+        'api_key': '[redacted]',
+      });
     });
 
     test('SSE chat preserves framing, usage, finish reason and DONE with public ID parity', () async {

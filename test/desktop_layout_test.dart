@@ -106,10 +106,17 @@ void main() {
           );
           await _settleIo(tester);
         });
+        Object? primaryError;
+        StackTrace? primaryStack;
+        final cleanupErrors = <(Object, StackTrace)>[];
         try {
           _expectVisible(tester, find.text('Ghost Model Deck'));
           _expectVisible(tester, find.text('设置'));
-          await tester.ensureVisible(find.text('MCP'));
+          await tester.scrollUntilVisible(
+            find.text('MCP'),
+            120,
+            scrollable: find.byType(Scrollable).first,
+          );
           await tester.pumpAndSettle();
           _expectVisible(tester, find.text('MCP'));
           expect(
@@ -137,14 +144,46 @@ void main() {
           await tester.sendKeyEvent(LogicalKeyboardKey.enter);
           await tester.pumpAndSettle();
           expect(find.byType(McpPage), findsOneWidget);
+        } catch (error, stack) {
+          primaryError = error;
+          primaryStack = stack;
         } finally {
-          if (find.byType(McpPage).evaluate().isEmpty) {
-            await tester.tap(find.text('MCP').first);
-            await tester.pump();
+          try {
+            if (find.byType(McpPage).evaluate().isEmpty) {
+              await tester.scrollUntilVisible(
+                find.text('MCP'),
+                120,
+                scrollable: find.byType(Scrollable).first,
+              );
+              await tester.pumpAndSettle();
+              await tester.tap(find.text('MCP').first);
+              await tester.pump();
+            }
+            final server = tester.widget<McpPage>(find.byType(McpPage)).server;
+            await tester.runAsync(server.stop);
+          } catch (error, stack) {
+            cleanupErrors.add((error, stack));
           }
-          final server = tester.widget<McpPage>(find.byType(McpPage)).server;
-          await tester.runAsync(server.stop);
-          await tester.pumpWidget(const SizedBox.shrink());
+          try {
+            await tester.pumpWidget(const SizedBox.shrink());
+          } catch (error, stack) {
+            cleanupErrors.add((error, stack));
+          }
+        }
+        if (primaryError != null) {
+          for (final cleanup in cleanupErrors) {
+            stderr.writeln('Layout cleanup also failed: ${cleanup.$1}');
+          }
+          Error.throwWithStackTrace(primaryError, primaryStack!);
+        }
+        if (cleanupErrors.isNotEmpty) {
+          for (final cleanup in cleanupErrors.skip(1)) {
+            stderr.writeln('Additional layout cleanup failure: ${cleanup.$1}');
+          }
+          Error.throwWithStackTrace(
+            cleanupErrors.first.$1,
+            cleanupErrors.first.$2,
+          );
         }
         expect(tester.takeException(), isNull);
       },
