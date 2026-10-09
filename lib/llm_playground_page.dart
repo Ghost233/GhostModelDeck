@@ -206,54 +206,66 @@ class _LlmPlaygroundPageState extends State<LlmPlaygroundPage> {
 
   Future<void> _export() async {
     if (_exporting) return;
-    final document = _json.text;
-    final result = _result;
-    final timeout = _deadline ?? const Duration(seconds: 120);
-    var path = '';
-    final destination = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('导出基础测试 JSON'),
-        content: SizedBox(
-          width: 480,
-          child: TextField(
-            key: const Key('llm-export-path'),
-            onChanged: (value) => path = value,
-            autofocus: true,
-            decoration: const InputDecoration(
-              labelText: '文件完整绝对路径',
-              helperText: '已有文件不会覆盖',
+    setState(() => _exporting = true);
+    try {
+      final document = _json.text;
+      final result = _result;
+      final timeout = _deadline ?? const Duration(seconds: 120);
+      var path = '';
+      var dialogCompleted = false;
+      void finishDialog(BuildContext dialogContext, [String? destination]) {
+        if (dialogCompleted ||
+            ModalRoute.of(dialogContext)?.isCurrent != true) {
+          return;
+        }
+        dialogCompleted = true;
+        Navigator.pop(dialogContext, destination);
+      }
+
+      final destination = await showDialog<String>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('导出基础测试 JSON'),
+          content: SizedBox(
+            width: 480,
+            child: TextField(
+              key: const Key('llm-export-path'),
+              onChanged: (value) => path = value,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: '文件完整绝对路径',
+                helperText: '已有文件不会覆盖',
+              ),
             ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => finishDialog(context),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              key: const Key('llm-export-confirm'),
+              onPressed: () => finishDialog(context, path),
+              child: const Text('导出'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            key: const Key('llm-export-confirm'),
-            onPressed: () => Navigator.pop(context, path),
-            child: const Text('导出'),
-          ),
-        ],
-      ),
-    );
-    if (destination == null || destination.isEmpty || !mounted) return;
-    setState(() {
-      _exporting = true;
-      _exportMessage = null;
-    });
-    try {
-      await _playground.exportTo(
-        File(destination),
-        document: document,
-        result: result,
-        timeout: timeout,
       );
-      if (mounted) setState(() => _exportMessage = '已导出：$destination');
-    } catch (error) {
-      if (mounted) setState(() => _exportMessage = '导出失败：$error');
+      if (destination == null || destination.isEmpty || !mounted) return;
+      setState(() {
+        _exportMessage = null;
+      });
+      try {
+        await _playground.exportTo(
+          File(destination),
+          document: document,
+          result: result,
+          timeout: timeout,
+        );
+        if (mounted) setState(() => _exportMessage = '已导出：$destination');
+      } catch (error) {
+        if (mounted) setState(() => _exportMessage = '导出失败：$error');
+      }
     } finally {
       if (mounted) setState(() => _exporting = false);
     }

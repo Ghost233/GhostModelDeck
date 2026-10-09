@@ -16,6 +16,137 @@ import 'llm_playground_test.dart'
         DiscoveryRouting;
 
 void main() {
+  for (final action in ['cancel', 'confirm', 'open']) {
+    testWidgets(
+      'LLM rapid export dialog $action preserves the page and actual result',
+      (tester) async {
+        final semantics = tester.ensureSemantics();
+        try {
+          final fixture = (await tester.runAsync(
+            () => HttpOverrides.runWithHttpOverrides(
+              LlmTestRuntime.create,
+              _Network(),
+            ),
+          ))!;
+          addTearDown(() async {
+            await tester.pumpWidget(const SizedBox.shrink());
+            await tester.runAsync(fixture.close);
+          });
+          tester.view.physicalSize = const Size(1000, 1200);
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
+          final observer = _ExportRouteObserver();
+          final screen = MaterialApp(
+            navigatorObservers: [observer],
+            home: Scaffold(body: LlmPlaygroundPage(gateway: fixture.gateway)),
+          );
+          await networkAction(tester, () async {
+            await tester.pumpWidget(screen);
+            await waitForWidget(tester, find.byKey(const Key('llm-discovery')));
+          });
+          await tester.ensureVisible(find.byKey(const Key('llm-json-mode')));
+          await tester.tap(find.byKey(const Key('llm-json-mode')));
+          await tester.pump();
+          final document = llmDocument(fixture.publicId);
+          await tester.enterText(
+            find.byKey(const Key('llm-json')),
+            jsonEncode(document),
+          );
+          await tester.ensureVisible(find.byKey(const Key('llm-run')));
+          await tester.pumpAndSettle();
+          await networkAction(tester, () async {
+            await tester.tap(find.byKey(const Key('llm-run')));
+            await waitForWidget(tester, find.byKey(const Key('llm-completed')));
+          });
+          await tester.pumpAndSettle();
+          final originalResult = tester
+              .widget<SelectableText>(find.byKey(const Key('llm-result')))
+              .data;
+          await tester.ensureVisible(find.byKey(const Key('llm-export')));
+          await tester.pumpAndSettle();
+          tester.semantics.tap(find.semantics.byLabel('导出 JSON'));
+          if (action == 'open') {
+            // Native accessibility may deliver two activations before a frame.
+            tester.semantics.tap(find.semantics.byLabel('导出 JSON'));
+          }
+          await tester.pumpAndSettle();
+          expect(find.byType(AlertDialog, skipOffstage: false), findsOneWidget);
+          final destination = File('${fixture.root.path}/rapid-dialog.json');
+          if (action == 'confirm') {
+            await tester.enterText(
+              find.byKey(const Key('llm-export-path')),
+              destination.path,
+            );
+          }
+          await tester.runAsync(() async {
+            final dismiss = find.semantics.byLabel(
+              action == 'confirm' ? '导出' : '取消',
+            );
+            tester.semantics.tap(dismiss);
+            if (action != 'open') {
+              tester.semantics.tap(dismiss);
+            }
+          });
+          await tester.pumpAndSettle();
+          expect(
+            observer.popped.length,
+            1,
+            reason: 'Only the export dialog route may close once.',
+          );
+          expect(find.byType(AlertDialog), findsNothing);
+          expect(find.byType(LlmPlaygroundPage), findsOneWidget);
+          expect(
+            tester
+                .widget<TextField>(find.byKey(const Key('llm-json')))
+                .controller!
+                .text,
+            jsonEncode(document),
+          );
+          expect(
+            tester
+                .widget<SelectableText>(find.byKey(const Key('llm-result')))
+                .data,
+            originalResult,
+          );
+          expect(tester.takeException(), isNull);
+          if (action == 'confirm') {
+            await tester.runAsync(() async {
+              final until = DateTime.now().add(const Duration(seconds: 5));
+              while (find
+                  .byKey(const Key('llm-export-message'))
+                  .evaluate()
+                  .isEmpty) {
+                if (DateTime.now().isAfter(until)) {
+                  fail('Export write did not complete');
+                }
+                await Future<void>.delayed(const Duration(milliseconds: 10));
+                await tester.pump();
+              }
+            });
+            final saved = (await tester.runAsync(destination.readAsString))!;
+            expect(jsonDecode(saved)['request'], document);
+          }
+          // Cancellation must release the dialog lock for a later deliberate open.
+          await tester.ensureVisible(find.byKey(const Key('llm-export')));
+          await tester.tap(find.byKey(const Key('llm-export')));
+          await tester.pumpAndSettle();
+          expect(find.byType(AlertDialog, skipOffstage: false), findsOneWidget);
+          await tester.tap(
+            find.descendant(
+              of: find.byType(AlertDialog),
+              matching: find.text('取消'),
+            ),
+          );
+          await tester.pumpAndSettle();
+          expect(observer.popped.length, 2);
+          expect(find.byType(LlmPlaygroundPage), findsOneWidget);
+        } finally {
+          semantics.dispose();
+        }
+      },
+    );
+  }
   testWidgets('替代发现和离页销毁释放挂起公开GET，旧响应不能写回当前模型列表', (tester) async {
     final fixture = (await tester.runAsync(
       () =>
@@ -454,4 +585,13 @@ Future<void> tapVisible(WidgetTester tester, Finder finder) async {
   await tester.pumpAndSettle();
   await tester.tap(finder);
   await tester.pump();
+}
+
+class _ExportRouteObserver extends NavigatorObserver {
+  final popped = <Route<dynamic>>[];
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    popped.add(route);
+    super.didPop(route, previousRoute);
+  }
 }

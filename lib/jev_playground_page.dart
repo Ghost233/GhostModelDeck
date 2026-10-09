@@ -263,48 +263,61 @@ class _JevPlaygroundPageState extends State<JevPlaygroundPage> {
   }
 
   Future<void> _export() async {
-    var path = '';
-    final destination = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('导出本次测试 JSON'),
-        content: TextField(
-          key: const Key('playground-export-path'),
-          onChanged: (value) => path = value,
-          decoration: const InputDecoration(
-            labelText: '完整文件路径',
-            helperText: '保存到新文件；已有文件不会覆盖。',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            key: const Key('playground-export-save'),
-            onPressed: () => Navigator.pop(context, path.trim()),
-            child: const Text('保存'),
-          ),
-        ],
-      ),
-    );
-    if (destination == null || !mounted) return;
-    setState(() {
-      _exporting = true;
-      _exportStatus = null;
-    });
+    if (_exporting) return;
+    setState(() => _exporting = true);
     try {
-      await _playground.exportTo(
-        File(destination),
-        document: _json.text,
-        result: _result,
-        mode: _mode,
-        timeout: _clientDeadline ?? const Duration(seconds: 30),
+      var path = '';
+      var dialogCompleted = false;
+      void finishDialog(BuildContext dialogContext, [String? destination]) {
+        if (dialogCompleted ||
+            ModalRoute.of(dialogContext)?.isCurrent != true) {
+          return;
+        }
+        dialogCompleted = true;
+        Navigator.pop(dialogContext, destination);
+      }
+
+      final destination = await showDialog<String>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('导出本次测试 JSON'),
+          content: TextField(
+            key: const Key('playground-export-path'),
+            onChanged: (value) => path = value,
+            decoration: const InputDecoration(
+              labelText: '完整文件路径',
+              helperText: '保存到新文件；已有文件不会覆盖。',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => finishDialog(context),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              key: const Key('playground-export-save'),
+              onPressed: () => finishDialog(context, path.trim()),
+              child: const Text('保存'),
+            ),
+          ],
+        ),
       );
-      if (mounted) setState(() => _exportStatus = '已导出：$destination');
-    } catch (error) {
-      if (mounted) setState(() => _exportStatus = '导出失败：$error');
+      if (destination == null || !mounted) return;
+      setState(() {
+        _exportStatus = null;
+      });
+      try {
+        await _playground.exportTo(
+          File(destination),
+          document: _json.text,
+          result: _result,
+          mode: _mode,
+          timeout: _clientDeadline ?? const Duration(seconds: 30),
+        );
+        if (mounted) setState(() => _exportStatus = '已导出：$destination');
+      } catch (error) {
+        if (mounted) setState(() => _exportStatus = '导出失败：$error');
+      }
     } finally {
       if (mounted) setState(() => _exporting = false);
     }

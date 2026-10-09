@@ -21,6 +21,169 @@ void main() {
     HttpOverrides.global = _Network();
     addTearDown(() => HttpOverrides.global = previous);
   });
+  for (final action in ['cancel', 'confirm', 'open']) {
+    testWidgets(
+      'JEV rapid export dialog $action preserves the page and actual result',
+      (tester) async {
+        final semantics = tester.ensureSemantics();
+        try {
+          final fixture = (await tester.runAsync(
+            () => HttpOverrides.runWithHttpOverrides(
+              PlaygroundRuntime.create,
+              _Network(),
+            ),
+          ))!;
+          addTearDown(() async {
+            await tester.pumpWidget(const SizedBox.shrink());
+            await tester.runAsync(fixture.close);
+          });
+          tester.view.physicalSize = const Size(1000, 1200);
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
+          final observer = _ExportRouteObserver();
+          final screen = MaterialApp(
+            navigatorObservers: [observer],
+            home: Scaffold(
+              body: JevPlaygroundPage(
+                gateway: fixture.gateway,
+                mcp: fixture.mcp,
+              ),
+            ),
+          );
+          await tester.pumpWidget(screen);
+          await _discoverPublicModels(tester);
+          await tester.ensureVisible(
+            find.byKey(const Key('playground-json-mode')),
+          );
+          await tester.tap(find.byKey(const Key('playground-json-mode')));
+          await tester.pump();
+          final document = playgroundDocument(
+            'quick',
+            state: 'retained dialog input',
+          );
+          await tester.enterText(
+            find.byKey(const Key('playground-json')),
+            jsonEncode(document),
+          );
+          await tester.ensureVisible(
+            find.byKey(const Key('playground-submit')),
+          );
+          await tester.pumpAndSettle();
+          await tester.runAsync(
+            () => HttpOverrides.runWithHttpOverrides(() async {
+              await tester.tap(find.byKey(const Key('playground-submit')));
+              final until = DateTime.now().add(const Duration(seconds: 5));
+              while (find
+                  .byKey(const Key('playground-output'))
+                  .evaluate()
+                  .isEmpty) {
+                if (DateTime.now().isAfter(until)) {
+                  fail('Actual public dialog input request did not complete');
+                }
+                await Future<void>.delayed(const Duration(milliseconds: 10));
+                await tester.pump();
+              }
+            }, _Network()),
+          );
+          await tester.pumpAndSettle();
+          final originalResult = tester
+              .widget<SelectableText>(
+                find.byKey(const Key('playground-output')),
+              )
+              .data;
+          await tester.ensureVisible(
+            find.byKey(const Key('playground-export')),
+          );
+          await tester.pumpAndSettle();
+          tester.semantics.tap(find.semantics.byLabel('导出 JSON'));
+          if (action == 'open') {
+            // Native accessibility may deliver two activations before a frame.
+            tester.semantics.tap(find.semantics.byLabel('导出 JSON'));
+          }
+          await tester.pumpAndSettle();
+          expect(find.byType(AlertDialog, skipOffstage: false), findsOneWidget);
+          final destination = File(
+            '${fixture.runtime.root.path}/rapid-dialog.json',
+          );
+          if (action == 'confirm') {
+            await tester.enterText(
+              find.byKey(const Key('playground-export-path')),
+              destination.path,
+            );
+          }
+          await tester.runAsync(() async {
+            final dismiss = find.semantics.byLabel(
+              action == 'confirm' ? '保存' : '取消',
+            );
+            tester.semantics.tap(dismiss);
+            if (action != 'open') {
+              tester.semantics.tap(dismiss);
+            }
+          });
+          await tester.pumpAndSettle();
+          expect(
+            observer.popped.length,
+            1,
+            reason: 'Only the export dialog route may close once.',
+          );
+          expect(find.byType(AlertDialog), findsNothing);
+          expect(find.byType(JevPlaygroundPage), findsOneWidget);
+          expect(
+            tester
+                .widget<TextField>(find.byKey(const Key('playground-json')))
+                .controller!
+                .text,
+            jsonEncode(document),
+          );
+          expect(
+            tester
+                .widget<SelectableText>(
+                  find.byKey(const Key('playground-output')),
+                )
+                .data,
+            originalResult,
+          );
+          expect(tester.takeException(), isNull);
+          if (action == 'confirm') {
+            await tester.runAsync(() async {
+              final until = DateTime.now().add(const Duration(seconds: 5));
+              while (find
+                  .byKey(const Key('playground-export-status'))
+                  .evaluate()
+                  .isEmpty) {
+                if (DateTime.now().isAfter(until)) {
+                  fail('Export write did not complete');
+                }
+                await Future<void>.delayed(const Duration(milliseconds: 10));
+                await tester.pump();
+              }
+            });
+            final saved = (await tester.runAsync(destination.readAsString))!;
+            expect(jsonDecode(saved)['request'], document);
+          }
+          // Cancellation must release the dialog lock for a later deliberate open.
+          await tester.ensureVisible(
+            find.byKey(const Key('playground-export')),
+          );
+          await tester.tap(find.byKey(const Key('playground-export')));
+          await tester.pumpAndSettle();
+          expect(find.byType(AlertDialog, skipOffstage: false), findsOneWidget);
+          await tester.tap(
+            find.descendant(
+              of: find.byType(AlertDialog),
+              matching: find.text('取消'),
+            ),
+          );
+          await tester.pumpAndSettle();
+          expect(observer.popped.length, 2);
+          expect(find.byType(JevPlaygroundPage), findsOneWidget);
+        } finally {
+          semantics.dispose();
+        }
+      },
+    );
+  }
   testWidgets(
     'the form adds all three JEV primitives and submits a public mixed batch',
     (tester) async {
@@ -1351,3 +1514,12 @@ Future<void> _discoverPublicModels(WidgetTester tester) async {
 }
 
 class _Network extends HttpOverrides {}
+
+class _ExportRouteObserver extends NavigatorObserver {
+  final popped = <Route<dynamic>>[];
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    popped.add(route);
+    super.didPop(route, previousRoute);
+  }
+}

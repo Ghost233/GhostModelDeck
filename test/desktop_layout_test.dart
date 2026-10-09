@@ -121,7 +121,7 @@ void main() {
           _expectVisible(tester, find.text('MCP'));
           expect(
             find.ancestor(
-              of: find.text('委员会'),
+              of: find.text('委员会配置'),
               matching: find.byType(Scrollable),
             ),
             findsOneWidget,
@@ -395,55 +395,42 @@ void main() {
             }
             if (page == 'council') {
               await _capture(tester, '$page-actions-$mode');
+              expect(find.text('咨询'), findsNothing);
+              expect(find.byKey(const Key('council-context')), findsNothing);
               await tester.ensureVisible(
-                find.byKey(const Key('council-model')),
+                find.byKey(const Key('edit-model-layout-council')),
               );
-              await tester.tap(find.byKey(const Key('council-model')));
+              await tester.tap(
+                find.byKey(const Key('edit-model-layout-council')),
+              );
               await tester.pumpAndSettle();
-              await tester.tap(find.text('layout-council').last);
-              await tester.pumpAndSettle();
-              await tester.enterText(
-                find.byKey(const Key('council-id-1')),
-                'accept',
+              _expectVisible(tester, find.byKey(const Key('jev-model-name')));
+              expect(
+                tester
+                    .widget<TextField>(find.byKey(const Key('jev-model-name')))
+                    .controller!
+                    .text,
+                'layout-council',
               );
               await tester.enterText(
-                find.byKey(const Key('council-id-2')),
-                'reject',
+                find.byKey(const Key('jev-model-name')),
+                'layout-edited-council',
               );
-              await tester.enterText(
-                find.byKey(const Key('council-option-1')),
-                '接受',
-              );
-              await tester.enterText(
-                find.byKey(const Key('council-option-2')),
-                '拒绝',
-              );
-              await tester.pump();
-              await tester.ensureVisible(_action('咨询'));
               await tester.runAsync(
                 () => HttpOverrides.runWithHttpOverrides(() async {
-                  final complete = fixture.council.changes.firstWhere(
-                    (s) => s.lastBatchResult != null && !s.busy,
-                  );
-                  await tester.tap(_action('咨询'));
-                  await complete.timeout(const Duration(seconds: 5));
-                  await Future<void>.delayed(Duration.zero);
+                  await tester.tap(find.text('保存'));
+                  await _settleIo(tester);
                 }, _NetworkBoundary()),
               );
               await tester.pumpAndSettle();
-              final value = jsonDecode(
-                tester
-                    .widget<SelectableText>(
-                      find.byKey(const Key('jev-standard-output')),
-                    )
-                    .data!,
-              ) as Map;
-              expect(value.keys, ['model', 'answers', 'usage']);
-              expect(value['model'], 'layout-council');
-              await tester.ensureVisible(find.text('标准 JEV 结果'));
+              expect(
+                find.byKey(const Key('edit-model-layout-edited-council')),
+                findsOneWidget,
+              );
+              await tester.ensureVisible(find.text('委员会配置'));
               await tester.pumpAndSettle();
-              _expectVisible(tester, find.text('标准 JEV 结果'));
-              await _capture(tester, '$page-result-$mode');
+              _expectVisible(tester, find.text('委员会配置'));
+              await _capture(tester, '$page-configuration-$mode');
             }
           }
           expect(tester.takeException(), isNull);
@@ -750,7 +737,7 @@ class _LayoutFixture {
       find.byType(DropdownButton<DownloadSource>),
       _action('选择目录'),
     ],
-    'council' => [_action('模型库'), _action('咨询')],
+    'council' => [_action('模型库'), _action('创建模型')],
     'mcp' => [_action('停止'), _action('复制 Codex 配置')],
     _ => [],
   };
