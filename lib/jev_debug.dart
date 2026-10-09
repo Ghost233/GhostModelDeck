@@ -54,6 +54,9 @@ enum JevDebugProjection {
   debug,
   playgroundResult,
   discovery,
+  llmRequest,
+  llmResponse,
+  llmEvidence,
 }
 
 /// Redacts display copies only; actual engine input remains intact.
@@ -68,6 +71,9 @@ Map<String, Object?> sealDebugJson(
     JevDebugProjection.debug => _JevProjection.debug,
     JevDebugProjection.playgroundResult => _JevProjection.playgroundResult,
     JevDebugProjection.discovery => _JevProjection.discovery,
+    JevDebugProjection.llmRequest => _JevProjection.llmRequest,
+    JevDebugProjection.llmResponse => _JevProjection.llmResponse,
+    JevDebugProjection.llmEvidence => _JevProjection.llmEvidence,
   };
   final redactor = _CredentialRedactor()..collect(value, context: context);
   return freezeDebugJson(redactor.redact(value, context: context))
@@ -93,6 +99,12 @@ enum _JevProjection {
   answer,
   aggregates,
   aggregate,
+  llmRequest,
+  llmResponse,
+  llmEvidence,
+  llmMessage,
+  llmChoice,
+  llmDelta,
 }
 
 class _CredentialRedactor {
@@ -132,8 +144,26 @@ class _CredentialRedactor {
           _JevProjection.request,
           _JevProjection.response,
           _JevProjection.debug,
+          _JevProjection.llmRequest,
+          _JevProjection.llmResponse,
         }.contains(context) &&
         key == 'model' &&
+        parent[key] is String) {
+      return true;
+    }
+    if (key == 'content' &&
+        parent[key] is String &&
+        (context == _JevProjection.llmMessage &&
+                const {
+                  'system',
+                  'user',
+                  'assistant',
+                }.contains(parent['role']) ||
+            context == _JevProjection.llmDelta)) {
+      return true;
+    }
+    if (context == _JevProjection.llmEvidence &&
+        key == 'text' &&
         parent[key] is String) {
       return true;
     }
@@ -201,6 +231,23 @@ class _CredentialRedactor {
     String key,
     _JevProjection context,
   ) => switch (context) {
+    _JevProjection.llmEvidence => switch (key) {
+      'input' || 'request' || 'request_body' => _JevProjection.llmRequest,
+      'response' || 'raw_response' => _JevProjection.llmResponse,
+      'result' => _JevProjection.llmEvidence,
+      _ => _JevProjection.none,
+    },
+    _JevProjection.llmRequest =>
+      key == 'messages' ? _JevProjection.llmMessage : _JevProjection.none,
+    _JevProjection.llmResponse =>
+      key == 'choices' && parent['model'] is String
+          ? _JevProjection.llmChoice
+          : _JevProjection.none,
+    _JevProjection.llmChoice => switch (key) {
+      'message' => _JevProjection.llmMessage,
+      'delta' => _JevProjection.llmDelta,
+      _ => _JevProjection.none,
+    },
     _JevProjection.discovery => switch (key) {
       'instances' => _JevProjection.nativeDiscovery,
       'data' => _JevProjection.modelDiscovery,
@@ -290,6 +337,33 @@ class _CredentialRedactor {
         }
       } on FormatException {
         // Malformed raw JSON and error text remain credential-bearing evidence.
+      }
+      if (context == _JevProjection.llmResponse &&
+          const LineSplitter()
+              .convert(value)
+              .any((line) => line.startsWith('data:'))) {
+        // Observe each SSE payload with its response role. Unknown frames and
+        // comments remain generic evidence; raw bytes are never reconstructed.
+        final data = <String>[];
+        void dispatch() {
+          if (data.isEmpty) return;
+          final payload = data.join('\n');
+          data.clear();
+          if (payload != '[DONE]') collect(payload, context: context);
+        }
+
+        for (final line in const LineSplitter().convert(value)) {
+          if (line.isEmpty) {
+            dispatch();
+          } else if (line.startsWith('data:')) {
+            final content = line.substring(5);
+            data.add(content.startsWith(' ') ? content.substring(1) : content);
+          } else {
+            collect(line);
+          }
+        }
+        dispatch();
+        return;
       }
       for (final match in _fields.allMatches(value)) {
         var secret = match.group(2) ?? match.group(3) ?? match.group(4)!;

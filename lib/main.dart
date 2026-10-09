@@ -9,6 +9,7 @@ import 'app_theme.dart';
 import 'council.dart';
 import 'council_page.dart';
 import 'jev_playground_page.dart';
+import 'llm_playground_page.dart';
 import 'council_mcp.dart';
 import 'download_panel.dart';
 import 'download_preferences.dart';
@@ -54,7 +55,8 @@ class _ManagerShell extends StatefulWidget {
   State<_ManagerShell> createState() => _ManagerShellState();
 }
 
-class _ManagerShellState extends State<_ManagerShell> {
+class _ManagerShellState extends State<_ManagerShell>
+    with TickerProviderStateMixin {
   static const _native = MethodChannel('com.ghost233.ghostmodeldeck/native');
   final _settings = LibraryDirectorySettings.user();
   final _preferences = DownloadPreferences.user();
@@ -79,11 +81,17 @@ class _ManagerShellState extends State<_ManagerShell> {
   String? _settingsError;
   String? _appVersion;
   int _page = 0;
+  int _enginePage = 0;
+  int _playgroundPage = 8;
+  late final TabController _workspaceTabs;
+  late final TabController _capabilityTabs;
   final _openedPages = <int>{0};
 
   @override
   void initState() {
     super.initState();
+    _workspaceTabs = TabController(length: 2, vsync: this);
+    _capabilityTabs = TabController(length: 2, vsync: this);
     _browser = HfModelBrowser(
       cacheDirectory: Directory('${_settings.file.parent.path}/hf-cache'),
     );
@@ -243,10 +251,30 @@ class _ManagerShellState extends State<_ManagerShell> {
   void _navigate(int page) => setState(() {
     _page = page;
     _openedPages.add(page);
+    if (page <= 6 && page != 4) {
+      _enginePage = page;
+      _workspaceTabs.index = 0;
+    } else if (page >= 7) {
+      _playgroundPage = page;
+      _capabilityTabs.index = page == 8 ? 0 : 1;
+    }
+  });
+
+  void _selectWorkspace(int index) => setState(() {
+    _page = index == 0 ? _enginePage : _playgroundPage;
+    _openedPages.add(_page);
+  });
+
+  void _selectCapability(int index) => setState(() {
+    _playgroundPage = index == 0 ? 8 : 7;
+    _page = _playgroundPage;
+    _openedPages.add(_page);
   });
 
   @override
   void dispose() {
+    _capabilityTabs.dispose();
+    _workspaceTabs.dispose();
     _native.setMethodCallHandler(null);
     // 只关闭 SDK 通信，不回收业务；明确退出的完整收尾走 ManagerLifecycle。
     unawaited(_launcherService.dispose().catchError((Object _) {}));
@@ -336,140 +364,181 @@ class _ManagerShellState extends State<_ManagerShell> {
     }
     return Scaffold(
       body: SafeArea(
-        child: Row(
+        child: Column(
           children: [
-            Container(
-              width: 188,
-              color: scheme.surfaceContainerLow,
-              child: Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 26, 12, 12),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 28,
-                          height: 28,
-                          decoration: BoxDecoration(
-                            color: scheme.primary,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Icon(
-                            Icons.hub_outlined,
-                            color: scheme.onPrimary,
-                            size: 17,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Tooltip(
-                            message: 'Ghost Model Deck',
-                            child: Text(
-                              'Ghost Model Deck',
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Expanded(
-                    child: ListView(
-                      padding: EdgeInsets.zero,
-                      children: [
-                        _groupLabel('模型'),
-                        _navigation('发现模型', Icons.search_rounded, 0),
-                        _navigation('模型库', Icons.folder_outlined, 2),
-                        _navigation('下载任务', Icons.download_outlined, 1),
-                        _groupLabel('服务'),
-                        _navigation('委员会', Icons.groups_outlined, 5),
-                        _navigation('推理测试场', Icons.science_outlined, 7),
-                        _navigation('MCP', Icons.cable_outlined, 6),
-                        _navigation('引擎管理', Icons.memory_outlined, 3),
-                      ],
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 10,
-                    ),
-                    child: Divider(color: scheme.outlineVariant),
-                  ),
-                  _navigation('设置', Icons.tune_rounded, 4),
-                  const SizedBox(height: 18),
+            TabBar(
+              key: const Key('workspace-tabs'),
+              controller: _workspaceTabs,
+              onTap: _selectWorkspace,
+              tabs: const [
+                Tab(text: '引擎'),
+                Tab(text: '测试场'),
+              ],
+            ),
+            if (_workspaceTabs.index == 1)
+              TabBar.secondary(
+                key: const Key('playground-capability-tabs'),
+                controller: _capabilityTabs,
+                onTap: _selectCapability,
+                tabs: const [
+                  Tab(text: '通用 LLM'),
+                  Tab(text: 'JEV'),
                 ],
               ),
-            ),
-            VerticalDivider(width: 1, color: scheme.outlineVariant),
             Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(32, 30, 32, 28),
-                child: IndexedStack(
-                  index: _page,
-                  children: [
-                    ModelSearchPage(
-                      browser: _browser,
-                      downloads: _downloads,
-                      libraryPath: path,
-                      onDownloadStarted: () => _navigate(1),
+              child: Row(
+                children: [
+                  Container(
+                    width: 188,
+                    color: scheme.surfaceContainerLow,
+                    child: Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(24, 26, 12, 12),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 28,
+                                height: 28,
+                                decoration: BoxDecoration(
+                                  color: scheme.primary,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Icon(
+                                  Icons.hub_outlined,
+                                  color: scheme.onPrimary,
+                                  size: 17,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Tooltip(
+                                  message: 'Ghost Model Deck',
+                                  child: Text(
+                                    'Ghost Model Deck',
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Expanded(
+                          child: ListView(
+                            padding: EdgeInsets.zero,
+                            children: [
+                              if (_workspaceTabs.index == 0) ...[
+                                _groupLabel('模型'),
+                                _navigation('发现模型', Icons.search_rounded, 0),
+                                _navigation('模型库', Icons.folder_outlined, 2),
+                                _navigation('下载任务', Icons.download_outlined, 1),
+                                _groupLabel('服务'),
+                                _navigation('引擎管理', Icons.memory_outlined, 3),
+                                _navigation('委员会配置', Icons.groups_outlined, 5),
+                                _navigation('MCP', Icons.cable_outlined, 6),
+                              ] else ...[
+                                _groupLabel('测试'),
+                                _navigation(
+                                  '基础测试',
+                                  Icons.science_outlined,
+                                  _playgroundPage,
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 10,
+                          ),
+                          child: Divider(color: scheme.outlineVariant),
+                        ),
+                        _navigation('设置', Icons.tune_rounded, 4),
+                        const SizedBox(height: 18),
+                      ],
                     ),
-                    if (_openedPages.contains(1))
-                      DownloadTasksPage(downloads: _downloads)
-                    else
-                      const SizedBox.shrink(),
-                    if (_openedPages.contains(2))
-                      LibraryPage(
-                        library: _library,
-                        libraryPath: path,
-                        engines: _engines,
-                        publicRoutes: _publicRoutes,
-                        publicGateway: _publicGateway,
-                        startupSet: _startupSet,
-                      )
-                    else
-                      const SizedBox.shrink(),
-                    if (_openedPages.contains(3))
-                      EnginePage(
-                        catalog: _engines,
-                        pickEngineDirectory: _pickEngineDirectory,
-                      )
-                    else
-                      const SizedBox.shrink(),
-                    if (_openedPages.contains(4))
-                      SettingsPage(
-                        preferences: _preferences,
-                        libraryPath: path,
-                        onLibraryPathChanged: _saveDirectory,
-                        pickLibraryDirectory: _pickDirectory,
-                        softwareUpdate: _softwareUpdateConfig(),
-                      )
-                    else
-                      const SizedBox.shrink(),
-                    if (_openedPages.contains(5))
-                      CouncilPage(
-                        controller: _council,
-                        onOpenLibrary: () => _navigate(2),
-                      )
-                    else
-                      const SizedBox.shrink(),
-                    if (_openedPages.contains(6))
-                      McpPage(server: _mcp)
-                    else
-                      const SizedBox.shrink(),
-                    if (_openedPages.contains(7))
-                      JevPlaygroundPage(
-                        controller: _council,
-                        gateway: _publicGateway,
-                        mcp: _mcp,
-                        active: _page == 7,
-                      )
-                    else
-                      const SizedBox.shrink(),
-                  ],
-                ),
+                  ),
+                  VerticalDivider(width: 1, color: scheme.outlineVariant),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(32, 30, 32, 28),
+                      child: IndexedStack(
+                        index: _page,
+                        children: [
+                          ModelSearchPage(
+                            browser: _browser,
+                            downloads: _downloads,
+                            libraryPath: path,
+                            onDownloadStarted: () => _navigate(1),
+                          ),
+                          if (_openedPages.contains(1))
+                            DownloadTasksPage(downloads: _downloads)
+                          else
+                            const SizedBox.shrink(),
+                          if (_openedPages.contains(2))
+                            LibraryPage(
+                              library: _library,
+                              libraryPath: path,
+                              engines: _engines,
+                              publicRoutes: _publicRoutes,
+                              publicGateway: _publicGateway,
+                              startupSet: _startupSet,
+                            )
+                          else
+                            const SizedBox.shrink(),
+                          if (_openedPages.contains(3))
+                            EnginePage(
+                              catalog: _engines,
+                              pickEngineDirectory: _pickEngineDirectory,
+                            )
+                          else
+                            const SizedBox.shrink(),
+                          if (_openedPages.contains(4))
+                            SettingsPage(
+                              preferences: _preferences,
+                              libraryPath: path,
+                              onLibraryPathChanged: _saveDirectory,
+                              pickLibraryDirectory: _pickDirectory,
+                              softwareUpdate: _softwareUpdateConfig(),
+                            )
+                          else
+                            const SizedBox.shrink(),
+                          if (_openedPages.contains(5))
+                            CouncilPage(
+                              controller: _council,
+                              onOpenLibrary: () => _navigate(2),
+                            )
+                          else
+                            const SizedBox.shrink(),
+                          if (_openedPages.contains(6))
+                            McpPage(server: _mcp)
+                          else
+                            const SizedBox.shrink(),
+                          if (_openedPages.contains(7))
+                            JevPlaygroundPage(
+                              gateway: _publicGateway,
+                              mcp: _mcp,
+                              active: _workspaceTabs.index == 1 && _page == 7,
+                            )
+                          else
+                            const SizedBox.shrink(),
+                          if (_openedPages.contains(8))
+                            LlmPlaygroundPage(
+                              gateway: _publicGateway,
+                              active: _workspaceTabs.index == 1 && _page == 8,
+                            )
+                          else
+                            const SizedBox.shrink(),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ],

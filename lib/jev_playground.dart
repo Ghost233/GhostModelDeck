@@ -1,51 +1,34 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:mcp_dart/mcp_dart.dart';
 
-import 'council.dart';
 import 'council_mcp.dart';
 import 'decision_protocol.dart';
-import 'engine_runtime.dart';
+import 'engine_runtime.dart' show DecisionCancellation;
 import 'jev_debug.dart';
 import 'jev_models.dart';
-import 'llama_engine.dart';
 import 'public_gateway.dart';
 
 export 'engine_runtime.dart' show DecisionCancellation;
 
-enum JevPlaygroundMode { native, http, mcp }
+enum JevPlaygroundMode { http, mcp }
 
-enum JevPlaygroundStatus { success, businessError, cancelled, transportError }
+enum JevPlaygroundStatus {
+  success,
+  businessError,
+  invalidResponse,
+  cancelled,
+  timedOut,
+  transportError,
+}
 
-/// A selection pins the managed identity and generation, never a replacement.
-class JevNativeSource {
-  const JevNativeSource(this.engineId, this.engineName, this.instance);
-  final String engineId;
-  final String engineName;
-  final LlamaInstance instance;
-  String get model => instance.id;
-  String get label => '${instance.asset.name} · $engineName · $model';
-  bool get ready =>
-      instance.status == LlamaInstanceStatus.ready &&
-      instance.hasLiveProcess &&
-      instance.acceptingRequests &&
-      instance.nativeAlias != null;
-  String? reason(DecisionBatchRequest? request) {
-    if (!ready) {
-      return instance.error ?? '实例未 Ready；测试场不会加载模型';
-    }
-    if (!instance.capabilities.contains(LlamaCapability.choiceProbability) ||
-        request?.questions.values.any(
-              (q) => !instance.capabilities.contains(
-                capabilityForPrimitive(q.type),
-              ),
-            ) ==
-            true) {
-      return '实例没有本次请求需要的 JEV 题型能力';
-    }
-    return null;
-  }
+class JevDiscoveredModel {
+  const JevDiscoveredModel(this.id, this.source);
+  final String id;
+  final String source;
+  String get label => '$id · ${source == 'council' ? '委员会' : '原生 JEV'}';
 }
 
 class JevPlaygroundResult {
@@ -54,17 +37,66 @@ class JevPlaygroundResult {
     String message, {
     Map<String, Object?>? output,
     Map<String, Object?>? debug,
+    required JevPlaygroundMode mode,
+    required Duration timeout,
+    required Duration elapsed,
+    Map<String, Object?>? request,
+    String? rawResponse,
+    int? httpStatus,
   }) {
     final safe = sealDebugJson({
       'message': message,
       'output': output,
       'debug': debug,
     }, projection: JevDebugProjection.playgroundResult);
+    var publicEnvelope = false;
+    var publicRaw = rawResponse;
+    if (rawResponse != null && output != null) {
+      try {
+        final rawBody = jsonDecode(rawResponse);
+        if (rawBody is Map) {
+          final rawOutput = Map<String, Object?>.from(rawBody)..remove('debug');
+          if (jsonEncode(rawOutput) == jsonEncode(output) &&
+              jsonEncode(rawBody['debug']) == jsonEncode(debug)) {
+            // The parsed public output/debug already crossed their respective
+            // semantic redaction boundaries. Do not reinterpret task input
+            // inside public debug as credential configuration a second time.
+            final safeOutput = safe['output'] as Map<String, Object?>;
+            final safeBody = {
+              for (final key in rawBody.keys)
+                key as String: key == 'debug' ? safe['debug'] : safeOutput[key],
+            };
+            publicEnvelope = true;
+            if (jsonEncode(rawBody) != jsonEncode(safeBody)) {
+              publicRaw = jsonEncode(safeBody);
+            }
+          }
+        }
+      } on FormatException {
+        // Unparsed protocol bytes cannot establish JEV task-data immunity.
+      }
+    }
+    final evidence = sealDebugJson({
+      'input': request,
+      'native': {
+        'result': output,
+        'raw_response': publicEnvelope ? null : rawResponse,
+        'request_body': request == null ? null : jsonEncode(request),
+      },
+    }, projection: JevDebugProjection.debug);
+    final io = evidence['native'] as Map;
     return JevPlaygroundResult._(
       status,
       safe['message'] as String,
       safe['output'] as Map<String, Object?>?,
       safe['debug'] as Map<String, Object?>?,
+      mode,
+      timeout,
+      elapsed,
+      evidence['input'] as Map<String, Object?>?,
+      io['request_body'] as String?,
+      publicEnvelope ? publicRaw : io['raw_response'] as String?,
+      httpStatus,
     );
   }
   const JevPlaygroundResult._(
@@ -72,81 +104,72 @@ class JevPlaygroundResult {
     this.message,
     this.output,
     this.debug,
+    this.mode,
+    this.timeout,
+    this.elapsed,
+    this.request,
+    this.requestBody,
+    this.rawResponse,
+    this.httpStatus,
   );
   final JevPlaygroundStatus status;
   final String message;
   final Map<String, Object?>? output;
   final Map<String, Object?>? debug;
+  final JevPlaygroundMode mode;
+  final Duration timeout;
+  final Duration elapsed;
+  final Map<String, Object?>? request;
+  final String? requestBody;
+  final String? rawResponse;
+  final int? httpStatus;
+  bool get diagnostic => request?['debug'] == true;
+
+  Map<String, Object?> toJson() => {
+    'channel': mode.name,
+    'status': status.name,
+    'message': message,
+    'timeout_us': timeout.inMicroseconds,
+    'elapsed_us': elapsed.inMicroseconds,
+    'diagnostic': diagnostic,
+    'request': request,
+    'request_json': requestBody,
+    'http_status': httpStatus,
+    'raw_response': rawResponse,
+    'output': output,
+    'debug': debug,
+  };
 }
 
 /// Only owns clients for individual calls. The application owns all services.
 class JevPlayground {
-  const JevPlayground({
-    required this.controller,
-    required this.gateway,
-    required this.mcp,
-  });
-  final CouncilController controller;
+  const JevPlayground({required this.gateway, required this.mcp});
   final PublicGatewayServer gateway;
   final CouncilMcpServer mcp;
-
-  List<JevNativeSource> get nativeSources => [
-    for (final engine in controller.catalog.state.entries)
-      if (engine.family == EngineFamily.llamaCpp)
-        for (final instance
-            in controller.catalog.providerFor(engine.id).state.instances)
-          JevNativeSource(engine.id, engine.name, instance),
-  ];
 
   JevModelRequest parse(String document) =>
       JevModelRequest.parse(jsonDecode(document));
 
-  Map<String, Object?> preview(
-    JevPlaygroundMode mode,
-    String document, {
-    JevNativeSource? nativeSource,
-  }) {
-    final parsed = parse(document);
-    if (mode == JevPlaygroundMode.native) {
-      _native(parsed, nativeSource);
-      return parsed.request.toSystemone(model: parsed.model);
-    }
-    // The protocol receives the complete document, including explicit debug.
+  Map<String, Object?> preview(JevPlaygroundMode mode, String document) {
+    parse(document);
+    // Preserve all legal request content, including explicit public debug.
     return freezeDebugJson(jsonDecode(document)) as Map<String, Object?>;
   }
 
-  JevNativeSource _native(JevModelRequest parsed, JevNativeSource? selected) {
-    if (selected == null || parsed.model != selected.model) {
-      throw const JevRequestException(
-        409,
-        'selection_mismatch',
-        'model 与原生实例选择不一致，请显式选择实例',
-      );
+  List<JevDiscoveredModel> modelsFromDiscovery(Map<String, Object?> discovery) {
+    final data = discovery['data'];
+    if (data is! List) throw const FormatException('发现响应缺少模型列表');
+    final models = <JevDiscoveredModel>[];
+    for (final row in data) {
+      if (row is! Map || row['id'] is! String) {
+        throw const FormatException('发现响应包含无效模型身份');
+      }
+      final source = row['source'];
+      if (source == 'native' || source == 'council') {
+        models.add(JevDiscoveredModel(row['id'] as String, source as String));
+      }
     }
-    final current = nativeSources
-        .where(
-          (s) =>
-              s.engineId == selected.engineId &&
-              s.model == selected.model &&
-              s.instance.generation == selected.instance.generation,
-        )
-        .firstOrNull;
-    if (current == null) {
-      throw const JevRequestException(
-        503,
-        'model_not_ready',
-        '所选实例代次已结束，请重新选择',
-      );
-    }
-    final reason = current.reason(parsed.request);
-    if (reason != null) {
-      throw JevRequestException(
-        current.ready ? 409 : 503,
-        current.ready ? 'capability_mismatch' : 'model_not_ready',
-        reason,
-      );
-    }
-    return current;
+    return List.unmodifiable(models);
   }
 
   /// Discovery traverses the selected real protocol entry, not registry preview.
@@ -154,19 +177,6 @@ class JevPlayground {
     JevPlaygroundMode mode, {
     DecisionCancellation? cancellation,
   }) async {
-    if (mode == JevPlaygroundMode.native) {
-      return sealDebugJson({
-        'instances': [
-          for (final s in nativeSources)
-            {
-              'model': s.model,
-              'engine_id': s.engineId,
-              'generation': s.instance.generation,
-              'reason': s.reason(null),
-            },
-        ],
-      }, projection: JevDebugProjection.discovery);
-    }
     if (mode == JevPlaygroundMode.http) {
       if (gateway.state != PublicGatewayState.running ||
           gateway.baseUrl == null) {
@@ -177,12 +187,16 @@ class JevPlayground {
           gateway.baseUrl!.resolve('/v1/models'),
           null,
           cancellation,
-        )).$2,
+        )).body,
         projection: JevDebugProjection.discovery,
       );
     }
     return sealDebugJson(
-      await _mcp(CouncilMcpServer.discoveryToolName, const {}, cancellation),
+      (await _mcp(
+        CouncilMcpServer.discoveryToolName,
+        const {},
+        cancellation,
+      )).body,
       projection: JevDebugProjection.discovery,
     );
   }
@@ -190,59 +204,142 @@ class JevPlayground {
   Future<JevPlaygroundResult> run(
     JevPlaygroundMode mode,
     String document, {
-    JevNativeSource? nativeSource,
     DecisionCancellation? cancellation,
-    Duration nativeTimeout = const Duration(seconds: 10),
+    Duration timeout = const Duration(seconds: 30),
   }) async {
     final token = cancellation ?? DecisionCancellation();
+    var deadlineReached = false;
+    Timer? deadline;
+    final watch = Stopwatch()..start();
+    Map<String, Object?>? sent;
+    JevPlaygroundResult finish(
+      JevPlaygroundStatus status,
+      String message, {
+      Map<String, Object?>? output,
+      Map<String, Object?>? debug,
+      String? rawResponse,
+      int? httpStatus,
+    }) => JevPlaygroundResult(
+      status,
+      message,
+      output: output,
+      debug: debug,
+      mode: mode,
+      timeout: timeout,
+      elapsed: watch.elapsed,
+      request: sent,
+      rawResponse: rawResponse,
+      httpStatus: httpStatus,
+    );
     try {
-      final payload = preview(mode, document, nativeSource: nativeSource);
-      if (token.isCancelled) {
-        if (mode != JevPlaygroundMode.native) {
-          return JevPlaygroundResult(
-            JevPlaygroundStatus.cancelled,
-            '客户端已取消；未收到业务结果，协议 debug 不可用',
-          );
-        }
-        throw const JevRequestException(409, 'cancelled', '本次调用已取消');
+      if (timeout <= Duration.zero) {
+        throw const DecisionProtocolException('客户端期限必须大于零');
       }
-      if (mode == JevPlaygroundMode.native) {
-        final parsed = parse(document);
-        return await _runNative(
-          parsed,
-          _native(parsed, nativeSource),
-          token,
-          nativeTimeout,
-        );
-      }
-      final Map<String, Object?> received;
+      final documentValue = jsonDecode(document);
+      final parsed = JevModelRequest.parse(documentValue);
+      final payload = freezeDebugJson(documentValue) as Map<String, Object?>;
+      sent = payload;
+      if (token.isCancelled) throw StateError('客户端已取消');
+      deadline = Timer(timeout, () {
+        deadlineReached = true;
+        token.cancel();
+      });
+      final _JevReply reply;
       if (mode == JevPlaygroundMode.http) {
         if (gateway.state != PublicGatewayState.running ||
             gateway.baseUrl == null) {
           throw StateError('HTTP 服务未运行：${gateway.error ?? gateway.state.name}');
         }
-        received = (await _http(
+        reply = await _http(
           gateway.baseUrl!.resolve('/v1/systemone'),
           payload,
           token,
-        )).$2;
+        );
       } else {
-        received = await _mcp(CouncilMcpServer.batchToolName, payload, token);
+        reply = await _mcp(CouncilMcpServer.batchToolName, payload, token);
       }
+      if (token.isCancelled) throw StateError('客户端已取消');
       // Only actual received business JSON is presented as protocol output.
+      final received = reply.body;
       final debug = received['debug'];
       final output = Map<String, Object?>.from(received)..remove('debug');
-      return JevPlaygroundResult(
-        output.containsKey('error')
-            ? JevPlaygroundStatus.businessError
-            : JevPlaygroundStatus.success,
-        output.containsKey('error') ? '服务返回本次业务错误' : '已收到本次协议结果',
+      if (debug != null && debug is! Map) {
+        throw _InvalidJevResponse(
+          '公开 debug 响应需要是 JSON 对象',
+          reply.raw,
+          reply.httpStatus,
+        );
+      }
+      final error = output['error'];
+      var status = JevPlaygroundStatus.success;
+      var message = '已收到本次协议结果';
+      if (output.containsKey('error')) {
+        if (error is! Map ||
+            error['code'] is! String ||
+            error['message'] is! String) {
+          throw _InvalidJevResponse(
+            '公开错误响应缺少错误码或消息',
+            reply.raw,
+            reply.httpStatus,
+          );
+        }
+        status = error['code'] == 'invalid_response'
+            ? JevPlaygroundStatus.invalidResponse
+            : JevPlaygroundStatus.businessError;
+        message = status == JevPlaygroundStatus.invalidResponse
+            ? '服务返回非法响应：${error['message']}'
+            : '服务返回本次业务错误';
+      } else {
+        try {
+          DecisionBatchResult.parse(
+            jsonEncode(output),
+            parsed.request,
+            expectedModel: parsed.model,
+          );
+        } on DecisionProtocolException catch (error) {
+          throw _InvalidJevResponse(
+            '公开响应无效：${error.message}',
+            reply.raw,
+            reply.httpStatus,
+          );
+        }
+        if (reply.httpStatus != null &&
+            (reply.httpStatus! < 200 || reply.httpStatus! >= 300)) {
+          throw _InvalidJevResponse(
+            'HTTP 状态与成功响应不一致',
+            reply.raw,
+            reply.httpStatus,
+          );
+        }
+      }
+      return finish(
+        status,
+        message,
         output: output,
         debug: debug is Map ? Map<String, Object?>.from(debug) : null,
+        rawResponse: reply.raw,
+        httpStatus: reply.httpStatus,
+      );
+    } on _InvalidJevResponse catch (error) {
+      if (token.isCancelled) {
+        return finish(
+          deadlineReached
+              ? JevPlaygroundStatus.timedOut
+              : JevPlaygroundStatus.cancelled,
+          deadlineReached
+              ? '客户端期限已到；未收到业务结果，协议 debug 不可用'
+              : '客户端已取消；未收到业务结果，协议 debug 不可用',
+        );
+      }
+      return finish(
+        JevPlaygroundStatus.invalidResponse,
+        error.message,
+        rawResponse: error.raw,
+        httpStatus: error.httpStatus,
       );
     } on JevRequestException catch (error) {
       final body = Map<String, Object?>.from(error.toJson())..remove('debug');
-      return JevPlaygroundResult(
+      return finish(
         error.code == 'cancelled'
             ? JevPlaygroundStatus.cancelled
             : JevPlaygroundStatus.businessError,
@@ -251,134 +348,84 @@ class JevPlayground {
         debug: error.debug,
       );
     } on DecisionProtocolException catch (error) {
-      return JevPlaygroundResult(
-        JevPlaygroundStatus.businessError,
-        error.message,
-      );
+      return finish(JevPlaygroundStatus.businessError, error.message);
     } on FormatException catch (error) {
-      return JevPlaygroundResult(
+      return finish(
         JevPlaygroundStatus.businessError,
         'JSON 格式错误：${error.message}',
       );
     } catch (error) {
-      return JevPlaygroundResult(
-        token.isCancelled
+      return finish(
+        deadlineReached
+            ? JevPlaygroundStatus.timedOut
+            : token.isCancelled
             ? JevPlaygroundStatus.cancelled
             : JevPlaygroundStatus.transportError,
-        token.isCancelled ? '客户端已取消；未收到业务结果，协议 debug 不可用' : '协议连接错误：$error',
-      );
-    }
-  }
-
-  Future<JevPlaygroundResult> _runNative(
-    JevModelRequest parsed,
-    JevNativeSource selected,
-    DecisionCancellation token,
-    Duration timeout,
-  ) async {
-    final fixedCallNames = [
-      for (final d in controller.models.definitions)
-        if (d.source == JevModelSource.native &&
-            d.bindings.single.engineId == selected.engineId &&
-            d.bindings.single.artifactId == selected.instance.asset.id)
-          d.name,
-    ];
-    final trace = parsed.debug ? DecisionIOTrace() : null;
-    final watch = Stopwatch()..start();
-    final remove = token.listen(() => trace?.seal());
-    DecisionBatchResult? receivedResult;
-    Map<String, Object?>? evidence(Map<String, Object?> result, String status) {
-      if (!parsed.debug) return null;
-      trace!.seal();
-      return sealDebugJson({
-        'source': 'native',
-        'model': parsed.model,
-        'configuration': {
-          'engine_id': selected.engineId,
-          'artifact_id': selected.instance.asset.id,
-          'instance_id': selected.model,
-          'generation': selected.instance.generation,
-          'native_alias': selected.instance.nativeAlias,
-          'fixed_call_names': fixedCallNames,
-          'timeout_us': timeout.inMicroseconds,
-        },
-        'input': parsed.request.toSystemone(model: parsed.model),
-        'native': {
-          'status': status,
-          ...trace.toJson(),
-          'result': receivedResult?.toJson(),
-        },
-        'converted_result': result,
-        'elapsed_us': watch.elapsedMicroseconds,
-      }, projection: JevDebugProjection.debug);
-    }
-
-    try {
-      receivedResult = await controller.catalog
-          .providerFor(selected.engineId)
-          .decideBatch(
-            selected.model,
-            parsed.request,
-            timeout: timeout,
-            cancellation: token,
-            ioTrace: trace,
-          );
-      await Future<void>.value();
-      if (token.isCancelled) {
-        throw const LlamaRequestException(
-          '本次决策已取消',
-          kind: DecisionFailureKind.cancelled,
-        );
-      }
-      final raw = Map<String, Object?>.from(
-        jsonDecode(receivedResult.rawResponse) as Map,
-      );
-      return JevPlaygroundResult(
-        JevPlaygroundStatus.success,
-        '已收到所选实例原生结果',
-        output: raw,
-        debug: evidence(raw, 'ok'),
-      );
-    } on LlamaEngineException catch (error) {
-      final code = token.isCancelled
-          ? 'cancelled'
-          : error is LlamaRequestException
-          ? switch (error.kind) {
-              DecisionFailureKind.timedOut => 'timed_out',
-              DecisionFailureKind.cancelled => 'cancelled',
-              DecisionFailureKind.notReady => 'model_not_ready',
-              DecisionFailureKind.invalidResponse => 'invalid_response',
-              _ => 'engine_error',
-            }
-          : 'engine_error';
-      final body = <String, Object?>{
-        'error': {'code': code, 'message': error.message},
-      };
-      return JevPlaygroundResult(
-        code == 'cancelled'
-            ? JevPlaygroundStatus.cancelled
-            : JevPlaygroundStatus.businessError,
-        error.message,
-        output: body,
-        debug: evidence(body, code),
+        deadlineReached
+            ? '客户端期限已到；未收到业务结果，协议 debug 不可用'
+            : token.isCancelled
+            ? '客户端已取消；未收到业务结果，协议 debug 不可用'
+            : '协议连接错误：$error',
       );
     } finally {
-      remove();
-      trace?.seal();
+      deadline?.cancel();
       watch.stop();
     }
   }
 
-  Future<(int, Map<String, Object?>)> _http(
+  Future<void> exportTo(
+    File destination, {
+    required String document,
+    JevPlaygroundResult? result,
+    JevPlaygroundMode mode = JevPlaygroundMode.http,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    if (!destination.isAbsolute) {
+      throw ArgumentError('导出需要完整绝对路径');
+    }
+    Object? input;
+    try {
+      input = jsonDecode(document);
+    } on FormatException {
+      input = null;
+    }
+    final safeInput = sealDebugJson({
+      'native': {'request_body': document},
+      'input': input,
+    }, projection: JevDebugProjection.debug);
+    final record = {
+      'input_json': (safeInput['native'] as Map)['request_body'],
+      'request': result?.request ?? safeInput['input'],
+      'channel': (result?.mode ?? mode).name,
+      'timeout_us': (result?.timeout ?? timeout).inMicroseconds,
+      'result': result?.toJson(),
+    };
+    await destination.create(exclusive: true);
+    try {
+      await destination.writeAsString(
+        const JsonEncoder.withIndent('  ').convert(record),
+      );
+    } catch (error) {
+      try {
+        await destination.delete();
+      } catch (cleanupError) {
+        throw FileSystemException(
+          '导出失败：$error；清理失败：$cleanupError',
+          destination.path,
+        );
+      }
+      rethrow;
+    }
+  }
+
+  Future<_JevReply> _http(
     Uri uri,
     Map<String, Object?>? payload,
     DecisionCancellation? token,
   ) async {
-    final lease = payload == null ? null : gateway.leaseJevRequest();
     final client = HttpClient();
     HttpClientRequest? request;
     final remove = token?.listen(() {
-      lease?.cancel();
       request?.abort();
       client.close(force: true);
     });
@@ -391,25 +438,20 @@ class JevPlayground {
         request.abort();
         throw StateError('客户端已取消');
       }
-      if (lease != null) {
-        request.headers.set(PublicGatewayServer.ownedRequestHeader, lease.id);
-      }
       if (payload != null) {
         request.headers.contentType = ContentType.json;
         request.write(jsonEncode(payload));
       }
       final response = await request.close();
-      final body = jsonDecode(await utf8.decoder.bind(response).join());
-      if (body is! Map) throw const FormatException('服务结果需要是 JSON 对象');
-      return (response.statusCode, Map<String, Object?>.from(body));
+      final raw = await utf8.decoder.bind(response).join();
+      return _JevReply.decode(response.statusCode, raw);
     } finally {
       remove?.call();
       client.close(force: true);
-      await lease?.close();
     }
   }
 
-  Future<Map<String, Object?>> _mcp(
+  Future<_JevReply> _mcp(
     String name,
     Map<String, Object?> arguments,
     DecisionCancellation? token,
@@ -438,11 +480,11 @@ class JevPlayground {
         CallToolRequest(name: name, arguments: arguments),
         options: RequestOptions(timeoutEnabled: false, signal: abort.signal),
       );
-      final body =
-          result.structuredContent ??
-          jsonDecode((result.content.single as TextContent).text);
-      if (body is! Map) throw const FormatException('MCP 结果需要是 JSON 对象');
-      return Map<String, Object?>.from(body);
+      final raw =
+          result.content.length == 1 && result.content.single is TextContent
+          ? (result.content.single as TextContent).text
+          : jsonEncode(result.structuredContent);
+      return _JevReply.decode(null, raw, structured: result.structuredContent);
     } finally {
       remove?.call();
       try {
@@ -452,4 +494,27 @@ class JevPlayground {
       }
     }
   }
+}
+
+class _JevReply {
+  const _JevReply(this.httpStatus, this.raw, this.body);
+  factory _JevReply.decode(int? status, String raw, {Object? structured}) {
+    try {
+      final value = structured ?? jsonDecode(raw);
+      if (value is! Map) throw const FormatException('响应需要是 JSON 对象');
+      return _JevReply(status, raw, Map<String, Object?>.from(value));
+    } on FormatException catch (error) {
+      throw _InvalidJevResponse('公开响应不是有效 JSON：${error.message}', raw, status);
+    }
+  }
+  final int? httpStatus;
+  final String raw;
+  final Map<String, Object?> body;
+}
+
+class _InvalidJevResponse implements Exception {
+  const _InvalidJevResponse(this.message, this.raw, this.httpStatus);
+  final String message;
+  final String raw;
+  final int? httpStatus;
 }

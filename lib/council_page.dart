@@ -1,8 +1,6 @@
-import 'dart:convert';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import 'app_theme.dart';
 import 'council.dart';
@@ -22,23 +20,7 @@ class CouncilPage extends StatefulWidget {
 }
 
 class _CouncilPageState extends State<CouncilPage> {
-  final _context = TextEditingController();
-  final _options = [_OptionFields(1), _OptionFields(2)];
-  int _nextOption = 3;
-  DecisionPrimitive _primitive = DecisionPrimitive.choice;
-  int get _maxOptions => switch (_primitive) {
-    DecisionPrimitive.choice => 255,
-    DecisionPrimitive.score => 10,
-    DecisionPrimitive.noul => 2,
-  };
-  Iterable<_OptionFields> get _visibleOptions =>
-      _primitive == DecisionPrimitive.noul ? _options.take(2) : _options;
   String? _error;
-  DecisionCancellation? _activeCancellation;
-  String? _model;
-  bool _debug = false;
-  Map<String, Object?>? _response;
-  bool get _busy => _activeCancellation != null;
 
   @override
   void initState() {
@@ -50,97 +32,17 @@ class _CouncilPageState extends State<CouncilPage> {
     );
   }
 
-  @override
-  void dispose() {
-    _activeCancellation?.cancel();
-    _context.dispose();
-    for (final option in _options) {
-      option.dispose();
-    }
-    super.dispose();
-  }
-
-  bool get _validOptions =>
-      _visibleOptions.length >= 2 &&
-      _visibleOptions.length <= _maxOptions &&
-      (_primitive != DecisionPrimitive.choice ||
-          _options.every(
-                (option) =>
-                    option.id.text.trim().isNotEmpty &&
-                    option.text.text.trim().isNotEmpty,
-              ) &&
-              _options.map((option) => option.id.text.trim()).toSet().length ==
-                  _options.length) &&
-      _visibleOptions.every((option) => option.text.text.trim().isNotEmpty);
-
-  Future<void> _consult() async {
-    final model = _model;
-    if (model == null) return;
-    final cancellation = DecisionCancellation();
-    final debug = _debug;
-    setState(() {
-      _error = null;
-      _response = null;
-      _debug = false;
-      _activeCancellation = cancellation;
-    });
-    try {
-      final descriptions = _visibleOptions
-          .map((option) => option.text.text.trim())
-          .toList();
-      final DecisionQuestion question = switch (_primitive) {
-        DecisionPrimitive.choice => ChoiceQuestion(
-          instructions: '根据上下文，从候选项中选择最合适的一项。',
-          options: {
-            for (final option in _options)
-              option.id.text.trim(): option.text.text.trim(),
-          },
-        ),
-        DecisionPrimitive.score => ScoreQuestion(
-          instructions: '根据上下文，按从低到高的有序等级评分。',
-          levels: descriptions,
-        ),
-        DecisionPrimitive.noul => NoulQuestion(
-          instructions: '根据上下文判断描述。',
-          falseText: descriptions[0],
-          trueText: descriptions[1],
-        ),
-      };
-      final result = await widget.controller.models.decide(
-        model,
-        DecisionBatchRequest(
-          state: _context.text,
-          questions: {'council_choice': question},
-        ),
-        cancellation: cancellation,
-        debug: debug,
-      );
-      if (mounted) setState(() => _response = result);
-    } catch (error) {
-      if (mounted) {
-        setState(() {
-          _error = error.toString();
-          if (error is JevRequestException) _response = error.toJson();
-        });
-      }
-    } finally {
-      if (mounted) setState(() => _activeCancellation = null);
-    }
-  }
-
   Future<void> _editModel([JevModelDefinition? existing]) async {
-    final name = await showDialog<String>(
+    await showDialog<String>(
       context: context,
       builder: (context) =>
           _ModelEditor(models: widget.controller.models, existing: existing),
     );
-    if (mounted && name != null) setState(() => _model = name);
   }
 
   Future<void> _deleteModel(String name) async {
     try {
       await widget.controller.models.delete(name);
-      if (mounted && _model == name) setState(() => _model = null);
     } catch (error) {
       if (mounted) setState(() => _error = error.toString());
     }
@@ -151,17 +53,11 @@ class _CouncilPageState extends State<CouncilPage> {
     stream: widget.controller.models.changes,
     builder: (context, snapshot) {
       final models = widget.controller.models.configuredModels;
-      final selected = models.any((m) => m.definition.name == _model)
-          ? _model
-          : null;
-      final json = _response == null
-          ? null
-          : const JsonEncoder.withIndent('  ').convert(_response);
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           JevPageHeader(
-            title: '委员会',
+            title: '委员会配置',
             action: TextButton.icon(
               onPressed: widget.onOpenLibrary,
               icon: const Icon(Icons.folder_open_outlined, size: 16),
@@ -231,53 +127,20 @@ class _CouncilPageState extends State<CouncilPage> {
                               ],
                             ),
                           ),
-                        DropdownButton<String>(
-                          key: const Key('council-model'),
-                          value: selected,
-                          hint: const Text('选择调用模型'),
-                          isExpanded: true,
-                          items: [
-                            for (final m in models)
-                              DropdownMenuItem(
-                                value: m.definition.name,
-                                child: Text(m.definition.name),
-                              ),
-                          ],
-                          onChanged: _busy
-                              ? null
-                              : (value) => setState(() => _model = value),
-                        ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  _input(context, modelSelected: selected != null),
-                  if (json != null) ...[
-                    const SizedBox(height: 16),
-                    JevSurface(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              const Expanded(child: Text('标准 JEV 结果')),
-                              IconButton(
-                                tooltip: '复制结果',
-                                onPressed: () => Clipboard.setData(
-                                  ClipboardData(text: json),
-                                ),
-                                icon: const Icon(Icons.copy_outlined, size: 18),
-                              ),
-                            ],
-                          ),
-                          SelectableText(
-                            json,
-                            key: const Key('jev-standard-output'),
-                          ),
-                        ],
+                  if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 16),
+                      child: Text(
+                        _error!,
+                        key: const Key('council-config-error'),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
                       ),
                     ),
-                  ],
                 ],
               ),
             ),
@@ -286,178 +149,6 @@ class _CouncilPageState extends State<CouncilPage> {
       );
     },
   );
-
-  Widget _input(BuildContext context, {required bool modelSelected}) {
-    final theme = Theme.of(context);
-    return JevSurface(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: 24),
-          DropdownButton<DecisionPrimitive>(
-            key: const Key('council-primitive'),
-            value: _primitive,
-            isExpanded: true,
-            items: const [
-              DropdownMenuItem(
-                value: DecisionPrimitive.choice,
-                child: Text('Choice · 候选选择'),
-              ),
-              DropdownMenuItem(
-                value: DecisionPrimitive.score,
-                child: Text('Score · 有序评分'),
-              ),
-              DropdownMenuItem(
-                value: DecisionPrimitive.noul,
-                child: Text('Noul · true-head'),
-              ),
-            ],
-            onChanged: _busy
-                ? null
-                : (value) => setState(() => _primitive = value!),
-          ),
-          const SizedBox(height: 12),
-          Text('上下文', style: theme.textTheme.titleMedium),
-          const SizedBox(height: 10),
-          TextField(
-            key: const Key('council-context'),
-            controller: _context,
-            minLines: 3,
-            maxLines: 5,
-            decoration: const InputDecoration(hintText: '输入本次判断的上下文'),
-          ),
-          const SizedBox(height: 24),
-          Row(
-            children: [
-              Expanded(
-                child: Text(switch (_primitive) {
-                  DecisionPrimitive.choice => '候选项',
-                  DecisionPrimitive.score => '等级 · 从低到高（2–10）',
-                  DecisionPrimitive.noul => '描述 · false / true',
-                }, style: theme.textTheme.titleMedium),
-              ),
-              TextButton.icon(
-                onPressed: _busy || _options.length >= _maxOptions
-                    ? null
-                    : () => setState(
-                        () => _options.add(_OptionFields(_nextOption++)),
-                      ),
-                icon: const Icon(Icons.add, size: 16),
-                label: const Text('添加'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          for (final option in _visibleOptions)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 96,
-                    child: _primitive != DecisionPrimitive.choice
-                        ? Text(
-                            _primitive == DecisionPrimitive.score
-                                ? '${_options.indexOf(option)}'
-                                : (_options.indexOf(option) == 0
-                                      ? 'false'
-                                      : 'true'),
-                          )
-                        : TextField(
-                            key: Key('council-id-${option.number}'),
-                            controller: option.id,
-                            enabled: !_busy,
-                            decoration: const InputDecoration(hintText: 'ID'),
-                            onChanged: (_) => setState(() {}),
-                          ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextField(
-                      key: Key('council-option-${option.number}'),
-                      controller: option.text,
-                      enabled: !_busy,
-                      decoration: const InputDecoration(hintText: '候选内容'),
-                      onChanged: (_) => setState(() {}),
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  IconButton(
-                    tooltip: '删除候选项',
-                    onPressed:
-                        _busy ||
-                            _options.length <= 2 ||
-                            _primitive == DecisionPrimitive.noul
-                        ? null
-                        : () {
-                            setState(() => _options.remove(option));
-                            option.dispose();
-                          },
-                    icon: const Icon(Icons.close, size: 16),
-                  ),
-                ],
-              ),
-            ),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 4, bottom: 12),
-              child: Text(
-                _error!,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.error,
-                ),
-              ),
-            ),
-          CheckboxListTile(
-            key: const Key('jev-debug'),
-            value: _debug,
-            contentPadding: EdgeInsets.zero,
-            title: const Text('本次附带 debug 依据'),
-            onChanged: _busy
-                ? null
-                : (value) => setState(() => _debug = value!),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              if (_busy)
-                const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              const Spacer(),
-              if (_activeCancellation != null) ...[
-                TextButton(
-                  onPressed: _activeCancellation!.cancel,
-                  child: const Text('取消'),
-                ),
-                const SizedBox(width: 8),
-              ],
-              FilledButton(
-                onPressed: _busy || !modelSelected || !_validOptions
-                    ? null
-                    : _consult,
-                child: Text(_busy ? '咨询中' : '咨询'),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _OptionFields {
-  _OptionFields(this.number)
-    : id = TextEditingController(text: 'option_$number');
-  final int number;
-  final TextEditingController id;
-  final text = TextEditingController();
-  void dispose() {
-    id.dispose();
-    text.dispose();
-  }
 }
 
 class _ModelEditor extends StatefulWidget {

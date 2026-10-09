@@ -39,11 +39,11 @@
 
 改动 `scripts/` 下的 shell 脚本时，必须先 `bash -n` 静态检查；含副作用的脚本（打包、发布、环境准备）合并前必须完成一次真实干跑并核验产物。变量展开紧邻非 ASCII 字符时必须加花括号（macOS 自带 bash 3.2 会把全角字符字节并入变量名）；依赖 `trap` 清理的脚本须在 trap 内保存并恢复退出码。
 
-脚本在 Socktainer 内解析依赖并检查隔离源码副本；`format --output=none` 只检查，不改写工作区文件。使用新项目容器名称与 `GMD_TEST_CONTAINER`，不覆盖来源测试工作区。应用代码与脚本已迁入；具体已执行范围及限制见 [迁入验证](verification/ghostmodeldeck-migration-validation.md) 和各切片验证记录，不以来源旧测试记录替代本项目结果。
+脚本使用 Apple container 原生命令，联网解析依赖后在每次检查的隔离源码目录执行，保存源码归档 SHA-256、HEAD、容器名称、日志和真实退出码。`format --output=none` 只检查，不改写工作区。运行现有容器可设置 `GMD_TEST_CONTAINER`；新建容器需明确设置 `GMD_TEST_WORKSPACE` 为用户指定的现有绝对绑定目录。容器未就绪或停止时先查看原始错误，不自动恢复旧 Socktainer 工作流。
 
-检查按联网模式执行；用户明确要求不使用离线模式。外网故障应保留具体请求、超时阶段与失败结果，诊断恢复后重跑，不以缓存离线结果替代正式检查。
+检查按联网模式执行；用户明确要求不使用离线模式。外网故障保留具体请求、超时阶段与失败结果，诊断恢复后重跑，不以缓存离线结果替代正式检查。新增 git 依赖或提升 git ref 后，先核对容器实际能否获取固定提交；遇到网络故障再采用经过核验的宿主缓存准备，不沿用旧兼容层的 DNS/复制限制。
 
-容器已知限制（2026-10-07 实测）：容器无法直连 github.com（git fetch 134s 超时），新增 git 依赖或提升 git ref 后，需先从宿主 `~/.pub-cache` 暖容器内 bare pub git 缓存再跑门禁；容器内 `format` 的改写不会传回宿主工作区，容器格式化后必须在宿重复跑 format/analyze；经 Socktainer `docker cp` 单文件可能截断为 0 字节，文件传输改用 base64 over `docker exec`。
+容器格式化仅影响隔离副本；源文件改写使用宿主固定 Dart SDK，再由容器格式检查验收。文件传输使用原生 `container copy` 并核验字节哈希；运行记录见 [测试场交付](verification/playground-benchmarks-delivery.md)。
 
 通用 Dart/widget 检查在容器执行。Mac 构建、桌面交互、原生引擎和应用内 MCP 的联调按 [规格中的开发边界](spec.md#开发与交付边界) 在 Mac 执行。
 

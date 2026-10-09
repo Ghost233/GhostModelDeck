@@ -22,8 +22,7 @@ class PlaygroundRuntime {
   final PublicModelRoutes routes;
   final PublicGatewayServer gateway;
   final CouncilMcpServer mcp;
-  JevPlayground get playground =>
-      JevPlayground(controller: council, gateway: gateway, mcp: mcp);
+  JevPlayground get playground => JevPlayground(gateway: gateway, mcp: mcp);
 
   static Future<PlaygroundRuntime> create({CouncilRuntimeIO? io}) async {
     final runtime = await CouncilRuntime.create(processIO: io);
@@ -227,12 +226,7 @@ const headerNamedCouncilModels = [
 ];
 
 Future<void> saveHeaderNamedJevModels(PlaygroundRuntime fixture) async {
-  final source = fixture.playground.nativeSources.first;
-  final binding = fixture.council.models.availableBindings.firstWhere(
-    (b) =>
-        b.engineId == source.engineId &&
-        b.artifactId == source.instance.asset.id,
-  );
+  final binding = fixture.council.models.availableBindings.first;
   for (final name in headerNamedNativeModels) {
     await fixture.council.models.save(
       JevModelDefinition.native(name: name, binding: binding),
