@@ -102,3 +102,6 @@ JEVal前置解码技术预检与阶段二实现独立：隔离固定纯Dart包li
 证据入口：`.scratch/playground-benchmarks/implementation/native66-summary.json`、`native66-full400-author-audit.json`、`native66-restoration.json`、`66-root-evidence-audit.json`、`66-final-host-gates.json`。原环境和执行器失败日志保留；包括首次沙箱构建拒绝及 CUA 首次选择应用耗时 2157 秒，均不算模型失败或成功检查。
 
 Git 状态：阶段一 PR [#74](https://github.com/Ghost233/GhostModelDeck/pull/74) 已合入 dev；#66 尚待候选提交/工单验收，#67 未完成，阶段二 PR 和最终总 PR 尚未创建。最近已核对 dev 本地/实际远端均 `8da3777caf5a2eab8fffa8e230cdead28578caa4`，main 均 `07729aec710cb5516e77ae853b152f529ab3b897`。下一步是 #66 纳入阶段候选→#67→阶段二审查/复盘/集成；总规格仍开放，最终 dev→main 总 PR 将保持 ready 待用户合并。
+
+
+当前 Git/工单推进：#66 九项已由 root 与独立 merger 验收，代码提交 `ad4ec18609b3851e328fa4eb2b9380d7157b2374` 已推送且本地/远端一致，[#66](https://github.com/Ghost233/GhostModelDeck/issues/66) 已关闭。阶段二 [PR #75](https://github.com/Ghost233/GhostModelDeck/pull/75) 已创建并附到本聊天，目标 dev、保持 draft。#67 已领取，尚未实施；阶段二整体审查/复盘尚待，dev 仍为阶段一合并结果。最终 dev→main 总 PR 尚未创建，最终仅 ready 待用户合并。主线程保留其他会话 `docs/agents/label-colors.json` 未跟踪文件；没有 stash、reset、覆盖或新增 worktree。
