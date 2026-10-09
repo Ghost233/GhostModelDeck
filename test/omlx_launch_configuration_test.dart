@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/engine_catalog.dart';
@@ -620,21 +621,52 @@ void main() {
       await tester.tap(find.text('编辑模型参数'));
       await tester.pumpAndSettle();
       final requests = find.widgetWithText(TextField, '最大并发请求数');
-      await tester.enterText(requests, '3');
+      // Desktop pointer input keeps focus without touch selection handles.
+      await tester.tap(requests, kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      tester.testTextInput.enterText('3');
+      await tester.pump();
       final text = find.widgetWithText(TextField, '启动参数文本');
       await tester.ensureVisible(text);
       const raw = ' --max-concurrent-requests "unfinished';
-      await tester.enterText(text, raw);
+      await tester.tap(text, kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      final client = tester.testTextInput.log
+          .lastWhere((call) => call.method == 'TextInput.setClient')
+          .arguments;
+      tester.testTextInput.enterText(raw);
       await tester.pumpAndSettle();
       expect(
         tester.widget<TextField>(text).decoration!.errorText,
         contains('未闭合'),
       );
+      expect(
+        tester.testTextInput.log
+            .lastWhere((call) => call.method == 'TextInput.setClient')
+            .arguments,
+        client,
+      );
+      expect(
+        tester
+            .widget<EditableText>(
+              find.descendant(of: text, matching: find.byType(EditableText)),
+            )
+            .focusNode
+            .hasFocus,
+        isTrue,
+      );
+      expect(
+        find.widgetWithText(FilledButton, '保存').hitTestable(),
+        findsOneWidget,
+      );
       await tester.runAsync(() async {
         final saved = fixture.catalog.changes.firstWhere(
           (state) => !state.busy,
         );
-        await tester.tap(find.widgetWithText(FilledButton, '保存'));
+        await tester.tap(
+          find.widgetWithText(FilledButton, '保存'),
+          kind: PointerDeviceKind.mouse,
+        );
         await saved.timeout(const Duration(seconds: 5));
         await tester.pump();
       });

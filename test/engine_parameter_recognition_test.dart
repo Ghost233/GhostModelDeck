@@ -9,6 +9,7 @@ import 'package:ghost_model_deck/engine_catalog.dart';
 import 'package:ghost_model_deck/engine_launch_configuration.dart';
 import 'package:ghost_model_deck/engine_parameter_recognition.dart';
 import 'package:ghost_model_deck/engine_page.dart';
+import 'package:ghost_model_deck/engine_runtime.dart';
 import 'package:ghost_model_deck/llama_engine.dart';
 import 'package:ghost_model_deck/model_library.dart';
 import 'package:ghost_model_deck/model_use_registry.dart';
@@ -17,6 +18,394 @@ import 'fixtures/decision_gguf.dart';
 import 'fixtures/engine_archive.dart';
 
 void main() {
+  test('Splash unit hints remain soft and saved malformed text fails before ProcessIO', () async {
+    final configuration = EngineLaunchConfiguration.fromJson({
+      'family': 'splash',
+      'formValues': {
+        '--max-context': 'auto',
+        '--max-memory': '8GiB',
+        '--kv-format': 'bf16',
+        '--queue-size': '+2',
+      },
+    });
+    final valid = configuration.command(
+      executable: '/python',
+      modelPath: '/assembly',
+    );
+    expect(
+      valid.notices.where(
+        (notice) => notice.contains('通常') || notice.contains('缺少值'),
+      ),
+      isEmpty,
+    );
+    final invalid = EngineLaunchConfiguration(
+      family: configuration.family,
+      argumentText: '--max-context 3M --max-memory 4.5G --kv-format --queue-size -1 --future="x y"',
+    ).command(executable: '/python', modelPath: '/assembly');
+    expect(
+      invalid.arguments,
+      containsAllInOrder([
+        '--max-context',
+        '3M',
+        '--max-memory',
+        '4.5G',
+        '--kv-format',
+        '--queue-size',
+        '-1',
+        '--future=x y',
+      ]),
+    );
+    expect(invalid.notices, contains(contains('--max-context')));
+    expect(invalid.notices, contains(contains('--max-memory')));
+    expect(invalid.notices, contains(contains('--kv-format 缺少值')));
+    expect(invalid.notices, contains(contains('--queue-size')));
+    final directory = await Directory.systemTemp.createTemp('gmd-splash-lex-');
+    addTearDown(() => directory.delete(recursive: true));
+    final marker = File('${directory.path}/spawned');
+    const brokenText = '--max-context "unfinished';
+    final file = await File('${directory.path}/configuration.json')
+        .writeAsString(
+          jsonEncode({
+            'family': 'splash',
+            'formValues': <String, String>{},
+            'argumentText': brokenText,
+          }),
+        );
+    final saved = EngineLaunchConfiguration.fromJson(
+      jsonDecode(await file.readAsString()),
+    );
+    expect(saved.argumentText, brokenText);
+    Future<void> launch() async {
+      final command = saved.command(
+        executable: '/usr/bin/python3',
+        modelPath: '/assembly',
+        alias: 'bound',
+        port: 8123,
+        executableArguments: [
+          '-P',
+          '-c',
+          'from pathlib import Path; Path(${jsonEncode(marker.path)}).write_text("spawned")',
+          '/assembly',
+        ],
+        managedArguments: {
+          '--model': 'Owner/Bound',
+          '--tokenizer': '/tokenizer',
+          '--binary': '/native',
+        },
+      );
+      await NativeEngineProcessIO().run(
+        command.executable,
+        command.arguments,
+        timeout: const Duration(seconds: 5),
+      );
+    }
+
+    await expectLater(launch(), throwsA(isA<LaunchArgumentTextException>()));
+    expect(await marker.exists(), isFalse);
+    expect(
+      (jsonDecode(await file.readAsString()) as Map)['argumentText'],
+      brokenText,
+    );
+  });
+  test('Splash managed bindings survive native argparse abbreviations and invalid positional text is refused', () async {
+    const parser = '''import argparse,json
+p=argparse.ArgumentParser()
+p.add_argument("assembly")
+for name in ("model","tokenizer","binary","host","port"):
+    p.add_argument("--"+name, required=True)
+p.add_argument("--served-model-name", action="append")
+print(json.dumps(vars(p.parse_args())))
+''';
+    final EngineProcessIO io = NativeEngineProcessIO();
+    final family = EngineLaunchConfiguration.fromJson({
+      'family': 'splash',
+      'formValues': <String, String>{},
+    }).family;
+    for (final (text, rejected) in [
+      (
+        '--mod Other/Target --tok /other-tokenizer --bin /other-native --ho 0.0.0.0 --por=80 --served other --served-model-name another',
+        false,
+      ),
+      ('-- Other/Target --served-model-name other', true),
+      ('/other-assembly', true),
+    ]) {
+      final command =
+          EngineLaunchConfiguration(family: family, argumentText: text).command(
+            executable: '/usr/bin/python3',
+            modelPath: '/unused',
+            alias: 'gmd-bound',
+            port: 8123,
+            executableArguments: ['-P', '-c', parser, '/verified assembly'],
+            managedArguments: {
+              '--model': 'Owner/Bound',
+              '--tokenizer': '/verified tokenizer',
+              '--binary': '/verified native',
+            },
+          );
+      final result = await io.run(
+        command.executable,
+        command.arguments,
+        timeout: const Duration(seconds: 5),
+      );
+      if (rejected) {
+        expect(result.exitCode, isNot(0));
+        expect(result.stderr, contains('error:'));
+      } else {
+        expect(result.exitCode, 0);
+        expect(jsonDecode(result.stdout), {
+          'assembly': '/verified assembly',
+          'model': 'Owner/Bound',
+          'tokenizer': '/verified tokenizer',
+          'binary': '/verified native',
+          'host': '127.0.0.1',
+          'port': '8123',
+          'served_model_name': ['gmd-bound'],
+        });
+      }
+    }
+  });
+  test('Splash help and supplied Python prefix share the actual ProcessIO argument snapshot', () async {
+    const help = '''options:
+  -h, --help  display help
+  --model OWNER/REPO  target identity
+  --tokenizer DIRECTORY  local tokenizer
+  --binary FILE  native program
+  --host HOST  listener
+  --port PORT  listener port
+  --served-model-name NAME  public alias
+  --max-context, --context-tokens TOKENS  current context option
+  --max-memory SIZE  current memory option
+  --kv-format FORMAT  current KV option
+  --queue-size REQUESTS  current queue option
+  --new-label VALUE  newly observed value option
+''';
+    final EngineProcessIO io = NativeEngineProcessIO();
+    final observed = await io.run('/usr/bin/python3', [
+      '-P',
+      '-c',
+      'import sys; sys.stdout.write(${jsonEncode(help)})',
+    ], timeout: const Duration(seconds: 5));
+    expect(observed.exitCode, 0);
+    final rules = EngineParameterRecognition.fromHelp(
+      observed.stdout,
+      family: EngineFamily.splash,
+      version: 'process-boundary fixture',
+      executablePath: '/usr/bin/python3',
+      contentFingerprint: 'process-boundary fixture',
+    );
+    expect(rules.status, EngineHelpStatus.available);
+    expect(rules.canonicalName('--context-tokens'), '--max-context');
+    const raw =
+        '--context-tokens 64K --new-label "--tokenizer" --new-label "" --future="two words" --mod Evil/Model --served "evil alias"';
+    final configuration = EngineLaunchConfiguration(
+      family: EngineFamily.splash,
+      formValues: {
+        '--max-context': '16K',
+        '--max-memory': 'auto',
+        '--kv-format': 'bf16',
+        '--queue-size': '2',
+      },
+      argumentText: raw,
+    );
+    const probe = 'import json,sys; print(json.dumps(sys.argv[1:]))';
+    final prefix = ['-P', '-c', probe, '/local assembly'];
+    final binding = {
+      '--model': 'Owner/Bound',
+      '--tokenizer': '/local tokenizer',
+      '--binary': '/local native/splash',
+    };
+    final command = configuration.command(
+      executable: '/usr/bin/python3',
+      modelPath: '/legacy modelPath is not Splash API identity',
+      alias: 'gmd-bound',
+      port: 8123,
+      recognition: rules,
+      executableArguments: prefix,
+      managedArguments: binding,
+    );
+    prefix.add('unexpected mutation');
+    binding['--model'] = 'Unexpected/Mutation';
+    expect(command.provisional, isFalse);
+    expect(command.overriddenForm, {'--max-context'});
+    expect(command.arguments.take(4), ['-P', '-c', probe, '/local assembly']);
+    final executed = await io.run(
+      command.executable,
+      command.arguments,
+      timeout: const Duration(seconds: 5),
+    );
+    expect(executed.exitCode, 0);
+    expect(jsonDecode(executed.stdout), [
+      '/local assembly',
+      '--max-memory',
+      'auto',
+      '--kv-format',
+      'bf16',
+      '--queue-size',
+      '2',
+      '--context-tokens',
+      '64K',
+      '--new-label',
+      '--tokenizer',
+      '--new-label',
+      '',
+      '--future=two words',
+      '--model',
+      'Owner/Bound',
+      '--tokenizer',
+      '/local tokenizer',
+      '--binary',
+      '/local native/splash',
+      '--host',
+      '127.0.0.1',
+      '--port',
+      '8123',
+      '--served-model-name',
+      'gmd-bound',
+    ]);
+    expect(command.notices, contains(contains('--model 由软件管理')));
+    expect(command.displayText, contains("'/local assembly'"));
+    expect(configuration.argumentText, raw);
+    final restoredForm =
+        EngineLaunchConfiguration(
+          family: configuration.family,
+          formValues: configuration.formValues,
+        ).command(
+          executable: command.executable,
+          modelPath: '/assembly',
+          alias: 'gmd-bound',
+          port: 8123,
+          executableArguments: ['-P', '-c', probe, '/assembly'],
+          managedArguments: {
+            '--model': 'Owner/Bound',
+            '--tokenizer': '/tokenizer',
+            '--binary': '/native',
+          },
+        );
+    expect(restoredForm.overriddenForm, isEmpty);
+    expect(
+      restoredForm.arguments,
+      containsAllInOrder(['--max-context', '16K']),
+    );
+  });
+  test('Splash text overrides forms softly and cannot replace software managed options or abbreviations', () {
+    const text =
+        '--tokenizer "/raw tokenizer" --binary="/raw native" --mod Wrong/Model --alias other --por=80 --host 0.0.0.0 --served-model-n "other alias" --max-context 64K --max-memory 4.5G --kv-format wrong --queue-size wrong --future "two words"';
+    final configuration = EngineLaunchConfiguration.fromJson({
+      'family': 'splash',
+      'formValues': {
+        '--max-context': '16K',
+        '--max-memory': '28G',
+        '--kv-format': 'int8',
+        '--queue-size': '8',
+      },
+      'argumentText': text,
+    });
+    final command = configuration.command(
+      executable: '/verified Python/python',
+      modelPath: '/assembly',
+      alias: 'gmd-bound',
+      port: 8123,
+    );
+    for (final rejected in [
+      '/raw tokenizer',
+      '/raw native',
+      'Wrong/Model',
+      'other',
+      '80',
+      '0.0.0.0',
+      'other alias',
+    ]) {
+      expect(command.arguments, isNot(contains(rejected)), reason: rejected);
+    }
+    expect(
+      command.arguments,
+      containsAllInOrder([
+        '--max-context',
+        '64K',
+        '--max-memory',
+        '4.5G',
+        '--kv-format',
+        'wrong',
+        '--queue-size',
+        'wrong',
+        '--future',
+        'two words',
+      ]),
+    );
+    expect(
+      command.arguments,
+      containsAllInOrder([
+        '--host',
+        '127.0.0.1',
+        '--port',
+        '8123',
+        '--served-model-name',
+        'gmd-bound',
+      ]),
+    );
+    expect(command.overriddenForm, {
+      '--max-context',
+      '--max-memory',
+      '--kv-format',
+      '--queue-size',
+    });
+    expect(command.notices, contains(contains('--max-memory')));
+    expect(command.notices, contains(contains('--kv-format')));
+    expect(command.notices, contains(contains('--queue-size')));
+    expect(command.notices, isNot(contains(contains('--max-context 通常'))));
+    expect(command.isConfigurationOnly, isFalse);
+    expect(
+      command.provisional,
+      isTrue,
+      reason: 'no model binding or software Python prefix has been supplied',
+    );
+    expect(configuration.argumentText, text);
+    expect(configuration.formValues['--max-context'], '16K');
+  });
+  test('Splash saved configuration has its own empty form and preserves original text', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'gmd-splash-config-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    const originalText = " --future='two words'\n";
+    final file = await File('${directory.path}/configuration.json')
+        .writeAsString(
+          jsonEncode({
+            'family': 'splash',
+            'formValues': <String, String>{},
+            'argumentText': originalText,
+          }),
+        );
+    final loaded = EngineLaunchConfiguration.fromJson(
+      jsonDecode(await file.readAsString()),
+    );
+    expect(loaded.family.name, 'splash');
+    expect(
+      EngineLaunchConfiguration(family: loaded.family).formValues,
+      isEmpty,
+    );
+    expect(EngineLaunchConfiguration.labelsFor(loaded.family).keys, [
+      '--max-context',
+      '--max-memory',
+      '--kv-format',
+      '--queue-size',
+    ]);
+    expect(loaded.argumentText, originalText);
+    await file.writeAsString(jsonEncode(loaded.toJson()));
+    final reopened = EngineLaunchConfiguration.fromJson(
+      jsonDecode(await file.readAsString()),
+    );
+    expect(reopened.toJson(), {
+      'family': 'splash',
+      'formValues': <String, String>{},
+      'argumentText': originalText,
+    });
+    final legacy = EngineLaunchConfiguration.fromJson({
+      'formValues': {'--ctx-size': '2048'},
+    });
+    expect(legacy.family.name, 'llamaCpp');
+    expect(legacy.formValues['--ctx-size'], '2048');
+  });
   for (final newAlias in [false, true]) {
     test(
       'managed partial help preserves ${newAlias ? 'new alias attached to retained' : 'single retained alias'} context anchor',

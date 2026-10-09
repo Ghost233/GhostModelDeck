@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/app_theme.dart';
 import 'package:ghost_model_deck/engine_catalog.dart';
 import 'package:ghost_model_deck/engine_page.dart';
+import 'package:ghost_model_deck/engine_labels.dart';
 import 'package:ghost_model_deck/llama_engine.dart';
 import 'package:ghost_model_deck/omlx_engine.dart';
 import 'package:ghost_model_deck/model_library.dart';
@@ -15,6 +16,77 @@ import 'package:ghost_model_deck/model_use_registry.dart';
 import 'fixtures/engine_archive.dart';
 
 void main() {
+  testWidgets(
+    'linked CPP version label uses its actual version row after initialization logs',
+    (tester) async {
+      late Directory root;
+      late ModelLibrary library;
+      late _CppVersionLabelIO io;
+      late LlamaEngine cpp;
+      late EngineCatalog catalog;
+      await tester.runAsync(() async {
+        root = await Directory.systemTemp.createTemp('gmd-ui-version-');
+        library = ModelLibrary();
+        io = _CppVersionLabelIO();
+        cpp = LlamaEngine(
+          library: library,
+          installationDirectory: Directory('${root.path}/owned'),
+          io: io,
+        );
+        catalog = EngineCatalog(
+          library: library,
+          officialEngine: cpp,
+          useRegistry: ModelUseRegistry(library),
+          registryFile: File('${root.path}/registry.json'),
+          io: io,
+        );
+      });
+      addTearDown(
+        () => tester.runAsync(() async {
+          await catalog.shutdown();
+          catalog.close();
+          cpp.close();
+          library.close();
+          await root.delete(recursive: true);
+        }),
+      );
+      await tester.runAsync(() async {
+        final executable = File('${root.path}/external/llama-server');
+        await executable.parent.create(recursive: true);
+        await executable.writeAsString(
+          'external process-boundary fixture only',
+        );
+        expect(
+          (await Process.run('/bin/chmod', ['+x', executable.path])).exitCode,
+          0,
+        );
+        await catalog.link(executable.path);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: EnginePage(
+                catalog: catalog,
+                pickEngineDirectory: () async => null,
+              ),
+            ),
+          ),
+        );
+        await catalog.refresh();
+      });
+      await tester.pumpAndSettle();
+      expect(find.text('0.5.0-dev · 7fe450e19'), findsOneWidget);
+      expect(find.textContaining('0.00.000.141'), findsNothing);
+      expect(engineVersionLabel(null), '版本未知');
+      expect(engineVersionLabel('0.7.0'), '0.7.0');
+      expect(
+        engineVersionLabel('Splash (source checkout)'),
+        'Splash (source checkout)',
+      );
+      expect(io.starts, 0);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets(
     'engine defaults editor previews and copies the edited complete command',
     (tester) async {
@@ -477,4 +549,43 @@ class _InstallIO implements EngineProcessIO {
   @override
   Future<EngineChild> start(String executable, List<String> arguments) =>
       throw UnimplementedError();
+}
+
+class _CppVersionLabelIO implements EngineProcessIO {
+  int starts = 0;
+  @override
+  Future<EngineCommandResult> run(
+    String executable,
+    List<String> arguments, {
+    required Duration timeout,
+  }) async {
+    if (executable == '/usr/bin/file') {
+      return const EngineCommandResult(0, 'Mach-O 64-bit executable arm64', '');
+    }
+    if (arguments.single == '--version') {
+      // Actual fixed b11146 stderr structure captured in help-research.
+      return const EngineCommandResult(
+        0,
+        '',
+        '0.00.000.141 I srv  llama_server: initializing ...\n'
+            'version: 0.5.0-dev (build 11146, commit 7fe450e19)\n'
+            'built with AppleClang 21.0.0.21000101 for Darwin arm64\n',
+      );
+    }
+    if (arguments.single == '--help') {
+      return const EngineCommandResult(
+        0,
+        '--model --alias --host --port --ctx-size --batch-size --ubatch-size '
+            '--parallel --n-gpu-layers --device',
+        '',
+      );
+    }
+    throw StateError('Unexpected inspection command $executable $arguments');
+  }
+
+  @override
+  Future<EngineChild> start(String executable, List<String> arguments) async {
+    starts++;
+    throw StateError('Version display must not start a model');
+  }
 }

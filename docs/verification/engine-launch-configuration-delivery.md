@@ -72,3 +72,39 @@ Merger 首轮确认oMLX登记未保留实际版本/参数来源的P2，以公开
 5. #51 全部 33 条故事、跨入口及真实引擎验收。
 
 后继须等待相应前置验收及阶段审查集成；oMLX 生产运行和 Splash 适配保留既定后续范围。本次不发布正式版本或修改 v0.1.3 资产。
+
+## 2026-10-09 增补：Splash 接入
+
+用户新增 [Splash 本地引擎接入：启动参数、模型绑定与文本运行](https://github.com/Ghost233/GhostModelDeck/issues/57)，本地规格为 [splash-support-spec.md](../requirements/splash-support-spec.md)。它独立于原 #44 排除 Splash 的历史范围：#58 配置、#59 安装与 Runtime 在互斥文件上推进，#60 等待前两项进入候选后集成。当前 checkout 为 `codex/engine-launch-acceptance`，起始已提交候选 `1340af9714ee2a78cde2c167e100ef4e5e8409f8`；原 #51 实机 GUI 仍待收齐，真实 SDK49条断言保持原源码版本归属。
+
+本机现有兼容 Swift27B IQ3_S + DFlash2 本地 assembly 已获得无加载 model-check 证据，普通接入不需要隐式下载。用户另一份 Splash 服务正在运行，且其 checkout/native binary 由其他工作更新；保留该服务与源码，实际内容指纹变化需重新核验。当前新功能尚未通过产品门禁或原生运行验收，增补工单保持开放。
+
+原 #51 当前新增真实 GUI 证据：受管 JEV安装、表单2048保存、文本-c1024覆盖及管理host/port/model/alias提示，从模型库Run启动后显示运行中；原生props n_ctx1024、typed choice200及实际PID10422/port52883/完整命令吻合，正常UI停止后端口关闭。记录在 `.scratch/engine-launch-delivery/stage51/gui-records/managed-jev-*`。这只证明一个组合，剩余linked/标准/oMLX GUI仍待验收。安装标准引擎时发现版本显示选取第一条初始化日志，列为待修P2。
+
+随后在同一构建完成关联 JEV/Kev：模型独立配置保存1536、完整预览与实际命令一致，原生props1536与typed choice200；继承预览回到4096，再选独立仍为1536。运行期间保存2048只改变下一次预览，当前端口53809/模型alias/实际命令和原生props仍为1536；UI正常停止后端口关闭。相关记录为 `linked-jev-*`。
+
+受管标准b11146/Qwen真实GUI组合采用模型独立空配置（持久化enabled=true、formValues为空映射、argumentText为空），预览和实际命令只含软件管理字段。模型Ready，原生props实际上下文32768，短文本chat200返回OK；UI停止后端口54566关闭。相关记录为 `managed-standard-*`。没有把空配置猜成软件默认4096；关联标准组合及其余GUI边界继续验收。
+
+关联标准b11146/Qwen组合保存引擎默认768，模型运行对话框选择具体外部登记，预览、实际命令与原生props768一致，chat200返回OK，UI停止后端口55831关闭。四个组合现已实际运行并释放各自端口，汇总 `gui-records/four-combinations.json`；没有用受管安装目录冒充外部关联。oMLX未安装状态下实际保存表单并发2、文本并发3，表单标红并显示不可执行配置结果3；持久化回读家族及原文吻合，没有启动池或模型。其余词法/语义、重启及恢复GUI边界仍单独收齐。
+
+Splash #58 配置切片已冻结：六个相关文件122项测试通过，静态分析零诊断，所有真实退出0且输入未变。外部真实Python argparse验证管理字段缩写、append alias、引号/空值及--终止符边界；首个测试字符串转义的编译失误保留为工具invalid，不当产品红或成功。只读merger P0/P1/P2=0；证据索引为 `.scratch/engine-launch-delivery/splash-config-{handoff,checks,inputs,merger-review}`。配置切片不表示Splash实际模型Ready，工单未提前关闭。
+
+真实GUI补充：语义错误ctx值not-an-integer允许保存并在最终命令保留，启动真实标准引擎后界面报告exit1及stoi无转换错误、失败且无停止按钮。未闭合引号原文允许保存，第12位错误出现后隐藏预览、运行对话框禁用Run。验收同时发现参数编辑器在有效/词法错误转换时丢失焦点：输入unfinished仅留下u，列为待修P2，不能把这段键盘中断记为完整原文输入通过；UI owner准备公开TextInput持续输入回归，修复后需新构建补验。
+
+相同1340构建正常菜单Quit，PID91241退出、四个模型端口均关闭，退出前后六个配置文件的存在状态与字节SHA一致。重开相同构建后安装/关联重新核验成功，表单768和错误原文仍可见，原JEV模型独立2048、受管标准空独立及oMLX默认保存均回读吻合；随后修正该错误原文为空，合法预览恢复。记录为 `normal-exit.json`、`restart-configuration-restored.json` 和 `lexical-*/semantic-error.json`。用户原下载来源文件SHA仍未变。
+
+Splash原生实机待资源协调：只读用户8008服务/status返回当前PID18091、内存实际约38GB、system pressure warning、host available约7GB，独立Swift27B+DFlash2验收最低模型文件约15GB。已经向用户询问何时释放这一外部服务，代码/自动检查继续；没有对该服务发生成请求、停止或更改配置。原先PID9606被用户其它工作替换，当前状态不能沿用旧PID。新增raw status与memory观察保存于 `.scratch/engine-launch-delivery/splash-external-*-before.json`。
+
+Splash #59 首轮候选的20个公开业务测试、零诊断分析及轻量真实Python虚拟环境/自有进程组证明通过；唯一真实Dart公开inspect/scan/verify/bind预检run01则真实exit1：HF snapshot逻辑路径与最终blob canonical路径比较导致合法包在model-check前被拒。目标12,120,016,896字节已完成实际全SHA，四个Python/version/help helper退出0，无服务start或signal。原结果保存在 `.scratch/engine-launch-delivery/splash-native-preflight/run01/`，不能记作原生Ready通过。
+
+独立merger报告 `.scratch/engine-launch-delivery/splash-runtime-work/merger-review.md` 列出P1两项（上述路径身份、40位Git blob OID被固定当64位SHA256比较）和P2一项（bind precheck未固定模型文件使用许可）。真实draft/config的Git blob SHA1含`blob <bytes>\0`头且与record吻合，后续修复必须保留binding完整SHA256并正确核验来源身份。三项由同一Runtime owner集中关闭；#60产品接线仍未应用。两项原GUI P2已有效RED/GREEN，六UI文件模块回归仍有oMLX用例待定点处理；没有把局部GREEN或取消退出0当完整阶段通过。
+
+上述三项Runtime发现现已由同一owner逐条公开RED→最小GREEN关闭：双方canonical身份、40Gitblob/64SHA来源算法与fullSHA绑定、bind preparing/use finally及检查后source/manifest复核。原20加6边界共26 Runtime、受影响129测试、分析零诊断及100文件格式零改动均真实exit0/unchanged。增量merger以新两SHA固定输入复核，三旧发现关闭、新P0/P1/P2=0，报告 `splash-runtime-work/merger-incremental-review.md`。
+
+唯一真实Host预检run02实际exit0：完整12.12GB目标验证、生产inspect/bind、真实Python scalar、native model-check返回Qwen3.8-27B、共享composer与实际预览一致；10helpers全exit0，无signal/SIGKILL，全部来源身份未变，0server start。此结果证明实际绑定兼容，不代替后续Native Ready/文本/SSE验收。原run01失败完整保留。
+
+固定Core候选完整门禁现为格式100文件0改动、分析0诊断、635测试通过，Mac release build成功，全exit0/inputs unchanged。`splash-core-final-*` 检查与构建记录保留。新构建实际Mac鼠标Save完整未闭合引号原文、同焦点、保留表单2成功；真实标准版本标签正确，两旧UI P2已复验。应用再次正常退出，任务唯一新增配置恢复，用户原状态保持。#60尚未应用，下一步双轴候选审查、按依赖接线与整体验收，外部Splash资源问题仍待人类安排。
+
+Core双轴首审已完成并校验17项冻结输入：Standards代码P0/P1/P2=0、文档P2一项；Spec请求P2一项及同一文档P2。文档末尾旧开放状态已同步实际闭合事实，保留仍开放的Splash身份HTTP deadline/cancellation问题；该请求P2由原Runtime owner定点复现、修复与回归，修复后更新源相关门禁/构建并仅增量复审。首审报告位于 `splash-core-review/{standards-first,spec-first}.md`，此时尚未Git提交/推送或提前应用#60。
+
+该请求P2现已有效RED/GREEN修复：JSON/SSE共用从入场计时的剩余deadline，初次/最终身份HTTP与连接/响应体均监听单请求取消，停止该client不影响Ready和peer。原26加4边界共30 Runtime通过，107相关用例有效；回归暴露真实来源失效误归cancelled，原用例定点恢复notReady并保留错误。最终30、format1000改动、零诊断分析均exit0/unchanged；原107之后只有测试responder两处花括号变化，证据明确输入差别，不冒称旧完整manifest匹配新测试。原生inspect/bind四段路径逐字不变，run02相关证据按 `bind-only-evidence-reuse.json` 复用，没有重复42GB读盘。Root正在用新源码更新完整门禁、Mac构建和增量双轴审查。

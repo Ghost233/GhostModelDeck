@@ -38,8 +38,17 @@ class EngineLaunchConfiguration {
     '--memory-guard': '内存保护级别',
     '--hot-cache-max-size': '内存缓存上限',
   };
-  static Map<String, String> labelsFor(EngineFamily family) =>
-      family == EngineFamily.llamaCpp ? formLabels : omlxFormLabels;
+  static const splashFormLabels = {
+    '--max-context': '最大上下文',
+    '--max-memory': '最大内存',
+    '--kv-format': 'KV 缓存格式',
+    '--queue-size': '请求队列大小',
+  };
+  static Map<String, String> labelsFor(EngineFamily family) => switch (family) {
+    EngineFamily.llamaCpp => formLabels,
+    EngineFamily.omlx => omlxFormLabels,
+    EngineFamily.splash => splashFormLabels,
+  };
 
   final EngineFamily family;
   final Map<String, String> formValues;
@@ -52,6 +61,8 @@ class EngineLaunchConfiguration {
     String? alias,
     int? port,
     EngineParameterRecognition? recognition,
+    List<String> executableArguments = const [],
+    Map<String, String> managedArguments = const {},
   }) {
     final rules =
         recognition ?? EngineParameterRecognition.builtIn(family: family);
@@ -66,11 +77,22 @@ class EngineLaunchConfiguration {
             '--base-path': '当前未分配私有数据目录',
             '--api-key': '当前未分配软件鉴权凭据',
           }
+        : family == EngineFamily.splash
+        ? {
+            '--model': '<绑定的 Splash 模型身份>',
+            '--tokenizer': '<绑定的本地 tokenizer 目录>',
+            '--binary': '<已核验的 Splash 原生程序>',
+            '--host': '127.0.0.1',
+            '--port': port?.toString() ?? '<启动时分配的端口>',
+            '--served-model-name': alias ?? '<启动时分配的模型标识>',
+            ...managedArguments,
+          }
         : {
             '--model': modelPath,
             '--alias': alias ?? '<启动时分配的模型标识>',
             '--host': '127.0.0.1',
             '--port': port?.toString() ?? '<启动时分配的端口>',
+            ...managedArguments,
           };
     final arguments = <String>[];
     final managedNames = <String>{};
@@ -79,7 +101,19 @@ class EngineLaunchConfiguration {
     for (var index = 0; index < tokens.length; index++) {
       final argument = tokens[index].value;
       final name = argument.split('=').first;
-      final controlled = rules.canonicalName(name);
+      var controlled = rules.canonicalName(name);
+      if (family == EngineFamily.splash &&
+          name.startsWith('--') &&
+          name.length > 2 &&
+          !rules.recognizes(name)) {
+        final matches = rules.parameters.keys
+            .where((option) => option.startsWith(name))
+            .map(rules.canonicalName)
+            .toSet();
+        if (matches.length == 1 && managed.containsKey(matches.single)) {
+          controlled = matches.single;
+        }
+      }
       if (managed.containsKey(controlled)) {
         managedNames.add(controlled);
         if (!argument.contains('=') &&
@@ -138,7 +172,22 @@ class EngineLaunchConfiguration {
     }
     return EngineLaunchCommand(
       executable: executable,
-      provisional: !configurationOnly && (alias == null || port == null),
+      provisional:
+          !configurationOnly &&
+          (alias == null &&
+                  !managedArguments.containsKey(
+                    family == EngineFamily.splash
+                        ? '--served-model-name'
+                        : '--alias',
+                  ) ||
+              port == null && !managedArguments.containsKey('--port') ||
+              family == EngineFamily.splash &&
+                  (executableArguments.isEmpty ||
+                      ![
+                        '--model',
+                        '--tokenizer',
+                        '--binary',
+                      ].every(managedArguments.containsKey))),
       isConfigurationOnly: configurationOnly,
       overriddenForm: overridden,
       notices: [
@@ -149,7 +198,8 @@ class EngineLaunchConfiguration {
         ...notices,
       ],
       arguments: [
-        if (!configurationOnly)
+        if (!configurationOnly) ...executableArguments,
+        if (!configurationOnly && family != EngineFamily.splash)
           for (final entry in managed.entries) ...[entry.key, entry.value],
         for (final name in labels.keys)
           if (!overridden.contains(name) &&
@@ -158,6 +208,8 @@ class EngineLaunchConfiguration {
             formValues[name]!,
           ],
         ...arguments,
+        if (family == EngineFamily.splash)
+          for (final entry in managed.entries) ...[entry.key, entry.value],
       ],
     );
   }
@@ -179,6 +231,27 @@ class EngineLaunchConfiguration {
       if (name == '--memory-guard' &&
           !['off', 'safe', 'balanced', 'aggressive'].contains(value)) {
         return '$name 常用值为 off、safe、balanced、aggressive，仍保留并交由引擎判断。';
+      }
+      return null;
+    }
+    if (family == EngineFamily.splash) {
+      final normalized = value.trim().toUpperCase();
+      if (name == '--max-context' || name == '--max-memory') {
+        if (normalized == 'AUTO') return null;
+        final suffix = name == '--max-context'
+            ? RegExp(r'K$')
+            : RegExp(r'[KMG](?:IB|B)?$');
+        final count = normalized.replaceFirst(suffix, '').trim();
+        if (!RegExp(r'^[+]?\d+$').hasMatch(count) ||
+            (int.tryParse(count) ?? 0) <= 0) {
+          return '$name 通常需要 auto 或正整数及受支持的单位，仍保留并交由引擎判断。';
+        }
+      } else if (name == '--kv-format' && !['int8', 'bf16'].contains(value)) {
+        return '$name 常用值为 int8、bf16，仍保留并交由引擎判断。';
+      } else if (name == '--queue-size' &&
+          (!RegExp(r'^[+]?\d+$').hasMatch(value.trim()) ||
+              (int.tryParse(value) ?? 0) <= 0)) {
+        return '$name 通常需要正整数值，仍保留并交由引擎判断。';
       }
       return null;
     }

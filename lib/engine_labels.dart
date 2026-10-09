@@ -19,7 +19,13 @@ String engineSourceLabel(EngineRegistration entry) {
 
 String engineVersionLabel(String? version) {
   if (version == null) return '版本未知';
-  final first = version.split('\n').first.replaceFirst('version: ', '');
+  final lines = version.split('\n');
+  final first = lines
+      .firstWhere(
+        (line) => line.trimLeft().startsWith('version:'),
+        orElse: () => lines.first,
+      )
+      .replaceFirst(RegExp(r'^\s*version:\s*'), '');
   final commit = RegExp(r'commit ([a-f0-9]+)').firstMatch(first);
   return commit == null ? first : '${first.split(' (').first} · ${commit[1]}';
 }

@@ -63,6 +63,19 @@ class EngineParameterRecognition {
     '--host': '软件管理的监听地址',
     '--port': '软件管理的监听端口',
   };
+  static const _splashDescriptions = {
+    '--model': '软件管理的 Splash 模型身份',
+    '--tokenizer': '软件管理的本地 tokenizer 目录',
+    '--binary': '软件管理的 Splash 原生程序',
+    '--host': '软件管理的监听地址',
+    '--port': '软件管理的监听端口',
+    '--served-model-name': '软件管理的服务模型标识',
+    '--max-context': '最大上下文；auto 或正整数，可用 K',
+    '--max-memory': '最大内存；auto 或正整数字节，可用 K/M/G',
+    '--kv-format': 'KV 缓存格式：int8 或 bf16',
+    '--queue-size': '请求队列大小',
+    '--help': '显示当前引擎帮助',
+  };
 
   factory EngineParameterRecognition.builtIn({
     EngineFamily family = EngineFamily.llamaCpp,
@@ -71,7 +84,9 @@ class EngineParameterRecognition {
     String? contentFingerprint,
     String? notice,
   }) {
-    final descriptions = family == EngineFamily.llamaCpp
+    final descriptions = family == EngineFamily.splash
+        ? _splashDescriptions
+        : family == EngineFamily.llamaCpp
         ? _llamaDescriptions
         : const {
             '--model-dir': '模型池目录',
@@ -84,7 +99,9 @@ class EngineParameterRecognition {
             '--memory-guard': '内存保护级别',
             '--hot-cache-max-size': '内存缓存上限',
           };
-    final aliases = family == EngineFamily.llamaCpp
+    final aliases = family == EngineFamily.splash
+        ? const {'--alias': '--served-model-name'}
+        : family == EngineFamily.llamaCpp
         ? _llamaAliases
         : const <String, String>{};
     final parameters = <String, EngineParameterDescription>{};
@@ -231,6 +248,8 @@ class EngineParameterRecognition {
     final missing =
         (family == EngineFamily.llamaCpp
                 ? _llamaDescriptions.keys
+                : family == EngineFamily.splash
+                ? _splashDescriptions.keys
                 : builtIn.parameters.keys)
             .where((name) => !observedNames.contains(name))
             .toList();

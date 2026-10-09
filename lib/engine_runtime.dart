@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'chat_protocol.dart';
 
-enum EngineFamily { llamaCpp, omlx }
+enum EngineFamily { llamaCpp, omlx, splash }
 
 enum RuntimeInstanceStatus { starting, ready, stopping, stopped, failed }
 

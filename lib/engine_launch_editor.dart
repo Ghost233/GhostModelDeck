@@ -187,6 +187,7 @@ class _EngineLaunchEditorState extends State<EngineLaunchEditor> {
                     widget.initialConfiguration.family,
                   ).entries)
                     Padding(
+                      key: ValueKey('engine-parameter-form:${field.key}'),
                       padding: const EdgeInsets.only(bottom: 12),
                       child: TextField(
                         controller: _controllers[field.key],
@@ -209,6 +210,7 @@ class _EngineLaunchEditorState extends State<EngineLaunchEditor> {
                       ),
                     ),
                   TextField(
+                    key: const ValueKey('engine-argument-text'),
                     controller: _argumentText,
                     enabled: !_saving,
                     minLines: 3,
