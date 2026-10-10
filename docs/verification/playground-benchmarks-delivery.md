@@ -8,14 +8,18 @@
 
 | 项目 | 当前结论 |
 | --- | --- |
-| 当前代码 | 阶段三实现已提交为 `fa6da5fa5254c66f4e23b6a97fc293fc8baf800c`；当前分支 HEAD 为其他会话的文档提交 `93a86ffb2c528baa001146ba095eee4fe220d799`，已保留。Jevman 延迟统计 P2 的四文件修复尚未提交，48 项相关回归及新完整门禁 777 项已通过，等待提交后复审与新 Mac 构建。 |
-| 完整门禁 | 当前 P2 修复候选的 `run-W06BOL` 已通过：145 文件格式零改动、全仓分析零诊断、777 项全测试及整体退出 0。647 个输入与当前逐一一致；新 Mac 构建待执行。下述 776 项及 718 项分别覆盖旧阶段三候选与阶段二。 |
+| 当前代码 | 当前候选为 `112680b0ddc1bde120743a3be198494f34501de1`。延迟统计 P2 已修复，48 项相关回归、777 项完整门禁和两轴复审均通过。另一会话的 `93a86ff` 发布文档提交及外来标签文件保留，新 Mac 构建编译和记录器退出均为 0。 |
+| 完整门禁 | 当前 P2 修复候选的 `run-W06BOL` 已通过：145 文件格式零改动、全仓分析零诊断、777 项全测试及整体退出 0。647 个输入与当前逐一一致；新 Mac Release 构建编译及记录器退出均为 0，678 个输入前后与当前一致。下述 776 项及 718 项分别覆盖旧阶段三候选与阶段二。 |
 | 真实模型 | 阶段二六份完整 400 题已通过。阶段三 11,257／10,320／11,368 请求及 Jevman 100 局真实模型验收尚待；存储 fixture 不作为模型证据。 |
 | PR | 阶段 PR #74／#75 已合入 dev；阶段三 PR 与最终 dev → main 总 PR 尚未创建。最终总 PR 仅保持 ready，由用户合并。 |
 
-当前两轴首审中，Standards 的 P0/P1/P2 均为 0。Spec 仅有一个 P2：Jevman 正式成功公开调用的端到端 P50/P95 为空。修复保留原游戏评分和平均延迟，排除预热、失败与取消。原失败 `run-yAfkSA` 保留；同例 `run-HzXjuz`、无成功及页面两项 `run-UZH5yj`、相关分析 `run-pUZnkK` 均退出 0。唯一三文件回归 `run-7SkElR` 已完成：48 项通过，测试与外层退出均为 0，输入前后一致。四文件最终格式检查 `run-EJRENm` 零改动。唯一新完整门禁 `run-W06BOL` 已通过：145 文件格式零改动、分析零诊断、777 项全测试，三个步骤与整体退出均为 0，用时 29 分 07 秒。647 个输入与当前源码逐一相同，清单摘要 `a60e2ec3e6a3c0420fd8d840f0661f544ea98ea4f428f441266777649ef1eadd`。准确记录为 ignored `stage3-check-queue-p2-final-host-summary.md` 与 `stage3-check-queue-p2-final-host-result.json`。
+两轴首审发现唯一 P2：Jevman 正式成功公开调用的端到端 P50/P95 为空。当前固定 `112680b` 的两轴 V2 复审均为 P0/P1/P2 各 0，原问题已关闭。复审复用 `fa6` 的 48 文件覆盖，独立核对当前 647 个输入全部匹配。报告为 ignored `stage3-prenative-standards-review-v2.md/json` 和 `stage3-prenative-spec-review-v2.md/json`。修复保留原游戏评分和平均延迟，排除预热、失败与取消。原失败 `run-yAfkSA` 保留；同例 `run-HzXjuz`、无成功及页面两项 `run-UZH5yj`、相关分析 `run-pUZnkK` 均退出 0。唯一三文件回归 `run-7SkElR` 已完成：48 项通过，测试与外层退出均为 0，输入前后一致。四文件最终格式检查 `run-EJRENm` 零改动。唯一新完整门禁 `run-W06BOL` 已通过：145 文件格式零改动、分析零诊断、777 项全测试，三个步骤与整体退出均为 0，用时 29 分 07 秒。647 个输入与当前源码逐一相同，清单摘要 `a60e2ec3e6a3c0420fd8d840f0661f544ea98ea4f428f441266777649ef1eadd`。准确记录为 ignored `stage3-check-queue-p2-final-host-summary.md` 与 `stage3-check-queue-p2-final-host-result.json`。
 
 旧候选 Mac Release 编译真实退出 0，678 个构建输入一致。另一会话在构建期间提交了三个发布文档，记录器因 HEAD 改变而退出 1；两种结果分别保留。当前生产代码修复需要新产物。其他会话提交及未跟踪的标签文件保持。阶段 PR 如何排除这三个外来文档，留到 Git 交付时处理。真实模型接管尚未开始；新门禁和构建通过后，沿用用户授权协调旧服务释放。
+
+当前候选 Mac Release 构建为 ignored `native-stage3-build-repair1-result.json`。编译和记录器真实退出均为 0，HEAD 前后为 `112680b`，678 个输入前后及当前一致。App.framework SHA-256 为 `cd563edfcd24dae304179ecd6aa79bffe6c13dadeed928cd3eecaecc0744f113`。SDK 默认产物含 arm64 和 x86_64 slices；本次仅验收 macOS arm64，未执行 Intel 适配或测试。真实应用和模型尚未启动。
+
+服务协调消息遭自动审批拒绝，理由是现有释放授权没有明确覆盖向指定 Sentinel 会话披露信息并请求暂停调用。已向用户请求该具体会话的交接及恢复消息授权。当前没有送达消息、停止旧应用或改用户配置；真实评测等待协调后执行。
 
 阶段二 [PR #75](https://github.com/Ghost233/GhostModelDeck/pull/75) 已合入 dev，合并提交 `a7c1aaced3b3f679fb8d3f7886ab82c64ca3f5a4`。代码候选固定为 `072335d0cdaa44296ae44103f36b5a13171229dd`，实机开始时的文档提交为 `bc0276beeb80ab193d27fec96d859587be1ff6b2`，随后仅更新交付记录。主线程负责 Git、门禁和实机队列；`comparison_67` 负责代码修复，`native_66` 负责唯一实机验收。
 
