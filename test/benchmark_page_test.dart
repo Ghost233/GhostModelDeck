@@ -18,6 +18,568 @@ import 'fixtures/playground_runtime.dart';
 
 void main() {
   testWidgets(
+    'selecting the active original history follows the owned current snapshot without hydrating an appending journal',
+    (tester) async {
+      final previous = HttpOverrides.current;
+      HttpOverrides.global = _Network();
+      addTearDown(() => HttpOverrides.global = previous);
+      late PlaygroundRuntime fixture;
+      late BenchmarkResources resources;
+      late BenchmarkRunner runner;
+      late _ObservedJournalStore store;
+      late Future<BenchmarkRun> operation;
+      late Completer<void> secondRelease, remainingRelease;
+      late Completer<BenchmarkRun> firstSaved, secondSaved;
+      late StreamSubscription<BenchmarkRun> subscription;
+      await tester.runAsync(() async {
+        secondRelease = Completer<void>();
+        remainingRelease = Completer<void>();
+        firstSaved = Completer<BenchmarkRun>();
+        secondSaved = Completer<BenchmarkRun>();
+        fixture = await PlaygroundRuntime.create();
+        resources = BenchmarkResources(
+          Directory('${fixture.runtime.root.path}/active-original-cache'),
+        );
+        final suite = await _prepareOriginalJeval(resources);
+        expect(suite.tasks, hasLength(11257));
+        store = _ObservedJournalStore(
+          Directory('${fixture.runtime.root.path}/active-original-history'),
+        );
+        runner = BenchmarkRunner(
+          client: fixture.playground,
+          store: store,
+          models: fixture.council.models,
+        );
+        var request = 0;
+        fixture.runtime.io.respond = (body, raw) async {
+          request++;
+          if (request == 2) await secondRelease.future;
+          if (request >= 3) await remainingRelease.future;
+          return raw;
+        };
+        subscription = runner.changes.listen((record) {
+          if (record.summary['attempted'] == 1 && !firstSaved.isCompleted) {
+            firstSaved.complete(record);
+          }
+          if (record.summary['attempted'] == 2 && !secondSaved.isCompleted) {
+            secondSaved.complete(record);
+          }
+        });
+        // Full original plan with finite public HTTP lifecycle observations;
+        // this is not a complete model benchmark or a product subset.
+        operation = runner.runQuestions(suite: suite, model: 'native-kev');
+        await firstSaved.future.timeout(const Duration(seconds: 20));
+      });
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.runAsync(() async {
+          store.releaseLength();
+          runner.cancel();
+          if (!secondRelease.isCompleted) secondRelease.complete();
+          if (!remainingRelease.isCompleted) remainingRelease.complete();
+          await runner.close();
+          await subscription.cancel();
+          await resources.close();
+          await fixture.close();
+        });
+      });
+      tester.view.physicalSize = const Size(1100, 1300);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final id = runner.current!.id;
+      late Map firstHeader;
+      await tester.runAsync(() async {
+        firstHeader = jsonDecode(
+          await File('${store.directory.path}/$id.json').readAsString(),
+        ) as Map;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: BenchmarkPage(resources: resources, runner: runner),
+            ),
+          ),
+        );
+        await _wait(tester, find.byKey(Key('benchmark-history-$id')));
+      });
+      expect((firstHeader['journal'] as Map)['count'], 1);
+      await tester.ensureVisible(find.byKey(Key('benchmark-history-$id')));
+      await tester.runAsync(() async {
+        store.observe(id);
+        await tester.tap(find.byKey(Key('benchmark-history-$id')));
+        // load() observation is synchronous. The future fixed Page can skip
+        // hydration, so that branch must never wait for a nonexistent IO gate.
+        if (store.observedLoads > 0) {
+          await store.lengthObserved.future.timeout(const Duration(seconds: 5));
+          expect(store.oldLength, (firstHeader['journal'] as Map)['bytes']);
+        }
+        secondRelease.complete();
+        final next = await secondSaved.future.timeout(
+          const Duration(seconds: 20),
+        );
+        expect(next.summary['expected'], 11257);
+        final nextHeader = jsonDecode(
+          await File('${store.directory.path}/$id.json').readAsString(),
+        ) as Map;
+        expect((nextHeader['journal'] as Map)['count'], 2);
+        expect(
+          (nextHeader['journal'] as Map)['bytes'] as int,
+          greaterThan((firstHeader['journal'] as Map)['bytes'] as int),
+        );
+        store.releaseLength();
+        if (store.observedLoads > 0) {
+          await store.readFinished.future.timeout(const Duration(seconds: 5));
+          // Verify the unmodified real Store rejected the old descriptor
+          // after legal ordinary append, rather than inventing corrupt rows.
+          expect(store.readError, isA<FormatException>());
+          expect(store.readError.toString(), contains('原题日志未完整封存或含额外请求'));
+        }
+        await tester.pump();
+      });
+      expect(find.textContaining('记录读取失败'), findsNothing);
+      expect(
+        store.observedLoads,
+        0,
+        reason: 'The app-owned current snapshot does not require active journal hydration.',
+      );
+      expect(find.textContaining('批次：$id ·'), findsOneWidget);
+      expect(
+        tester.widget<Text>(find.byKey(const Key('benchmark-coverage'))).data,
+        contains('未完成 · 已执行 2 / 11257'),
+      );
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('benchmark-current-status')))
+            .data,
+        contains('运行中'),
+      );
+      await tester.runAsync(() async {
+        store.stopObserving();
+        runner.cancel();
+        final cancelled = await operation.timeout(const Duration(seconds: 10));
+        final restored = await store.load(id);
+        expect(restored.toJson(), cancelled.toJson());
+        expect(restored.summary['expected'], 11257);
+        expect(
+          restored.items
+              .take(2)
+              .every((row) => (row['result'] as Map)['status'] == 'success'),
+          isTrue,
+        );
+      });
+      expect(tester.takeException(), isNull);
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
+  testWidgets(
+    'selecting a valid saved original history clears the previous read error and preserves both files',
+    (tester) async {
+      final previous = HttpOverrides.current;
+      HttpOverrides.global = _Network();
+      addTearDown(() => HttpOverrides.global = previous);
+      late PlaygroundRuntime fixture;
+      late BenchmarkResources resources;
+      late BenchmarkRunner viewer;
+      late BenchmarkRun bad, good;
+      late File badJournal, goodJournal, badHeader, goodHeader, source, model;
+      late String damaged;
+      late List<int> goodBytes,
+          badHeaderBytes,
+          goodHeaderBytes,
+          sourceBytes,
+          modelBytes;
+      await tester.runAsync(() async {
+        fixture = await PlaygroundRuntime.create();
+        resources = BenchmarkResources(
+          Directory('${fixture.runtime.root.path}/reselection-cache'),
+        );
+        final suite = await _prepareOriginalJeval(resources);
+        expect(suite.tasks, hasLength(11257));
+        final store = BenchmarkRunStore(
+          directory: Directory(
+            '${fixture.runtime.root.path}/reselection-history',
+          ),
+        );
+        final creator = BenchmarkRunner(
+          client: fixture.playground,
+          store: store,
+          models: fixture.council.models,
+        );
+        final releases = <Completer<void>>[];
+        try {
+          final records = <BenchmarkRun>[];
+          for (var index = 0; index < 2; index++) {
+            final arrived = Completer<void>(), release = Completer<void>();
+            releases.add(release);
+            fixture.runtime.io.respond = (body, raw) async {
+              if (!arrived.isCompleted) arrived.complete();
+              await release.future;
+              return raw;
+            };
+            final operation = creator.runQuestions(
+              suite: suite,
+              model: 'native-kev',
+            );
+            await arrived.future.timeout(const Duration(seconds: 20));
+            creator.cancel();
+            records.add(await operation.timeout(const Duration(seconds: 10)));
+            release.complete();
+          }
+          bad = records[0];
+          good = records[1];
+        } finally {
+          creator.cancel();
+          for (final release in releases) {
+            if (!release.isCompleted) release.complete();
+          }
+          await creator.close();
+        }
+        badJournal = File('${store.directory.path}/${bad.id}-0.items.jsonl');
+        goodJournal = File('${store.directory.path}/${good.id}-0.items.jsonl');
+        badHeader = File('${store.directory.path}/${bad.id}.json');
+        goodHeader = File('${store.directory.path}/${good.id}.json');
+        final original = await badJournal.readAsString();
+        damaged = original.replaceFirst('native-kev', 'native-foo');
+        expect(damaged, isNot(original));
+        expect(utf8.encode(damaged).length, utf8.encode(original).length);
+        await badJournal.writeAsString(damaged, flush: true);
+        goodBytes = await goodJournal.readAsBytes();
+        badHeaderBytes = await badHeader.readAsBytes();
+        goodHeaderBytes = await goodHeader.readAsBytes();
+        // Protect the real pinned source without copying its bytes into a
+        // user-facing record; the model marker belongs solely to this fixture.
+        final sourceManifest = jsonDecode(
+          await File('benchmarks/manifests/jeval.json').readAsString(),
+        ) as Map;
+        source = File(
+          '${resources.cacheRoot.path}/jeval/${JevalSuite.pin}/${(sourceManifest['files'] as List).first['path']}',
+        );
+        sourceBytes = await source.readAsBytes();
+        model = await File(
+          '${fixture.runtime.root.path}/shared-model-marker.gguf',
+        ).writeAsString('protected model marker');
+        modelBytes = await model.readAsBytes();
+        viewer = BenchmarkRunner(
+          client: fixture.playground,
+          store: store,
+          models: fixture.council.models,
+        );
+      });
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.runAsync(() async {
+          await viewer.close();
+          await resources.close();
+          await fixture.close();
+        });
+      });
+      tester.view.physicalSize = const Size(1100, 1300);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.runAsync(() async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: BenchmarkPage(resources: resources, runner: viewer),
+            ),
+          ),
+        );
+        await _wait(tester, find.byKey(Key('benchmark-history-${bad.id}')));
+      });
+      await tester.ensureVisible(
+        find.byKey(Key('benchmark-history-${bad.id}')),
+      );
+      await tester.runAsync(() async {
+        await tester.tap(find.byKey(Key('benchmark-history-${bad.id}')));
+        await _wait(tester, find.textContaining('记录读取失败'));
+      });
+      expect(find.textContaining('原题逐行内容摘要或请求 ID 无效'), findsOneWidget);
+      await tester.ensureVisible(
+        find.byKey(Key('benchmark-history-${good.id}')),
+      );
+      await tester.runAsync(() async {
+        await tester.tap(find.byKey(Key('benchmark-history-${good.id}')));
+        await _wait(tester, find.textContaining('批次：${good.id} ·'));
+      });
+      expect(find.textContaining('记录读取失败'), findsNothing);
+      expect(
+        tester.widget<Text>(find.byKey(const Key('benchmark-coverage'))).data,
+        contains('未完成 · 已执行 1 / 11257'),
+      );
+      await tester.runAsync(() async {
+        expect(await badJournal.readAsString(), damaged);
+        expect(await goodJournal.readAsBytes(), goodBytes);
+        expect(await badHeader.readAsBytes(), badHeaderBytes);
+        expect(await goodHeader.readAsBytes(), goodHeaderBytes);
+        expect(await source.readAsBytes(), sourceBytes);
+        expect(await model.readAsBytes(), modelBytes);
+        await expectLater(viewer.store.load(bad.id), throwsFormatException);
+        final destination = File(
+          '${fixture.runtime.root.path}/refused-corrupt-history.json',
+        );
+        await expectLater(
+          viewer.store.exportTo(bad.id, destination),
+          throwsFormatException,
+        );
+        expect(await destination.exists(), isFalse);
+        await expectLater(viewer.store.delete(bad.id), throwsFormatException);
+        expect((await viewer.store.load(good.id)).toJson(), good.toJson());
+        expect(await badJournal.readAsString(), damaged);
+      });
+      expect(viewer.current, isNull);
+      expect(fixture.runtime.io.requests, hasLength(2));
+      expect(tester.takeException(), isNull);
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
+  testWidgets(
+    'starting a new original suite supersedes a pending complete history selection',
+    (tester) async {
+      final previous = HttpOverrides.current;
+      HttpOverrides.global = _Network();
+      addTearDown(() => HttpOverrides.global = previous);
+      late PlaygroundRuntime fixture;
+      late BenchmarkRunner runner;
+      late BenchmarkResources resources;
+      late BenchmarkRun old;
+      late Completer<void> arrived, release;
+      await tester.runAsync(() async {
+        arrived = Completer<void>();
+        release = Completer<void>();
+        fixture = await PlaygroundRuntime.create();
+        final cache = Directory(
+          '${fixture.runtime.root.path}/history-switch-cache',
+        );
+        resources = BenchmarkResources(cache);
+        final suite = await DecideBenchSuite.load(
+          Directory('benchmarks/sources/decidebench'),
+        );
+        final originals = {
+          for (final item in suite.items)
+            '${item.state}\n${item.question}': item,
+        };
+        fixture.runtime.io.respond = (body, raw) async {
+          final question = (body['questions'] as Map)['decision'] as Map;
+          final item =
+              originals['${body['state']}\n${question['instructions']}']!;
+          final reply = jsonDecode(raw) as Map;
+          reply['answers']['decision'] = {
+            'type': 'choice',
+            'choice': item.gold,
+            'confidence': 1.0,
+            'probabilities': {
+              for (final option in item.options.keys)
+                option: option == item.gold ? 1.0 : 0.0,
+            },
+          };
+          return jsonEncode(reply);
+        };
+        final store = BenchmarkRunStore(
+          directory: Directory(
+            '${fixture.runtime.root.path}/history-switch-records',
+          ),
+        );
+        final creator = BenchmarkRunner(
+          client: fixture.playground,
+          store: store,
+          models: fixture.council.models,
+        );
+        try {
+          old = await creator.run(suite: suite, model: 'native-kev');
+        } finally {
+          await creator.close();
+        }
+        expect(old.summary['complete'], isTrue);
+        expect(old.summary['accuracy'], 1.0);
+        expect(fixture.runtime.io.requests, hasLength(400));
+        // Real complete old history; the new full11257 plan only reaches its
+        // first HTTP request here. This fixture is not full JEVal acceptance.
+        final manifest = jsonDecode(
+          await File('benchmarks/manifests/jeval.json').readAsString(),
+        ) as Map;
+        for (final value in manifest['files'] as List) {
+          final path = (value as Map)['path'] as String;
+          final destination = File(
+            '${cache.path}/jeval/${JevalSuite.pin}/$path',
+          );
+          await destination.parent.create(recursive: true);
+          await File('benchmarks/sources/jeval/$path').copy(destination.path);
+        }
+        runner = BenchmarkRunner(
+          client: fixture.playground,
+          store: store,
+          models: fixture.council.models,
+        );
+        fixture.runtime.io.requests.clear();
+        fixture.runtime.io.respond = (body, raw) async {
+          if (!arrived.isCompleted) arrived.complete();
+          await release.future;
+          return raw;
+        };
+      });
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.runAsync(() async {
+          runner.cancel();
+          if (!release.isCompleted) release.complete();
+          await runner.close();
+          await resources.close();
+          await fixture.close();
+        });
+      });
+      tester.view.physicalSize = const Size(1100, 1300);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.runAsync(() async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: BenchmarkPage(resources: resources, runner: runner),
+            ),
+          ),
+        );
+        await _wait(tester, find.byKey(const Key('benchmark-target')));
+        await _wait(tester, find.byKey(Key('benchmark-history-${old.id}')));
+      });
+      await tester.pump();
+      await tester.ensureVisible(find.byKey(const Key('benchmark-suite')));
+      // Dropdown registers its result continuation when opening the route.
+      // Keep that whole asset-loading interaction in the real async zone.
+      await tester.runAsync(() async {
+        await tester.tap(find.byKey(const Key('benchmark-suite')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('JEVal').last);
+        await tester.pump();
+        await _wait(tester, find.byKey(const Key('benchmark-suite-metadata')));
+      });
+      await tester.ensureVisible(
+        find.byKey(const Key('benchmark-select-native-kev')),
+      );
+      await tester.tap(find.byKey(const Key('benchmark-select-native-kev')));
+      await tester.pump();
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const Key('benchmark-run')))
+            .onPressed,
+        isNotNull,
+        reason:
+            'The full JEVal plan must be enabled before selecting old history.',
+      );
+      await tester.ensureVisible(
+        find.byKey(Key('benchmark-history-${old.id}')),
+      );
+      await tester.runAsync(() async {
+        // A normal history tap starts real file IO. Starting the next suite
+        // must supersede that selection even if its read completes later.
+        await tester.tap(find.byKey(Key('benchmark-history-${old.id}')));
+        await tester.ensureVisible(find.byKey(const Key('benchmark-run')));
+        // Scroll/layout must be published before the next normal pointer tap.
+        await tester.pump();
+        expect(
+          tester
+              .widget<FilledButton>(find.byKey(const Key('benchmark-run')))
+              .onPressed,
+          isNotNull,
+        );
+        await tester.tap(find.byKey(const Key('benchmark-run')));
+        // Publish widget asset/platform completions while real preparation
+        // runs, retaining the same 20-second first-public-request deadline.
+        final deadline = DateTime.now().add(const Duration(seconds: 20));
+        while (!arrived.isCompleted && DateTime.now().isBefore(deadline)) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+          await tester.pump();
+        }
+        if (!arrived.isCompleted) {
+          final error = find.byKey(const Key('benchmark-error'));
+          fail(
+            'First public request did not arrive: resources=${resources.status.name}, '
+            'progress=${resources.progress?.currentPath}, '
+            'resourceError=${resources.lastError}, current=${runner.current?.id}, '
+            'buttonEnabled=${tester.widget<FilledButton>(find.byKey(const Key('benchmark-run'))).onPressed != null}, '
+            'pageError=${error.evaluate().isEmpty ? null : tester.widget<Text>(error).data}',
+          );
+        }
+        await tester.pump();
+      });
+      expect(runner.current, isNotNull);
+      final current = runner.current!;
+      expect(current.id, isNot(old.id));
+      expect(current.suite['id'], 'jeval');
+      expect(current.status, BenchmarkRunStatus.running);
+      expect(current.summary['expected'], 11257);
+      expect(fixture.runtime.io.requests, hasLength(1));
+      expect(find.textContaining('批次：${current.id} ·'), findsOneWidget);
+      expect(find.textContaining('批次：${old.id} ·'), findsNothing);
+      final coverage = tester
+          .widget<Text>(find.byKey(const Key('benchmark-coverage')))
+          .data!;
+      expect(coverage, contains('未完成'));
+      expect(coverage, contains('/ 11257'));
+      expect(coverage, isNot(contains('/ 400')));
+      expect(
+        tester.widget<Text>(find.byKey(const Key('benchmark-accuracy'))).data,
+        '原 accuracy：未完成，不发布完整分数',
+      );
+      expect(find.textContaining('100.00%'), findsNothing);
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('benchmark-current-status')))
+            .data,
+        contains('运行中'),
+      );
+      await tester.runAsync(() async {
+        runner.cancel();
+        final deadline = DateTime.now().add(const Duration(seconds: 10));
+        while (runner.running && DateTime.now().isBefore(deadline)) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+          await tester.pump();
+        }
+        expect(runner.running, isFalse);
+        expect((await runner.store.load(old.id)).toJson(), old.toJson());
+        await _wait(tester, find.byKey(Key('benchmark-history-${current.id}')));
+      });
+      expect(runner.current!.status, BenchmarkRunStatus.cancelled);
+      expect(runner.current!.summary['expected'], 11257);
+      expect(fixture.runtime.io.requests, hasLength(1));
+      await tester.ensureVisible(
+        find.byKey(Key('benchmark-history-${old.id}')),
+      );
+      await tester.runAsync(() async {
+        await tester.tap(find.byKey(Key('benchmark-history-${old.id}')));
+        await _wait(tester, find.textContaining('批次：${old.id} ·'));
+      });
+      expect(
+        tester.widget<Text>(find.byKey(const Key('benchmark-coverage'))).data,
+        contains('完整执行 · 已执行 400 / 400'),
+      );
+      expect(
+        tester.widget<Text>(find.byKey(const Key('benchmark-accuracy'))).data,
+        contains('100.00%'),
+      );
+      await tester.ensureVisible(
+        find.byKey(Key('benchmark-history-${current.id}')),
+      );
+      await tester.runAsync(() async {
+        await tester.tap(find.byKey(Key('benchmark-history-${current.id}')));
+        await _wait(tester, find.textContaining('批次：${current.id} ·'));
+      });
+      expect(
+        tester.widget<Text>(find.byKey(const Key('benchmark-coverage'))).data,
+        contains('/ 11257'),
+      );
+      expect(
+        tester.widget<Text>(find.byKey(const Key('benchmark-accuracy'))).data,
+        '原 accuracy：未完成，不发布完整分数',
+      );
+      expect(find.textContaining('100.00%'), findsNothing);
+      expect(fixture.runtime.io.requests, hasLength(1));
+      expect(tester.takeException(), isNull);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+  testWidgets(
     'four original suite choices show their fixed metadata and full scale without inference',
     (tester) async {
       final previous = HttpOverrides.current;
@@ -68,14 +630,26 @@ void main() {
         ('JevAdvBench', '11368', 'JevAdvBench/JevAdvBench', '完整评测 · 11368 请求'),
       ]) {
         await tester.ensureVisible(find.byKey(const Key('benchmark-suite')));
-        await tester.tap(find.byKey(const Key('benchmark-suite')));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text(choice.$1).last);
-        await tester.pumpAndSettle();
-        await tester.runAsync(
-          () =>
-              _wait(tester, find.byKey(const Key('benchmark-suite-metadata'))),
-        );
+        await tester.runAsync(() async {
+          await tester.tap(find.byKey(const Key('benchmark-suite')));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text(choice.$1).last);
+          await tester.pump();
+          try {
+            await _wait(
+              tester,
+              find.byKey(const Key('benchmark-suite-metadata')),
+            );
+          } catch (error) {
+            final metadataErrors = find.textContaining('无法读取固定题源元信息');
+            fail(
+              'Fixed source metadata did not complete for ${choice.$1}: '
+              '$error; sourceLabel=${find.text('${choice.$1} 基准评测').evaluate().isNotEmpty}; '
+              'metadataLoading=${find.text('读取固定题源元信息…').evaluate().isNotEmpty}; '
+              'metadataError=${metadataErrors.evaluate().isEmpty ? null : tester.widget<Text>(metadataErrors.first).data}',
+            );
+          }
+        });
         final metadata = tester
             .widget<SelectableText>(
               find.byKey(const Key('benchmark-suite-metadata')),
@@ -1382,6 +1956,95 @@ Future<void> _wait(WidgetTester tester, Finder finder) async {
 }
 
 class _Network extends HttpOverrides {}
+
+Future<JevalSuite> _prepareOriginalJeval(BenchmarkResources resources) async {
+  final manifest = jsonDecode(
+    await File('benchmarks/manifests/jeval.json').readAsString(),
+  ) as Map;
+  for (final value in manifest['files'] as List) {
+    final path = (value as Map)['path'] as String;
+    final destination = File(
+      '${resources.cacheRoot.path}/jeval/${JevalSuite.pin}/$path',
+    );
+    await destination.parent.create(recursive: true);
+    await File('benchmarks/sources/jeval/$path').copy(destination.path);
+  }
+  return await resources.prepareQuestions('jeval', DecisionCancellation())
+      as JevalSuite;
+}
+
+/// Observes the public load boundary; all bytes and validation stay real.
+class _ObservedJournalStore extends BenchmarkRunStore {
+  _ObservedJournalStore(Directory directory) : super(directory: directory);
+  String? _observedId;
+  int observedLoads = 0;
+  int? oldLength;
+  Object? readError;
+  final lengthObserved = Completer<void>();
+  final _lengthRelease = Completer<void>();
+  final readFinished = Completer<void>();
+
+  void observe(String id) => _observedId = id;
+  void stopObserving() => _observedId = null;
+  void releaseLength() {
+    if (!_lengthRelease.isCompleted) _lengthRelease.complete();
+  }
+
+  @override
+  Future<BenchmarkRun> load(String id) {
+    if (id != _observedId) return super.load(id);
+    observedLoads++;
+    final filesystem = Zone.current;
+    final journal = File('${directory.path}/$id-0.items.jsonl');
+    final observed = _DelayedLengthFile(journal, (length) async {
+      oldLength = length;
+      if (!lengthObserved.isCompleted) lengthObserved.complete();
+      await _lengthRelease.future;
+    });
+    final reading = IOOverrides.runZoned(
+      () => super.load(id),
+      createFile: (path) =>
+          path == journal.path ? observed : filesystem.run(() => File(path)),
+    );
+    return reading.then<BenchmarkRun>(
+      (value) {
+        readFinished.complete();
+        return value;
+      },
+      onError: (Object error, StackTrace stack) {
+        readError = error;
+        readFinished.complete();
+        Error.throwWithStackTrace(error, stack);
+      },
+    );
+  }
+}
+
+/// Delays one genuine length observation, never replacing or truncating data.
+class _DelayedLengthFile implements File {
+  _DelayedLengthFile(this.delegate, this.observed);
+  final File delegate;
+  final Future<void> Function(int) observed;
+  @override
+  String get path => delegate.path;
+  @override
+  Uri get uri => delegate.uri;
+  @override
+  Future<int> length() async {
+    final result = await delegate.length();
+    await observed(result);
+    return result;
+  }
+
+  @override
+  Stream<List<int>> openRead([int? start, int? end]) =>
+      delegate.openRead(start, end);
+  @override
+  Future<RandomAccessFile> open({FileMode mode = FileMode.read}) =>
+      delegate.open(mode: mode);
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 // Only the external download network fails; the resource preparer, app-owned
 // runner/store and normal public model-discovery endpoint remain real.

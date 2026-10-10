@@ -80,6 +80,7 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
   bool _historyLoading = true;
   String? _historyError;
   bool _viewingHistory = false;
+  int _historySelection = 0;
   int _detail = 0;
   bool _fileBusy = false;
   String? _fileStatus;
@@ -256,7 +257,9 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
     setState(() {
       _starting = true;
       _error = null;
+      _historySelection++;
       _viewingHistory = false;
+      _record = null;
       _detail = 0;
       _evaluationIndex = 0;
     });
@@ -322,9 +325,17 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
   }
 
   Future<void> _view(BenchmarkRun selected) async {
+    final selection = ++_historySelection;
     try {
-      final record = await widget.runner.store.load(selected.id);
-      if (mounted) {
+      final active = widget.runner.current;
+      final record =
+          active != null &&
+              widget.runner.running &&
+              active.status == BenchmarkRunStatus.running &&
+              active.id == selected.id
+          ? active
+          : await widget.runner.store.load(selected.id);
+      if (mounted && selection == _historySelection) {
         setState(() {
           final current = widget.runner.current;
           _viewingHistory = current?.id != record.id;
@@ -332,10 +343,13 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
           _detail = 0;
           _evaluationIndex = 0;
           _fileStatus = null;
+          _historyError = null;
         });
       }
     } catch (error) {
-      if (mounted) setState(() => _historyError = '记录读取失败：$error');
+      if (mounted && selection == _historySelection) {
+        setState(() => _historyError = '记录读取失败：$error');
+      }
     }
   }
 
