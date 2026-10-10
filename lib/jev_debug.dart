@@ -58,6 +58,8 @@ enum JevDebugProjection {
   llmResponse,
   llmEvidence,
   benchmarkRun,
+  benchmarkQuestionRun,
+  benchmarkGameRun,
 }
 
 /// Redacts display copies only; actual engine input remains intact.
@@ -76,6 +78,9 @@ Map<String, Object?> sealDebugJson(
     JevDebugProjection.llmResponse => _JevProjection.llmResponse,
     JevDebugProjection.llmEvidence => _JevProjection.llmEvidence,
     JevDebugProjection.benchmarkRun => _JevProjection.benchmarkRun,
+    JevDebugProjection.benchmarkQuestionRun =>
+      _JevProjection.benchmarkQuestionRun,
+    JevDebugProjection.benchmarkGameRun => _JevProjection.benchmarkGameRun,
   };
   final redactor = _CredentialRedactor()..collect(value, context: context);
   return freezeDebugJson(redactor.redact(value, context: context))
@@ -108,6 +113,11 @@ enum _JevProjection {
   llmChoice,
   llmDelta,
   benchmarkRun,
+  benchmarkQuestionRun,
+  benchmarkGameRun,
+  benchmarkGameItem,
+  benchmarkGameCall,
+  benchmarkQuestionItem,
   benchmarkItem,
   benchmarkResult,
   benchmarkIdentity,
@@ -153,10 +163,28 @@ class _CredentialRedactor {
           _JevProjection.llmRequest,
           _JevProjection.llmResponse,
           _JevProjection.benchmarkRun,
+          _JevProjection.benchmarkQuestionRun,
+          _JevProjection.benchmarkGameRun,
           _JevProjection.benchmarkIdentity,
         }.contains(context) &&
         key == 'model' &&
         parent[key] is String) {
+      return true;
+    }
+    if (context == _JevProjection.benchmarkGameRun &&
+        const {'suite', 'source_summary', 'groups'}.contains(key)) {
+      return true;
+    }
+    if (context == _JevProjection.benchmarkGameItem &&
+        const {'id', 'recording', 'result'}.contains(key)) {
+      return true;
+    }
+    if (context == _JevProjection.benchmarkQuestionRun &&
+        const {'suite', 'source_summary', 'groups'}.contains(key)) {
+      return true;
+    }
+    if (context == _JevProjection.benchmarkQuestionItem &&
+        const {'id', 'metadata', 'source_result'}.contains(key)) {
       return true;
     }
     if (context == _JevProjection.benchmarkItem &&
@@ -251,6 +279,31 @@ class _CredentialRedactor {
     String key,
     _JevProjection context,
   ) => switch (context) {
+    _JevProjection.benchmarkGameRun => switch (key) {
+      'items' => _JevProjection.benchmarkGameItem,
+      'warmup_calls' => _JevProjection.benchmarkGameCall,
+      'identity' => _JevProjection.benchmarkIdentity,
+      _ => _JevProjection.none,
+    },
+    _JevProjection.benchmarkGameItem =>
+      key == 'calls' ? _JevProjection.benchmarkGameCall : _JevProjection.none,
+    _JevProjection.benchmarkGameCall => switch (key) {
+      'request' => _JevProjection.request,
+      'result' => _JevProjection.benchmarkResult,
+      _ => _JevProjection.none,
+    },
+    _JevProjection.benchmarkQuestionRun => switch (key) {
+      'items' => _JevProjection.benchmarkQuestionItem,
+      'identity' => _JevProjection.benchmarkIdentity,
+      _ => _JevProjection.none,
+    },
+    _JevProjection.benchmarkQuestionItem => switch (key) {
+      'request' ||
+      'request_json' ||
+      'original_request_json' => _JevProjection.request,
+      'result' => _JevProjection.benchmarkResult,
+      _ => _JevProjection.none,
+    },
     _JevProjection.benchmarkRun => switch (key) {
       'items' => _JevProjection.benchmarkItem,
       'identity' => _JevProjection.benchmarkIdentity,

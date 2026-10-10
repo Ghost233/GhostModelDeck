@@ -1,3 +1,15 @@
 [submodule "benchmarks/sources/decidebench"]
 	path = benchmarks/sources/decidebench
 	url = https://github.com/choyiny/decidebench.git
+[submodule "benchmarks/sources/jeval"]
+	path = benchmarks/sources/jeval
+	url = https://huggingface.co/datasets/carlosxiang/JEVal
+[submodule "benchmarks/sources/coherence"]
+	path = benchmarks/sources/coherence
+	url = https://github.com/JevBench/jevbench.git
+[submodule "benchmarks/sources/adversarial"]
+	path = benchmarks/sources/adversarial
+	url = https://github.com/JevAdvBench/JevAdvBench.git
+[submodule "benchmarks/sources/jevman"]
+	path = benchmarks/sources/jevman
+	url = https://github.com/opper-ai/jevman-benchmark.git

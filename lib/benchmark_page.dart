@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import 'package:flutter/material.dart';
 
+import 'benchmark_game_work.dart';
 import 'benchmark_resources.dart';
 import 'benchmark_runner.dart';
 import 'benchmark_run_store.dart';
@@ -17,9 +18,11 @@ class BenchmarkPage extends StatefulWidget {
     super.key,
     required this.resources,
     required this.runner,
+    this.gameWork,
   });
   final BenchmarkResources resources;
   final BenchmarkRunner runner;
+  final BenchmarkGameWork? gameWork;
 
   @override
   State<BenchmarkPage> createState() => _BenchmarkPageState();
@@ -30,10 +33,40 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
   late final StreamSubscription<BenchmarkRun> _subscription;
   late final StreamSubscription<BenchmarkResourceProgress?>
   _resourceSubscription;
+  StreamSubscription<Map<String, Object?>>? _gameSubscription;
   List<JevDiscoveredModel> _targets = const [];
   String? _model;
   final _selected = <String>{};
   String _channelChoice = 'http';
+  String _suiteChoice = 'decidebench';
+  Map<String, Object?>? _suiteMetadata = BenchmarkResources.identity;
+  bool _metadataLoading = false;
+  String? _metadataError;
+  static const _questionNames = {
+    'decidebench': 'DecideBench',
+    'jeval': 'JEVal',
+    'coherence': '一致性 JevBench',
+    'adversarial': 'JevAdvBench',
+  };
+  Map<String, String> get _suiteNames => {
+    ..._questionNames,
+    if (widget.gameWork != null) 'jevman': 'Jevman',
+  };
+  bool get _gameMode => _suiteChoice == 'jevman';
+  String get _fullScale => switch (_suiteChoice) {
+    'jevman' => '100 局',
+    'jeval' => '11257 题',
+    'coherence' => '10320 请求',
+    'adversarial' => '11368 请求',
+    _ => '400 题',
+  };
+  String get _scaleDescription => switch (_suiteChoice) {
+    'jevman' => '100 局 · 原局时限 300 秒 · 决策 2 秒 / warmup 30 秒',
+    'jeval' => '11257 题 · 58 个原来源 · choice / noul / score',
+    'coherence' => '10320 原冻结请求 · 12000 关系测试 · 240 案例 / 50 关系',
+    'adversarial' => '11368 请求 · 812 干净题 / 9744 原扰动 / 812 重复控制',
+    _ => '400 题 / 200 对 · 默认上游 JEV 示例模板',
+  };
   int _evaluationIndex = 0;
   List<JevPlaygroundMode> get _channels => switch (_channelChoice) {
     'mcp' => [JevPlaygroundMode.mcp],
@@ -53,16 +86,32 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
   String? _error;
   DecisionCancellation? _discoveryToken;
 
-  String get _resourceStatus => switch (widget.resources.status) {
-    BenchmarkResourceStatus.idle => '固定原题尚未准备；开始时下载或重新核验缓存。',
-    BenchmarkResourceStatus.preparing =>
-      '资源准备中 · ${_progress?.currentPath ?? '校验固定版本原题'}',
-    BenchmarkResourceStatus.ready => '原题及摘要核验完成 · 400 题 / 200 对；新批次会重新校验缓存。',
-    BenchmarkResourceStatus.cancelled => '资源准备已取消；未开始模型评测。',
-    BenchmarkResourceStatus.failed =>
-      '准备失败（未计入模型失败）：${widget.resources.lastError}',
+  String get _resourceStatus => _gameMode
+      ? _gameResourceStatus
+      : switch (widget.resources.status) {
+          BenchmarkResourceStatus.idle => '固定原题尚未准备；开始时下载或重新核验缓存。',
+          BenchmarkResourceStatus.preparing =>
+            '资源准备中 · ${_progress?.currentPath ?? '校验固定版本原题'}',
+          BenchmarkResourceStatus.ready =>
+            widget.resources.suiteId == _suiteChoice
+                ? '原题及摘要核验完成 · $_fullScale；新批次会重新校验缓存。'
+                : '此题集尚未重新核验；开始时校验固定版本原题缓存。',
+          BenchmarkResourceStatus.cancelled => '资源准备已取消；未开始模型评测。',
+          BenchmarkResourceStatus.failed =>
+            '准备失败（未计入模型失败）：${widget.resources.lastError}',
+        };
+  String get _gameResourceStatus => switch (widget.gameWork?.status) {
+    BenchmarkGamePreparationStatus.preparing =>
+      '游戏资源准备中 · ${widget.gameWork?.progress?.phase ?? "核验固定原版本"}',
+    BenchmarkGamePreparationStatus.ready => '固定游戏及 Mac arm64 运行时摘要核验完成 · 100 局',
+    BenchmarkGamePreparationStatus.cancelled => '游戏资源准备已取消；未开始模型评测。',
+    BenchmarkGamePreparationStatus.failed =>
+      '游戏准备失败（未计入模型失败）：${widget.gameWork?.lastError}',
+    _ => '固定游戏及 Mac arm64 运行时尚未准备；开始时下载或核验缓存。',
   };
-  bool get _preparing => widget.resources.preparing;
+  bool get _preparing =>
+      widget.resources.preparing ||
+      widget.gameWork?.status == BenchmarkGamePreparationStatus.preparing;
   BenchmarkResourceProgress? get _progress => widget.resources.progress;
   bool get _busy => _starting || _preparing || widget.runner.running;
   Duration? get _deadline {
@@ -78,7 +127,20 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
   void initState() {
     super.initState();
     _record = widget.runner.current;
+    final activeSuite =
+        widget.gameWork?.status == BenchmarkGamePreparationStatus.preparing
+        ? 'jevman'
+        : widget.resources.preparing
+        ? widget.resources.suiteId
+        : _record?.suite['id'];
+    if (activeSuite is String && _suiteNames.containsKey(activeSuite)) {
+      _suiteChoice = activeSuite;
+      if (activeSuite != 'decidebench') {
+        unawaited(_loadSuiteMetadata(activeSuite));
+      }
+    }
     _resourceSubscription = widget.resources.changes.listen((_) => _changed());
+    _gameSubscription = widget.gameWork?.changes.listen((_) => _changed());
     _subscription = widget.runner.changes.listen((record) {
       if (mounted) {
         setState(() {
@@ -92,6 +154,36 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
     _timeout.addListener(_changed);
     unawaited(_discover());
     unawaited(_loadHistory());
+  }
+
+  Future<void> _loadSuiteMetadata(String id) async {
+    if (id == 'decidebench') {
+      setState(() {
+        _suiteMetadata = BenchmarkResources.identity;
+        _metadataLoading = false;
+        _metadataError = null;
+      });
+      return;
+    }
+    setState(() {
+      _suiteMetadata = null;
+      _metadataLoading = true;
+      _metadataError = null;
+    });
+    try {
+      final metadata = await BenchmarkResources.questionManifest(id);
+      if (mounted && _suiteChoice == id) {
+        setState(() => _suiteMetadata = metadata);
+      }
+    } catch (error) {
+      if (mounted && _suiteChoice == id) {
+        setState(() => _metadataError = '无法读取固定题源元信息：$error');
+      }
+    } finally {
+      if (mounted && _suiteChoice == id) {
+        setState(() => _metadataLoading = false);
+      }
+    }
   }
 
   void _changed() {
@@ -153,8 +245,9 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
 
   Future<void> _start() async {
     final names = _selected.toList();
+    final suiteId = _suiteChoice;
     final channels = _channels;
-    final deadline = _deadline;
+    final deadline = _gameMode ? const Duration(seconds: 2) : _deadline;
     if (_busy || names.isEmpty || deadline == null) return;
     final resources = widget.resources;
     final runner = widget.runner;
@@ -168,15 +261,35 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
       _evaluationIndex = 0;
     });
     try {
-      final suite = await resources.prepareSuite(token);
-      preparingStage = false;
       // Leaving this page does not abandon the prepared application batch.
-      await runner.run(
-        suite: suite,
-        modelNames: names,
-        channels: channels,
-        timeout: deadline,
-      );
+      if (suiteId == 'jevman') {
+        final work = widget.gameWork!;
+        await work.prepare(token);
+        preparingStage = false;
+        await runner.runJevman(
+          work: work,
+          modelNames: names,
+          channels: channels,
+        );
+      } else if (suiteId == 'decidebench') {
+        final suite = await resources.prepareSuite(token);
+        preparingStage = false;
+        await runner.run(
+          suite: suite,
+          modelNames: names,
+          channels: channels,
+          timeout: deadline,
+        );
+      } else {
+        final suite = await resources.prepareQuestions(suiteId, token);
+        preparingStage = false;
+        await runner.runQuestions(
+          suite: suite,
+          modelNames: names,
+          channels: channels,
+          timeout: deadline,
+        );
+      }
     } on BenchmarkResourceCancelled {
       // The resource owner publishes its terminal cancellation to every page.
     } catch (error) {
@@ -429,8 +542,14 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
   }
 
   Widget _evaluationReport(BenchmarkRun record, {required BenchmarkRun owner}) {
+    if (record.isGameRun) return _gameReport(record, owner: owner);
     final summary = record.summary;
     final completed = summary['complete'] == true;
+    final question = record.isQuestionRun;
+    final expected = summary['expected'] ?? 400;
+    final sourceSummary = question
+        ? record.toJson()['source_summary'] as Map<String, Object?>
+        : const <String, Object?>{};
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -443,41 +562,54 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
           '批次：${record.id} · ${record.createdAt.toLocal()} · 客户端期限 ${record.timeout.inMilliseconds} ms',
         ),
         Text(
-          '${completed ? '完整执行' : '未完成'} · 已执行 ${summary['attempted']} / 400 · 有效 ${summary['valid']} · 失败 ${summary['failures']} · 缺失 ${summary['missing']}',
+          '${completed ? '完整执行' : '未完成'} · 已执行 ${summary['attempted']} / $expected · 有效 ${summary['valid']} · 失败 ${summary['failures']} · 缺失 ${summary['missing']}',
           key: const Key('benchmark-coverage'),
         ),
         if (record.status == BenchmarkRunStatus.running)
-          LinearProgressIndicator(value: (summary['attempted'] as int) / 400),
-        Text(
-          '原 accuracy：${_percent(summary['accuracy'])}',
-          key: const Key('benchmark-accuracy'),
-        ),
-        Text(
-          '原 pair accuracy：${_percent(summary['pair_accuracy'])}',
-          key: const Key('benchmark-pair-accuracy'),
-        ),
-        const Text('完整成绩使用全部 400 题及 200 对作为分母；失败回答仍计入覆盖，两个题都正确才计成对正确。'),
-        Text(
-          '超时 ${summary['timeouts']}（客户端 ${summary['client_timeouts'] ?? '未记录'} / 服务端 ${summary['server_timeouts'] ?? '未记录'}） · 不可用回答 ${summary['unusable']} · 正确 ${summary['correct']} / 400 · 成对正确 ${summary['pairs_correct']} / 200',
-        ),
-        Text(
-          '辅助指标：成功返回端到端 P50 ${summary['latency_success_p50_ms'] ?? '不可用'} ms · P95 ${summary['latency_success_p95_ms'] ?? '不可用'} ms',
-        ),
-        Text(
-          '概率覆盖 ${summary['probability_coverage']} / 400 · 标签来源：${summary['label_source']}',
-        ),
-        if (completed && summary['brier'] != null)
-          Text('辅助概率指标 Brier：${summary['brier']} · ECE：${summary['ece']}'),
+          LinearProgressIndicator(
+            value: (summary['attempted'] as int) / (expected as int),
+          ),
+        if (!question) ...[
+          Text(
+            '原 accuracy：${_percent(summary['accuracy'])}',
+            key: const Key('benchmark-accuracy'),
+          ),
+          Text(
+            '原 pair accuracy：${_percent(summary['pair_accuracy'])}',
+            key: const Key('benchmark-pair-accuracy'),
+          ),
+          const Text('完整成绩使用全部 400 题及 200 对作为分母；失败回答仍计入覆盖，两个题都正确才计成对正确。'),
+          Text(
+            '超时 ${summary['timeouts']}（客户端 ${summary['client_timeouts'] ?? '未记录'} / 服务端 ${summary['server_timeouts'] ?? '未记录'}） · 不可用回答 ${summary['unusable']} · 正确 ${summary['correct']} / 400 · 成对正确 ${summary['pairs_correct']} / 200',
+          ),
+          Text(
+            '辅助指标：成功返回端到端 P50 ${summary['latency_success_p50_ms'] ?? '不可用'} ms · P95 ${summary['latency_success_p95_ms'] ?? '不可用'} ms',
+          ),
+          Text(
+            '概率覆盖 ${summary['probability_coverage']} / 400 · 标签来源：${summary['label_source']}',
+          ),
+          if (completed && summary['brier'] != null)
+            Text('辅助概率指标 Brier：${summary['brier']} · ECE：${summary['ece']}'),
+        ] else ...[
+          ..._sourceMetrics(record.suite['id'] as String, sourceSummary),
+          Text(
+            '客户端超时 ${summary['timeouts']}（客户端 ${summary['client_timeouts']} / 服务端 ${summary['server_timeouts']}）；原评分适用失败与协议失败在原分组中分别保留。',
+          ),
+          Text(
+            '成功返回端到端 P50 ${summary['latency_success_p50_ms'] ?? "不可用"} ms · P95 ${summary['latency_success_p95_ms'] ?? "不可用"} ms',
+          ),
+          const Text('完整成绩使用固定原题分母；未完成不发布完整分数，原字段、失败与来源分组均保留。'),
+        ],
         if (summary['error'] != null) Text('批次错误：${summary['error']}'),
         const SizedBox(height: 12),
         Wrap(
           spacing: 12,
           runSpacing: 8,
           children: [
-            for (final entry in const [
+            for (final entry in [
               (0, 'benchmark-detail-summary', '身份与摘要'),
               (1, 'benchmark-detail-items', '逐题记录'),
-              (2, 'benchmark-detail-groups', '成对记录'),
+              (2, 'benchmark-detail-groups', question ? '原分组' : '成对记录'),
             ])
               ChoiceChip(
                 key: Key(entry.$2),
@@ -511,6 +643,7 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
                 'suite': record.suite,
                 'identity': record.identity,
                 'summary': summary,
+                if (question) 'source_summary': sourceSummary,
               }, 'benchmark-summary-json'),
             ],
           ),
@@ -527,7 +660,9 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
                   key: Key('benchmark-item-$id'),
                   title: Text('$id · ${item['status']}'),
                   subtitle: Text(
-                    '${item['category']} · ${item['difficulty']} · 原标签 ${item['gold']} · 预测 ${item['prediction'] ?? '无有效预测'} · ${item['elapsed_us']} μs',
+                    question
+                        ? '${_sourceItemDescription(item)} · ${item['elapsed_us']} μs'
+                        : '${item['category']} · ${item['difficulty']} · 原标签 ${item['gold']} · 预测 ${item['prediction'] ?? '无有效预测'} · ${item['elapsed_us']} μs',
                   ),
                   children: [_json(item, 'benchmark-item-json-$id')],
                 );
@@ -542,12 +677,20 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
               itemCount: record.groups.length,
               itemBuilder: (context, index) {
                 final group = record.groups[index];
-                final id = group['pair_id'] as String;
+                final id = question
+                    ? _sourceGroupId(group, index)
+                    : group['pair_id'] as String;
                 return ExpansionTile(
                   key: Key('benchmark-group-$id'),
-                  title: Text('$id · ${group['attempted']} / 2'),
+                  title: Text(
+                    question
+                        ? '${group['dimension'] ?? group['kind'] ?? group['relation'] ?? "原分组"} · ${group['group'] ?? group['category'] ?? id} · ${group['attempted'] ?? group['n'] ?? "未知"} / ${group['total'] ?? group['expected'] ?? group['planned'] ?? "未知"}'
+                        : '$id · ${group['attempted']} / 2',
+                  ),
                   subtitle: Text(
-                    group['complete'] == true
+                    question
+                        ? '固定原分组；指标定义及适用覆盖见完整 JSON'
+                        : group['complete'] == true
                         ? (group['correct'] == true
                               ? '两个题都正确'
                               : '完整执行，有错误或无效回答')
@@ -564,8 +707,116 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
     );
   }
 
+  Widget _gameReport(BenchmarkRun record, {required BenchmarkRun owner}) {
+    final summary = record.summary;
+    final source = record.toJson()['source_summary'];
+    final live = owner.id == widget.runner.current?.id && widget.runner.running;
+    final frame = live ? widget.gameWork?.latestFrame : null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('Jevman 原100局报告', style: Theme.of(context).textTheme.titleLarge),
+        Text(
+          '${record.model} · ${record.channel.toUpperCase()} · ${_status(record.status)}',
+          key: const Key('benchmark-current-status'),
+        ),
+        Text(
+          '批次：${record.id} · ${record.createdAt.toLocal()} · 决策固定2秒 / warmup30秒',
+        ),
+        Text(
+          '${summary['complete'] == true ? '完整执行' : '未完成'} · 已执行 ${summary['attempted']} / 100 · 完整局 ${summary['valid']} · 部分录像 ${summary['failures']} · 缺失 ${summary['missing']}',
+          key: const Key('benchmark-coverage'),
+        ),
+        if (record.status == BenchmarkRunStatus.running)
+          LinearProgressIndicator(value: (summary['attempted'] as int) / 100),
+        if (frame != null)
+          Text(
+            '当前第 ${frame['game']} 局 · 帧 ${frame['frame']} · 原playingSeconds ${frame['playingSeconds']} · ${frame['status']}',
+            key: const Key('benchmark-game-live-progress'),
+          ),
+        const Text('模型决策与greedy fallback分别统计；未完成不发布完整100局成绩。时间、用量、费用未知项保持未知。'),
+        if (summary['error'] != null) Text('批次错误：${summary['error']}'),
+        Wrap(
+          spacing: 12,
+          runSpacing: 8,
+          children: [
+            for (final entry in const [
+              (0, 'benchmark-detail-summary', '身份与原成绩'),
+              (1, 'benchmark-detail-items', '逐局记录'),
+              (2, 'benchmark-detail-groups', '预热与公开调用'),
+            ])
+              ChoiceChip(
+                key: Key(entry.$2),
+                label: Text(entry.$3),
+                selected: _detail == entry.$1,
+                onSelected: (_) => setState(() => _detail = entry.$1),
+              ),
+            TextButton.icon(
+              key: const Key('benchmark-export'),
+              onPressed: _fileBusy || owner.status == BenchmarkRunStatus.running
+                  ? null
+                  : _export,
+              icon: const Icon(Icons.save_alt),
+              label: const Text('导出 JSON'),
+            ),
+            TextButton.icon(
+              key: const Key('benchmark-delete'),
+              onPressed: _fileBusy || owner.status == BenchmarkRunStatus.running
+                  ? null
+                  : _delete,
+              icon: const Icon(Icons.delete_outline),
+              label: const Text('删除历史'),
+            ),
+          ],
+        ),
+        if (_detail == 0)
+          ExpansionTile(
+            title: const Text('固定游戏 / 原独立成绩 / 运行身份'),
+            children: [
+              _json({
+                'suite': record.suite,
+                'identity': record.identity,
+                'summary': summary,
+                'source_summary': source,
+                'client_summary': record.toJson()['client_summary'],
+              }, 'benchmark-summary-json'),
+            ],
+          ),
+        if (_detail == 1)
+          SizedBox(
+            height: 430,
+            child: ListView.builder(
+              key: ValueKey('benchmark-items-${record.id}'),
+              itemCount: record.items.length,
+              itemBuilder: (context, index) {
+                final game = record.items[index];
+                final id = game['id'] as String;
+                return ExpansionTile(
+                  key: Key('benchmark-item-$id'),
+                  title: Text(
+                    '第 ${game['index']} 局 · ${game['complete'] == true ? '完整' : '部分录像'}',
+                  ),
+                  subtitle: Text('原游戏结果、决策、fallback、完整公开calls与逐帧录像'),
+                  children: [_json(game, 'benchmark-item-json-$id')],
+                );
+              },
+            ),
+          ),
+        if (_detail == 2)
+          _json({
+            'warmup_calls': record.toJson()['warmup_calls'],
+            'client_summary': record.toJson()['client_summary'],
+          }, 'benchmark-game-calls-json'),
+        if (_fileStatus != null)
+          Text(_fileStatus!, key: const Key('benchmark-file-status')),
+      ],
+    );
+  }
+
   void _cancel() {
-    if (_preparing) {
+    if (widget.gameWork?.status == BenchmarkGamePreparationStatus.preparing) {
+      widget.gameWork!.cancelPreparation();
+    } else if (_preparing) {
       widget.resources.cancelPreparation();
     } else {
       widget.runner.cancel();
@@ -577,37 +828,120 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
     _discoveryToken?.cancel();
     unawaited(_subscription.cancel());
     unawaited(_resourceSubscription.cancel());
+    unawaited(_gameSubscription?.cancel());
     _timeout.dispose();
     // The application closes its runner/resources at explicit quit.
     super.dispose();
   }
 
+  List<Widget> _sourceMetrics(
+    String id,
+    Map<String, Object?> score,
+  ) => switch (id) {
+    'jeval' => [
+      Text(
+        '原 accuracy：${_percent(score['accuracy'])}',
+        key: const Key('benchmark-accuracy'),
+      ),
+      Text('原 score MAE：${score['scoreMae'] ?? '未完成或无有效 score 判断'}'),
+      Text(
+        '分类概率覆盖 ${score['probabilityCount'] ?? '未封存'} / ${score['classificationTotal'] ?? '原分类分母'} · Brier ${score['brier'] ?? '未完成或无适用分布'} · ECE ${score['ece'] ?? '未完成或无适用分布'}',
+      ),
+      const Text('返回 score、众数、概率期望与四舍五入分别保留；MAE使用原返回值。'),
+    ],
+    'coherence' => [
+      Text('原一致性（binary）：${_percent(score['overall'])}'),
+      Text(
+        '原一致性（graded）：${_percent(score['graded'] is Map ? (score['graded'] as Map)['overall'] : null)}',
+      ),
+      Text(
+        '关系已评分 ${score['judged_tests'] ?? '未封存'} / 12000 · 未评分 ${score['unscored_tests'] ?? '未封存'}；完整容差、适用覆盖及各维度原分数见身份与摘要。',
+      ),
+      const Text('一致性分与准确率、校准、实时性能分别表达。'),
+    ],
+    'adversarial' => [
+      const Text('原扰动指标：干净 / 已发布攻击 / 独立重复控制；翻转、偏移、噪声及注入槽分别保留。'),
+      const Text('人工复核标签与模型共识标签分开；共识不是独立正确率真值，协议拒绝不计抗扰动成功。'),
+    ],
+    _ => const [],
+  };
+
+  String _sourceItemDescription(Map<String, Object?> item) {
+    final metadata = item['metadata'] as Map;
+    return '${metadata['source'] ?? metadata['category'] ?? metadata['case'] ?? '原任务'} · ${metadata['question_type'] ?? metadata['primitive'] ?? '原请求组'}';
+  }
+
+  String _sourceGroupId(Map<String, Object?> group, int index) {
+    if (group['dimension'] is String && group['group'] is String) {
+      return '${group['dimension']}/${group['group']}';
+    }
+    if (group['relation'] is String) return group['relation'] as String;
+    return 'original-$index';
+  }
+
   @override
   Widget build(BuildContext context) {
-    final identity = BenchmarkResources.identity;
+    final identity = _suiteMetadata;
     final progress = _progress;
     final record = _record;
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          DropdownButtonFormField<String>(
+            key: const Key('benchmark-suite'),
+            initialValue: _suiteChoice,
+            decoration: const InputDecoration(labelText: '完整原题基准'),
+            items: [
+              for (final entry in _suiteNames.entries)
+                DropdownMenuItem(value: entry.key, child: Text(entry.value)),
+            ],
+            onChanged: _busy
+                ? null
+                : (id) {
+                    if (id == null) return;
+                    setState(() => _suiteChoice = id);
+                    unawaited(_loadSuiteMetadata(id));
+                  },
+          ),
+          const SizedBox(height: 12),
           Text(
-            'DecideBench 基准评测',
+            '${_suiteNames[_suiteChoice]} 基准评测',
             style: Theme.of(context).textTheme.headlineSmall,
           ),
-          const SizedBox(height: 12),
-          const Text('完整原题：400 题 / 200 对 · 默认上游 JEV 示例模板'),
-          SelectableText('固定提交：${BenchmarkResources.pin}'),
-          SelectableText('来源：${BenchmarkResources.sourceUrl}'),
-          Text('代码：${identity['codeLicense']} · 数据：${identity['dataLicense']}'),
-          Text('${identity['citation']}'),
-          const Text('297 条原示例 / 63 个原模板；保留原始语言、内容、标签及配对结构。'),
-          Text(
-            '请求版本：${identity['requestVersion']} · 评分版本：${identity['scoringVersion']}',
-          ),
+          Text('完整原题：$_scaleDescription'),
+          if (_metadataLoading) const Text('读取固定题源元信息…'),
+          if (_metadataError != null) Text(_metadataError!),
+          if (identity != null) ...[
+            SelectableText(
+              const JsonEncoder.withIndent('  ').convert({
+                for (final entry in identity.entries)
+                  if (entry.value is! List && entry.value is! Map)
+                    entry.key: entry.value,
+              }),
+              key: const Key('benchmark-suite-metadata'),
+            ),
+            if (_suiteChoice == 'decidebench') ...[
+              const Text('297 条原示例 / 63 个原模板；保留原始语言、内容、标签及配对结构。'),
+            ],
+            ExpansionTile(
+              title: const Text('原来源条件、署名、文件摘要与评分版本'),
+              children: [_json(identity, 'benchmark-source-metadata-json')],
+            ),
+          ],
+          const Text('固定题源版本随应用更新；原版本缓存与历史独立保留，不隐式更新正在运行的批次。'),
           const SizedBox(height: 12),
           Text(_resourceStatus, key: const Key('benchmark-resource-status')),
-          if (_preparing) ...[
+          if (_gameMode &&
+              widget.gameWork?.status ==
+                  BenchmarkGamePreparationStatus.preparing) ...[
+            LinearProgressIndicator(
+              value: widget.gameWork?.progress == null
+                  ? null
+                  : widget.gameWork!.progress!.downloadedBytes /
+                        widget.gameWork!.progress!.totalBytes,
+            ),
+          ] else if (_preparing) ...[
             LinearProgressIndicator(
               value: progress == null
                   ? null
@@ -680,27 +1014,37 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
             onPressed: _busy || _discovering ? null : _discover,
             child: const Text('重新公开发现对象'),
           ),
-          TextField(
-            key: const Key('benchmark-timeout'),
-            controller: _timeout,
-            enabled: !_busy,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(
-              labelText: '客户端期限（秒）',
-              helperText: '默认 30 秒；题源准备不计入模型端到端耗时。',
+          if (_gameMode)
+            const Text('原游戏客户端决策期限固定 2 秒；warmup 固定 30 秒，不修改服务端预算。')
+          else
+            TextField(
+              key: const Key('benchmark-timeout'),
+              controller: _timeout,
+              enabled: !_busy,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: const InputDecoration(
+                labelText: '客户端期限（秒）',
+                helperText: '默认 30 秒；题源准备不计入模型端到端耗时。',
+              ),
             ),
-          ),
-          if (_deadline == null) const Text('客户端期限必须为有效正秒数。'),
+          if (!_gameMode && _deadline == null) const Text('客户端期限必须为有效正秒数。'),
           const SizedBox(height: 12),
           Wrap(
             spacing: 12,
             children: [
               FilledButton(
                 key: const Key('benchmark-run'),
-                onPressed: _busy || _selected.isEmpty || _deadline == null
+                onPressed:
+                    _busy ||
+                        _metadataLoading ||
+                        _metadataError != null ||
+                        _selected.isEmpty ||
+                        (!_gameMode && _deadline == null)
                     ? null
                     : _start,
-                child: const Text('完整评测 · 400 题'),
+                child: Text('完整评测 · $_fullScale'),
               ),
               if (_busy)
                 TextButton(

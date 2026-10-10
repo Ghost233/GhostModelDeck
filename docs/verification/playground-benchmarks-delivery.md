@@ -2,13 +2,20 @@
 
 规格：[#62](https://github.com/Ghost233/GhostModelDeck/issues/62)。起点：`07729aec710cb5516e77ae853b152f529ab3b897`。
 
-用户已授权 dev 集成分支、阶段分支/PR；最终 dev → main 总 PR 保持 ready 待合并。阶段一 #63–#65 已验收并通过 [阶段 PR #74](https://github.com/Ghost233/GhostModelDeck/pull/74) 合入 dev（`8da3777caf5a2eab8fffa8e230cdead28578caa4`）。当前阶段二 #66–#67。#66 重开后的超时边界与 #67 对照评测均已完成当前候选验收，待发布结项与阶段集成。全部五项基准和真实完整评测仍属于总验收，不降低规模。
+用户已授权 dev 集成分支、阶段分支/PR；最终 dev → main 总 PR 保持 ready 待合并。阶段一 #63–#65 已验收并通过 [阶段 PR #74](https://github.com/Ghost233/GhostModelDeck/pull/74) 合入 dev（`8da3777caf5a2eab8fffa8e230cdead28578caa4`）。阶段二 #66–#67 已验收关闭，PR #75 已合入 dev。当前进入阶段三 #68–#72。全部五项基准和真实完整评测仍属于总验收，不降低规模。
 
 ## 当前交付状态（2026-10-10，macOS arm64）
 
-阶段二 [PR #75](https://github.com/Ghost233/GhostModelDeck/pull/75) 目标 dev，仍为 draft。代码候选固定为 `072335d0cdaa44296ae44103f36b5a13171229dd`，实机开始时的文档提交为 `bc0276beeb80ab193d27fec96d859587be1ff6b2`，随后仅更新交付记录。主线程负责 Git、门禁和实机队列；`comparison_67` 负责代码修复，`native_66` 负责唯一实机验收。
+| 项目 | 当前结论 |
+| --- | --- |
+| 当前代码 | 阶段三在 `codex/playground-stage-3`，基于 `a7c1aaced3b3f679fb8d3f7886ab82c64ca3f5a4`，工作区尚未提交；游戏桌面装配正在闭环。 |
+| 完整门禁 | #68–#71 原生验收前候选已通过全仓宿主门禁：145 文件格式零改动、分析零诊断、776 项全测试及整体退出均为 0。#72 后续实现仍需对应最终阶段验收。下述 718 项只覆盖已验收的阶段二。 |
+| 真实模型 | 阶段二六份完整 400 题已通过。阶段三 11,257／10,320／11,368 请求及 Jevman 100 局真实模型验收尚待；存储 fixture 不作为模型证据。 |
+| PR | 阶段 PR #74／#75 已合入 dev；阶段三 PR 与最终 dev → main 总 PR 尚未创建。最终总 PR 仅保持 ready，由用户合并。 |
 
-当前完整宿主门禁 `run-VqlJZR` 已通过：121 文件格式零改动、全仓分析零诊断、718 项测试通过。三个步骤与整体退出码均为 0，296 个输入摘要与当前源码一致。固定 Flutter 3.47.6／Dart 3.13.5、现有 lockfile、联网解析和已核验字体环境继续复用。字体与布局断言完整保留。Linux、Windows 和 Intel/x64 已移出本次范围；本次没有新建或恢复容器。
+阶段二 [PR #75](https://github.com/Ghost233/GhostModelDeck/pull/75) 已合入 dev，合并提交 `a7c1aaced3b3f679fb8d3f7886ab82c64ca3f5a4`。代码候选固定为 `072335d0cdaa44296ae44103f36b5a13171229dd`，实机开始时的文档提交为 `bc0276beeb80ab193d27fec96d859587be1ff6b2`，随后仅更新交付记录。主线程负责 Git、门禁和实机队列；`comparison_67` 负责代码修复，`native_66` 负责唯一实机验收。
+
+阶段二候选的完整宿主门禁 `run-VqlJZR` 已通过：121 文件格式零改动、全仓分析零诊断、718 项测试通过。三个步骤与整体退出码均为 0，296 个输入摘要与已验收的阶段二源码一致；该门禁不覆盖当前阶段三工作区。固定 Flutter 3.47.6／Dart 3.13.5、现有 lockfile、联网解析和已核验字体环境继续复用。字体与布局断言完整保留。Linux、Windows 和 Intel/x64 已移出本次范围；本次没有新建或恢复容器。
 
 单题期限误取消整批、启动窗口忽略中断和 typed 超限 POST 提前取消请求体三项问题均已修复。原失败、定点回归与完整门禁记录保留。两轴 V2 复审均为 P0/P1/P2 各 0，原启动窗口 P2 已关闭。当前 Release 构建真实退出 0，版本保持 0.1.4，86 个构建输入未变。实际 Dart App.framework 摘要为 `ea1652ef2e747b2a5076b40d85b312bebc3e62e79f5be5116d88f4326569fbed`；实际应用运行于 ARM64。
 
@@ -18,7 +25,27 @@ GUI 导出包含完整六份独立结果。六份上游未修改请求构造、�
 
 正常 CmdQ 将执行中的 MCP 批次封存为 interrupted（31/1,200），后续对象零执行，完整成绩为空。应用及其拥有的模型进程全部消失，五个相关端口均拒绝连接。先前完整记录字节保持不变。重启历史、导出和删除保护均已完成。GUI 删除本次取消记录 `run-1791590650888920` 曾被自动审批拒绝；用户随后明确确认这条已备份记录，同一 GUI 删除成功。其余五条历史、22 个题源和四个模型摘要未变。最新六项配置的字节和存在状态全部恢复，安装版 0.1.3／build 8 及原 Qwen、Kev 两项 Ready 服务正常运行，公开 HTTP/MCP 发现精确匹配。主线程核对实际配置、历史及进程后，已通知 Sentinel 服务恢复。
 
-证据位于 ignored `.scratch/playground-benchmarks/implementation/`：`stage2-final-repairs-host-gates.json`、两份 `stage2-*-review-v2.md`、`native67-build-current-result.json`、`native67-full-batch-author-audit/summary.json`、`native67-public-client-result.json`、`native67-manual-stop-terminal-evidence.json` 、`native67-normal-quit-evidence.json`、`native67-summary.json`、`native67-restoration-final.json` 和 `stage2-acceptance-merger.md`。独立 merger 已逐项核对 #66 九项与 #67 七项，全部满足；工单结项与阶段 PR 集成由主线程继续执行。#68–#73、五项完整基准及最终 dev → main 总 PR 仍待完成。
+证据位于 ignored `.scratch/playground-benchmarks/implementation/`：`stage2-final-repairs-host-gates.json`、两份 `stage2-*-review-v2.md`、`native67-build-current-result.json`、`native67-full-batch-author-audit/summary.json`、`native67-public-client-result.json`、`native67-manual-stop-terminal-evidence.json` 、`native67-normal-quit-evidence.json`、`native67-summary.json`、`native67-restoration-final.json` 和 `stage2-acceptance-merger.md`。独立 merger 已逐项核对 #66 九项与 #67 七项，全部满足；#66、#67 已发布验收评论并关闭。主线程先更新本地 dev，再推送远端；dev、main 及两条阶段分支的本地／实际远端完整 hash 均分别一致。#68–#73、五项完整基准及最终 dev → main 总 PR 仍待完成。
+
+阶段三基于已同步 dev `a7c1aaced3b3f679fb8d3f7886ab82c64ca3f5a4`，工作分支为 `codex/playground-stage-3`，尚未固定提交候选或创建阶段 PR。JEVal、一致性 JevBench、JevAdvBench 与 Jevman 原题子模块均已固定完整提交；HF 子模块取得真实 33,533,925 字节 Parquet，摘要匹配原 LFS 对象。Git LFS 仅在本任务目录准备固定 Mac arm64 工具，不修改全局安装；检出原失败及修复记录保留。
+
+JEVal 原题模块的全量字段、原评分和有限边界 6 项回归 `run-mR1p7P` 退出 0，两模块分析 `run-qiO5A7` 零诊断。完整一致性请求、两套独立作者向量、50 关系及固定 CI、非法概率和 95% 覆盖边界 4 项回归 `run-fORtgR` 退出 0，模块与共享数值接口分析 `run-NJzml8` 零诊断。朴素求和造成的原评分差异已由独立诊断重现，并对齐当前固定 CPython 3.12.14 的求和语义；原评分期望、容差和分母未变。上游历史具体运行时未知，留空。
+
+原攻击的 JSON 转义、额外字段及送达事实已有定点反馈。公开客户端保留原 HTTP 文档，来源可将不支持字段交给正常 HTTP/MCP 入口真实判断；基础编辑器默认预校验保持。实际双通道拒绝、原文证据与受影响 53 项回归 `run-bY8m3u` 全部通过。扰动模块的原统计、精确整数原文、MCP 拒绝分类及有限边界已完成，最终模块回归 `run-MWf7WK` 与分析 `run-UduXpY` 均退出 0；原失败保留。应用原题资源／runner／增量历史集成和受管 Jevman 正在实施。新增 manifest 资产入口后，宿主准备 `run-83BV1K` 在线解析和整体退出均为 0，lockfile 未再改变。
+
+阶段三第二轮有界队列已完成：原题完整分母保护由 `run-7GGYP9` 失败闭环至 `run-ZUv3ss` 通过；日志写前归属保护由 `run-AC1wWh` 失败闭环至 `run-vLlP8X` 通过，相关历史与资源回归均退出 0。原游戏预热普通 HTTP 取消 `run-P0sgJs` 及原录像重放、解析、运行时回归 `run-LY2NJE` 共七项通过，最终联合分析 `run-QeLOLT` 零诊断。自包含游戏桥接产物为 64,433 字节，SHA-256 `e4c1296b3f2c9958e9837ef329daceb9aadc8cb7e400e27c86a7ba5d379e8c39`，14 个构建输入与 manifest 一致。详细记录为 ignored `stage3-check-queue-loop2-summary.json`；取消是生命周期边界检查，未执行完整 100 局。当前由唯一 SDK/Node 队列继续游戏运行中取消及日志完整性分类，主线程继续负责最终候选、完整门禁、实机与 Git 交付。
+
+第三轮有界队列已完成：游戏运行中取消 `run-KXq36M` 首次退出 0，保留第一局真实部分录像、完整成绩为空、自有进程与请求释放、原模型实例存活，封存结果不可修改。日志完整性与安全分类 `run-7t9816` 六项首次全部通过；同长损坏、符号链接和异主 descriptor 均明确拒绝，正常独立导出及只删除所选 header/journal 的保护通过。相关分析 `run-9ufLDC` 零诊断，业务检查输入前后不变；没有重建未变游戏产物或重复无关成功。记录为 ignored `stage3-check-queue-loop3-summary.json`。后继队列集中检查游戏目标失效／正常关闭／公开业务错误与四题库页面；游戏应用组装拟复用现有唯一批次 operation、配置锁和逐局增量日志，不修改原帧调度。
+
+第四轮集中反馈：游戏目标失效、正常关闭及 HTTP/MCP 业务错误四项 `run-rdRLAe` 首次通过。四题库选择器先保留真实网络测试接缝失败，修正后取得缺少选择器的业务红 `run-7k3bKV`，最小实现后 `run-xQ6Ys4` 通过，原页面与导航 12 项 `run-HbGklq` 全部退出 0（含完整 400 题报告）。游戏日志 codec 由缺 API 红 `run-QTLV5m` 闭环至 `run-djRd80` 通过；逐局持久化回调由缺 API 红 `run-xvvJ5u` 闭环至两项 `run-vJloHM` 通过，游戏文件十项 `run-1fCYPa` 全部退出 0。游戏桥接已按修改后的原结束收尾接缝重新构建，当前 64,433 字节产物 SHA-256 为 `2da761b7a73588f015d95ccf97793b09966fcfe375ad992dc7a741b714c8bbd8`，14 个输入和 manifest 已核对。未改原帧调度，未运行完整 100 局。受管游戏资源组装由实际缺 API 红 `run-BPQeJY` 进入实现；安装资产入口新增桥接文件后，统一队列负责一次联网准备与后续定点验证，原评分／分组报告及共用游戏批次接线仍待闭环。
+
+第四轮最终收尾：`run-xLIQN0` 联网依赖准备与整体退出均为 0，lockfile 未变；游戏资源组装 `run-UYqjVP` 三项通过，验证安装资源校验、固定 arm64 缓存复用、损坏桥接和符号链接保护。相关十文件分析 `run-yYb5Bs` 零诊断，645 个输入与交接时内容一致。第五轮关闭独立评分报告失败：测试先仅将两个 Completer 移至真实异步区，原 20 秒／10 秒期限不变，`run-O5UnH3` 得到没有超时或清理错误的 `1 / 400` 对 `1 / 11257` 业务红。最小报告修复后 `run-sm2nug` 通过，原分母、部分 ACC／MAE 为空、五维原分组与 JSON、无配对指标及一次正常 HTTP 请求均核对；受影响四文件 `run-Pq32S1` 二十项通过，最后相关七文件分析 `run-VjwsTk` 零诊断。详细记录为 ignored `stage3-check-queue-loop4-summary.json` 和 `stage3-check-queue-loop5-summary.json`。当前继续共用游戏 operation／历史／退出接线，并准备三来源完整原输入的日志规模验证；没有阶段三完整门禁或真实完整模型验收的通过声明。
+
+第六轮已完成共用游戏执行器与完整输入存储验证。游戏批次 API 缺失红 `run-BErXW2` 后，首候选语法错误 `run-q8lTr2` 真实退出 65 已保留；修复后 `run-77zpzd` 两项通过，验证唯一批次门禁、全部配置锁、schema 5／6 部分录像历史往返及零执行准入窗口退出。相关分析 `run-ubQvVy` 零诊断。唯一完整日志规模作业 `run-wz1RW0` 用时 8 分 42 秒，四项全部通过，测试与整体真实退出码均为 0，647 个输入前后未变，清理完成。JEVal 11,257 行、coherence 10,320 行及 Adv 11,368 行的 journal 分别为 585,297,271／168,530,809／359,273,665 字节；Adv HTTP／MCP 两份完整 leaf 共 22,736 行，独立导出为 821,214,025 字节。原输入摘要、原字段／原文、4,564 个数字字面量、全量读取／导出和 owner 拒绝均通过。三份逐题 snapshot／save 各读取 N 行、每行最多一次、重复终态保存零历史读取，原 `≤ 2N + 2` 断言未放宽。这些用例为明确标识的 cancelled 存储 fixture，没有执行模型，不证明系统累计 I/O 或真实模型完整评测。记录为 ignored `stage3-check-queue-loop6-summary.json` 和 `stage3-check-queue-loop6-scale-outer-result.json`。当前推进 main／ManagerLifecycle／页面的游戏装配；受影响回归集中留到接线后一次执行，完整门禁与实机仍待。
+
+游戏应用组装已完成本批闭环：原构造参数缺失 `run-SZAd6u`、错误要求游戏 manifest 有 `files` 的页面失败 `run-UU8oi9` 保留，按原 `bundleInputs/games` 修复后 `run-52SPtQ` 通过准备、正常 HTTP 首局、离页继续、重挂取消、部分历史和自有资源收尾。唯一受影响回归 `run-b9ZDBh` 二十文件 130 项全部通过，相关 34 项分析 `run-GMZina` 零诊断。随后固定 #68–#71 候选，唯一全仓宿主门禁 `run-I0GRe7` 完成 145 文件格式零改动、全仓分析零诊断、776 项全测试（含完整 Scale 与全部旧断言），三个步骤及整体退出均为 0，用时 27 分 29 秒，清理正常。647 个源码输入前后及当前一致，清单摘要 `c0ca5ffab390d28536aae693df471e5e4910a95ec10d0c38c9adc8d703365752`；SDK、字体、lock、五个实际固定子模块和当前游戏产物一致。证据为 ignored `stage3-check-queue-loop7-summary.json`、`stage3-check-queue-prenative-summary.md` 与 `stage3-check-queue-prenative-result.json`。该门禁允许进入当前 Mac 构建和真实模型验收，不代表 #72、阶段三 PR 或总规格完成。
+
+上述阶段三证据属于原题模块与定点回归，尚不代表安装版集成、真实模型完整 11,257／10,320／11,368 请求、Jevman 100 局或新的完整门禁通过。旧阶段二 718 项和原生六份记录仅覆盖已验收的阶段二候选。阶段三仍须固定最终内容后完成本阶段完整门禁、真实模型、独立原评分及资源收尾；最终总 PR 继续待全部规格完成后创建并保持 ready。
 
 JEVal 三族来源后续核查已完成。作者论文证实 Decider、JevBench 和 JevForge 的原项目指针；JevBench 的 200 行均唯一映射到公开原题。作者历史导入提交及其他两族逐行绑定仍未知。报告为 ignored `jeval-source-identity-followup.md`，不代表 #68 产品或模型验收。
 

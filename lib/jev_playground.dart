@@ -41,6 +41,7 @@ class JevPlaygroundResult {
     required Duration timeout,
     required Duration elapsed,
     Map<String, Object?>? request,
+    String? requestBody,
     String? rawResponse,
     int? httpStatus,
   }) {
@@ -81,7 +82,9 @@ class JevPlaygroundResult {
       'native': {
         'result': output,
         'raw_response': publicEnvelope ? null : rawResponse,
-        'request_body': request == null ? null : jsonEncode(request),
+        'request_body': request == null
+            ? null
+            : requestBody ?? jsonEncode(request),
       },
     }, projection: JevDebugProjection.debug);
     final io = evidence['native'] as Map;
@@ -206,12 +209,14 @@ class JevPlayground {
     String document, {
     DecisionCancellation? cancellation,
     Duration timeout = const Duration(seconds: 30),
+    bool validateBeforeSend = true,
   }) async {
     final token = cancellation ?? DecisionCancellation();
     var deadlineReached = false;
     Timer? deadline;
     final watch = Stopwatch()..start();
     Map<String, Object?>? sent;
+    String? sentDocument;
     JevPlaygroundResult finish(
       JevPlaygroundStatus status,
       String message, {
@@ -228,6 +233,7 @@ class JevPlayground {
       timeout: timeout,
       elapsed: watch.elapsed,
       request: sent,
+      requestBody: sentDocument,
       rawResponse: rawResponse,
       httpStatus: httpStatus,
     );
@@ -236,9 +242,20 @@ class JevPlayground {
         throw const DecisionProtocolException('客户端期限必须大于零');
       }
       final documentValue = jsonDecode(document);
-      final parsed = JevModelRequest.parse(documentValue);
+      JevModelRequest? parsed;
+      try {
+        parsed = JevModelRequest.parse(documentValue);
+      } on DecisionProtocolException {
+        if (validateBeforeSend) rethrow;
+      }
+      if (documentValue is! Map<String, Object?>) {
+        throw const DecisionProtocolException('公开请求需要 JSON 对象');
+      }
       final payload = freezeDebugJson(documentValue) as Map<String, Object?>;
       sent = payload;
+      sentDocument = mode == JevPlaygroundMode.http
+          ? document
+          : jsonEncode(payload);
       if (token.isCancelled) throw StateError('客户端已取消');
       deadline = Timer(timeout, () {
         deadlineReached = true;
@@ -254,6 +271,7 @@ class JevPlayground {
           gateway.baseUrl!.resolve('/v1/systemone'),
           payload,
           token,
+          document: document,
         );
       } else {
         reply = await _mcp(CouncilMcpServer.batchToolName, payload, token);
@@ -291,6 +309,9 @@ class JevPlayground {
             : '服务返回本次业务错误';
       } else {
         try {
+          if (parsed == null) {
+            throw const DecisionProtocolException('当前客户端无法核验服务接受的原输入');
+          }
           DecisionBatchResult.parse(
             jsonEncode(output),
             parsed.request,
@@ -421,8 +442,9 @@ class JevPlayground {
   Future<_JevReply> _http(
     Uri uri,
     Map<String, Object?>? payload,
-    DecisionCancellation? token,
-  ) async {
+    DecisionCancellation? token, {
+    String? document,
+  }) async {
     final client = HttpClient();
     HttpClientRequest? request;
     final remove = token?.listen(() {
@@ -440,7 +462,7 @@ class JevPlayground {
       }
       if (payload != null) {
         request.headers.contentType = ContentType.json;
-        request.write(jsonEncode(payload));
+        request.write(document ?? jsonEncode(payload));
       }
       final response = await request.close();
       final raw = await utf8.decoder.bind(response).join();

@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import 'app_theme.dart';
+import 'benchmark_game_work.dart';
 import 'benchmark_page.dart';
 import 'benchmark_resources.dart';
 import 'benchmark_run_store.dart';
@@ -79,6 +80,7 @@ class _ManagerShellState extends State<_ManagerShell>
   late final PublicModelRoutes _publicRoutes;
   late final PublicGatewayServer _publicGateway;
   late final BenchmarkResources _benchmarkResources;
+  late final BenchmarkGameWork _benchmarkGameWork;
   late final BenchmarkRunner _benchmarks;
   final _startupSet = StartupModelSet.user();
   late final LauncherInferenceService _launcherService;
@@ -152,6 +154,9 @@ class _ManagerShellState extends State<_ManagerShell>
     _benchmarkResources = BenchmarkResources(
       Directory('${_settings.file.parent.path}/benchmark-cache'),
     );
+    _benchmarkGameWork = BenchmarkGameWork(
+      Directory('${_settings.file.parent.path}/benchmark-game-cache'),
+    );
     _benchmarks = BenchmarkRunner(
       client: JevPlayground(gateway: _publicGateway, mcp: _mcp),
       store: BenchmarkRunStore(
@@ -188,6 +193,7 @@ class _ManagerShellState extends State<_ManagerShell>
       launcher: _launcherService,
       benchmarks: _benchmarks,
       benchmarkResources: _benchmarkResources,
+      benchmarkGameWork: _benchmarkGameWork,
     );
     _native.setMethodCallHandler((call) async {
       if (call.method != 'prepareToQuit') throw MissingPluginException();
@@ -302,6 +308,7 @@ class _ManagerShellState extends State<_ManagerShell>
     _browser.close();
     unawaited(_benchmarks.close().catchError((Object _) {}));
     unawaited(_benchmarkResources.close().catchError((Object _) {}));
+    unawaited(_benchmarkGameWork.close().catchError((Object _) {}));
     // Explicit native shutdown awaits the original failure via ManagerLifecycle.
     unawaited(_downloader.close().catchError((Object _) {}));
     _mcp.close();
@@ -567,6 +574,7 @@ class _ManagerShellState extends State<_ManagerShell>
                             BenchmarkPage(
                               resources: _benchmarkResources,
                               runner: _benchmarks,
+                              gameWork: _benchmarkGameWork,
                             )
                           else
                             const SizedBox.shrink(),

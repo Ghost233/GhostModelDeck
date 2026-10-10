@@ -4,19 +4,33 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/services.dart';
+
+import 'adversarial_benchmark.dart';
+import 'coherence_benchmark.dart';
+import 'frozen_question_suite.dart';
+import 'jeval.dart';
 
 import 'decidebench.dart';
 import 'engine_runtime.dart' show DecisionCancellation;
 
 class BenchmarkResourceFile {
-  const BenchmarkResourceFile(this.path, this.bytes, this.sha256);
+  const BenchmarkResourceFile(
+    this.path,
+    this.bytes,
+    this.sha256, {
+    this.downloadUrl,
+  });
   final String path;
   final int bytes;
   final String sha256;
-  Uri get url => Uri.https(
-    'raw.githubusercontent.com',
-    '/choyiny/decidebench/${BenchmarkResources.pin}/$path',
-  );
+  final String? downloadUrl;
+  Uri get url => downloadUrl == null
+      ? Uri.https(
+          'raw.githubusercontent.com',
+          '/choyiny/decidebench/${BenchmarkResources.pin}/$path',
+        )
+      : Uri.parse(downloadUrl!);
 }
 
 class BenchmarkResourceProgress {
@@ -53,6 +67,8 @@ class BenchmarkResources {
   String? get lastError => _lastError;
   BenchmarkResourceStatus _status = BenchmarkResourceStatus.idle;
   String? _lastError;
+  String get suiteId => _suiteId;
+  String _suiteId = 'decidebench';
   bool get preparing => _prepareDone != null;
   BenchmarkResourceProgress? get progress => _progress;
   Stream<BenchmarkResourceProgress?> get changes => _changes.stream;
@@ -219,10 +235,105 @@ class BenchmarkResources {
     return DecideBenchSuite.load(directory);
   });
 
+  static Future<Map<String, Object?>> questionManifest(String id) async {
+    if (!const {'jeval', 'coherence', 'adversarial', 'jevman'}.contains(id)) {
+      throw const FormatException('未知原题基准');
+    }
+    final decoded = jsonDecode(
+      await rootBundle.loadString('benchmarks/manifests/$id.json'),
+    );
+    if (decoded is! Map<String, dynamic> ||
+        decoded['id'] != id ||
+        decoded['pin'] is! String ||
+        !RegExp(r'^[a-f0-9]{40}$').hasMatch(decoded['pin'] as String) ||
+        (id != 'jevman' && decoded['files'] is! List) ||
+        (id == 'jevman' &&
+            (decoded['games'] != 100 || decoded['bundleInputs'] is! List))) {
+      throw const FormatException('固定原题清单无效');
+    }
+    return Map<String, Object?>.unmodifiable(decoded);
+  }
+
+  Future<FrozenQuestionSuite> prepareQuestions(
+    String id,
+    DecisionCancellation caller, {
+    void Function(BenchmarkResourceProgress)? onProgress,
+  }) => _runPreparation(caller, (token) async {
+    final manifest = await questionManifest(id);
+    _checkCancellation(token);
+    final expectedPin = switch (id) {
+      'jeval' => JevalSuite.pin,
+      'coherence' => CoherenceSuite.pin,
+      'adversarial' => AdversarialSuite.pin,
+      _ => throw const FormatException('未知原题基准'),
+    };
+    if (manifest['pin'] != expectedPin) {
+      throw const FormatException('题源版本与本应用评分适配不一致');
+    }
+    final entries = <BenchmarkResourceFile>[];
+    final paths = <String>{};
+    for (final value in manifest['files'] as List) {
+      if (value is! Map ||
+          value['path'] is! String ||
+          value['bytes'] is! int ||
+          (value['bytes'] as int) <= 0 ||
+          value['sha256'] is! String ||
+          !RegExp(r'^[a-f0-9]{64}$').hasMatch(value['sha256'] as String)) {
+        throw const FormatException('原题文件摘要无效');
+      }
+      final path = value['path'] as String;
+      if (path.startsWith('/') ||
+          path.contains('\\') ||
+          path
+              .split('/')
+              .any(
+                (segment) =>
+                    segment.isEmpty || segment == '.' || segment == '..',
+              ) ||
+          !paths.add(path)) {
+        throw const FormatException('原题文件路径无效或重复');
+      }
+      final url =
+          value['url'] ??
+          'https://raw.githubusercontent.com/JevBench/jevbench/$expectedPin/$path';
+      if (url is! String || Uri.tryParse(url)?.scheme != 'https') {
+        throw const FormatException('原题下载必须使用 HTTPS');
+      }
+      entries.add(
+        BenchmarkResourceFile(
+          path,
+          value['bytes'] as int,
+          value['sha256'] as String,
+          downloadUrl: url,
+        ),
+      );
+    }
+    if (entries.isEmpty) throw const FormatException('原题文件清单为空');
+    final directory = await _prepare(
+      token,
+      onProgress: onProgress,
+      suiteId: id,
+      suitePin: expectedPin,
+      resourceFiles: entries,
+      redirects: true,
+    );
+    _checkCancellation(token);
+    final Future<FrozenQuestionSuite> loading = switch (id) {
+      'jeval' => JevalSuite.load(directory),
+      'coherence' => CoherenceSuite.load(directory),
+      'adversarial' => AdversarialSuite.load(directory),
+      _ => throw const FormatException('未知原题基准'),
+    };
+    final suite = await loading;
+    _checkCancellation(token);
+    return suite;
+  }, suiteId: id);
+
   Future<T> _runPreparation<T>(
     DecisionCancellation caller,
-    Future<T> Function(DecisionCancellation) operation,
-  ) async {
+    Future<T> Function(DecisionCancellation) operation, {
+    String suiteId = 'decidebench',
+  }) async {
     if (_closed) throw StateError('Benchmark resources are closed');
     if (_prepareDone != null) {
       throw StateError('Benchmark preparation is already running');
@@ -232,6 +343,7 @@ class BenchmarkResources {
     final done = Completer<void>();
     _activeCancellation = token;
     _prepareDone = done;
+    _suiteId = suiteId;
     _status = BenchmarkResourceStatus.preparing;
     _lastError = null;
     _progress = null;
@@ -264,15 +376,22 @@ class BenchmarkResources {
   Future<Directory> _prepare(
     DecisionCancellation token, {
     void Function(BenchmarkResourceProgress)? onProgress,
+    String suiteId = 'decidebench',
+    String suitePin = pin,
+    List<BenchmarkResourceFile> resourceFiles = files,
+    bool redirects = false,
   }) async {
     _checkCancellation(token);
-    final directory = Directory('${cacheRoot.path}/decidebench/$pin');
+    final directory = Directory('${cacheRoot.path}/$suiteId/$suitePin');
     HttpClient? client;
     HttpClientRequest? request;
     File? partial;
     var completed = 0;
     var verified = 0;
-    final totalBytes = files.fold(0, (sum, resource) => sum + resource.bytes);
+    final totalBytes = resourceFiles.fold(
+      0,
+      (sum, resource) => sum + resource.bytes,
+    );
     final removeCancellation = token.listen(() {
       request?.abort(const BenchmarkResourceCancelled());
       client?.close(force: true);
@@ -280,7 +399,7 @@ class BenchmarkResources {
     void progress(String path, [int downloaded = 0]) {
       final value = BenchmarkResourceProgress(
         completedFiles: completed,
-        totalFiles: files.length,
+        totalFiles: resourceFiles.length,
         verifiedBytes: verified,
         totalBytes: totalBytes,
         currentPath: path,
@@ -293,7 +412,7 @@ class BenchmarkResources {
 
     try {
       await directory.create(recursive: true);
-      for (final resource in files) {
+      for (final resource in resourceFiles) {
         _checkCancellation(token);
         final destination = File('${directory.path}/${resource.path}');
         progress(resource.path);
@@ -301,11 +420,39 @@ class BenchmarkResources {
           _checkCancellation(token);
           client ??= _createHttpClient()
             ..connectionTimeout = const Duration(seconds: 30);
-          request = await client.getUrl(resource.url);
-          _checkCancellation(token);
-          request.followRedirects = false;
-          final response = await request.close();
-          _checkCancellation(token);
+          var url = resource.url;
+          HttpClientResponse response;
+          var hops = 0;
+          while (true) {
+            request = await client.getUrl(url);
+            _checkCancellation(token);
+            request.followRedirects = false;
+            response = await request.close();
+            _checkCancellation(token);
+            if (!redirects ||
+                !const {
+                  301,
+                  302,
+                  303,
+                  307,
+                  308,
+                }.contains(response.statusCode)) {
+              break;
+            }
+            final location = response.headers.value(HttpHeaders.locationHeader);
+            if (location == null || ++hops > 5) {
+              throw HttpException('原题 HTTPS 重定向无效', uri: url);
+            }
+            final next = url.resolve(location);
+            if (next.scheme != 'https' ||
+                next.host.isEmpty ||
+                next.userInfo.isNotEmpty) {
+              throw HttpException('原题重定向必须使用无凭据 HTTPS', uri: next);
+            }
+            await response.drain<void>();
+            _checkCancellation(token);
+            url = next;
+          }
           if (response.statusCode != HttpStatus.ok) {
             throw HttpException(
               'Benchmark source HTTP ${response.statusCode}',
