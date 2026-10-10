@@ -2,17 +2,23 @@
 
 规格：[#62](https://github.com/Ghost233/GhostModelDeck/issues/62)。起点：`07729aec710cb5516e77ae853b152f529ab3b897`。
 
-用户已授权 dev 集成分支、阶段分支/PR；最终 dev → main 总 PR 保持 ready 待合并。阶段一 #63–#65 已验收并通过 [阶段 PR #74](https://github.com/Ghost233/GhostModelDeck/pull/74) 合入 dev（`8da3777caf5a2eab8fffa8e230cdead28578caa4`）。当前阶段二 #66–#67。#66 已验收提交后发现新增超时边界，工单重新打开；#67 正在实施。全部五项基准和真实完整评测仍属于总验收，不降低规模。
+用户已授权 dev 集成分支、阶段分支/PR；最终 dev → main 总 PR 保持 ready 待合并。阶段一 #63–#65 已验收并通过 [阶段 PR #74](https://github.com/Ghost233/GhostModelDeck/pull/74) 合入 dev（`8da3777caf5a2eab8fffa8e230cdead28578caa4`）。当前阶段二 #66–#67。#66 重开后的超时边界与 #67 对照评测均已完成当前候选验收，待发布结项与阶段集成。全部五项基准和真实完整评测仍属于总验收，不降低规模。
 
 ## 当前交付状态（2026-10-10，macOS arm64）
 
-阶段二 [PR #75](https://github.com/Ghost233/GhostModelDeck/pull/75) 目标 dev，保持 draft。已提交并推送的代码候选为 `072335d0cdaa44296ae44103f36b5a13171229dd`，文档状态另行更新。该候选完整宿主门禁 704 项通过，Release 构建真实退出 0，版本保持 0.1.4。正式首审 Standards 为 P0/P1/P2 均 0，Spec 有 1 个 P2：前一批终态仍在 current 时，第二批首次公开发现、锁定或保存窗口的明确中断可能被忽略。原实现者已固定两文件修复，14 项启动边界及完整 runner 33 项回归通过，源码摘要保持一致。修复后完整门禁 run-CG4qaJ 结束，格式、分析通过，717 项测试通过、1 项失败，整体退出 1。独立诊断确认 typed 超限 POST 取消请求体早于 413 响应完成，已最小调整顺序；原用例连续三次和完整 gateway／owned HTTP 39 项通过，所有探针删除，原限额和断言保留。固定两项修复后，唯一完整门禁 run-VqlJZR 已通过，格式 121 文件零改动、全仓分析零诊断、完整 718 项测试通过，步骤及整体真实退出码均为 0，运行期间全部输入未变且与当前源码匹配。集中修复待提交、两轴复审和新输入构建；当前候选真实六组评测仍待。环境复盘未发现新增 P0/P1/P2；新输入构建和两轴复审仍待。真实模型六份完整对照尚未放行。主线程负责 Git、门禁和实机队列，`comparison_67` 负责本次代码及定点修复。
+阶段二 [PR #75](https://github.com/Ghost233/GhostModelDeck/pull/75) 目标 dev，仍为 draft。代码候选固定为 `072335d0cdaa44296ae44103f36b5a13171229dd`，实机开始时的文档提交为 `bc0276beeb80ab193d27fec96d859587be1ff6b2`，随后仅更新交付记录。主线程负责 Git、门禁和实机队列；`comparison_67` 负责代码修复，`native_66` 负责唯一实机验收。
 
-#67 已加入多对象选择、HTTP/MCP 独立结果、顺序执行和批次锁。完整六项公开 I/O fixture 曾在原 8 分钟期限内超时（run-HDAaVR，退出 1）。缓存已封存对象快照后，原用例 run-jAcx4X 退出 0，用时 6 分 33 秒，完整执行 2,400 题、1,200 对。题量、期限、逐题保存和断言均保留。后续修改仍需最终候选回归，不能用这一结果声称最终门禁通过。
+当前完整宿主门禁 `run-VqlJZR` 已通过：121 文件格式零改动、全仓分析零诊断、718 项测试通过。三个步骤与整体退出码均为 0，296 个输入摘要与当前源码一致。固定 Flutter 3.47.6／Dart 3.13.5、现有 lockfile、联网解析和已核验字体环境继续复用。字体与布局断言完整保留。Linux、Windows 和 Intel/x64 已移出本次范围；本次没有新建或恢复容器。
 
-新增 P2：普通客户端首题超时会取消传入 token，旧 runner 将该 token 复用于整批。原用例 run-On5mnc 退出 1，批次错误地变成 targetUnavailable。已重新打开 [#66](https://github.com/Ghost233/GhostModelDeck/issues/66#issuecomment-6084625304)。每题 token 监听整批取消、结束后解绑的最小修复，通过 HTTP 原失败回归 run-oPPwCe：400 题全部尝试，399 有效、1 客户端超时，无重试。MCP 同类边界 run-SItKmU 退出 0，也完整尝试 400 题。终态缓存与取消／退出封存两项 run-e8jjYz 退出 0，已完成对象的结果字节保持不变，后续部分及晚到结果封存。最终受影响六文件回归 run-8hAw5R 的 38 项已通过，源码前后摘要一致。首次完整门禁 run-Y13jG8 格式、分析通过，测试 702 项通过、2 项失败，真实退出 1。两个原失败分别用真实安装文件系统控制点和应用外部 I/O 隔离修正；安装生命周期完整 7 项、导航与桌面布局完整 37 项均通过，所有原断言及用户文件摘要保留。最终完整门禁 run-tlWsEX 已通过：格式检查 121 文件零改动，全仓分析零诊断，完整 704 项测试全部通过，三个步骤及整体退出码均为 0。全部输入摘要与当前源码一致且运行期间未变。记录为 ignored 67-final-host-gates.json。
+单题期限误取消整批、启动窗口忽略中断和 typed 超限 POST 提前取消请求体三项问题均已修复。原失败、定点回归与完整门禁记录保留。两轴 V2 复审均为 P0/P1/P2 各 0，原启动窗口 P2 已关闭。当前 Release 构建真实退出 0，版本保持 0.1.4，86 个构建输入未变。实际 Dart App.framework 摘要为 `ea1652ef2e747b2a5076b40d85b312bebc3e62e79f5be5116d88f4326569fbed`；实际应用运行于 ARM64。
 
-#66 先前 694 项完整宿主门禁、真实 Mac 400 题、上游评分及退出／历史证据仍保留。真实 400 题没有超时，不覆盖此次新增边界。新候选需收齐修复后重新完成必需门禁；原生六份对照在门禁通过后放行。真实应用和模型验收尚未启动；用户配置、模型、22 个题源缓存、两份 #66 历史均保留。 Sentinel 会话现已启动安装版 0.1.3／build 8 和其选定模型，54841／54842 正在监听。settings.json、jev_models.json、public_models.json 与旧恢复基线不同。当前仅只读记录差异，暂停实机放行，继续独立宿主门禁和阶段审查。切换前需落实共享服务安排及新配置基线，不覆盖或停止其他会话资源。
+用户已授权临时释放 Sentinel 使用的旧服务，正常退出安装版 0.1.3，并复制最新六项配置作为恢复基线。当前候选通过真实 GUI 启动 `run-1791589928095898`，顺序执行 native-kev、quick 和 hard 各 HTTP/MCP 共六份完整 DecideBench。每份均为原 400 题、200 对，总计 2,400 个有效返回，失败和超时均为 0。原生单模型及 quick 两种协议的 accuracy 均为 43.50%、pair accuracy 为 16.50%；hard 两种协议分别为 51.50% 和 25.50%。这是本项基准成绩，不代表其他基准或总规格完成。
+
+GUI 导出包含完整六份独立结果。六份上游未修改请求构造、解析与评分审计均退出 0；独立普通 HTTP/MCP 客户端及原始请求核对也退出 0。参与对象的配置锁、切页继续运行、执行中关闭并重开窗口已实际核验。手动停止 Kev 后，依赖它的三个对象标记不可用，独立 Laya 仍完整完成 400 题并通过上游评分核对。
+
+正常 CmdQ 将执行中的 MCP 批次封存为 interrupted（31/1,200），后续对象零执行，完整成绩为空。应用及其拥有的模型进程全部消失，五个相关端口均拒绝连接。先前完整记录字节保持不变。重启历史、导出和删除保护均已完成。GUI 删除本次取消记录 `run-1791590650888920` 曾被自动审批拒绝；用户随后明确确认这条已备份记录，同一 GUI 删除成功。其余五条历史、22 个题源和四个模型摘要未变。最新六项配置的字节和存在状态全部恢复，安装版 0.1.3／build 8 及原 Qwen、Kev 两项 Ready 服务正常运行，公开 HTTP/MCP 发现精确匹配。主线程核对实际配置、历史及进程后，已通知 Sentinel 服务恢复。
+
+证据位于 ignored `.scratch/playground-benchmarks/implementation/`：`stage2-final-repairs-host-gates.json`、两份 `stage2-*-review-v2.md`、`native67-build-current-result.json`、`native67-full-batch-author-audit/summary.json`、`native67-public-client-result.json`、`native67-manual-stop-terminal-evidence.json` 、`native67-normal-quit-evidence.json`、`native67-summary.json`、`native67-restoration-final.json` 和 `stage2-acceptance-merger.md`。独立 merger 已逐项核对 #66 九项与 #67 七项，全部满足；工单结项与阶段 PR 集成由主线程继续执行。#68–#73、五项完整基准及最终 dev → main 总 PR 仍待完成。
 
 JEVal 三族来源后续核查已完成。作者论文证实 Decider、JevBench 和 JevForge 的原项目指针；JevBench 的 200 行均唯一映射到公开原题。作者历史导入提交及其他两族逐行绑定仍未知。报告为 ignored `jeval-source-identity-followup.md`，不代表 #68 产品或模型验收。
 
