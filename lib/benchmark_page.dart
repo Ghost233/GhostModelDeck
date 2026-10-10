@@ -710,6 +710,7 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
   Widget _gameReport(BenchmarkRun record, {required BenchmarkRun owner}) {
     final summary = record.summary;
     final source = record.toJson()['source_summary'];
+    final client = record.toJson()['client_summary'] as Map;
     final live = owner.id == widget.runner.current?.id && widget.runner.running;
     final frame = live ? widget.gameWork?.latestFrame : null;
     return Column(
@@ -735,6 +736,10 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
             key: const Key('benchmark-game-live-progress'),
           ),
         const Text('模型决策与greedy fallback分别统计；未完成不发布完整100局成绩。时间、用量、费用未知项保持未知。'),
+        Text(
+          '辅助指标：正式局成功公开调用端到端 P50 ${summary['latency_success_p50_ms'] ?? '不可用'} ms · P95 ${summary['latency_success_p95_ms'] ?? '不可用'} ms · 耗时样本 ${client['latency_success_samples'] ?? '未知'} / ${client['game_successes'] ?? '未知'} 次成功调用 · 覆盖率 ${client['latency_success_coverage'] ?? '未知'}（包含发现与请求；排除预热、失败和超时）',
+          key: const Key('benchmark-game-latency-distribution'),
+        ),
         if (summary['error'] != null) Text('批次错误：${summary['error']}'),
         Wrap(
           spacing: 12,

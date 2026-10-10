@@ -96,6 +96,13 @@ void main() {
           (active.toJson()['source_summary'] as Map)['originalSummary'],
           isNull,
         );
+        expect(active.summary['latency_success_p50_ms'], isNull);
+        expect(active.summary['latency_success_p95_ms'], isNull);
+        final latencyCoverage = active.toJson()['client_summary'] as Map;
+        expect(latencyCoverage['game_successes'], 0);
+        expect(latencyCoverage['latency_success_samples'], 0);
+        expect(latencyCoverage['latency_success_coverage'], isNull);
+
         expect(work.activeProcessId, isNull);
         expect(fixture.gateway.activeOwnedRequests, 0);
         for (final name in ['native-kev', 'quick', 'hard']) {
@@ -119,6 +126,113 @@ void main() {
           ),
           hasLength(1),
         );
+      } finally {
+        if (!release.isCompleted) release.complete();
+        runner.cancel();
+        final operation = pending;
+        if (operation != null) {
+          await operation.then<void>(
+            (_) {},
+            onError: (Object _, StackTrace _) {},
+          );
+        }
+        await runner.close();
+        await work.close();
+        await fixture.close();
+      }
+    }, _NetworkBoundary()),
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
+
+  test(
+    'formal game latency coverage uses successful outer calls and excludes warmup and cancellation',
+    () => HttpOverrides.runWithHttpOverrides(() async {
+      final fixture = await PlaygroundRuntime.create();
+      final work = await _preparedWork(fixture.runtime.root);
+      final store = BenchmarkRunStore(
+        directory: Directory(
+          '${fixture.runtime.root.path}/game-latency-history',
+        ),
+      );
+      final runner = BenchmarkRunner(
+        client: fixture.playground,
+        store: store,
+        models: fixture.council.models,
+      );
+      final arrived = Completer<void>(), release = Completer<void>();
+      Future<BenchmarkRun>? pending;
+      var formalRequests = 0;
+      fixture.runtime.io.respond = (request, response) async {
+        if (!(request['questions'] as Map).containsKey('warmup')) {
+          formalRequests++;
+          if (formalRequests == 3) {
+            arrived.complete();
+            await release.future;
+          }
+        }
+        return response;
+      };
+      try {
+        // Partial real IPC/public HTTP fixture, not a 100-game model acceptance.
+        final executing = runner.runJevman(work: work, model: 'native-kev');
+        pending = executing;
+        await arrived.future.timeout(const Duration(seconds: 20));
+        runner.cancel();
+        final cancelled = await executing.timeout(const Duration(seconds: 10));
+        final gameCalls = (cancelled.items.single['calls'] as List).cast<Map>();
+        final successes = gameCalls
+            .where((call) => (call['result'] as Map?)?['status'] == 'success')
+            .toList();
+        expect(successes, hasLength(2));
+        expect(
+          gameCalls.where(
+            (call) => (call['result'] as Map?)?['status'] == 'cancelled',
+          ),
+          hasLength(1),
+        );
+        expect(cancelled.toJson()['warmup_calls'], isNotEmpty);
+        final observed = [
+          for (final call in successes) call['elapsed_us'] as int,
+        ]..sort();
+        for (final call in successes) {
+          expect(
+            call['elapsed_us'] as int,
+            greaterThanOrEqualTo((call['result'] as Map)['elapsed_us'] as int),
+          );
+        }
+        // Independent two-observation quantiles: median is the midpoint and
+        // the 95th percentile is 5% of the low plus 95% of the high observation.
+        expect(
+          cancelled.summary['latency_success_p50_ms'],
+          closeTo((observed[0] + observed[1]) / 2000, .000001),
+        );
+        expect(
+          cancelled.summary['latency_success_p95_ms'],
+          closeTo((.05 * observed[0] + .95 * observed[1]) / 1000, .000001),
+        );
+        final client = cancelled.toJson()['client_summary'] as Map;
+        expect(client['game_successes'], 2);
+        expect(client['latency_success_samples'], 2);
+        expect(client['latency_success_coverage'], 1.0);
+        expect(
+          client['latency_success_scope'],
+          'formal_game_successful_public_calls',
+        );
+        expect(
+          client['latency_time_source'],
+          'outer_elapsed_us_discovery_and_request',
+        );
+        expect(cancelled.summary['complete'], isFalse);
+        expect(
+          (cancelled.toJson()['source_summary'] as Map)['originalSummary'],
+          isNull,
+        );
+        final restored = await store.load(cancelled.id);
+        expect(
+          restored.summary['latency_success_p50_ms'],
+          cancelled.summary['latency_success_p50_ms'],
+        );
+        expect(restored.toJson()['client_summary'], client);
       } finally {
         if (!release.isCompleted) release.complete();
         runner.cancel();

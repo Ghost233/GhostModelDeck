@@ -8,10 +8,14 @@
 
 | 项目 | 当前结论 |
 | --- | --- |
-| 当前代码 | 阶段三在 `codex/playground-stage-3`，基于 `a7c1aaced3b3f679fb8d3f7886ab82c64ca3f5a4`，工作区尚未提交；游戏桌面装配正在闭环。 |
-| 完整门禁 | #68–#71 原生验收前候选已通过全仓宿主门禁：145 文件格式零改动、分析零诊断、776 项全测试及整体退出均为 0。#72 后续实现仍需对应最终阶段验收。下述 718 项只覆盖已验收的阶段二。 |
+| 当前代码 | 阶段三实现已提交为 `fa6da5fa5254c66f4e23b6a97fc293fc8baf800c`；当前分支 HEAD 为其他会话的文档提交 `93a86ffb2c528baa001146ba095eee4fe220d799`，已保留。Jevman 延迟统计 P2 的四文件修复尚未提交，48 项相关回归及新完整门禁 777 项已通过，等待提交后复审与新 Mac 构建。 |
+| 完整门禁 | 当前 P2 修复候选的 `run-W06BOL` 已通过：145 文件格式零改动、全仓分析零诊断、777 项全测试及整体退出 0。647 个输入与当前逐一一致；新 Mac 构建待执行。下述 776 项及 718 项分别覆盖旧阶段三候选与阶段二。 |
 | 真实模型 | 阶段二六份完整 400 题已通过。阶段三 11,257／10,320／11,368 请求及 Jevman 100 局真实模型验收尚待；存储 fixture 不作为模型证据。 |
 | PR | 阶段 PR #74／#75 已合入 dev；阶段三 PR 与最终 dev → main 总 PR 尚未创建。最终总 PR 仅保持 ready，由用户合并。 |
+
+当前两轴首审中，Standards 的 P0/P1/P2 均为 0。Spec 仅有一个 P2：Jevman 正式成功公开调用的端到端 P50/P95 为空。修复保留原游戏评分和平均延迟，排除预热、失败与取消。原失败 `run-yAfkSA` 保留；同例 `run-HzXjuz`、无成功及页面两项 `run-UZH5yj`、相关分析 `run-pUZnkK` 均退出 0。唯一三文件回归 `run-7SkElR` 已完成：48 项通过，测试与外层退出均为 0，输入前后一致。四文件最终格式检查 `run-EJRENm` 零改动。唯一新完整门禁 `run-W06BOL` 已通过：145 文件格式零改动、分析零诊断、777 项全测试，三个步骤与整体退出均为 0，用时 29 分 07 秒。647 个输入与当前源码逐一相同，清单摘要 `a60e2ec3e6a3c0420fd8d840f0661f544ea98ea4f428f441266777649ef1eadd`。准确记录为 ignored `stage3-check-queue-p2-final-host-summary.md` 与 `stage3-check-queue-p2-final-host-result.json`。
+
+旧候选 Mac Release 编译真实退出 0，678 个构建输入一致。另一会话在构建期间提交了三个发布文档，记录器因 HEAD 改变而退出 1；两种结果分别保留。当前生产代码修复需要新产物。其他会话提交及未跟踪的标签文件保持。阶段 PR 如何排除这三个外来文档，留到 Git 交付时处理。真实模型接管尚未开始；新门禁和构建通过后，沿用用户授权协调旧服务释放。
 
 阶段二 [PR #75](https://github.com/Ghost233/GhostModelDeck/pull/75) 已合入 dev，合并提交 `a7c1aaced3b3f679fb8d3f7886ab82c64ca3f5a4`。代码候选固定为 `072335d0cdaa44296ae44103f36b5a13171229dd`，实机开始时的文档提交为 `bc0276beeb80ab193d27fec96d859587be1ff6b2`，随后仅更新交付记录。主线程负责 Git、门禁和实机队列；`comparison_67` 负责代码修复，`native_66` 负责唯一实机验收。
 
@@ -27,7 +31,7 @@ GUI 导出包含完整六份独立结果。六份上游未修改请求构造、�
 
 证据位于 ignored `.scratch/playground-benchmarks/implementation/`：`stage2-final-repairs-host-gates.json`、两份 `stage2-*-review-v2.md`、`native67-build-current-result.json`、`native67-full-batch-author-audit/summary.json`、`native67-public-client-result.json`、`native67-manual-stop-terminal-evidence.json` 、`native67-normal-quit-evidence.json`、`native67-summary.json`、`native67-restoration-final.json` 和 `stage2-acceptance-merger.md`。独立 merger 已逐项核对 #66 九项与 #67 七项，全部满足；#66、#67 已发布验收评论并关闭。主线程先更新本地 dev，再推送远端；dev、main 及两条阶段分支的本地／实际远端完整 hash 均分别一致。#68–#73、五项完整基准及最终 dev → main 总 PR 仍待完成。
 
-阶段三基于已同步 dev `a7c1aaced3b3f679fb8d3f7886ab82c64ca3f5a4`，工作分支为 `codex/playground-stage-3`，尚未固定提交候选或创建阶段 PR。JEVal、一致性 JevBench、JevAdvBench 与 Jevman 原题子模块均已固定完整提交；HF 子模块取得真实 33,533,925 字节 Parquet，摘要匹配原 LFS 对象。Git LFS 仅在本任务目录准备固定 Mac arm64 工具，不修改全局安装；检出原失败及修复记录保留。
+阶段三基于已同步 dev `a7c1aaced3b3f679fb8d3f7886ab82c64ca3f5a4`，工作分支为 `codex/playground-stage-3`，实现候选已提交为 `fa6da5f`，尚未创建阶段 PR。JEVal、一致性 JevBench、JevAdvBench 与 Jevman 原题子模块均已固定完整提交；HF 子模块取得真实 33,533,925 字节 Parquet，摘要匹配原 LFS 对象。Git LFS 仅在本任务目录准备固定 Mac arm64 工具，不修改全局安装；检出原失败及修复记录保留。
 
 JEVal 原题模块的全量字段、原评分和有限边界 6 项回归 `run-mR1p7P` 退出 0，两模块分析 `run-qiO5A7` 零诊断。完整一致性请求、两套独立作者向量、50 关系及固定 CI、非法概率和 95% 覆盖边界 4 项回归 `run-fORtgR` 退出 0，模块与共享数值接口分析 `run-NJzml8` 零诊断。朴素求和造成的原评分差异已由独立诊断重现，并对齐当前固定 CPython 3.12.14 的求和语义；原评分期望、容差和分母未变。上游历史具体运行时未知，留空。
 

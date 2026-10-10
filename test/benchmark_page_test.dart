@@ -339,6 +339,14 @@ void main() {
       expect(runner.current!.summary['expected'], 100);
       expect(runner.current!.summary['attempted'], 1);
       expect(runner.current!.summary['complete'], isFalse);
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const Key('benchmark-game-latency-distribution')),
+            )
+            .data,
+        contains('P50 不可用 ms · P95 不可用 ms · 耗时样本 0 / 0 次成功调用 · 覆盖率 未知'),
+      );
       expect(work.activeProcessId, isNull);
       expect(fixture.council.models.isEvaluationLocked('native-kev'), isFalse);
       final persisted = (await tester.runAsync(

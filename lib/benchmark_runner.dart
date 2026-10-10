@@ -811,6 +811,8 @@ class _GameEvaluation extends _Evaluation {
   final Map<String, Object?> suite;
   final results = <Map<String, Object?>>[];
   Map<String, Object?>? _terminal;
+  final _gameSuccessLatencies = <int>[];
+  int _gameSuccesses = 0;
   int _clientTimeouts = 0,
       _serverTimeouts = 0,
       _publicCalls = 0,
@@ -863,6 +865,15 @@ class _GameEvaluation extends _Evaluation {
     final result = call['result'];
     final status = result is Map ? result['status'] : call['status'];
     if (status == JevPlaygroundStatus.success.name) _successfulCalls++;
+    if (call['phase'] == 'game' &&
+        result is Map &&
+        result['status'] == JevPlaygroundStatus.success.name) {
+      _gameSuccesses++;
+      final elapsed = call['elapsed_us'];
+      if (elapsed is int && elapsed >= 0) {
+        _gameSuccessLatencies.add(elapsed);
+      }
+    }
     if (status == JevPlaygroundStatus.timedOut.name) _clientTimeouts++;
     if (result is Map && status == JevPlaygroundStatus.businessError.name) {
       final output = result['output'];
@@ -908,6 +919,18 @@ class _GameEvaluation extends _Evaluation {
       'summary': complete ? (terminal?['summary']) : null,
       'originalSummary': complete ? (terminal?['originalSummary']) : null,
     };
+    final latency = status == BenchmarkRunStatus.running
+        ? const <int>[]
+        : (_gameSuccessLatencies.toList()..sort());
+    double? percentile(double q) {
+      if (latency.isEmpty) return null;
+      final position = (latency.length - 1) * q;
+      final low = position.floor(), high = position.ceil();
+      return (latency[low] +
+              (latency[high] - latency[low]) * (position - low)) /
+          1000;
+    }
+
     final record = BenchmarkRun.gameSnapshot(
       header: {
         'schema_version': 5,
@@ -931,6 +954,13 @@ class _GameEvaluation extends _Evaluation {
           'unknown_outcome': _unknownCalls,
           'client_timeouts': _clientTimeouts,
           'server_timeouts': _serverTimeouts,
+          'game_successes': _gameSuccesses,
+          'latency_success_samples': _gameSuccessLatencies.length,
+          'latency_success_coverage': _gameSuccesses == 0
+              ? null
+              : _gameSuccessLatencies.length / _gameSuccesses,
+          'latency_success_scope': 'formal_game_successful_public_calls',
+          'latency_time_source': 'outer_elapsed_us_discovery_and_request',
         },
         'groups': const <Map<String, Object?>>[],
         'summary': {
@@ -943,8 +973,8 @@ class _GameEvaluation extends _Evaluation {
           'client_timeouts': _clientTimeouts,
           'server_timeouts': _serverTimeouts,
           'timeouts': _clientTimeouts + _serverTimeouts,
-          'latency_success_p50_ms': null,
-          'latency_success_p95_ms': null,
+          'latency_success_p50_ms': percentile(.5),
+          'latency_success_p95_ms': percentile(.95),
           'error': failure,
         },
       },
