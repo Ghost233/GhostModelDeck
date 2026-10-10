@@ -1,12 +1,14 @@
 # Ghost Model Deck 标准发布流程
 
-仅在用户明确要求正式发布时执行 `scripts/release.sh`。编辑发布 skill、脚本或 workflow 只完成编辑与验证。版本规则的唯一来源是 [发布版本号规则](../release-versioning.md)。
+仓库 `deploy-release` skill 与 DSH Workflow 使用相同正文，统一入口是 `scripts/release.sh`。版本规则的唯一来源是 [发布版本号规则](../release-versioning.md)。
 
 ## 发布前
 
-1. 由人手动确定并修改根 `pubspec.yaml` 的版本，按规则递增；不带 `+build`。完成对应改动的本地门禁、Mac 构建和发布包预检，再提交并合入 main。
+1. 由人手动确定并修改根 `pubspec.yaml` 的版本，按规则递增；不带 `+build`。按改动范围完成相关验证与必要构建，复用输入与环境未变的成功结果，再提交并合入 main。
 2. 当前工作区切到 main，保留并妥善处理用户未提交文件。只采用 fast-forward 同步，本地 main、origin/main 与实际远端必须相同。脚本不会 stash、提交、切换分支、bump 或推送 main。
 3. GitHub 业务身份和实际 Git 凭据均为 Ghost233。脚本核验 HTTPS origin 为 Ghost233/GhostModelDeck，并为每次 Git 远端调用使用已核验的 gh credential helper；不修改其他账号的凭据。
+
+仅修改 skill 或发布文档时，验证 skill、引用和相关配置。
 
 ## 入口
 
@@ -39,9 +41,10 @@ scripts/release.sh
 gh run list -R Ghost233/GhostModelDeck --workflow release.yml --commit <发布提交>
 gh run watch <run-id> -R Ghost233/GhostModelDeck --exit-status
 gh release view vX.Y.Z -R Ghost233/GhostModelDeck
+# 按需独立复核或排障时下载完整产物
 gh release download vX.Y.Z -R Ghost233/GhostModelDeck --dir <本次验证目录>
 ```
 
-选择与发布 tag/完整提交匹配的 run。网络瞬态故障重试同一读取，不创建第二次发布。验收：对应管线成功，Release 是正式版本，tag/root pubspec/manifest/.app 版本一致，三件套名称、大小与 SHA 校验通过，本地 main/tag 与实际远端一致。下载目录内运行 `shasum -a 256 -c SHA256SUMS` 并核对 manifest 中 DMG 的大小和 sha256。
+选择与发布 tag/完整提交匹配的 run。网络瞬态故障重试同一读取，不创建第二次发布。验收：对应管线成功，Release 是正式版本，tag/root pubspec/manifest/.app 版本一致，三件套名称、大小与 SHA 校验通过，本地 main/tag 与实际远端一致。读取 manifest 和 SHA256SUMS，优先使用本次 CI 的应用、签名和校验证据，并核对 GitHub 资产 digest。需要独立复核、元数据缺失或排障时，再用上方下载命令获取完整 DMG，运行 `shasum -a 256 -c SHA256SUMS` 并检查应用。
 
 本地流程回归：`python3 -B scripts/test_release.py` 使用临时 Git 仓库与本地裸仓库，在外部 Git/gh CLI 接缝模拟身份；不访问 GitHub，不发正式版。Shell 入口需通过 `bash -n scripts/release.sh scripts/build-release.sh`。真实包预检可用 `scripts/build-release.sh --app-path <本次已构建的.app> --output-dir .tooling/release-precheck`，只产出忽略的本地文件，避免覆盖既有 dist。
