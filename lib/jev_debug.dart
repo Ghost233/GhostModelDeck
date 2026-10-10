@@ -57,6 +57,7 @@ enum JevDebugProjection {
   llmRequest,
   llmResponse,
   llmEvidence,
+  benchmarkRun,
 }
 
 /// Redacts display copies only; actual engine input remains intact.
@@ -74,6 +75,7 @@ Map<String, Object?> sealDebugJson(
     JevDebugProjection.llmRequest => _JevProjection.llmRequest,
     JevDebugProjection.llmResponse => _JevProjection.llmResponse,
     JevDebugProjection.llmEvidence => _JevProjection.llmEvidence,
+    JevDebugProjection.benchmarkRun => _JevProjection.benchmarkRun,
   };
   final redactor = _CredentialRedactor()..collect(value, context: context);
   return freezeDebugJson(redactor.redact(value, context: context))
@@ -105,6 +107,10 @@ enum _JevProjection {
   llmMessage,
   llmChoice,
   llmDelta,
+  benchmarkRun,
+  benchmarkItem,
+  benchmarkResult,
+  benchmarkIdentity,
 }
 
 class _CredentialRedactor {
@@ -146,8 +152,22 @@ class _CredentialRedactor {
           _JevProjection.debug,
           _JevProjection.llmRequest,
           _JevProjection.llmResponse,
+          _JevProjection.benchmarkRun,
+          _JevProjection.benchmarkIdentity,
         }.contains(context) &&
         key == 'model' &&
+        parent[key] is String) {
+      return true;
+    }
+    if (context == _JevProjection.benchmarkItem &&
+        const {
+          'id',
+          'pair_id',
+          'gold',
+          'prediction',
+          'category',
+          'difficulty',
+        }.contains(key) &&
         parent[key] is String) {
       return true;
     }
@@ -231,6 +251,33 @@ class _CredentialRedactor {
     String key,
     _JevProjection context,
   ) => switch (context) {
+    _JevProjection.benchmarkRun => switch (key) {
+      'items' => _JevProjection.benchmarkItem,
+      'identity' => _JevProjection.benchmarkIdentity,
+      _ => _JevProjection.none,
+    },
+    _JevProjection.benchmarkIdentity =>
+      key == 'configuration'
+          ? _JevProjection.configuration
+          : _JevProjection.none,
+    _JevProjection.benchmarkItem => switch (key) {
+      'request' || 'request_json' => _JevProjection.request,
+      'result' => _JevProjection.benchmarkResult,
+      _ => _JevProjection.none,
+    },
+    _JevProjection.benchmarkResult => switch (key) {
+      'request' || 'request_json' => _JevProjection.request,
+      'output' =>
+        parent['status'] == 'success'
+            ? _JevProjection.response
+            : _JevProjection.none,
+      'debug' => _JevProjection.debug,
+      'raw_response' =>
+        parent['status'] == 'success' && parent['output'] is Map
+            ? _JevProjection.response
+            : _JevProjection.none,
+      _ => _JevProjection.none,
+    },
     _JevProjection.llmEvidence => switch (key) {
       'input' || 'request' || 'request_body' => _JevProjection.llmRequest,
       'response' || 'raw_response' => _JevProjection.llmResponse,

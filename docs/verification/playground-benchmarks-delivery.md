@@ -2,9 +2,29 @@
 
 规格：[#62](https://github.com/Ghost233/GhostModelDeck/issues/62)。起点：`07729aec710cb5516e77ae853b152f529ab3b897`。
 
-用户已授权 dev 集成分支、阶段分支/PR；最终 dev → main 总 PR 保持 ready 待合并。当前阶段一 #63–#65，#63/#64 并行实施，#65 等待两项验收。全部五项基准和真实完整评测仍属于总验收，不降低规模。
+用户已授权 dev 集成分支、阶段分支/PR；最终 dev → main 总 PR 保持 ready 待合并。阶段一 #63–#65 已验收并通过 [阶段 PR #74](https://github.com/Ghost233/GhostModelDeck/pull/74) 合入 dev（`8da3777caf5a2eab8fffa8e230cdead28578caa4`）。当前阶段二 #66–#67。#66 重开后的超时边界与 #67 对照评测均已完成当前候选验收，待发布结项与阶段集成。全部五项基准和真实完整评测仍属于总验收，不降低规模。
 
-当前记录入口：`.scratch/playground-benchmarks/implementation/delivery-state.json`。主线程负责检查入口与公开网关；实现者分别拥有 JEV 编辑器和新增 LLM 编辑器。已有规格及领域文档保留。
+## 当前交付状态（2026-10-10，macOS arm64）
+
+阶段二 [PR #75](https://github.com/Ghost233/GhostModelDeck/pull/75) 目标 dev，仍为 draft。代码候选固定为 `072335d0cdaa44296ae44103f36b5a13171229dd`，实机开始时的文档提交为 `bc0276beeb80ab193d27fec96d859587be1ff6b2`，随后仅更新交付记录。主线程负责 Git、门禁和实机队列；`comparison_67` 负责代码修复，`native_66` 负责唯一实机验收。
+
+当前完整宿主门禁 `run-VqlJZR` 已通过：121 文件格式零改动、全仓分析零诊断、718 项测试通过。三个步骤与整体退出码均为 0，296 个输入摘要与当前源码一致。固定 Flutter 3.47.6／Dart 3.13.5、现有 lockfile、联网解析和已核验字体环境继续复用。字体与布局断言完整保留。Linux、Windows 和 Intel/x64 已移出本次范围；本次没有新建或恢复容器。
+
+单题期限误取消整批、启动窗口忽略中断和 typed 超限 POST 提前取消请求体三项问题均已修复。原失败、定点回归与完整门禁记录保留。两轴 V2 复审均为 P0/P1/P2 各 0，原启动窗口 P2 已关闭。当前 Release 构建真实退出 0，版本保持 0.1.4，86 个构建输入未变。实际 Dart App.framework 摘要为 `ea1652ef2e747b2a5076b40d85b312bebc3e62e79f5be5116d88f4326569fbed`；实际应用运行于 ARM64。
+
+用户已授权临时释放 Sentinel 使用的旧服务，正常退出安装版 0.1.3，并复制最新六项配置作为恢复基线。当前候选通过真实 GUI 启动 `run-1791589928095898`，顺序执行 native-kev、quick 和 hard 各 HTTP/MCP 共六份完整 DecideBench。每份均为原 400 题、200 对，总计 2,400 个有效返回，失败和超时均为 0。原生单模型及 quick 两种协议的 accuracy 均为 43.50%、pair accuracy 为 16.50%；hard 两种协议分别为 51.50% 和 25.50%。这是本项基准成绩，不代表其他基准或总规格完成。
+
+GUI 导出包含完整六份独立结果。六份上游未修改请求构造、解析与评分审计均退出 0；独立普通 HTTP/MCP 客户端及原始请求核对也退出 0。参与对象的配置锁、切页继续运行、执行中关闭并重开窗口已实际核验。手动停止 Kev 后，依赖它的三个对象标记不可用，独立 Laya 仍完整完成 400 题并通过上游评分核对。
+
+正常 CmdQ 将执行中的 MCP 批次封存为 interrupted（31/1,200），后续对象零执行，完整成绩为空。应用及其拥有的模型进程全部消失，五个相关端口均拒绝连接。先前完整记录字节保持不变。重启历史、导出和删除保护均已完成。GUI 删除本次取消记录 `run-1791590650888920` 曾被自动审批拒绝；用户随后明确确认这条已备份记录，同一 GUI 删除成功。其余五条历史、22 个题源和四个模型摘要未变。最新六项配置的字节和存在状态全部恢复，安装版 0.1.3／build 8 及原 Qwen、Kev 两项 Ready 服务正常运行，公开 HTTP/MCP 发现精确匹配。主线程核对实际配置、历史及进程后，已通知 Sentinel 服务恢复。
+
+证据位于 ignored `.scratch/playground-benchmarks/implementation/`：`stage2-final-repairs-host-gates.json`、两份 `stage2-*-review-v2.md`、`native67-build-current-result.json`、`native67-full-batch-author-audit/summary.json`、`native67-public-client-result.json`、`native67-manual-stop-terminal-evidence.json` 、`native67-normal-quit-evidence.json`、`native67-summary.json`、`native67-restoration-final.json` 和 `stage2-acceptance-merger.md`。独立 merger 已逐项核对 #66 九项与 #67 七项，全部满足；工单结项与阶段 PR 集成由主线程继续执行。#68–#73、五项完整基准及最终 dev → main 总 PR 仍待完成。
+
+JEVal 三族来源后续核查已完成。作者论文证实 Decider、JevBench 和 JevForge 的原项目指针；JevBench 的 200 行均唯一映射到公开原题。作者历史导入提交及其他两族逐行绑定仍未知。报告为 ignored `jeval-source-identity-followup.md`，不代表 #68 产品或模型验收。
+
+## 历史执行记录
+
+当前记录入口：`.scratch/playground-benchmarks/implementation/delivery-state.json`。阶段二主线程负责应用组装、退出、配置锁、检查与 Git；实现者分别拥有资源与原题解析、公开请求执行与记录、评测页面。以下记录按发生时间保留原始失败及阶段证据，旧的待验收描述由较新记录更新。
 
 本机 Apple container 1.5.0 与服务版本一致；已有 ghostmodeldeck-checks-r35 具备 Flutter 3.47.6 / Dart 3.13.5，首次状态与进程检查显示无在途检查。首次原生 copy 阻塞，vminitd 日志确认 readonly filesystem，取样后终止本次两个 CLI 等待进程，退出 143，未进入测试，不记为红/通过。接下来仅恢复该检查容器后重试，不修改其他容器。
 
@@ -63,3 +83,50 @@ Sentinel 有界对接资料见 [公开契约](../integration/sentinel-public-api
 最终v6原生复验（2026-10-09 09:21 UTC）：77构建输入与候选匹配，冷公开发现为空；显式三模型Ready。真实LLM及hard三type结果之后，两类export实际连续Cancel/Confirm均只关闭modal、保留page/input/result，可重新打开导出。JEV真实24题/80facts请求在客户端测试中切引擎再返回，cancelled600541us、原输入留存且output/debug/raw均null；之前剪贴板未编辑到位及隔工具回合后10s服务器504的尝试保留未计取消通过。取消后独立HTTP/MCP六次混合三type正常，最终CmdQ正常退出app62896及models65060/65886/66884（无信号）、5端口拒绝、原配置哈希恢复。首套完整test run-fXZt1i退出1/+654/-2：遗漏旧jev_model_page_test咨询已原case红后迁publicHTTP（所有原配置及标准结果断言保留），定点/完整file/analyze/format通过；oMLX原失败是并行loopback临时端口碰撞，原case隔离run-PZu7qr退出0，未改业务。最终完整门禁将concurrency1运行全套，不减测试或断言。V2两轴0openP0/P1/P2，因新增旧用例迁移及本证据文档须补受影响复审。
 
 阶段1最终门禁通过：run-mGkdYe格式exit0/106文件0改动，run-iM6vlI全analyze exit0/零诊断，run-BLuHvO全test --concurrency1 exit0/656通过，串行完整保全部测试及业务断言。三份归档内全部lib/test/lock/config与当前候选字节哈希一致，Macv6全部77输入匹配；shell入口bash-n和diffcheck0。V3两轴全base→30文件覆盖且无openP0/P1/P2，首全套失败/网络失败/原生失败均保留而非当pass。汇总证据ignored stage1-final-verification.json，当前无live作业或native测试进程，原用户配置已恢复。阶段1 #63/#64/#65已具备验收，#74尚draft待最后记录审查/提交后按授权合入dev；#62及#66–73完整基准和main总PR仍待，不以阶段1验收代替总交付。
+
+阶段二 #66 起点为 dev `8da3777caf5a2eab8fffa8e230cdead28578caa4`，工作分支 `codex/playground-stage-2`。DecideBench 以 submodule 固定原提交 `18e9c5eedd2855257ae534b5879ebba613479586`；安装版资源模块实际 HTTPS 获取并核验 22 文件／921,100 字节，保留原 400 题、200 对、297 示例、63 模板。最终资源预检 v2 退出0；公开 HTTP 全400题的外部引擎 I/O 替身测试 run-rWjji5 退出0，原请求摘要及独立原评分向量通过，二者不能替代真实模型完整评测。
+
+2026-10-09 检查环境按更新后的工程规范转为宿主机，固定 Flutter 3.47.6 (`5fc346839b5d0eef006ed8404392afb4dfae428d`)／Dart 3.13.5；在线 pub get 退出0，lockfile未改。每次定点检查记录 HEAD、执行前后源码指纹、命令、日志及真实退出码。资源实现者首次 Flutter analyze wrapper 因 SDK cache 写权限退出1，已单独保留；安全的固定 Dart 分析随后四个文件零诊断，不冒称 wrapper 通过。宿主退出测试 host-runner66-shutdown-red 真实退出1：两例均为预期 interrupted、实际 running，close 清理的晚到事件错误另记；应用图退出用例 host-manager66-red2 复现同一记录错误；host-navigation66-red 复现 JEV 缺基准菜单。这些失败正在修复，阶段二尚未提交或验收。
+
+阶段二当前行为闭环：host-shutdown66-green 退出0/4项（退出标中断、保存与释放、资源完整加载取消）；host-report66-green 退出0/1项、完整400次公开 HTTP 和200对报告/逐题原文/历史/安全导出删除。页面首个5s超时经SDK runAsync契约定位为测试假异步区创建Completer，移到真实IO同区后原期限及断言全部保留，host-ui66-zone-green退出0。准备中重挂无法取消的业务红 host-preparation66-red 退出1，资源状态转为资源owner后 host-preparation66-green退出0/3项，包含准备失败与最小桌面视口。选择同一活跃历史批次导致显示“运行中”旧快照的红 host-history66-live-red 退出1，最小跟随当前id修复后退出0。原始失败、真实退出及源码指纹均保存；这些I/O替身行为证据仍不计真实模型成绩。
+
+执行器单题503按原400分母继续、不重试，host-singlefail66-green退出0/1项（正确399/400，正确配对199/200，有效399/失败1，公开HTTP502保留引擎原503错误）。实际HTTP监听停止、内部模型元数据仍Ready的红复现后，下一题前通过普通公开发现判断对象不可调用，host-listener66-green退出0/1项。合法raw与parsed不同选择的外部记录损坏已真实红后拒绝，host-raw66-green退出0/1项；非success响应不授予typed任务字段脱敏豁免，相关原题及Store回归退出0/6项。真实写入失败仍标running且退出吞保存错误的host-storage66-red退出1，当前单一执行器owner修复中。无阶段二提交/PR或真实完整模型验收，#66及#62保持开放。
+
+JEVal前置解码技术预检与阶段二实现独立：隔离固定纯Dart包libbigdata1.0.1/libcompress1.2.1真实解码原11257行/7列，摘要精确匹配独立PyArrow oracle，主项目pubspec/lock未变。只证明Mac arm64解码路径，未提前实施#68、未重托管/翻译题目，也未冒称Intel或模型评测验收。证据见ignored jeval-decoding-preflight.md。
+
+2026-10-09 用户进一步修正本次交付：**产品、全部检查、真实验收及评测运行时均仅 macOS arm64**。Linux、Windows、Intel/x64 及其验证移出本次范围；旧容器和跨架构资料仅属历史参考，本次不新建或恢复容器。原功能、普通公开HTTP/MCP、委员会对照、五项完整原题基准、Jevman100局、无快速试跑及字体/布局/业务断言保持。统一一次准备固定SDK/lock/联网解析、已核SHA字体、实际MacSDK MaterialIcons、显式Python和规范临时目录后，固定 #66 候选集中完成门禁与真实验收，不反复冻结。
+
+修正时当前状态：#66生产代码已实现于 `codex/playground-stage-2`，基准HEAD `8da3777caf5a2eab8fffa8e230cdead28578caa4`，尚未提交。首套宿主完整测试 `host-full66-test` 真实退出1、623通过/70失败、输入前后不变；不能宣称门禁通过。规范临时目录定点证实模型扫描路径及sticky安全用例恢复通过，但原文件watch故障注入仍迟到、系统Python不支持测试所需参数，正在仅修测试环境/真实外部FS接缝，保原5s及失败/清理断言。全仓分析两项构造器写法诊断已机械修正，后续最终分析待运行。真实Mac模型400题、独立原评分、退出/历史尚未执行；阶段二尚无commit/PR。阶段一PR #74已合入dev，main保持总PR目标，最终总PR尚未创建。
+
+统一宿主环境准备已实际完成：`scripts/test-host.sh prepare`，`.tooling/host-tests/run-9gqo2h` 退出0；Darwin/arm64、Flutter3.47.6/Dart3.13.5固定摘要、Python3.12.14、已核SHA Noto CJK与实际SDK MaterialIcons、物理TMPDIR全部记录，在线pubget退出0且lock未变。后续只复用该清单，不再逐项补环境。原4失败定点 `run-O03nsG`退出1：两真实Python原案通过，两FS故障注入新fixture条件触发过早报LateInitializationError；单一owner修正此接缝，保全部断言。规格/开放工单#62、#66–73已按Ghost233更新平台范围（状态仍OPEN），#73验收清单原必需容器条款已改宿主Macarm64；预检Intel/x64移出本次待验收。
+
+当前分支同步只读核对：local dev/realremote dev均`8da3777caf5a2eab8fffa8e230cdead28578caa4`，main均`07729aec710cb5516e77ae853b152f529ab3b897`，阶段1均`bb8fefcea6102154b1395a19f5ef168f0f43ecd6`；stage2只本地未提交分支，无远端或PR，不处于behind。原他会话规范编辑已保存变更前快照，label-colors未跟踪文件保留。当前候选状态入口ignored `66-current-candidate-status.json`；完整门禁与真实400题仍待，未宣称交付完成。
+
+固定 #66 候选最终宿主集中门禁已通过：`scripts/test-host.sh check`，`.tooling/host-tests/run-Z3naYe` overall/format/analyze/test全部真实退出0；120文件格式零改动、全仓分析零诊断、完整694项测试通过。输入全量SHA与当前工作区一一匹配且作业前后不变，汇总ignored `66-final-host-gates.json`。上一套run-PRbMok的691通过/2失败全部保留：Mac安全祖先mock改为实际规范路径、保拒绝0777非sticky断言且实际注入证据，两案0与完整21案0；网关超大请求413响应先于订阅取消的真实时序缺陷修复，原案fresh/pool/403/GET0与完整Gateway/ownedHTTP39案0；JEV同类actual oversizedchunked256KiB案直接0，未无证据改其产品。
+
+已向唯一native_66执行者放行同候选Mac构建与真实完整400题流程。build实际0、86构建输入前后一致、版本0.1.4；固定Flutter默认生成universal arm64+x86_64 Mach-O，验收与实际运行仅macOSarm64，该Intel slice不形成支持或待验收要求，也不准备x64运行时。本轮没有全局SDK配置修改、thin或正式发布。真实模型400、独立评分、正常退出与重启历史仍执行中，未以构建或694项测试宣称这些已通过。阶段二没有commit/PR，#66/#62继续OPEN；Git方案和同期修改保留规则不变。
+
+
+## #66 已验收候选记录（2026-10-09，macOS arm64）
+
+本次仅适配 macOS arm64，所有检查在该宿主机执行。Linux、Windows、Intel/x64 不属于本次验收；不新建或恢复容器。规格、#62 及开放子工单 #66–#73 已更新这一范围，原生题目、固定 submodule、公开 HTTP/MCP、委员会对照、五项完整基准、Jevman 100 局及无快速试跑要求保持。
+
+#66 当前候选在 `codex/playground-stage-2`，基于 `8da3777caf5a2eab8fffa8e230cdead28578caa4`，尚待提交。所有已确认问题已关闭，主线程核对 295 个门禁输入文件摘要与当前内容完全相同；没有重复执行相同完整检查。统一环境准备通过在线依赖解析，保留原 lockfile，固定 Flutter 3.47.6 / Dart 3.13.5、实际 Mac SDK MaterialIcons、已校验 Noto CJK 字体及显式 Python 3.12.14。当前完整门禁 `.tooling/host-tests/run-Z3naYe`：格式检查 120 文件零改动、静态分析零诊断、完整测试 694 项全部通过，三个真实退出码均为 0；字体与布局断言完整保留。
+
+同一产品输入的 Mac 构建真实退出 0，版本保持 0.1.4，86 项构建输入直到验收结束未变。实际应用进程确认为 ARM64；Flutter 默认产物包含 x86_64/arm64，这是产物事实，不构成 Intel 适配或待验收要求。真实模型使用 Kev 0.8B 的已校验资产，llama.cpp b11381/836d57176，客户端 30 秒与原服务 10 秒预算均保持。
+
+真实 GUI 首次下载 22 个固定源文件（921,100 字节），与 submodule `18e9c5eedd2855257ae534b5879ebba613479586` 的原始字节逐一相符。实际应用拥有的公开 HTTP 批次 `run-1791553928995984` 完整执行 400 题、200 对：400 有效返回、0 失败、0 超时；accuracy 43.50%（174/400）、pair accuracy 16.50%（33/200），Brier 0.6850367414、ECE 0.0869743106，成功调用延迟 p50 106.193 ms、p95 151.05555 ms。独立审计使用未修改的上游请求构造、解析和评分函数，对账全部 400 个原请求与实际原始响应，原成绩一致，真实退出 0。资产来源/量化元信息缺失仍如实记录 null，不由文件名补造。
+
+真实切页后任务继续；执行至 302 题时关闭窗口，后台完成 400 题。按钮取消记录 30 题且无完整成绩；正常 CmdQ 在 38 题时保存 interrupted。重启历史查看/导出成功，不自动续跑；删除仅移除所选取消记录，题源、模型及其他记录摘要不变。最终正常退出后所有本次拥有的应用/模型进程消失，54841/54842/60797 均拒绝连接，六项原用户配置恢复；用户模型与其他会话文件保留。任务创建的缓存及完整/中断历史保留在应用支持目录供复核，任务配置另留可恢复备份。当前没有可持续 Ready 对象或稳定公开服务。
+
+证据入口：`.scratch/playground-benchmarks/implementation/native66-summary.json`、`native66-full400-author-audit.json`、`native66-restoration.json`、`66-root-evidence-audit.json`、`66-final-host-gates.json`。原环境和执行器失败日志保留；包括首次沙箱构建拒绝及 CUA 首次选择应用耗时 2157 秒，均不算模型失败或成功检查。
+
+Git 状态：阶段一 PR [#74](https://github.com/Ghost233/GhostModelDeck/pull/74) 已合入 dev；#66 尚待候选提交/工单验收，#67 未完成，阶段二 PR 和最终总 PR 尚未创建。最近已核对 dev 本地/实际远端均 `8da3777caf5a2eab8fffa8e230cdead28578caa4`，main 均 `07729aec710cb5516e77ae853b152f529ab3b897`。下一步是 #66 纳入阶段候选→#67→阶段二审查/复盘/集成；总规格仍开放，最终 dev→main 总 PR 将保持 ready 待用户合并。
+
+
+当前 Git/工单推进：#66 九项已由 root 与独立 merger 验收，代码提交 `ad4ec18609b3851e328fa4eb2b9380d7157b2374` 已推送且本地/远端一致，[#66](https://github.com/Ghost233/GhostModelDeck/issues/66) 已关闭。阶段二 [PR #75](https://github.com/Ghost233/GhostModelDeck/pull/75) 已创建并附到本聊天，目标 dev、保持 draft。#67 已领取，尚未实施；阶段二整体审查/复盘尚待，dev 仍为阶段一合并结果。最终 dev→main 总 PR 尚未创建，最终仅 ready 待用户合并。主线程保留其他会话 `docs/agents/label-colors.json` 未跟踪文件；没有 stash、reset、覆盖或新增 worktree。
+
+
+当前代码候选 072335d：全部已确认修复已通过718项完整宿主门禁；两轴复审分别为Standards P0/P1/P2均0、Spec P0/P1/P2均0，原启动窗口P2已关闭，覆盖固定base8da至当前完整diff。当前Release构建真实退出0、版本0.1.4，86构建输入与HEAD前后一致。实际Dart App.framework摘要为`ea1652ef2e747b2a5076b40d85b312bebc3e62e79f5be5116d88f4326569fbed`。记录为ignored stage2-standards-review-v2.md、stage2-spec-review-v2.md、native67-build-current-result.json。
+
+本阶段剩余为真实3对象×HTTP/MCP六份完整400题、独立原评分和正常客户端核对、原生退出／历史验收。实际54841/54842及0.1.3两个Ready模型仍由Sentinel会话保留；新候选已准备，但没有实机GO。需要落实临时正常退出旧服务、保留最新六配置、验收后恢复原服务的使用安排，获准前只读观察。阶段PR75仍draft，#66/#67和总规格不以代码门禁或旧真实400题代替最终验收。

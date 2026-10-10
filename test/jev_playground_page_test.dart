@@ -12,6 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/jev_playground_page.dart';
 
 import 'fixtures/playground_runtime.dart';
+import 'fixtures/test_environment.dart';
 
 void main() {
   setUp(() {
@@ -576,10 +577,7 @@ void main() {
 
   const fontFamily = 'Playground Noto CJK';
   setUpAll(() async {
-    final file = File(
-      Platform.environment['JEV_LAYOUT_FONT'] ??
-          '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
-    );
+    final file = layoutFontFile;
     final loader = FontLoader(fontFamily)
       ..addFont(Future.value(ByteData.sublistView(await file.readAsBytes())));
     await loader.load();

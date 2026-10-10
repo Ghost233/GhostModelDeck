@@ -28,7 +28,9 @@ import 'package:ghost_model_deck/model_run_dialog.dart';
 import 'package:ghost_model_deck/model_search_page.dart';
 import 'package:ghost_model_deck/settings_page.dart';
 
+import 'fixtures/actual_app_environment.dart';
 import 'fixtures/council_runtime.dart';
+import 'fixtures/test_environment.dart';
 
 const _captureDirectory = String.fromEnvironment('JEV_LAYOUT_SCREENSHOTS');
 const _window = Size(900, 560);
@@ -41,27 +43,24 @@ void main() {
   var fontLoaded = false;
   setUpAll(() async {
     // Screenshots need readable CJK glyphs instead of flutter_test's Ahem.
-    final font = File(
-      Platform.environment['JEV_LAYOUT_FONT'] ??
-          '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+    final font = layoutFontFile;
+    expect(await font.exists(), isTrue, reason: 'Noto CJK font is required');
+    final bytes = ByteData.sublistView(await font.readAsBytes());
+    final cjkLoader = FontLoader('Layout Noto CJK')
+      ..addFont(Future.value(bytes));
+    await cjkLoader.load();
+    fontLoaded = true;
+    final materialIcons = materialIconsFontFile;
+    expect(
+      await materialIcons.exists(),
+      isTrue,
+      reason: 'SDK MaterialIcons font is required',
     );
-    if (await font.exists()) {
-      final bytes = ByteData.sublistView(await font.readAsBytes());
-      final loader = FontLoader('Layout Noto CJK')
-        ..addFont(Future.value(bytes));
-      await loader.load();
-      fontLoaded = true;
-    }
-    final materialIcons = File(
-      '/opt/flutter/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
-    );
-    if (await materialIcons.exists()) {
-      final loader = FontLoader('MaterialIcons')
-        ..addFont(
-          Future.value(ByteData.sublistView(await materialIcons.readAsBytes())),
-        );
-      await loader.load();
-    }
+    final iconsLoader = FontLoader('MaterialIcons')
+      ..addFont(
+        Future.value(ByteData.sublistView(await materialIcons.readAsBytes())),
+      );
+    await iconsLoader.load();
     if (_captureDirectory.isNotEmpty) {
       expect(
         fontLoaded,
@@ -75,6 +74,8 @@ void main() {
     testWidgets(
       'production shell preserves minimum desktop layout (${brightness.name}-1.5x)',
       (tester) async {
+        final environment = await tester.runAsync(ActualAppEnvironment.create);
+        addTearDown(environment!.close);
         tester.view.physicalSize = _window;
         tester.view.devicePixelRatio = 1;
         tester.platformDispatcher.textScaleFactorTestValue = 1.5;

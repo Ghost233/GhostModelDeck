@@ -92,7 +92,11 @@ class _CouncilPageState extends State<CouncilPage> {
                               '${model.definition.name} · ${model.definition.source == JevModelSource.council ? '委员会' : '原生 JEV'}',
                             ),
                             subtitle: Text(
-                              model.available
+                              widget.controller.models.isEvaluationLocked(
+                                    model.definition.name,
+                                  )
+                                  ? '评测中 · 配置与调用名已锁定'
+                                  : model.available
                                   ? model.reason == null
                                         ? '可调用 · ${model.definition.bindings.length} 个绑定'
                                         : '可调用 · 部分绑定未就绪 · ${model.reason}'
@@ -106,7 +110,13 @@ class _CouncilPageState extends State<CouncilPage> {
                                     'edit-model-${model.definition.name}',
                                   ),
                                   tooltip: '编辑模型配置',
-                                  onPressed: () => _editModel(model.definition),
+                                  onPressed:
+                                      widget.controller.models
+                                          .isEvaluationLocked(
+                                            model.definition.name,
+                                          )
+                                      ? null
+                                      : () => _editModel(model.definition),
                                   icon: const Icon(
                                     Icons.edit_outlined,
                                     size: 18,
@@ -117,8 +127,14 @@ class _CouncilPageState extends State<CouncilPage> {
                                     'delete-model-${model.definition.name}',
                                   ),
                                   tooltip: '删除模型配置',
-                                  onPressed: () =>
-                                      _deleteModel(model.definition.name),
+                                  onPressed:
+                                      widget.controller.models
+                                          .isEvaluationLocked(
+                                            model.definition.name,
+                                          )
+                                      ? null
+                                      : () =>
+                                            _deleteModel(model.definition.name),
                                   icon: const Icon(
                                     Icons.delete_outline,
                                     size: 18,

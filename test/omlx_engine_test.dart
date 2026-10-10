@@ -297,7 +297,9 @@ class _BlockingBundleIO extends _ValidBundleIO {
 }
 
 class _StickyAncestorIO extends _ValidBundleIO {
-  _StickyAncestorIO(super.bundle);
+  _StickyAncestorIO(super.bundle, this.ancestor);
+  final String ancestor;
+  int ancestorStats = 0;
   @override
   Future<ProcessResult> run(
     String executable,
@@ -308,7 +310,8 @@ class _StickyAncestorIO extends _ValidBundleIO {
     String? input,
   }) async {
     // `stat -f %Mp%Lp` keeps the sticky digit: /private/tmp prints 1777.
-    if (executable == '/usr/bin/stat' && arguments.last == '/tmp') {
+    if (executable == '/usr/bin/stat' && arguments.last == ancestor) {
+      ancestorStats++;
       return ProcessResult(1, 0, '0:0:1777:Directory\n', '');
     }
     return super.run(
@@ -323,7 +326,9 @@ class _StickyAncestorIO extends _ValidBundleIO {
 }
 
 class _WorldWritableAncestorIO extends _ValidBundleIO {
-  _WorldWritableAncestorIO(super.bundle);
+  _WorldWritableAncestorIO(super.bundle, this.ancestor);
+  final String ancestor;
+  int ancestorStats = 0;
   @override
   Future<ProcessResult> run(
     String executable,
@@ -334,7 +339,8 @@ class _WorldWritableAncestorIO extends _ValidBundleIO {
     String? input,
   }) async {
     // A root-owned 0777 directory without the sticky bit is untrusted.
-    if (executable == '/usr/bin/stat' && arguments.last == '/tmp') {
+    if (executable == '/usr/bin/stat' && arguments.last == ancestor) {
+      ancestorStats++;
       return ProcessResult(1, 0, '0:0:0777:Directory\n', '');
     }
     return super.run(
@@ -475,7 +481,10 @@ void main() {
       final root = await Directory.systemTemp.createTemp('gmd-omlx-sticky-');
       addTearDown(() => root.delete(recursive: true));
       final app = await _bundle(root);
-      final io = _StickyAncestorIO(app);
+      final io = _StickyAncestorIO(
+        app,
+        await root.parent.resolveSymbolicLinks(),
+      );
       final engine = OmlxEngine(
         installationDirectory: Directory('${root.path}/owned'),
         io: io,
@@ -483,6 +492,7 @@ void main() {
       addTearDown(engine.close);
       final receipt = await engine.inspectLinked(app);
       expect(receipt.releaseLabel, '0.7.0');
+      expect(io.ancestorStats, greaterThan(0));
       expect(io.pythonLaunches, 3);
     },
   );
@@ -495,7 +505,10 @@ void main() {
       );
       addTearDown(() => root.delete(recursive: true));
       final app = await _bundle(root);
-      final io = _WorldWritableAncestorIO(app);
+      final io = _WorldWritableAncestorIO(
+        app,
+        await root.parent.resolveSymbolicLinks(),
+      );
       final engine = OmlxEngine(
         installationDirectory: Directory('${root.path}/owned'),
         io: io,
@@ -506,6 +519,7 @@ void main() {
         throwsA(isA<OmlxException>()),
       );
       expect(io.pythonLaunches, 0);
+      expect(io.ancestorStats, greaterThan(0));
       expect(engine.state.receipt, isNull);
     },
   );

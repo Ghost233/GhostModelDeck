@@ -6,9 +6,14 @@ import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import 'app_theme.dart';
+import 'benchmark_page.dart';
+import 'benchmark_resources.dart';
+import 'benchmark_run_store.dart';
+import 'benchmark_runner.dart';
 import 'council.dart';
 import 'council_page.dart';
 import 'jev_playground_page.dart';
+import 'jev_playground.dart';
 import 'llm_playground_page.dart';
 import 'council_mcp.dart';
 import 'download_panel.dart';
@@ -73,6 +78,8 @@ class _ManagerShellState extends State<_ManagerShell>
   late final CouncilMcpServer _mcp;
   late final PublicModelRoutes _publicRoutes;
   late final PublicGatewayServer _publicGateway;
+  late final BenchmarkResources _benchmarkResources;
+  late final BenchmarkRunner _benchmarks;
   final _startupSet = StartupModelSet.user();
   late final LauncherInferenceService _launcherService;
   late final ManagerLifecycle _lifecycle;
@@ -83,6 +90,7 @@ class _ManagerShellState extends State<_ManagerShell>
   int _page = 0;
   int _enginePage = 0;
   int _playgroundPage = 8;
+  int _jevPage = 7;
   late final TabController _workspaceTabs;
   late final TabController _capabilityTabs;
   final _openedPages = <int>{0};
@@ -141,6 +149,16 @@ class _ManagerShellState extends State<_ManagerShell>
       routes: _publicRoutes,
       jevModels: _council.models,
     );
+    _benchmarkResources = BenchmarkResources(
+      Directory('${_settings.file.parent.path}/benchmark-cache'),
+    );
+    _benchmarks = BenchmarkRunner(
+      client: JevPlayground(gateway: _publicGateway, mcp: _mcp),
+      store: BenchmarkRunStore(
+        directory: Directory('${_settings.file.parent.path}/benchmark-runs'),
+      ),
+      models: _council.models,
+    );
     // #28 版本状况桥：与设置页共用 UpdateChecker 查询；当前版本读取包信息
     // 缓存值，未就绪时桥如实按查询失败回报。
     _versionStatusBridge = VersionStatusBridge(
@@ -168,6 +186,8 @@ class _ManagerShellState extends State<_ManagerShell>
       downloader: _downloader,
       gateway: _publicGateway,
       launcher: _launcherService,
+      benchmarks: _benchmarks,
+      benchmarkResources: _benchmarkResources,
     );
     _native.setMethodCallHandler((call) async {
       if (call.method != 'prepareToQuit') throw MissingPluginException();
@@ -257,6 +277,7 @@ class _ManagerShellState extends State<_ManagerShell>
     } else if (page >= 7) {
       _playgroundPage = page;
       _capabilityTabs.index = page == 8 ? 0 : 1;
+      if (page != 8) _jevPage = page;
     }
   });
 
@@ -266,7 +287,7 @@ class _ManagerShellState extends State<_ManagerShell>
   });
 
   void _selectCapability(int index) => setState(() {
-    _playgroundPage = index == 0 ? 8 : 7;
+    _playgroundPage = index == 0 ? 8 : _jevPage;
     _page = _playgroundPage;
     _openedPages.add(_page);
   });
@@ -279,6 +300,8 @@ class _ManagerShellState extends State<_ManagerShell>
     // 只关闭 SDK 通信，不回收业务；明确退出的完整收尾走 ManagerLifecycle。
     unawaited(_launcherService.dispose().catchError((Object _) {}));
     _browser.close();
+    unawaited(_benchmarks.close().catchError((Object _) {}));
+    unawaited(_benchmarkResources.close().catchError((Object _) {}));
     // Explicit native shutdown awaits the original failure via ManagerLifecycle.
     unawaited(_downloader.close().catchError((Object _) {}));
     _mcp.close();
@@ -445,8 +468,14 @@ class _ManagerShellState extends State<_ManagerShell>
                                 _navigation(
                                   '基础测试',
                                   Icons.science_outlined,
-                                  _playgroundPage,
+                                  _capabilityTabs.index == 0 ? 8 : 7,
                                 ),
+                                if (_capabilityTabs.index == 1)
+                                  _navigation(
+                                    '基准评测',
+                                    Icons.assessment_outlined,
+                                    9,
+                                  ),
                               ],
                             ],
                           ),
@@ -531,6 +560,13 @@ class _ManagerShellState extends State<_ManagerShell>
                             LlmPlaygroundPage(
                               gateway: _publicGateway,
                               active: _workspaceTabs.index == 1 && _page == 8,
+                            )
+                          else
+                            const SizedBox.shrink(),
+                          if (_openedPages.contains(9))
+                            BenchmarkPage(
+                              resources: _benchmarkResources,
+                              runner: _benchmarks,
                             )
                           else
                             const SizedBox.shrink(),
