@@ -8,7 +8,7 @@
 
 **2026-10-12 接入规则修正**：用户在支线明确移除 Qwen 专用读出和模型／commit 白名单。源码引擎按用户选择的 Git 地址与 ref、接口支持声明接入，GMD 直接调用原生 `/v1/systemone`；实际不支持时保留失败。该策略已在 PR #79 中通过接口验收和阶段集成，继续按 [原生 JEV 接入规则](native-systemone-source-policy.md) 继续功能验收，不继续旧的专用 candidate-logits 路径。后续 #73 修改由新候选检查覆盖。
 
-本节是唯一执行清单。下方历史过程、原派发计划及旧状态文件仅作为证据，不再产生待办。负责人是主线程，不启动子代理。当前分支 `dev`。最后阶段候选 `da496ae869fee00b1575cdd6f60d057094e2dd9a` 经 PR #80 集成为 `e6bd02669e3f3bd2723ea0a2ad9caccee2daad4d`；总 PR #81 的合并提交为 `549956affb1a8c9be4bac91d05c777ca2e8c3189`。本地和远端 main／dev 已同步；合并后状态更新仅修改交付文档。用户已确定正式发布 0.1.5，并授权原样提交 `docs/agents/label-colors.json`；发布状态见 [0.1.5 发布记录](release-0.1.5.md)。
+本节是唯一执行清单。下方历史过程、原派发计划及旧状态文件仅作为证据，不再产生待办。负责人是主线程，不启动子代理。当前分支 `dev`。最后阶段候选 `da496ae869fee00b1575cdd6f60d057094e2dd9a` 经 PR #80 集成为 `e6bd02669e3f3bd2723ea0a2ad9caccee2daad4d`；总 PR #81 的合并提交为 `549956affb1a8c9be4bac91d05c777ca2e8c3189`。本地和远端 main／dev 已同步；合并后状态更新仅修改交付文档。0.1.5 已按用户确定的版本正式发布；`docs/agents/label-colors.json` 原样提交保留，工作树干净。正式资产与同步核对见 [0.1.5 发布记录](release-0.1.5.md)。
 
 Qwen、StartLux 是模型；执行引擎是 llama.cpp。选择引擎、保存参数、启动模型属于使用配置，不单列产品交付条件。新增概率能力按 GMD 的发现、选择、公开路由及协议转换功能验收，不扩展为模型成绩评测。通用委员会 #67 已完成、PR #75 已合入 dev；特定 StartLux＋Qwen 组合不作为交付前置。
 
@@ -41,6 +41,8 @@ Qwen、StartLux 是模型；执行引擎是 llama.cpp。选择引擎、保存参
 #73 当前验收已完成，没有在途检查、构建或评测作业。新完整计划只用于主动取消验收：run-1791744953230423，1131／33445，全部 501 失败保留，整批未完成，不作为质量成绩。旧／新 25 份配置和记录均保留；最终 App 冷启动公开列表为空，不自动续跑。
 
 最终审查与必要检查完成，[总 PR #81](https://github.com/Ghost233/GhostModelDeck/pull/81) 已按用户授权合入 main。main 与 dev 本地及远端指向同一提交；其他会话的 label-colors 文件保留，没有备份或 stash。主线程推进、不启动子代理；长作业 sleep 300 后收取，短检查直接收取；不重复运行已通过的真实评测集。
+
+正式 [v0.1.5 Release](https://github.com/Ghost233/GhostModelDeck/releases/tag/v0.1.5) 已发布并通过三件套及包内 arm64 核验，详情见 [发布记录](release-0.1.5.md)。
 
 ## 历史验证过程
 

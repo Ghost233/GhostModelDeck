@@ -14,6 +14,12 @@
 
 ## 正式发布状态
 
-当前完成本地准备。发布内容提交并同步 main 后，唯一发布入口为 `scripts/release.sh --dry-run` 和 `scripts/release.sh`。正式完成仍须确认对应 release.yml 成功，远端 Release／tag／pubspec／应用版本一致，以及三件套的大小和摘要；tag 推送成功不单独算发布完成。
+正式发布已完成。[v0.1.5 Release](https://github.com/Ghost233/GhostModelDeck/releases/tag/v0.1.5) 为正式版本，非草稿、非预发布。[release.yml 第 10 次运行](https://github.com/Ghost233/GhostModelDeck/actions/runs/38168698349) 成功，真实 watch 退出 0。唯一发布入口创建并推送的 tag 为 `v0.1.5`，发布提交为 `1907bb6d0ba94f550a2f0f646f8f4ea795b773ed`。
 
-完整本地构建、原日志和后续管线／资产核验记录位于 ignored `.scratch/playground-benchmarks/implementation/release-0.1.5-*`。
+正式三件套已下载并校验：`GhostModelDeck-0.1.5.dmg`、`manifest.json`、`SHA256SUMS`。DMG 为 23,012,149 字节，SHA-256 为 `a9a398483da3702a238307f19721ee74c787d8a84bfd90ecfb0b4c38de883af5`。manifest／tag／根 pubspec／包内应用版本均为 0.1.5；包内构建号为 10，与 CI 运行号一致。
+
+正式 DMG 已只读挂载核对。bundle id 正确，主程序、App.framework 和 FlutterMacOS.framework 实际均仅 arm64。校验和检查与镜像卸载均退出 0，没有安装或执行下载包。
+
+发布后的本地 main／dev 与实际远端同步，附注 tag 的对象及完整提交同实际远端。状态文档提交不改变 tag，也不重建或覆盖正式资产。标签颜色配置原字节已提交保留，工作树干净。
+
+完整构建、发布入口日志、管线退出及资产核验收据位于 ignored `.scratch/playground-benchmarks/implementation/release-0.1.5-*`，下载的正式三件套位于 `.scratch/releases/v0.1.5/`。原检查命令失败仍保留，不混入成功结论。
