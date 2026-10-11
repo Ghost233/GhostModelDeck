@@ -16,6 +16,7 @@ import 'package:ghost_model_deck/model_use_registry.dart';
 
 import 'fixtures/decision_gguf.dart';
 import 'fixtures/engine_archive.dart';
+import 'fixtures/test_environment.dart';
 
 void main() {
   test('Splash unit hints remain soft and saved malformed text fails before ProcessIO', () async {
@@ -77,7 +78,7 @@ void main() {
     expect(saved.argumentText, brokenText);
     Future<void> launch() async {
       final command = saved.command(
-        executable: '/usr/bin/python3',
+        executable: testPythonExecutable,
         modelPath: '/assembly',
         alias: 'bound',
         port: 8123,
@@ -131,7 +132,7 @@ print(json.dumps(vars(p.parse_args())))
     ]) {
       final command =
           EngineLaunchConfiguration(family: family, argumentText: text).command(
-            executable: '/usr/bin/python3',
+            executable: testPythonExecutable,
             modelPath: '/unused',
             alias: 'gmd-bound',
             port: 8123,
@@ -180,7 +181,7 @@ print(json.dumps(vars(p.parse_args())))
   --new-label VALUE  newly observed value option
 ''';
     final EngineProcessIO io = NativeEngineProcessIO();
-    final observed = await io.run('/usr/bin/python3', [
+    final observed = await io.run(testPythonExecutable, [
       '-P',
       '-c',
       'import sys; sys.stdout.write(${jsonEncode(help)})',
@@ -190,7 +191,7 @@ print(json.dumps(vars(p.parse_args())))
       observed.stdout,
       family: EngineFamily.splash,
       version: 'process-boundary fixture',
-      executablePath: '/usr/bin/python3',
+      executablePath: testPythonExecutable,
       contentFingerprint: 'process-boundary fixture',
     );
     expect(rules.status, EngineHelpStatus.available);
@@ -215,7 +216,7 @@ print(json.dumps(vars(p.parse_args())))
       '--binary': '/local native/splash',
     };
     final command = configuration.command(
-      executable: '/usr/bin/python3',
+      executable: testPythonExecutable,
       modelPath: '/legacy modelPath is not Splash API identity',
       alias: 'gmd-bound',
       port: 8123,

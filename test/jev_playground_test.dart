@@ -1,78 +1,177 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ghost_model_deck/council.dart';
 import 'package:ghost_model_deck/council_mcp.dart';
 import 'package:ghost_model_deck/jev_playground.dart';
 import 'package:ghost_model_deck/public_gateway.dart';
 
-import 'fixtures/council_runtime.dart';
 import 'fixtures/playground_runtime.dart';
 
 import 'package:ghost_model_deck/jev_models.dart';
 
 void main() {
-  test('native playground uses the selected managed instance and actual raw result', () async {
-    final runtime = await CouncilRuntime.create();
-    addTearDown(runtime.close);
-    final council = CouncilController(catalog: runtime.catalog);
-    addTearDown(council.close);
-    final routes = PublicModelRoutes(
-      library: runtime.library,
-      runtimes: [runtime.engine],
-    );
-    addTearDown(routes.close);
-    final gateway = PublicGatewayServer(
-      routes: routes,
-      jevModels: council.models,
-      port: 0,
-    );
-    addTearDown(gateway.close);
-    final mcp = CouncilMcpServer(controller: council, port: 0);
-    addTearDown(mcp.close);
-    final playground = JevPlayground(
-      controller: council,
-      gateway: gateway,
-      mcp: mcp,
-    );
-    final source = playground.nativeSources.singleWhere(
-      (s) => s.model == runtime.engine.state.instances.first.id,
-    );
-    final document = jsonEncode({
-      'model': source.model,
-      'state': {
-        'nested': ['文字', 7, true, null],
-      },
-      'images': [],
-      'questions': {
-        'valid': {
-          'type': 'noul',
-          'instructions': [
-            'Valid',
-            {'why': 'same'},
-          ],
+  test(
+    'JEV export preserves primary write failure when cleanup also fails',
+    () async {
+      final fixture = await PlaygroundRuntime.create();
+      addTearDown(fixture.close);
+      final destination = _FailingExportFile();
+      await expectLater(
+        fixture.playground.exportTo(
+          destination,
+          document: jsonEncode(playgroundDocument('quick')),
+        ),
+        throwsA(
+          isA<FileSystemException>()
+              .having(
+                (error) => error.message,
+                'primary write cause',
+                contains('primary write failed'),
+              )
+              .having(
+                (error) => error.message,
+                'secondary cleanup cause',
+                contains('secondary cleanup failed'),
+              ),
+        ),
+      );
+      expect(destination.exclusiveCreated, isTrue);
+      expect(destination.writeAttempted, isTrue);
+      expect(destination.cleanupAttempted, isTrue);
+    },
+  );
+
+  for (final mode in JevPlaygroundMode.values) {
+    for (final invalidJson in [true, false]) {
+      test(
+        '$mode invalid external engine ${invalidJson ? 'JSON' : 'typed answer'} remains an explicit response failure with raw evidence',
+        () async {
+          final fixture = await PlaygroundRuntime.create();
+          addTearDown(fixture.close);
+          var engineRaw = '';
+          fixture.runtime.io.respond = (body, raw) async {
+            if (invalidJson) {
+              engineRaw = '{not-json: external-engine-evidence';
+            } else {
+              final response = jsonDecode(raw) as Map;
+              response['answers']['route']['probabilities'] = {
+                'a': 0.9,
+                'b': 0.9,
+              };
+              engineRaw = jsonEncode(response);
+            }
+            return engineRaw;
+          };
+          final document = playgroundDocument('native-kev', debug: true);
+          final result = await fixture.playground.run(
+            mode,
+            jsonEncode(document),
+          );
+          expect(result.status.name, 'invalidResponse');
+          expect(result.message, contains('响应'));
+          expect(result.message, isNot(contains('JSON 格式错误')));
+          expect(
+            result.output!['error'],
+            containsPair('code', 'invalid_response'),
+          );
+          expect(result.output!.containsKey('answers'), false);
+          expect(
+            result.httpStatus,
+            mode == JevPlaygroundMode.http ? 502 : isNull,
+          );
+          expect(result.rawResponse, isNotNull);
+          final publicRaw = jsonDecode(result.rawResponse!) as Map;
+          expect(publicRaw['error'], result.output!['error']);
+          expect(
+            (publicRaw['debug']['native'] as Map)['raw_response'],
+            engineRaw,
+          );
+          expect((result.debug!['native'] as Map)['raw_response'], engineRaw);
+          expect(result.request, document);
+          final invalidInput = await fixture.playground.run(mode, '{bad-input');
+          expect(invalidInput.status, JevPlaygroundStatus.businessError);
+          expect(invalidInput.message, contains('JSON 格式错误'));
+          expect(invalidInput.rawResponse, isNull);
         },
-      },
+      );
+    }
+  }
+  test(
+    'public raw response and export match an independent ordinary HTTP client',
+    () async {
+      final fixture = await PlaygroundRuntime.create();
+      addTearDown(fixture.close);
+      final document = jsonEncode(credentialNamedJevDocument('native-kev'));
+      final client = HttpClient();
+      addTearDown(() => client.close(force: true));
+      final request = await client.postUrl(
+        fixture.gateway.baseUrl!.resolve('/v1/systemone'),
+      );
+      request.headers.contentType = ContentType.json;
+      request.write(document);
+      final response = await request.close();
+      final independentRaw = await utf8.decoder.bind(response).join();
+      expect(response.statusCode, 200);
+      final result = await fixture.playground.run(
+        JevPlaygroundMode.http,
+        document,
+      );
+      expect(result.status, JevPlaygroundStatus.success);
+      expect(result.rawResponse, independentRaw);
+      expect(result.request, jsonDecode(document));
+      expect(result.httpStatus, 200);
+      expect(result.mode, JevPlaygroundMode.http);
+      expect(result.timeout, const Duration(seconds: 30));
+      expect(result.elapsed, greaterThan(Duration.zero));
+      expect(result.output, jsonDecode(independentRaw));
+      final file = File('${fixture.runtime.root.path}/export.json');
+      await fixture.playground.exportTo(
+        file,
+        document: jsonEncode({
+          ...jsonDecode(document) as Map,
+          'state': 'edited after run',
+        }),
+        result: result,
+      );
+      final saved = jsonDecode(await file.readAsString()) as Map;
+      expect(saved['request'], jsonDecode(document));
+      expect(saved['result']['raw_response'], independentRaw);
+      expect(saved['result']['output'], result.output);
+      expect(saved['result']['channel'], 'http');
+      await expectLater(
+        fixture.playground.exportTo(file, document: document, result: result),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(jsonDecode(await file.readAsString()), saved);
+    },
+  );
+  test('client deadline ends a real public HTTP request distinctly from cancellation', () async {
+    final fixture = await PlaygroundRuntime.create();
+    addTearDown(fixture.close);
+    final arrived = Completer<void>();
+    final held = Completer<void>();
+    addTearDown(() {
+      if (!held.isCompleted) held.complete();
     });
-    final result = await playground.run(
-      JevPlaygroundMode.native,
-      document,
-      nativeSource: source,
+    fixture.runtime.io.respond = (body, raw) async {
+      if (!arrived.isCompleted) arrived.complete();
+      await held.future;
+      return raw;
+    };
+    final pending = fixture.playground.run(
+      JevPlaygroundMode.http,
+      jsonEncode(playgroundDocument('quick')),
+      timeout: const Duration(milliseconds: 100),
     );
-    expect(result.status, JevPlaygroundStatus.success);
-    expect(result.output!['model'], source.model);
-    expect(result.output!['answers'], {
-      'valid': {'type': 'noul', 'noul': 0.8},
-    });
-    expect(result.output!['usage'], {'input_tokens': 10, 'output_tokens': 0});
-    expect(runtime.io.requests.single, jsonDecode(document));
-    expect(runtime.io.killedChildren, 0);
-    expect(
-      runtime.engine.state.instances.every((i) => i.activeRequests == 0),
-      true,
-    );
+    await arrived.future;
+    final result = await pending.timeout(const Duration(seconds: 2));
+    expect(result.status, JevPlaygroundStatus.timedOut);
+    expect(result.output, isNull);
+    expect(result.debug, isNull);
   });
+
   test('real HTTP and SDK MCP playground calls route named mixed requests and discovery', () async {
     final fixture = await PlaygroundRuntime.create();
     addTearDown(fixture.close);
@@ -153,8 +252,8 @@ void main() {
       () async {
         final fixture = await PlaygroundRuntime.create();
         addTearDown(fixture.close);
-        final source = fixture.playground.nativeSources.first;
-        final name = mode == JevPlaygroundMode.native ? source.model : 'hard';
+
+        final name = 'hard';
         final arrived = Completer<void>();
         final held = Completer<void>();
         final unrelatedArrived = Completer<void>();
@@ -177,14 +276,13 @@ void main() {
         final first = await fixture.playground.run(
           mode,
           jsonEncode(playgroundDocument(name)),
-          nativeSource: source,
         );
         expect(first.status, JevPlaygroundStatus.success);
         final token = DecisionCancellation();
         final pending = fixture.playground.run(
           mode,
           jsonEncode(playgroundDocument(name, debug: true, state: 'cancelled')),
-          nativeSource: source,
+
           cancellation: token,
         );
         await arrived.future.timeout(const Duration(seconds: 5));
@@ -193,13 +291,8 @@ void main() {
             .run(
               mode,
               jsonEncode(
-                playgroundDocument(
-                  mode == JevPlaygroundMode.native ? name : 'quick',
-                  debug: true,
-                  state: 'unrelated',
-                ),
+                playgroundDocument('quick', debug: true, state: 'unrelated'),
               ),
-              nativeSource: source,
             )
             .then((result) {
               unrelatedFinished = true;
@@ -210,15 +303,11 @@ void main() {
         token.cancel();
         final cancelled = await pending.timeout(const Duration(seconds: 5));
         expect(cancelled.status, JevPlaygroundStatus.cancelled);
-        if (mode == JevPlaygroundMode.native) {
-          expect(cancelled.output!['error'], containsPair('code', 'cancelled'));
-          expect(cancelled.debug!['input'], containsPair('state', 'cancelled'));
-          expect((cancelled.debug!['native'] as Map)['raw_response'], isNull);
-        } else {
-          expect(cancelled.output, isNull);
-          expect(cancelled.debug, isNull);
-          expect(cancelled.message, contains('未收到业务结果'));
-        }
+
+        expect(cancelled.output, isNull);
+        expect(cancelled.debug, isNull);
+        expect(cancelled.message, contains('未收到业务结果'));
+
         final until = DateTime.now().add(const Duration(seconds: 5));
         while (fixture.runtime.engine.state.instances.fold<int>(
                   0,
@@ -239,7 +328,6 @@ void main() {
         final third = await fixture.playground.run(
           mode,
           jsonEncode(playgroundDocument(name, state: 'third')),
-          nativeSource: source,
         );
         expect(third.status, JevPlaygroundStatus.success);
         expect(unrelatedFinished, false);
@@ -267,59 +355,6 @@ void main() {
       },
     );
   }
-
-  test('native debug fixes call-name metadata at entry and redacts the complete raw projection', () async {
-    final fixture = await PlaygroundRuntime.create();
-    addTearDown(fixture.close);
-    final source = fixture.playground.nativeSources.last;
-    final arrived = Completer<void>();
-    final held = Completer<void>();
-    addTearDown(() {
-      if (!held.isCompleted) held.complete();
-    });
-    fixture.runtime.io.respond = (body, raw) async {
-      arrived.complete();
-      await held.future;
-      return jsonEncode({
-        ...jsonDecode(raw) as Map,
-        'marker': 'full native extra',
-        'diagnostic': {'API_KEY': 'playground-secret'},
-        'echo': 'playground-secret',
-      });
-    };
-    final pending = fixture.playground.run(
-      JevPlaygroundMode.native,
-      jsonEncode(playgroundDocument(source.model, debug: true)),
-      nativeSource: source,
-    );
-    await arrived.future.timeout(const Duration(seconds: 3));
-    await fixture.council.models.save(
-      JevModelDefinition.native(
-        name: 'renamed',
-        binding: fixture.council.models.definitions
-            .singleWhere((d) => d.name == 'native-kev')
-            .bindings
-            .single,
-      ),
-      replacing: 'native-kev',
-    );
-    held.complete();
-    final result = await pending;
-    expect((result.debug!['configuration'] as Map)['fixed_call_names'], [
-      'native-kev',
-    ]);
-    expect(result.output!['marker'], 'full native extra');
-    expect(jsonEncode(result.output), isNot(contains('playground-secret')));
-    expect(jsonEncode(result.debug), isNot(contains('playground-secret')));
-    expect(
-      (result.debug!['native'] as Map)['raw_response'],
-      contains('full native extra'),
-    );
-    expect(
-      () => (result.output!['diagnostic'] as Map)['API_KEY'] = 'change',
-      throwsUnsupportedError,
-    );
-  });
 
   test('protocol business timeouts and engine errors preserve actual received evidence', () async {
     final fixture = await PlaygroundRuntime.create();
@@ -382,34 +417,6 @@ void main() {
     );
   });
 
-  test('native admission reports not-ready and required capability without an engine call', () async {
-    final io = CouncilRuntimeIO()..failScoreForOther = true;
-    final fixture = await PlaygroundRuntime.create(io: io);
-    addTearDown(fixture.close);
-    final source = fixture.playground.nativeSources.singleWhere(
-      (s) => s.instance.asset.name.contains('Other'),
-    );
-    fixture.runtime.io.requests.clear();
-    final capability = await fixture.playground.run(
-      JevPlaygroundMode.native,
-      jsonEncode(playgroundDocument(source.model)),
-      nativeSource: source,
-    );
-    expect(
-      capability.output!['error'],
-      containsPair('code', 'capability_mismatch'),
-    );
-    expect(fixture.runtime.io.requests, isEmpty);
-    await fixture.runtime.engine.stop(source.model);
-    final stopped = await fixture.playground.run(
-      JevPlaygroundMode.native,
-      jsonEncode(playgroundDocument(source.model)),
-      nativeSource: source,
-    );
-    expect(stopped.output!['error'], containsPair('code', 'model_not_ready'));
-    expect(fixture.runtime.io.requests, isEmpty);
-  });
-
   test('real protocols report ambiguous native binding and retain a whole successful council seat', () async {
     final fixture = await PlaygroundRuntime.create();
     addTearDown(fixture.close);
@@ -446,27 +453,6 @@ void main() {
     }
   });
 
-  test(
-    'native error status and debug never display upstream credentials',
-    () async {
-      final fixture = await PlaygroundRuntime.create();
-      addTearDown(fixture.close);
-      fixture.runtime.io.consultationStatus = 502;
-      fixture.runtime.io.respond = (body, raw) async =>
-          'authorization: Bearer status-secret\nstatus-secret';
-      final source = fixture.playground.nativeSources.first;
-      final result = await fixture.playground.run(
-        JevPlaygroundMode.native,
-        jsonEncode(playgroundDocument(source.model, debug: true)),
-        nativeSource: source,
-      );
-      expect(result.status, JevPlaygroundStatus.businessError);
-      expect(result.message, isNot(contains('status-secret')));
-      expect(jsonEncode(result.output), isNot(contains('status-secret')));
-      expect(jsonEncode(result.debug), isNot(contains('status-secret')));
-    },
-  );
-
   test('missing or unknown model and invalid JSON fail explicitly without reusing a previous payload', () async {
     final fixture = await PlaygroundRuntime.create();
     addTearDown(fixture.close);
@@ -487,35 +473,7 @@ void main() {
     }
     expect(fixture.runtime.io.requests, isEmpty);
   });
-  test('a selection made while loading records the actual ready alias at admission', () async {
-    final fixture = await PlaygroundRuntime.create();
-    addTearDown(fixture.close);
-    fixture.runtime.io.holdIdentity(expected: 1);
-    final starting = fixture.runtime.engine.start(
-      fixture.council.models.availableBindings.last.artifactId,
-    );
-    late JevNativeSource selected;
-    try {
-      await fixture.runtime.io.identityArrived!.future.timeout(
-        const Duration(seconds: 5),
-      );
-      selected = fixture.playground.nativeSources.last;
-    } finally {
-      fixture.runtime.io.identityRelease!.complete();
-      await starting;
-    }
-    expect(selected.ready, false);
-    final result = await fixture.playground.run(
-      JevPlaygroundMode.native,
-      jsonEncode(playgroundDocument(selected.model, debug: true)),
-      nativeSource: selected,
-    );
-    expect(result.status, JevPlaygroundStatus.success);
-    expect(
-      (result.debug!['configuration'] as Map)['native_alias'],
-      selected.model,
-    );
-  });
+
   for (final mode in JevPlaygroundMode.values) {
     test(
       '$mode header-looking API identities survive discovery and remain callable with faithful debug',
@@ -528,25 +486,18 @@ void main() {
           'diagnostic': {'API_KEY': 'identity-unrelated-token'},
           'echo': 'identity-unrelated-token',
         });
-        final source = fixture.playground.nativeSources.first;
+
         final discovery = await fixture.playground.discover(mode);
-        final ids = mode == JevPlaygroundMode.native
-            ? (discovery['instances'] as List)
-                  .map((row) => row['model'] as String)
-                  .toList()
-            : (discovery['data'] as List)
-                  .map((row) => row['id'] as String)
-                  .toList();
-        final names = mode == JevPlaygroundMode.native
-            ? [source.model]
-            : [...headerNamedNativeModels, ...headerNamedCouncilModels];
+        final ids = (discovery['data'] as List)
+            .map((row) => row['id'] as String)
+            .toList();
+        final names = [...headerNamedNativeModels, ...headerNamedCouncilModels];
         expect(ids, containsAll(names));
         for (final name in ids.where(names.contains)) {
           final document = headerNamedJevDocument(name);
           final result = await fixture.playground.run(
             mode,
             jsonEncode(document),
-            nativeSource: source,
           );
           expect(result.status, JevPlaygroundStatus.success);
           expect(result.output!['model'], name);
@@ -576,14 +527,9 @@ void main() {
               'API_KEY': '[redacted]',
             });
           }
-          if (mode == JevPlaygroundMode.native) {
-            expect(
-              (result.debug!['configuration'] as Map)['fixed_call_names'],
-              containsAll(headerNamedNativeModels),
-            );
-          } else {
-            expect((result.debug!['configuration'] as Map)['name'], name);
-          }
+
+          expect((result.debug!['configuration'] as Map)['name'], name);
+
           expect(
             jsonEncode(result.debug),
             isNot(contains('identity-unrelated-token')),
@@ -596,81 +542,7 @@ void main() {
       },
     );
   }
-  test('native cancellation retains validated raw task data and hides unknown credentials', () async {
-    final fixture = await PlaygroundRuntime.create();
-    addTearDown(fixture.close);
-    final source = fixture.playground.nativeSources.first;
-    final token = DecisionCancellation();
-    fixture.runtime.io.respond = (body, raw) async => jsonEncode({
-      ...jsonDecode(raw) as Map,
-      'marker': 'accepted-before-cancel',
-      'diagnostic': {'API_KEY': 'accepted-extra-token'},
-    });
-    final subscription = fixture.runtime.engine.changes.listen((state) {
-      if (state.instances.any(
-        (instance) =>
-            instance.lastBatchResult?.rawResponse.contains(
-              'accepted-before-cancel',
-            ) ==
-            true,
-      )) {
-        token.cancel();
-      }
-    });
-    addTearDown(subscription.cancel);
-    final document = credentialNamedJevDocument(source.model, debug: true);
-    final result = await fixture.playground.run(
-      JevPlaygroundMode.native,
-      jsonEncode(document),
-      nativeSource: source,
-      cancellation: token,
-    );
-    expect(result.status, JevPlaygroundStatus.cancelled);
-    final input = result.debug!['input'] as Map;
-    expect(input['state'], document['state']);
-    expect(input['questions'], document['questions']);
-    final raw = jsonDecode(
-      (result.debug!['native'] as Map)['raw_response'] as String,
-    );
-    expect(raw['answers'], credentialNamedJevAnswers);
-    expect(raw['diagnostic'], {'API_KEY': '[redacted]'});
-    expect(jsonEncode(result.debug), isNot(contains('accepted-extra-token')));
-    expect(
-      fixture.runtime.engine.state.instances.every(
-        (i) => i.activeRequests == 0,
-      ),
-      true,
-    );
-  });
-  test('native rejected raw JSON cannot claim response immunity through model or answers', () async {
-    final fixture = await PlaygroundRuntime.create();
-    addTearDown(fixture.close);
-    final source = fixture.playground.nativeSources.first;
-    fixture.runtime.io.respond = (body, raw) async => jsonEncode({
-      'model': 'Authorization: Bearer invalid-model-token',
-      'answers': {
-        'q': {
-          'type': 'score',
-          'legend': {'API_KEY': 'invalid-legend-token'},
-        },
-      },
-    });
-    final result = await fixture.playground.run(
-      JevPlaygroundMode.native,
-      jsonEncode(credentialNamedJevDocument(source.model, debug: true)),
-      nativeSource: source,
-    );
-    expect(result.status, JevPlaygroundStatus.businessError);
-    expect((result.output!['error'] as Map)['code'], 'invalid_response');
-    final raw = jsonDecode(
-      (result.debug!['native'] as Map)['raw_response'] as String,
-    );
-    expect(raw['model'], 'Authorization: [redacted]');
-    expect(raw['answers']['q']['legend'], {'API_KEY': '[redacted]'});
-    for (final secret in ['invalid-model-token', 'invalid-legend-token']) {
-      expect(jsonEncode(result.debug), isNot(contains(secret)));
-    }
-  });
+
   for (final mode in JevPlaygroundMode.values) {
     test(
       '$mode unknown nested response shapes cannot establish JEV task immunity',
@@ -679,22 +551,18 @@ void main() {
         addTearDown(fixture.close);
         fixture.runtime.io.respond = (body, raw) async =>
             jsonEncode(nestedCredentialJevResponse(raw));
-        final source = fixture.playground.nativeSources.first;
-        for (final name
-            in mode == JevPlaygroundMode.native
-                ? [source.model]
-                : ['quick', 'hard', 'native-kev']) {
+
+        for (final name in ['quick', 'hard', 'native-kev']) {
           for (final debug in [false, true]) {
             final document = credentialNamedJevDocument(name, debug: debug);
             final result = await fixture.playground.run(
               mode,
               jsonEncode(document),
-              nativeSource: source,
             );
             expect(result.status, JevPlaygroundStatus.success);
             expect(result.output!['answers'], credentialNamedJevAnswers);
             final responses = <Map>[];
-            if (mode == JevPlaygroundMode.native) responses.add(result.output!);
+
             if (debug) {
               expect(
                 (result.debug!['input'] as Map)['questions'],
@@ -773,17 +641,13 @@ void main() {
         addTearDown(fixture.close);
         fixture.runtime.io.respond = (body, raw) async =>
             jsonEncode(credentialExtraJevResponse(raw));
-        final source = fixture.playground.nativeSources.first;
-        for (final name
-            in mode == JevPlaygroundMode.native
-                ? [source.model]
-                : ['quick', 'hard', 'native-kev']) {
+
+        for (final name in ['quick', 'hard', 'native-kev']) {
           for (final debug in [false, true]) {
             final document = credentialNamedJevDocument(name, debug: debug);
             final result = await fixture.playground.run(
               mode,
               jsonEncode(document),
-              nativeSource: source,
             );
             expect(result.status, JevPlaygroundStatus.success);
             final answers = result.output!['answers'] as Map;
@@ -796,16 +660,7 @@ void main() {
               'authorization': 0.25,
               'cookie': 0.75,
             });
-            if (mode == JevPlaygroundMode.native) {
-              expect(answers['api_key']['instructions'], {
-                'API_KEY': '[redacted]',
-              });
-              expect(result.output!['server_log'], 'Authorization: [redacted]');
-              expect(result.output!['unrelated_typed'], {
-                'type': 'choice',
-                'instructions': {'API_KEY': '[redacted]'},
-              });
-            }
+
             if (debug) {
               expect(
                 (result.debug!['input'] as Map)['questions'],
@@ -849,48 +704,20 @@ void main() {
       },
     );
   }
-  test('native default output redacts unknown plaintext credential extras without a debug sibling', () async {
-    final fixture = await PlaygroundRuntime.create();
-    addTearDown(fixture.close);
-    final source = fixture.playground.nativeSources.first;
-    fixture.runtime.io.respond = (body, raw) async => jsonEncode({
-      ...jsonDecode(raw) as Map,
-      'server_log': 'Authorization: Bearer extra-secret',
-      'unlisted_trace': ['Cookie: sid=extra-cookie-secret'],
-      'echo': 'extra-secret extra-cookie-secret',
-    });
-    final result = await fixture.playground.run(
-      JevPlaygroundMode.native,
-      jsonEncode(credentialNamedJevDocument(source.model)),
-      nativeSource: source,
-    );
-    expect(result.status, JevPlaygroundStatus.success);
-    expect(result.debug, isNull);
-    expect(result.output!['answers'], credentialNamedJevAnswers);
-    expect(result.output!['server_log'], 'Authorization: [redacted]');
-    expect(result.output!['unlisted_trace'], ['Cookie: [redacted]']);
-    expect(result.output!['echo'], '[redacted] [redacted]');
-    for (final secret in ['extra-secret', 'extra-cookie-secret']) {
-      expect(jsonEncode(result.output), isNot(contains(secret)));
-    }
-  });
+
   for (final mode in JevPlaygroundMode.values) {
     test(
       '$mode legal credential-looking JEV IDs and JSON descriptions survive native and real HTTP/MCP default and debug',
       () async {
         final fixture = await PlaygroundRuntime.create();
         addTearDown(fixture.close);
-        final source = fixture.playground.nativeSources.first;
-        for (final name
-            in mode == JevPlaygroundMode.native
-                ? [source.model]
-                : ['quick', 'hard', 'native-kev']) {
+
+        for (final name in ['quick', 'hard', 'native-kev']) {
           for (final debug in [false, true]) {
             final document = credentialNamedJevDocument(name, debug: debug);
             final result = await fixture.playground.run(
               mode,
               jsonEncode(document),
-              nativeSource: source,
             );
             expect(result.status, JevPlaygroundStatus.success);
             expect(result.output, {
@@ -902,6 +729,13 @@ void main() {
               },
             });
             if (debug) {
+              final publicRaw = jsonDecode(result.rawResponse!) as Map;
+              expect(publicRaw['debug']['input']['state'], document['state']);
+              expect(
+                publicRaw['debug']['input']['questions'],
+                document['questions'],
+              );
+
               final input = result.debug!['input'] as Map;
               expect(input['questions'], document['questions']);
               expect(input['state'], document['state']);
@@ -962,4 +796,41 @@ void main() {
       },
     );
   }
+}
+
+/// External file I/O boundary only; the public exporter remains production.
+class _FailingExportFile implements File {
+  bool exclusiveCreated = false;
+  bool writeAttempted = false;
+  bool cleanupAttempted = false;
+  @override
+  String get path => '/controlled-export/export.json';
+  @override
+  bool get isAbsolute => true;
+  @override
+  Future<File> create({bool recursive = false, bool exclusive = false}) async {
+    exclusiveCreated = exclusive;
+    return this;
+  }
+
+  @override
+  Future<File> writeAsString(
+    String contents, {
+    FileMode mode = FileMode.write,
+    Encoding encoding = utf8,
+    bool flush = false,
+  }) async {
+    writeAttempted = true;
+    throw const FileSystemException('primary write failed');
+  }
+
+  @override
+  Future<FileSystemEntity> delete({bool recursive = false}) async {
+    cleanupAttempted = true;
+    throw const FileSystemException('secondary cleanup failed');
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName}');
 }

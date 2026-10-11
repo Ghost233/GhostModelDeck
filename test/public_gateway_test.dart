@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/chat_protocol.dart';
 import 'package:ghost_model_deck/council.dart';
 import 'package:ghost_model_deck/council_mcp.dart';
+import 'package:ghost_model_deck/decision_protocol.dart';
 import 'package:ghost_model_deck/engine_catalog.dart';
 import 'package:ghost_model_deck/engine_runtime.dart';
 import 'package:ghost_model_deck/llama_engine.dart';
@@ -18,6 +19,7 @@ import 'package:ghost_model_deck/public_gateway.dart';
 
 import 'fixtures/decision_gguf.dart';
 import 'fixtures/engine_archive.dart';
+import 'fixtures/playground_runtime.dart';
 import 'fixtures/typed_answers.dart';
 
 void main() {
@@ -476,6 +478,39 @@ void main() {
       expect(listed.body, isNot(contains(fixture.instanceId)));
     });
 
+    test('ordinary public chat protects credential metadata while retaining actual usage', () async {
+      final fixture = await _GatewayFixture.create();
+      addTearDown(fixture.close);
+      await fixture.enableReady();
+      fixture.io.textUsage = {
+        'prompt_tokens': 4,
+        'completion_tokens': 2,
+        'total_tokens': 6,
+        'prompt_tokens_details': {'cached_tokens': 3},
+        'api_key': 'upstream-private-credential',
+      };
+      final response = await _post(
+        '${fixture.gateway.baseUrl}/v1/chat/completions',
+        {
+          'model': 'gmd-${fixture.asset.id}',
+          'messages': [
+            {'role': 'user', 'content': 'Say hello'},
+          ],
+        },
+      );
+      expect(response.status, 200);
+      expect(response.body, isNot(contains('upstream-private-credential')));
+      final body = jsonDecode(response.body) as Map;
+      expect(body['choices'].single['message']['content'], 'Hello.');
+      expect(body['usage'], {
+        'prompt_tokens': 4,
+        'completion_tokens': 2,
+        'total_tokens': 6,
+        'prompt_tokens_details': {'cached_tokens': 3},
+        'api_key': '[redacted]',
+      });
+    });
+
     test('non-stream chat completion passes real messages through and binds the public ID', () async {
       final fixture = await _GatewayFixture.create();
       addTearDown(fixture.close);
@@ -526,6 +561,76 @@ void main() {
       expect(upstream['temperature'], 0.5);
       expect(upstream['top_p'], 0.8);
       expect(upstream['stream'], false);
+    });
+
+    test('ordinary public SSE protects credential metadata and preserves task text', () async {
+      final fixture = await _GatewayFixture.create();
+      addTearDown(fixture.close);
+      await fixture.enableReady();
+      fixture.io.streamResponse = (response, alias, body) async {
+        for (final frame in [
+          {
+            'model': alias,
+            'choices': [
+              {
+                'index': 0,
+                'delta': {
+                  'role': 'assistant',
+                  'content': 'Authorization: allow',
+                },
+                'finish_reason': null,
+              },
+            ],
+          },
+          {
+            'model': alias,
+            'choices': [
+              {
+                'index': 0,
+                'delta': <String, Object?>{},
+                'finish_reason': 'stop',
+              },
+            ],
+            'usage': {
+              'prompt_tokens': 4,
+              'completion_tokens': 2,
+              'total_tokens': 6,
+              'api_key': 'upstream-sse-private',
+            },
+          },
+        ]) {
+          response.write('data: ${jsonEncode(frame)}\n\n');
+          await response.flush();
+        }
+        response.write('data: [DONE]\n\n');
+      };
+      final client = _SseClient();
+      addTearDown(client.destroy);
+      expect(
+        await client.open('${fixture.gateway.baseUrl}/v1/chat/completions', {
+          'model': 'gmd-${fixture.asset.id}',
+          'messages': [
+            {'role': 'user', 'content': 'Say hello'},
+          ],
+          'stream': true,
+        }),
+        200,
+      );
+      final raw = await client.body();
+      expect(raw, contains('Authorization: allow'));
+      expect(raw, contains('data: [DONE]'));
+      expect(raw, isNot(contains('upstream-sse-private')));
+      final frames = raw
+          .split('\n\n')
+          .where((frame) => frame.startsWith('data: {'))
+          .map((frame) => jsonDecode(frame.substring(6)) as Map)
+          .toList();
+      expect(frames.last['usage'], {
+        'prompt_tokens': 4,
+        'completion_tokens': 2,
+        'total_tokens': 6,
+        'api_key': '[redacted]',
+      });
     });
 
     test('SSE chat preserves framing, usage, finish reason and DONE with public ID parity', () async {
@@ -964,6 +1069,71 @@ void main() {
       expect(again.status, 200);
     });
 
+    test('oversized chunked JEV JSON is rejected before inference and leaves the HTTP pool usable', () async {
+      final fixture = await PlaygroundRuntime.create();
+      addTearDown(fixture.close);
+      final client = HttpClient();
+      addTearDown(() => client.close(force: true));
+      final discovery = await client.getUrl(
+        fixture.gateway.baseUrl!.resolve('/v1/models'),
+      );
+      final discovered = await discovery.close();
+      expect(discovered.statusCode, 200);
+      final models =
+          jsonDecode(await utf8.decoder.bind(discovered).join())['data']
+              as List;
+      expect(
+        models.any(
+          (entry) => entry['id'] == 'native-kev' && entry['source'] == 'native',
+        ),
+        isTrue,
+      );
+      final budget = fixture.council.models.definitions
+          .singleWhere((definition) => definition.name == 'native-kev')
+          .timeout;
+      fixture.runtime.io.requests.clear();
+      final request = await client.postUrl(
+        fixture.gateway.baseUrl!.resolve('/v1/systemone'),
+      );
+      request.headers.contentType = ContentType.json;
+      request.headers.chunkedTransferEncoding = true;
+      request.add(
+        utf8.encode(
+          jsonEncode(
+            playgroundDocument(
+              'native-kev',
+              state: 'a' * (decisionMaxRequestBytes + 8),
+            ),
+          ),
+        ),
+      );
+      final refused = await request.close();
+      expect(refused.statusCode, 413);
+      final error =
+          jsonDecode(await utf8.decoder.bind(refused).join())['error'] as Map;
+      expect(error['code'], 'invalid_input');
+      expect(refused.persistentConnection, isFalse);
+      expect(fixture.runtime.io.requests, isEmpty);
+      expect(fixture.gateway.activeOwnedRequests, 0);
+      final following = await client.getUrl(
+        fixture.gateway.baseUrl!.resolve('/v1/models'),
+      );
+      final response = await following.close();
+      expect(response.statusCode, 200);
+      expect(
+        jsonDecode(await utf8.decoder.bind(response).join())['data'],
+        isA<List>(),
+      );
+      expect(fixture.runtime.io.requests, isEmpty);
+      expect(
+        fixture.council.models.definitions
+            .singleWhere((definition) => definition.name == 'native-kev')
+            .timeout,
+        budget,
+      );
+      expect(fixture.runtime.io.killedChildren, 0);
+    });
+
     test(
       'oversized bodies and foreign hosts are bounded before any parsing',
       () async {
@@ -975,6 +1145,14 @@ void main() {
           List.filled(1024 * 1024 + 8, 65),
         );
         expect(big, 413);
+        final client = HttpClient();
+        addTearDown(() => client.close(force: true));
+        final pooledBig = await _postRaw(
+          '${fixture.gateway.baseUrl}/v1/chat/completions',
+          List.filled(1024 * 1024 + 8, 65),
+          client: client,
+        );
+        expect(pooledBig, 413);
         final foreign = await _post(
           '${fixture.gateway.baseUrl}/v1/chat/completions',
           {
@@ -984,8 +1162,19 @@ void main() {
             ],
           },
           host: 'evil.example.com',
+          client: client,
         );
         expect(foreign.status, 403);
+        final following = await client.getUrl(
+          fixture.gateway.baseUrl!.resolve('/v1/models'),
+        );
+        final response = await following.close();
+        expect(response.statusCode, 200);
+        expect(
+          jsonDecode(await utf8.decoder.bind(response).join())['data'],
+          isA<List>(),
+        );
+        expect(fixture.io.textRequests, 0);
       },
     );
 
@@ -1138,10 +1327,11 @@ Future<({int status, String body})> _post(
   String url,
   Object? body, {
   String? host,
+  HttpClient? client,
 }) async {
-  final client = HttpClient();
+  final connection = client ?? HttpClient();
   try {
-    final request = await client.postUrl(Uri.parse(url));
+    final request = await connection.postUrl(Uri.parse(url));
     if (host != null) request.headers.set(HttpHeaders.hostHeader, host);
     request.headers.contentType = ContentType.json;
     request.write(jsonEncode(body));
@@ -1151,21 +1341,21 @@ Future<({int status, String body})> _post(
       body: await utf8.decoder.bind(response).join(),
     );
   } finally {
-    client.close();
+    if (client == null) connection.close();
   }
 }
 
-Future<int> _postRaw(String url, List<int> bytes) async {
-  final client = HttpClient();
+Future<int> _postRaw(String url, List<int> bytes, {HttpClient? client}) async {
+  final connection = client ?? HttpClient();
   try {
-    final request = await client.postUrl(Uri.parse(url));
+    final request = await connection.postUrl(Uri.parse(url));
     request.headers.contentType = ContentType.json;
     request.add(bytes);
     final response = await request.close();
     await response.drain<void>();
     return response.statusCode;
   } finally {
-    client.close();
+    if (client == null) connection.close();
   }
 }
 

@@ -4,6 +4,8 @@
 
 ## 发布前
 
+只构建和提供 macOS arm64（Apple Silicon）应用及运行时。不提供 Intel/x64、Linux、Windows 或通用双架构包。`build-release.sh` 强制 ARM-only 构建，并对主程序、App.framework 和 FlutterMacOS.framework 验证实际架构；预构建包同样接受这一检查。
+
 1. 由人手动确定并修改根 `pubspec.yaml` 的版本，按规则递增；不带 `+build`。完成对应改动的本地门禁、Mac 构建和发布包预检，再提交并合入 main。
 2. 当前工作区切到 main，保留并妥善处理用户未提交文件。只采用 fast-forward 同步，本地 main、origin/main 与实际远端必须相同。脚本不会 stash、提交、切换分支、bump 或推送 main。
 3. GitHub 业务身份和实际 Git 凭据均为 Ghost233。脚本核验 HTTPS origin 为 Ghost233/GhostModelDeck，并为每次 Git 远端调用使用已核验的 gh credential helper；不修改其他账号的凭据。

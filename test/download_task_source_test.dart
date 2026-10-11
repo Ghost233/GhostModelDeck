@@ -15,7 +15,7 @@ void main() {
     final directory = await Directory.systemTemp.createTemp('task-cleanup-');
     final formal = Directory('${directory.path}/publisher/model');
     await formal.create(recursive: true);
-    late File removedTemporary;
+    File? removedTemporary;
     final requests = <String>[];
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     server.listen((request) async {
@@ -67,23 +67,48 @@ void main() {
     );
     final package = ModelPackage.discover(repository).single;
     final selection = package.selectVariant(package.variants.single.id);
-    final damaged = Completer<void>();
-    final watch = formal.watch(events: FileSystemEvent.create).listen((event) {
-      if (event.path.endsWith('/Model-00002-of-00032.gguf') &&
-          !damaged.isCompleted) {
-        removedTemporary.deleteSync();
-        downloader.cancel();
-        damaged.complete();
-      }
-    });
-    addTearDown(watch.cancel);
-    final task = tasks.start(
-      selection: selection,
-      currentRepository: repository,
-      libraryPath: directory.path,
+    final installationPaused = Completer<void>();
+    final resumeInstallation = Completer<void>();
+    final blocked = File('${formal.path}/Model-00002-of-00032.gguf');
+    final nextTarget =
+        '${await formal.resolveSymbolicLinks()}/Model-00003-of-00032.gguf';
+    final filesystemZone = Zone.current;
+    final task = IOOverrides.runZoned(
+      () => tasks.start(
+        selection: selection,
+        currentRepository: repository,
+        libraryPath: directory.path,
+      ),
+      fseGetType: (path, followLinks) async {
+        final type = await filesystemZone.run(
+          () => FileSystemEntity.type(path, followLinks: followLinks),
+        );
+        if (path == nextTarget &&
+            removedTemporary != null &&
+            !installationPaused.isCompleted &&
+            await filesystemZone.run(
+                  () => FileSystemEntity.type(blocked.path, followLinks: false),
+                ) ==
+                FileSystemEntityType.file) {
+          installationPaused.complete();
+          await resumeInstallation.future;
+        }
+        return type;
+      },
     );
     final handled = expectLater(task, completes);
-    await damaged.future.timeout(const Duration(seconds: 5));
+    try {
+      await installationPaused.future.timeout(const Duration(seconds: 5));
+      final temporary = removedTemporary!;
+      expect(
+        await FileSystemEntity.identical(temporary.path, blocked.path),
+        isTrue,
+      );
+      temporary.deleteSync();
+      downloader.cancel();
+    } finally {
+      resumeInstallation.complete();
+    }
     await handled;
     expect(downloader.state.status, DownloadStatus.failed);
     expect(downloader.state.error, contains('下载清理未完成'));

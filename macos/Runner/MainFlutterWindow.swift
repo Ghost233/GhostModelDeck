@@ -33,6 +33,21 @@ class MainFlutterWindow: NSWindow {
         result(nil)
         return
       }
+      if call.method == "revealInFinder" {
+        guard let arguments = call.arguments as? [String: Any],
+              let path = arguments["path"] as? String,
+              path.hasPrefix("/"), !path.utf16.contains(0) else {
+          result(FlutterError(code: "invalid_argument", message: "path 必须是完整文件路径", details: nil))
+          return
+        }
+        guard FileManager.default.fileExists(atPath: path) else {
+          result(FlutterError(code: "file_unavailable", message: "文件或目录不存在", details: nil))
+          return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+        result(nil)
+        return
+      }
       guard call.method == "pickLibraryDirectory" || call.method == "pickEngineDirectory" else {
         result(FlutterMethodNotImplemented)
         return

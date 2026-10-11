@@ -1,0 +1,568 @@
+{
+  "id": "jeval",
+  "source": "https://huggingface.co/datasets/carlosxiang/JEVal",
+  "pin": "5d0253c34cf5e371b3ae99c21f0a7170d7289f63",
+  "files": [
+    {
+      "path": "data/test.parquet",
+      "bytes": 33533925,
+      "sha256": "88f090a510e511d1236fdf5ddb428a8b965663ff0cc1061f950b88f0c99d2e82",
+      "url": "https://huggingface.co/datasets/carlosxiang/JEVal/resolve/5d0253c34cf5e371b3ae99c21f0a7170d7289f63/data/test.parquet"
+    },
+    {
+      "path": "README.md",
+      "bytes": 17576,
+      "sha256": "818ff20edee14db5836ab39c856ebe828daf1ae89ed55c83019df6729715c09c",
+      "url": "https://huggingface.co/datasets/carlosxiang/JEVal/resolve/5d0253c34cf5e371b3ae99c21f0a7170d7289f63/README.md"
+    },
+    {
+      "path": "citation.bib",
+      "bytes": 426,
+      "sha256": "ab62963d5f171570b179da43dc1a5d440c1556b2c57d3b988f88e135c7b3de3f",
+      "url": "https://huggingface.co/datasets/carlosxiang/JEVal/resolve/5d0253c34cf5e371b3ae99c21f0a7170d7289f63/citation.bib"
+    }
+  ],
+  "questionCount": 11257,
+  "sourceCount": 58,
+  "classificationCount": 10938,
+  "scoreCount": 319,
+  "canonicalOriginalFieldsSha256": "8daba7b00874d3e0a83ca51cf580fb238dc2a6e28a6ee9f19d8678b9fd3a33a3",
+  "scoringVersion": "arxiv-2610.03935v1-eq4-6-eq13",
+  "scoringSource": "https://arxiv.org/html/2610.03935v1",
+  "dataLicense": "No unified license; original third-party source conditions apply",
+  "attribution": "Duan, Lin, Wang, Xiang et al., General Decision Models: Benchmarking and Insights Beyond Jev, arXiv:2610.03935v1; see original citation.bib and README.md",
+  "originalSourceConditions": [
+    {
+      "family": "AgentHarm",
+      "group_key": "agentharm",
+      "sources": [
+        "agentharm"
+      ],
+      "rows": 200,
+      "declared_license": "MIT + 额外用途条款：仅改善AI安全/安保；须保留全文",
+      "access_conditions": "公开card与LICENSE；非纯MIT",
+      "primary_evidence_url": "https://huggingface.co/datasets/ai-safety-institute/AgentHarm/blob/main/LICENSE",
+      "citation_pointer": "作者card Citation（Andriushchenko/Souly等）",
+      "status": "特殊条款明确",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "AI2 ARC",
+      "group_key": "ARC",
+      "sources": [
+        "ai2-arc-challenge",
+        "ai2-arc-easy"
+      ],
+      "rows": 400,
+      "declared_license": "CC BY-SA 4.0",
+      "access_conditions": "作者HF card公开；附Clark等2018引用",
+      "primary_evidence_url": "https://huggingface.co/datasets/allenai/ai2_arc",
+      "citation_pointer": "card Citation Information",
+      "status": "声明明确；原版本仍缺",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "AIDA CoNLL-YAGO",
+      "group_key": "aida-testc",
+      "sources": [
+        "aida-testc"
+      ],
+      "rows": 200,
+      "declared_license": "官方页写全部数据CC BY-SA 3.0",
+      "access_conditions": "MPI官方下载页；旧URL403、新URL可读",
+      "primary_evidence_url": "https://www.mpi-inf.mpg.de/departments/databases-and-information-systems/research/yago-naga/aida/downloads",
+      "citation_pointer": "官方页Publications（Hoffart等）",
+      "status": "声明明确；testc版对应待核",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "BBQ",
+      "group_key": "bbq",
+      "sources": [
+        "bbq"
+      ],
+      "rows": 200,
+      "declared_license": "CC BY 4.0",
+      "access_conditions": "原作者nyu-mll repo LICENSE，未采用第三方heegyu镜像为许可依据",
+      "primary_evidence_url": "https://github.com/nyu-mll/BBQ/blob/bea11bd97d79217245b5871acd247b9d6eb24598/LICENSE",
+      "citation_pointer": "作者README/论文BBQ（Parrish等）",
+      "status": "原repo声明明确",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "BoolQ",
+      "group_key": "boolq",
+      "sources": [
+        "boolq"
+      ],
+      "rows": 200,
+      "declared_license": "CC BY-SA 3.0",
+      "access_conditions": "Google作者README明示；数据段落不能被code许可证替代",
+      "primary_evidence_url": "https://github.com/google-research-datasets/boolean-questions/blob/90af34107399cc7a446b373dc4ee35b8001da7c2/README.md#license",
+      "citation_pointer": "README Clark等2019 BibTeX",
+      "status": "声明明确",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "C-Eval",
+      "group_key": "ceval",
+      "sources": [
+        "ceval"
+      ],
+      "rows": 200,
+      "declared_license": "CC BY-NC-SA 4.0",
+      "access_conditions": "作者ceval HF card公开；原考试题来源须保留",
+      "primary_evidence_url": "https://huggingface.co/datasets/ceval/ceval-exam",
+      "citation_pointer": "card paper/citation",
+      "status": "非商业/SA声明明确",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "CLINC150 / OOS",
+      "group_key": "clinc150",
+      "sources": [
+        "clinc150"
+      ],
+      "rows": 200,
+      "declared_license": "CC BY 3.0",
+      "access_conditions": "原作者clinc/oos-eval LICENSE；HF作者card同声明",
+      "primary_evidence_url": "https://github.com/clinc/oos-eval/blob/828f8093932c8fe6ca7936c3d2e52903b1c523de/LICENSE",
+      "citation_pointer": "README Citation Larson等2019",
+      "status": "声明明确",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "CMB",
+      "group_key": "cmb",
+      "sources": [
+        "cmb"
+      ],
+      "rows": 200,
+      "declared_license": "作者数据card Apache-2.0",
+      "access_conditions": "FreedomIntelligence作者card明示许可及引用",
+      "primary_evidence_url": "https://huggingface.co/datasets/FreedomIntelligence/CMB",
+      "citation_pointer": "card Citation",
+      "status": "作者数据声明明确",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "CMExam",
+      "group_key": "cmexam",
+      "sources": [
+        "cmexam"
+      ],
+      "rows": 200,
+      "declared_license": "原repo LICENSE Apache-2.0；README另写学术/研究用途、禁止商业误用",
+      "access_conditions": "核对williamliujl作者repo；fzkuji card自称Unofficial，不作为授权依据",
+      "primary_evidence_url": "https://github.com/williamliujl/CMExam",
+      "citation_pointer": "README Citation Liu等2023",
+      "status": "特殊条件并存，不能只标Apache",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "CMMLU",
+      "group_key": "cmmlu",
+      "sources": [
+        "cmmlu"
+      ],
+      "rows": 200,
+      "declared_license": "HF frontmatter CC BY-NC 4.0；正文和作者README CC BY-NC-SA 4.0",
+      "access_conditions": "两声明不一致；原样留存，不自行取宽松者",
+      "primary_evidence_url": "https://huggingface.co/datasets/haonan-li/cmmlu",
+      "citation_pointer": "card Citation；作者README引用",
+      "status": "声明冲突需澄清",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "CommonsenseQA",
+      "group_key": "commonsense-qa",
+      "sources": [
+        "commonsense-qa"
+      ],
+      "rows": 200,
+      "declared_license": "MIT",
+      "access_conditions": "原作者tau HF card明确dataset MIT",
+      "primary_evidence_url": "https://huggingface.co/datasets/tau/commonsense_qa",
+      "citation_pointer": "card Citation Talmor等",
+      "status": "数据声明明确",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "CommunityBench",
+      "group_key": "CommunityBench",
+      "sources": [
+        "communitybench-com-pred",
+        "communitybench-pref-id"
+      ],
+      "rows": 400,
+      "declared_license": "作者HF card license: unknown；原repo未找到独立许可证声明",
+      "access_conditions": "作者jylin001206 card与amazingljy1206 repo；Reddit材料不是公开即许可",
+      "primary_evidence_url": "https://huggingface.co/datasets/jylin001206/CommunityBench",
+      "citation_pointer": "作者repo Citation Lin/Wei 2026",
+      "status": "明确缺数据许可证据",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "ComPRed",
+      "group_key": "ComPRed",
+      "sources": [
+        "compred-finance",
+        "compred-gender_sexuality",
+        "compred-history",
+        "compred-politics",
+        "compred-science"
+      ],
+      "rows": 1000,
+      "declared_license": "ODC-BY；card还要求遵循组成部分许可",
+      "access_conditions": "AllenAI作者card；Reddit内容与数据库声明分开",
+      "primary_evidence_url": "https://huggingface.co/datasets/allenai/compred",
+      "citation_pointer": "card Citation/allenai原repo",
+      "status": "数据库声明明确，组成内容条件未闭环",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "CUAD",
+      "group_key": "cuad",
+      "sources": [
+        "cuad"
+      ],
+      "rows": 200,
+      "declared_license": "CC BY 4.0",
+      "access_conditions": "TheAtticusProject作者card；合同原文本来源需留",
+      "primary_evidence_url": "https://huggingface.co/datasets/TheAtticusProject/cuad",
+      "citation_pointer": "作者card/论文Hendrycks等",
+      "status": "数据声明明确",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "Decider",
+      "group_key": "decider",
+      "sources": [
+        "decider"
+      ],
+      "rows": 200,
+      "declared_license": "Mapika代码Apache-2.0；其混合题集约95源，不能据代码判200条数据Apache",
+      "access_conditions": "JEVal作者论文附录B.1脚注10确认Mapika/decider；逐行混合组件和导入版本未公开",
+      "primary_evidence_url": "https://github.com/Mapika/decider",
+      "citation_pointer": "JEVal论文附录B.1脚注10；原repo Citation",
+      "status": "author paper confirms project; original mixed components and imported revision unpublished",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "DISC-Law-Eval",
+      "group_key": "DISC-Law-Eval",
+      "sources": [
+        "disc-law-multi",
+        "disc-law-single"
+      ],
+      "rows": 400,
+      "declared_license": "FudanDISC repo Apache-2.0；没有取得独立考试题许可范围声明",
+      "access_conditions": "作者eval README；原试题涉及考试内容，不能据LLM代码许可消除来源未知",
+      "primary_evidence_url": "https://github.com/FudanDISC/DISC-LawLLM/blob/f40d023488b4deb5eb369c85d4e9e8ebcde35c95/eval/README-en.md",
+      "citation_pointer": "原repo Citation",
+      "status": "repo许可明确，题文本范围缺证据",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "FEVER",
+      "group_key": "fever",
+      "sources": [
+        "fever"
+      ],
+      "rows": 200,
+      "declared_license": "Wikipedia页面适用原条款；缺页面条款时CC BY-SA 3.0",
+      "access_conditions": "作者fever HF card数据声明；baseline代码Apache不是数据许可",
+      "primary_evidence_url": "https://huggingface.co/datasets/fever/fever",
+      "citation_pointer": "card FEVER Dataset citation Thorne等2018",
+      "status": "混合页面条款需保留",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "FinanceBench",
+      "group_key": "financebench-yes-no",
+      "sources": [
+        "financebench-yes-no"
+      ],
+      "rows": 37,
+      "declared_license": "CC BY-NC 4.0",
+      "access_conditions": "PatronusAI作者card；公司报告证据来源另保留",
+      "primary_evidence_url": "https://huggingface.co/datasets/PatronusAI/financebench",
+      "citation_pointer": "作者repo/card Islam等2023",
+      "status": "NC声明明确；37条转换来源版未明",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "FinQA",
+      "group_key": "finqa-yes-no",
+      "sources": [
+        "finqa-yes-no"
+      ],
+      "rows": 22,
+      "declared_license": "原repo MIT",
+      "access_conditions": "czyssrs作者repo有LICENSE；公司报告来源须留",
+      "primary_evidence_url": "https://github.com/czyssrs/FinQA/blob/0f16e2867befa6840783e58be38c9efb9229d742/LICENSE",
+      "citation_pointer": "README Citation Chen等2021",
+      "status": "repo声明明确；yes/no转换授权链未补",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "GlobalOpinionQA / LLM Global Opinions",
+      "group_key": "global-opinions",
+      "sources": [
+        "global-opinions"
+      ],
+      "rows": 200,
+      "declared_license": "CC BY-NC-SA 4.0",
+      "access_conditions": "Anthropic作者card；基础调查材料来源保留",
+      "primary_evidence_url": "https://huggingface.co/datasets/Anthropic/llm_global_opinions",
+      "citation_pointer": "card Citation Durmus等",
+      "status": "数据声明明确",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "GoEmotions",
+      "group_key": "go-emotions",
+      "sources": [
+        "go-emotions"
+      ],
+      "rows": 200,
+      "declared_license": "Apache-2.0（作者card数据licensing）",
+      "access_conditions": "Google作者card；底层Reddit文本来源仍保留",
+      "primary_evidence_url": "https://huggingface.co/datasets/google-research-datasets/go_emotions",
+      "citation_pointer": "card Citation Demszky等2020",
+      "status": "数据声明明确",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "GPQA",
+      "group_key": "gpqa",
+      "sources": [
+        "gpqa"
+      ],
+      "rows": 198,
+      "declared_license": "HF作者数据CC BY 4.0；GitHub代码MIT",
+      "access_conditions": "HF gated=auto；需同意分享联系信息及不在网上公开明文/图片题例，匿名raw README返回401；本次未接受条件或鉴权",
+      "primary_evidence_url": "https://huggingface.co/datasets/Idavidrein/gpqa",
+      "citation_pointer": "官方card/README Rein等2023",
+      "status": "数据许可+获取/披露条件明确，需保留",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "HaluEval",
+      "group_key": "HaluEval",
+      "sources": [
+        "halueval-dialogue",
+        "halueval-general",
+        "halueval-qa",
+        "halueval-summarization"
+      ],
+      "rows": 800,
+      "declared_license": "原作者RUCAIBox数据/代码MIT",
+      "access_conditions": "原README明确uses MIT；不用pminervini非作者镜像Apache声明",
+      "primary_evidence_url": "https://github.com/RUCAIBox/HaluEval/blob/b7253db3cdaa0ab2c382f92b26b390109174f77e/README.md#license",
+      "citation_pointer": "README citation Li等2023",
+      "status": "原声明明确",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "HellaSwag",
+      "group_key": "hellaswag",
+      "sources": [
+        "hellaswag"
+      ],
+      "rows": 200,
+      "declared_license": "MIT（作者Rowan card）",
+      "access_conditions": "作者card指向rowanz/hellaswag LICENSE；WikiHow/视频文字等来源需保留",
+      "primary_evidence_url": "https://huggingface.co/datasets/Rowan/hellaswag",
+      "citation_pointer": "card Citation Zellers等2019",
+      "status": "声明明确，原内容条款不自动消失",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "HELMET",
+      "group_key": "helmet",
+      "sources": [
+        "helmet"
+      ],
+      "rows": 200,
+      "declared_license": "作者代码MIT；作者数据card未给统一数据许可",
+      "access_conditions": "聚合七类原任务；JEVal source=helmet未给具体组件和版本",
+      "primary_evidence_url": "https://github.com/princeton-nlp/HELMET/blob/aeadacc6593e9a222a84b0660b186a4e23d2efda/README.md",
+      "citation_pointer": "README要求另引原数据作者",
+      "status": "数据组件及各原材料许可未知",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "JevBench（Benchmark Heaven）",
+      "group_key": "jevbench",
+      "sources": [
+        "jevbench"
+      ],
+      "rows": 200,
+      "declared_license": "未知；不能继承另两同名项目的代码许可",
+      "access_conditions": "JEVal作者论文附录B.1脚注11确认fstandhartinger/jevbench；200原题与参考快照逐条匹配，参考快照不是作者导入revision；不是本期独立一致性JevBench",
+      "primary_evidence_url": "https://github.com/fstandhartinger/jevbench",
+      "citation_pointer": "JEVal论文附录B.1脚注11；原repo THIRD-PARTY来源引文；具体题目条款继续按原来源适用",
+      "status": "author paper confirms project; 200 original records matched to reference snapshot; imported revision unpublished",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "JevForge",
+      "group_key": "jevforge",
+      "sources": [
+        "jevforge"
+      ],
+      "rows": 200,
+      "declared_license": "AndeyTait作者Mind2Web snapshot CC BY 4.0；转换代码MIT；模型Apache不可当数据许可",
+      "access_conditions": "JEVal作者论文附录B.1脚注12确认zwliJay/jev-forge；项目身份已证实，200逐行原记录、转换池组成与导入revision未公开，不能将参考Mind2Web snapshot等同exact来源",
+      "primary_evidence_url": "https://github.com/zwliJay/jev-forge",
+      "citation_pointer": "JEVal论文附录B.1脚注12；Mind2Web原card Deng等2023引文",
+      "status": "author paper confirms project; individual original records and imported revision unpublished",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "LexGLUE",
+      "group_key": "LexGLUE",
+      "sources": [
+        "lex-glue-case-hold",
+        "lex-glue-ecthr-a",
+        "lex-glue-ecthr-b",
+        "lex-glue-ledgar",
+        "lex-glue-scotus",
+        "lex-glue-unfair-tos"
+      ],
+      "rows": 1200,
+      "declared_license": "作者coastalcph数据card CC BY 4.0",
+      "access_conditions": "七组件case_hold/ecthr_a/ecthr_b/ledgar/scotus/unfair_tos（JEVal未取eurlex）；原判决/合同内容条件不能仅用aggregate标签消除",
+      "primary_evidence_url": "https://huggingface.co/datasets/coastalcph/lex_glue",
+      "citation_pointer": "card Citation Chalkidis等与各组件论文",
+      "status": "aggregate声明明确，逐组件原材料范围未闭环",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "LongBench v1族",
+      "group_key": "LongBench",
+      "sources": [
+        "longbench-lsht",
+        "longbench-retrieval-en",
+        "longbench-retrieval-en-e",
+        "longbench-retrieval-zh",
+        "longbench-trec",
+        "longbench-trec-e"
+      ],
+      "rows": 1200,
+      "declared_license": "代码repo MIT；v1 HF card没有统一data license",
+      "access_conditions": "THUDM作者repo现README偏v2，JEVal六source是v1族；原lsht/retrieval/trec/LongBench-E组件许可须进一步匹配",
+      "primary_evidence_url": "https://huggingface.co/datasets/THUDM/LongBench",
+      "citation_pointer": "作者card Citation Bai等2023",
+      "status": "v1数据许可/组件exact版本缺证据",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "MedQA",
+      "group_key": "MedQA",
+      "sources": [
+        "med-qa",
+        "med-qa-en"
+      ],
+      "rows": 400,
+      "declared_license": "jind11原repo MIT；没有取得独立考试题授权范围声明",
+      "access_conditions": "原README称data+baseline；两个JEVal source的语言/选项版本未给精确upstream revision",
+      "primary_evidence_url": "https://github.com/jind11/MedQA/blob/27b02f66aac217933c9648a06f82e9f720377925/README.md",
+      "citation_pointer": "README Jin等2020",
+      "status": "repo声明明确；第三方考试内容范围未知",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "MMLU-Pro",
+      "group_key": "mmlu-pro",
+      "sources": [
+        "mmlu-pro"
+      ],
+      "rows": 200,
+      "declared_license": "MIT（TIGER-Lab作者card）",
+      "access_conditions": "作者card公开；MMLU衍生原题来源仍保留",
+      "primary_evidence_url": "https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro",
+      "citation_pointer": "作者card Wang等2024",
+      "status": "数据声明明确",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "NLU Evaluation Data",
+      "group_key": "nlu-eval-68",
+      "sources": [
+        "nlu-eval-68"
+      ],
+      "rows": 200,
+      "declared_license": "CC BY 4.0",
+      "access_conditions": "xliuhw原作者README/ LICENSE；68 intent分组",
+      "primary_evidence_url": "https://github.com/xliuhw/NLU-Evaluation-Data/blob/f6071b496b17d71e6eb43f543af0707f4ff30557/README.md#license",
+      "citation_pointer": "README Liu等IWSDS2019",
+      "status": "数据声明明确",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "PRISM Alignment",
+      "group_key": "PRISM",
+      "sources": [
+        "prism-alignment",
+        "prism-alignment-score"
+      ],
+      "rows": 400,
+      "declared_license": "人类文本含prompt CC BY4；模型response CC BY-NC4+原provider条款",
+      "access_conditions": "作者card Terms of Use：研究教育/开发评价AI、不得重识别；题state究竟含哪些模型responses需保留来源字段",
+      "primary_evidence_url": "https://huggingface.co/datasets/HannahRoseKirk/prism-alignment",
+      "citation_pointer": "card论文Kirk等2024及dataset DOI10.57967/hf/2113",
+      "status": "分组件条款明确，不能统一CC BY",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "SciFact",
+      "group_key": "scifact",
+      "sources": [
+        "scifact"
+      ],
+      "rows": 200,
+      "declared_license": "CC BY-NC 2.0",
+      "access_conditions": "AllenAI作者card/原repoLICENSE.md明示data许可",
+      "primary_evidence_url": "https://huggingface.co/datasets/allenai/scifact",
+      "citation_pointer": "card Citation Wadden等2020",
+      "status": "数据NC版本2.0明确",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "TruthfulQA",
+      "group_key": "truthfulqa",
+      "sources": [
+        "truthfulqa"
+      ],
+      "rows": 200,
+      "declared_license": "Apache-2.0（作者truthfulqa card数据许可）",
+      "access_conditions": "作者card公开",
+      "primary_evidence_url": "https://huggingface.co/datasets/truthfulqa/truthful_qa",
+      "citation_pointer": "card Citation Lin/Hilton/Evans2021",
+      "status": "数据声明明确",
+      "exact_exporter_revision_known": false
+    },
+    {
+      "family": "WinoGrande",
+      "group_key": "winogrande",
+      "sources": [
+        "winogrande"
+      ],
+      "rows": 200,
+      "declared_license": "原README：code Apache2，dataset CC-BY；该段未写CC-BY版本",
+      "access_conditions": "AllenAI原repo代码/数据许可分开；不把代码Apache写入题库",
+      "primary_evidence_url": "https://github.com/allenai/winogrande/blob/727e837f77521ef38bcc56df3b275c8da43f45af/README.md#license",
+      "citation_pointer": "README Sakaguchi等2019",
+      "status": "数据CC-BY明确，版本号缺证据",
+      "exact_exporter_revision_known": false
+    }
+  ],
+  "missingEvidence": [
+    "JEVal author has not published complete third-party licenses/citations or original imported revisions",
+    "Code and model licenses do not provide a unified dataset license"
+  ],
+  "languageGrouping": "author source-designated language, not text detection",
+  "lengthGrouping": "auxiliary UTF-8 bytes of original state and questions_json; not cl100k_base or model tokens"
+}

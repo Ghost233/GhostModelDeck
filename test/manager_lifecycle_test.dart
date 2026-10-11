@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ghost_model_deck/benchmark_run_store.dart';
+import 'package:ghost_model_deck/benchmark_runner.dart';
 import 'package:ghost_model_deck/council.dart';
 import 'package:ghost_model_deck/council_mcp.dart';
 import 'package:ghost_model_deck/jev_models.dart';
@@ -15,6 +17,7 @@ import 'package:ghost_model_deck/model_package.dart';
 import 'package:mcp_dart/mcp_dart.dart';
 
 import 'fixtures/council_runtime.dart';
+import 'fixtures/playground_runtime.dart';
 
 Future<McpClient> _client(Uri endpoint) async {
   final client = McpClient(
@@ -25,6 +28,60 @@ Future<McpClient> _client(Uri endpoint) async {
 }
 
 void main() {
+  test('explicit exit closes owned history readers before reporting stopped and preserves original records', () async {
+    final graph = await PlaygroundRuntime.create();
+    addTearDown(graph.close);
+    final store = BenchmarkRunStore(
+      directory: Directory('${graph.runtime.root.path}/history'),
+    );
+    addTearDown(store.close);
+    final record = BenchmarkRun.fromJson({
+      'schema_version': 1,
+      'id': 'run-exit-history',
+      'created_at': '2026-10-11T00:00:00.000Z',
+      'finished_at': '2026-10-11T00:01:00.000Z',
+      'status': 'interrupted',
+      'model': 'quick',
+      'source': 'council',
+      'channel': 'http',
+      'timeout_us': 30000000,
+      'suite': {'name': 'DecideBench', 'item_count': 400, 'pair_count': 200},
+      'identity': {'model': 'quick'},
+      'items': <Object?>[],
+      'groups': <Object?>[],
+      'summary': {'expected': 400, 'attempted': 0, 'complete': false},
+    });
+    await store.save(record);
+    final file = File('${store.directory.path}/${record.id}.json');
+    final bytes = await file.readAsBytes();
+    final reader = store.openHistory(record.id);
+    addTearDown(reader.close);
+    await reader.ready;
+    final runner = BenchmarkRunner(
+      client: graph.playground,
+      store: store,
+      models: graph.council.models,
+    );
+    addTearDown(runner.close);
+    final manager = ManagerLifecycle(
+      council: graph.council,
+      mcp: graph.mcp,
+      engines: graph.runtime.catalog,
+      downloader: ModelDownloader(),
+      gateway: graph.gateway,
+      benchmarks: runner,
+    );
+    final shutdown = manager.shutdown();
+    expect(identical(manager.shutdown(), shutdown), isTrue);
+    await shutdown;
+    expect(manager.state, ManagerLifecycleState.stopped);
+    await expectLater(
+      reader.items(evaluationId: record.id, offset: 0, limit: 20),
+      throwsStateError,
+    );
+    expect(() => store.openHistory(record.id), throwsStateError);
+    expect(await file.readAsBytes(), bytes);
+  });
   test('a real installation rollback failure rejects exit after the remaining files and services are cleaned up', () async {
     final runtime = await CouncilRuntime.create();
     addTearDown(runtime.close);
@@ -39,7 +96,7 @@ void main() {
     final shared = File('${formal.path}/Model-00001-of-00032.gguf');
     await shared.writeAsString('abc');
     final sharedModified = (await shared.stat()).modified;
-    late File removedTemporary;
+    File? removedTemporary;
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     addTearDown(() => server.close(force: true));
     server.listen((request) async {
@@ -87,8 +144,9 @@ void main() {
       ],
     );
     final package = ModelPackage.discover(repository).single;
-    final shutdownStarted = Completer<void>();
-    Future<void>? shutdown;
+    final installationPaused = Completer<void>();
+    final resumeInstallation = Completer<void>();
+    late final Future<void> shutdown;
     var activeAtExit = false;
     final changesFinished = Completer<void>();
     final changes = downloader.changes.listen(
@@ -97,28 +155,53 @@ void main() {
     );
     addTearDown(changes.cancel);
     final blocked = File('${formal.path}/Model-00003-of-00032.gguf');
-    final watch = formal.watch(events: FileSystemEvent.create).listen((event) {
-      if (event.path == blocked.path && !shutdownStarted.isCompleted) {
-        activeAtExit = downloader.state.isActive;
-        // Interference at the real FS boundary makes rollback's identity check
-        // fail. Other newly linked files must still be removed safely.
-        removedTemporary.deleteSync();
-        shutdown = manager.shutdown();
-        shutdown!.ignore();
-        shutdownStarted.complete();
-      }
-    });
-    addTearDown(watch.cancel);
-    final transfer = downloader
-        .downloadPackage(
-          selection: package.selectVariant(package.variants.single.id),
-          currentRepository: repository,
-          libraryDirectory: models,
-        )
-        .then<Object?>((_) => null, onError: (Object error) => error);
-    await shutdownStarted.future.timeout(const Duration(seconds: 5));
+    final nextTarget =
+        '${await formal.resolveSymbolicLinks()}/Model-00004-of-00032.gguf';
+    final filesystemZone = Zone.current;
+    final transfer = IOOverrides.runZoned(
+      () => downloader
+          .downloadPackage(
+            selection: package.selectVariant(package.variants.single.id),
+            currentRepository: repository,
+            libraryDirectory: models,
+          )
+          .then<Object?>((_) => null, onError: (Object error) => error),
+      fseGetType: (path, followLinks) async {
+        final type = await filesystemZone.run(
+          () => FileSystemEntity.type(path, followLinks: followLinks),
+        );
+        // Pause a real FS operation after the preceding hardlink exists.
+        // macOS creation notifications can arrive after staging is removed.
+        if (path == nextTarget &&
+            removedTemporary != null &&
+            !installationPaused.isCompleted &&
+            await filesystemZone.run(
+                  () => FileSystemEntity.type(blocked.path, followLinks: false),
+                ) ==
+                FileSystemEntityType.file) {
+          installationPaused.complete();
+          await resumeInstallation.future;
+        }
+        return type;
+      },
+    );
+    try {
+      await installationPaused.future.timeout(const Duration(seconds: 5));
+      activeAtExit = downloader.state.isActive;
+      final temporary = removedTemporary!;
+      expect(
+        await FileSystemEntity.identical(temporary.path, blocked.path),
+        isTrue,
+      );
+      // Break the real rollback identity check while staging is still owned.
+      temporary.deleteSync();
+      shutdown = manager.shutdown();
+      shutdown.ignore();
+    } finally {
+      resumeInstallation.complete();
+    }
     await expectLater(
-      shutdown!.timeout(const Duration(seconds: 5)),
+      shutdown.timeout(const Duration(seconds: 5)),
       throwsStateError,
     );
     expect(activeAtExit, isTrue);
@@ -189,27 +272,56 @@ void main() {
       ],
     );
     final package = ModelPackage.discover(repository).single;
-    final shutdownStarted = Completer<void>();
-    Future<void>? shutdown;
+    final installationPaused = Completer<void>();
+    final resumeInstallation = Completer<void>();
+    late final Future<void> shutdown;
     var activeAtExit = false;
     var transferFinished = false;
-    final watch = formal.watch(events: FileSystemEvent.create).listen((event) {
-      if (event.path.endsWith('.gguf') && !shutdownStarted.isCompleted) {
-        activeAtExit = downloader.state.isActive;
-        shutdown = manager.shutdown();
-        shutdownStarted.complete();
-      }
-    });
-    addTearDown(watch.cancel);
-    final transfer = downloader
-        .downloadPackage(
-          selection: package.selectVariant(package.variants.single.id),
-          currentRepository: repository,
-          libraryDirectory: models,
-        )
-        .whenComplete(() => transferFinished = true);
-    await shutdownStarted.future.timeout(const Duration(seconds: 5));
-    await shutdown!.timeout(const Duration(seconds: 5));
+    final installed = File('${formal.path}/Model-00002-of-00032.gguf');
+    final nextTarget =
+        '${await formal.resolveSymbolicLinks()}/Model-00003-of-00032.gguf';
+    final filesystemZone = Zone.current;
+    final transfer = IOOverrides.runZoned(
+      () => downloader
+          .downloadPackage(
+            selection: package.selectVariant(package.variants.single.id),
+            currentRepository: repository,
+            libraryDirectory: models,
+          )
+          .whenComplete(() => transferFinished = true),
+      fseGetType: (path, followLinks) async {
+        final type = await filesystemZone.run(
+          () => FileSystemEntity.type(path, followLinks: followLinks),
+        );
+        // A creation event can refer to the old shared file or arrive after
+        // installation. Pause real FS work only after a new formal file exists.
+        if (path == nextTarget &&
+            !installationPaused.isCompleted &&
+            await filesystemZone.run(
+                  () =>
+                      FileSystemEntity.type(installed.path, followLinks: false),
+                ) ==
+                FileSystemEntityType.file) {
+          installationPaused.complete();
+          await resumeInstallation.future;
+        }
+        return type;
+      },
+    );
+    try {
+      await installationPaused.future.timeout(const Duration(seconds: 5));
+      expect(await installed.readAsString(), 'abc');
+      expect(
+        await FileSystemEntity.type(nextTarget, followLinks: false),
+        FileSystemEntityType.notFound,
+      );
+      expect(transferFinished, isFalse);
+      activeAtExit = downloader.state.isActive;
+      shutdown = manager.shutdown();
+    } finally {
+      resumeInstallation.complete();
+    }
+    await shutdown.timeout(const Duration(seconds: 5));
     expect(activeAtExit, isTrue);
     expect(transferFinished, isTrue);
     await transfer;

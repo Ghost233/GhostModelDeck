@@ -112,7 +112,7 @@ else
     build_args+=(--build-number "$GMD_BUILD_NUMBER")
   fi
   info "执行 flutter ${build_args[*]} …"
-  "$FLUTTER_BIN" "${build_args[@]}"
+  FLUTTER_MACOS_ARM64_ONLY=true "$FLUTTER_BIN" "${build_args[@]}"
   APP_PATH="build/macos/Build/Products/Release/${APP_NAME}.app"
 fi
 
@@ -130,6 +130,14 @@ app_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$
   || die "应用版本不匹配：pubspec 为 ${VERSION}，实际 .app 为 ${app_version}"
 exe="$APP_PATH/Contents/MacOS/$APP_NAME"
 [ -s "$exe" ] || die "可执行文件缺失或为空: $exe"
+for binary in "$exe" \
+  "$APP_PATH/Contents/Frameworks/App.framework/App" \
+  "$APP_PATH/Contents/Frameworks/FlutterMacOS.framework/FlutterMacOS"; do
+  architectures="$(/usr/bin/lipo -archs "$binary" 2>/dev/null)" \
+    || die "无法验证二进制架构: $binary"
+  [ "$architectures" = "arm64" ] \
+    || die "仅提供 macOS arm64；产物架构为 ${architectures}: $binary"
+done
 info "已校验 .app: ${APP_PATH}（bundle id: ${bundle_id}）"
 
 # ---- 组装 DMG 内容 ----

@@ -40,6 +40,10 @@
 3. 脚本仅创建并推送 `v<x.y.z>` 附注 tag，不自动 bump、不提交、不推送 main。tag 触发 workflow 构建并创建正式 Release。
 4. 发布后核对三件套资产、manifest 版本/大小/哈希、SHA256SUMS 与应用版本；失败恢复见 [标准发布流程](agents/release.md)。
 
+## 平台产物
+
+只构建和提供 macOS arm64（Apple Silicon）版本，包括应用及配套运行时。不提供 Intel/x64、Linux、Windows 或通用双架构包。构建入口强制 ARM-only，并核对实际二进制架构；平台限制不改变手动版本号、tag 或发布授权规则。
+
 ## workflow 行为
 
 - `.github/workflows/release.yml` 由 **push v* tag** 触发；普通 push 到 main 不发布。

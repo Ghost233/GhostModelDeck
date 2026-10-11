@@ -28,7 +28,9 @@ import 'package:ghost_model_deck/model_run_dialog.dart';
 import 'package:ghost_model_deck/model_search_page.dart';
 import 'package:ghost_model_deck/settings_page.dart';
 
+import 'fixtures/actual_app_environment.dart';
 import 'fixtures/council_runtime.dart';
+import 'fixtures/test_environment.dart';
 
 const _captureDirectory = String.fromEnvironment('JEV_LAYOUT_SCREENSHOTS');
 const _window = Size(900, 560);
@@ -41,27 +43,24 @@ void main() {
   var fontLoaded = false;
   setUpAll(() async {
     // Screenshots need readable CJK glyphs instead of flutter_test's Ahem.
-    final font = File(
-      Platform.environment['JEV_LAYOUT_FONT'] ??
-          '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+    final font = layoutFontFile;
+    expect(await font.exists(), isTrue, reason: 'Noto CJK font is required');
+    final bytes = ByteData.sublistView(await font.readAsBytes());
+    final cjkLoader = FontLoader('Layout Noto CJK')
+      ..addFont(Future.value(bytes));
+    await cjkLoader.load();
+    fontLoaded = true;
+    final materialIcons = materialIconsFontFile;
+    expect(
+      await materialIcons.exists(),
+      isTrue,
+      reason: 'SDK MaterialIcons font is required',
     );
-    if (await font.exists()) {
-      final bytes = ByteData.sublistView(await font.readAsBytes());
-      final loader = FontLoader('Layout Noto CJK')
-        ..addFont(Future.value(bytes));
-      await loader.load();
-      fontLoaded = true;
-    }
-    final materialIcons = File(
-      '/opt/flutter/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
-    );
-    if (await materialIcons.exists()) {
-      final loader = FontLoader('MaterialIcons')
-        ..addFont(
-          Future.value(ByteData.sublistView(await materialIcons.readAsBytes())),
-        );
-      await loader.load();
-    }
+    final iconsLoader = FontLoader('MaterialIcons')
+      ..addFont(
+        Future.value(ByteData.sublistView(await materialIcons.readAsBytes())),
+      );
+    await iconsLoader.load();
     if (_captureDirectory.isNotEmpty) {
       expect(
         fontLoaded,
@@ -75,6 +74,8 @@ void main() {
     testWidgets(
       'production shell preserves minimum desktop layout (${brightness.name}-1.5x)',
       (tester) async {
+        final environment = await tester.runAsync(ActualAppEnvironment.create);
+        addTearDown(environment!.close);
         tester.view.physicalSize = _window;
         tester.view.devicePixelRatio = 1;
         tester.platformDispatcher.textScaleFactorTestValue = 1.5;
@@ -106,15 +107,22 @@ void main() {
           );
           await _settleIo(tester);
         });
+        Object? primaryError;
+        StackTrace? primaryStack;
+        final cleanupErrors = <(Object, StackTrace)>[];
         try {
           _expectVisible(tester, find.text('Ghost Model Deck'));
           _expectVisible(tester, find.text('设置'));
-          await tester.ensureVisible(find.text('MCP'));
+          await tester.scrollUntilVisible(
+            find.text('MCP'),
+            120,
+            scrollable: find.byType(Scrollable).first,
+          );
           await tester.pumpAndSettle();
           _expectVisible(tester, find.text('MCP'));
           expect(
             find.ancestor(
-              of: find.text('委员会'),
+              of: find.text('委员会配置'),
               matching: find.byType(Scrollable),
             ),
             findsOneWidget,
@@ -137,14 +145,46 @@ void main() {
           await tester.sendKeyEvent(LogicalKeyboardKey.enter);
           await tester.pumpAndSettle();
           expect(find.byType(McpPage), findsOneWidget);
+        } catch (error, stack) {
+          primaryError = error;
+          primaryStack = stack;
         } finally {
-          if (find.byType(McpPage).evaluate().isEmpty) {
-            await tester.tap(find.text('MCP').first);
-            await tester.pump();
+          try {
+            if (find.byType(McpPage).evaluate().isEmpty) {
+              await tester.scrollUntilVisible(
+                find.text('MCP'),
+                120,
+                scrollable: find.byType(Scrollable).first,
+              );
+              await tester.pumpAndSettle();
+              await tester.tap(find.text('MCP').first);
+              await tester.pump();
+            }
+            final server = tester.widget<McpPage>(find.byType(McpPage)).server;
+            await tester.runAsync(server.stop);
+          } catch (error, stack) {
+            cleanupErrors.add((error, stack));
           }
-          final server = tester.widget<McpPage>(find.byType(McpPage)).server;
-          await tester.runAsync(server.stop);
-          await tester.pumpWidget(const SizedBox.shrink());
+          try {
+            await tester.pumpWidget(const SizedBox.shrink());
+          } catch (error, stack) {
+            cleanupErrors.add((error, stack));
+          }
+        }
+        if (primaryError != null) {
+          for (final cleanup in cleanupErrors) {
+            stderr.writeln('Layout cleanup also failed: ${cleanup.$1}');
+          }
+          Error.throwWithStackTrace(primaryError, primaryStack!);
+        }
+        if (cleanupErrors.isNotEmpty) {
+          for (final cleanup in cleanupErrors.skip(1)) {
+            stderr.writeln('Additional layout cleanup failure: ${cleanup.$1}');
+          }
+          Error.throwWithStackTrace(
+            cleanupErrors.first.$1,
+            cleanupErrors.first.$2,
+          );
         }
         expect(tester.takeException(), isNull);
       },
@@ -356,55 +396,42 @@ void main() {
             }
             if (page == 'council') {
               await _capture(tester, '$page-actions-$mode');
+              expect(find.text('咨询'), findsNothing);
+              expect(find.byKey(const Key('council-context')), findsNothing);
               await tester.ensureVisible(
-                find.byKey(const Key('council-model')),
+                find.byKey(const Key('edit-model-layout-council')),
               );
-              await tester.tap(find.byKey(const Key('council-model')));
+              await tester.tap(
+                find.byKey(const Key('edit-model-layout-council')),
+              );
               await tester.pumpAndSettle();
-              await tester.tap(find.text('layout-council').last);
-              await tester.pumpAndSettle();
-              await tester.enterText(
-                find.byKey(const Key('council-id-1')),
-                'accept',
+              _expectVisible(tester, find.byKey(const Key('jev-model-name')));
+              expect(
+                tester
+                    .widget<TextField>(find.byKey(const Key('jev-model-name')))
+                    .controller!
+                    .text,
+                'layout-council',
               );
               await tester.enterText(
-                find.byKey(const Key('council-id-2')),
-                'reject',
+                find.byKey(const Key('jev-model-name')),
+                'layout-edited-council',
               );
-              await tester.enterText(
-                find.byKey(const Key('council-option-1')),
-                '接受',
-              );
-              await tester.enterText(
-                find.byKey(const Key('council-option-2')),
-                '拒绝',
-              );
-              await tester.pump();
-              await tester.ensureVisible(_action('咨询'));
               await tester.runAsync(
                 () => HttpOverrides.runWithHttpOverrides(() async {
-                  final complete = fixture.council.changes.firstWhere(
-                    (s) => s.lastBatchResult != null && !s.busy,
-                  );
-                  await tester.tap(_action('咨询'));
-                  await complete.timeout(const Duration(seconds: 5));
-                  await Future<void>.delayed(Duration.zero);
+                  await tester.tap(find.text('保存'));
+                  await _settleIo(tester);
                 }, _NetworkBoundary()),
               );
               await tester.pumpAndSettle();
-              final value = jsonDecode(
-                tester
-                    .widget<SelectableText>(
-                      find.byKey(const Key('jev-standard-output')),
-                    )
-                    .data!,
-              ) as Map;
-              expect(value.keys, ['model', 'answers', 'usage']);
-              expect(value['model'], 'layout-council');
-              await tester.ensureVisible(find.text('标准 JEV 结果'));
+              expect(
+                find.byKey(const Key('edit-model-layout-edited-council')),
+                findsOneWidget,
+              );
+              await tester.ensureVisible(find.text('委员会配置'));
               await tester.pumpAndSettle();
-              _expectVisible(tester, find.text('标准 JEV 结果'));
-              await _capture(tester, '$page-result-$mode');
+              _expectVisible(tester, find.text('委员会配置'));
+              await _capture(tester, '$page-configuration-$mode');
             }
           }
           expect(tester.takeException(), isNull);
@@ -711,7 +738,7 @@ class _LayoutFixture {
       find.byType(DropdownButton<DownloadSource>),
       _action('选择目录'),
     ],
-    'council' => [_action('模型库'), _action('咨询')],
+    'council' => [_action('模型库'), _action('创建模型')],
     'mcp' => [_action('停止'), _action('复制 Codex 配置')],
     _ => [],
   };

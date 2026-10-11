@@ -1,0 +1,11 @@
+Jevman benchmark game, scheduler, features, scoring and replay
+Copyright Johnny Chadda and the upstream contributors
+License: AGPL-3.0-or-later
+Source: https://github.com/opper-ai/jevman-benchmark/tree/1c8b77ac61bafa10956c601b1c9b339dcd277836
+Original complete license: benchmarks/sources/jevman/LICENSE
+
+GhostModelDeck adapter orchestration is available with this application's source.
+The generated bridge.mjs includes unchanged upstream modules from the pinned
+submodule and must be distributed with these source and license pointers.
+Node v24.21.0 is distributed separately with its original LICENSE in the managed
+runtime cache. Only the macOS arm64 executable and original LICENSE are prepared.

@@ -6,6 +6,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/council.dart';
 import 'package:ghost_model_deck/council_page.dart';
 import 'package:ghost_model_deck/jev_models.dart';
+import 'package:ghost_model_deck/jev_playground_page.dart';
+import 'package:ghost_model_deck/public_gateway.dart';
+import 'package:ghost_model_deck/council_mcp.dart';
 
 import 'fixtures/council_runtime.dart';
 
@@ -130,6 +133,10 @@ void main() {
     (tester) async {
       late CouncilRuntime runtime;
       late CouncilController council;
+      late PublicModelRoutes routes;
+      late PublicGatewayServer gateway;
+      late CouncilMcpServer mcp;
+
       await tester.runAsync(
         () => HttpOverrides.runWithHttpOverrides(() async {
           runtime = await CouncilRuntime.create();
@@ -138,9 +145,28 @@ void main() {
             modelRegistryFile: File('${runtime.root.path}/models.json'),
           );
           await council.models.load();
+          routes = PublicModelRoutes(
+            library: runtime.library,
+            runtimes: [runtime.engine],
+          );
+          gateway = PublicGatewayServer(
+            routes: routes,
+            jevModels: council.models,
+            port: 0,
+          );
+          mcp = CouncilMcpServer(controller: council, port: 0);
+          await gateway.start();
         }, _NetworkBoundary()),
       );
       addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.runAsync(() async {
+          await mcp.close();
+          await gateway.stop();
+          gateway.close();
+          routes.close();
+        });
+
         await tester.runAsync(council.close);
         await tester.runAsync(runtime.close);
       });
@@ -172,28 +198,97 @@ void main() {
       await tester.pumpAndSettle();
       expect(council.models.definitions.single.name, 'quick');
       expect(find.textContaining('quick'), findsWidgets);
-      await tester.enterText(find.byKey(const Key('council-option-1')), 'A');
-      await tester.enterText(find.byKey(const Key('council-option-2')), 'B');
-      await tester.pump();
-      await tester.ensureVisible(find.text('咨询'));
+      // The configuration page creates the persistent identity; manual
+      // inference then traverses the actual playground's ordinary public HTTP.
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: JevPlaygroundPage(gateway: gateway, mcp: mcp),
+          ),
+        ),
+      );
+      await tester.ensureVisible(find.byKey(const Key('playground-discover')));
       await tester.runAsync(
         () => HttpOverrides.runWithHttpOverrides(() async {
-          final done = council.changes.firstWhere(
-            (s) => s.lastBatchResult != null && !s.busy,
+          await tester.tap(find.byKey(const Key('playground-discover')));
+          await tester.pump();
+          await _waitForPage(
+            tester,
+            find.byKey(const Key('playground-discovery')),
           );
-          await tester.tap(find.text('咨询'));
-          await done.timeout(const Duration(seconds: 5));
-          await Future<void>.delayed(Duration.zero);
+        }, _NetworkBoundary()),
+      );
+      await tester.pumpAndSettle();
+      final discovered = jsonDecode(
+        tester
+            .widget<SelectableText>(
+              find.byKey(const Key('playground-discovery')),
+            )
+            .data!,
+      ) as Map;
+      expect(
+        (discovered['data'] as List).map((entry) => entry['id']),
+        contains('quick'),
+      );
+      await tester.ensureVisible(find.byKey(const Key('playground-json-mode')));
+      await tester.tap(find.byKey(const Key('playground-json-mode')));
+      await tester.pump();
+      final document = {
+        'model': 'quick',
+        'state': 'Check the saved council model through its public identity.',
+        'questions': {
+          'council_choice': {
+            'type': 'choice',
+            'instructions': 'Choose the best option.',
+            'criteria': {'accept': 'A', 'reject': 'B'},
+          },
+        },
+      };
+      await tester.enterText(
+        find.byKey(const Key('playground-json')),
+        jsonEncode(document),
+      );
+      await tester.pump();
+      await tester.ensureVisible(find.byKey(const Key('playground-submit')));
+      await tester.pumpAndSettle();
+      final engineRequestsBefore = runtime.io.requests.length;
+      await tester.runAsync(
+        () => HttpOverrides.runWithHttpOverrides(() async {
+          await tester.tap(find.byKey(const Key('playground-submit')));
+          await tester.pump();
+          await _waitForPage(
+            tester,
+            find.byKey(const Key('playground-output')),
+          );
         }, _NetworkBoundary()),
       );
       await tester.pumpAndSettle();
       final output = tester
-          .widget<SelectableText>(find.byKey(const Key('jev-standard-output')))
+          .widget<SelectableText>(find.byKey(const Key('playground-output')))
           .data!;
       final decoded = jsonDecode(output) as Map;
       expect(decoded.keys, ['model', 'answers', 'usage']);
       expect(decoded['model'], 'quick');
       expect(decoded['answers']['council_choice']['confidence'], 0.5);
+      expect(decoded['answers'].keys, ['council_choice']);
+      expect(decoded['usage'], {'input_tokens': 10, 'output_tokens': 0});
+      expect(runtime.io.requests.length, engineRequestsBefore + 1);
+      expect(runtime.io.requests.last['questions'], document['questions']);
+      expect(runtime.io.requests.last['state'], document['state']);
+      final nativeInstance = runtime.engine.state.instances.singleWhere(
+        (instance) =>
+            instance.asset.id ==
+            council.models.definitions.single.bindings.single.artifactId,
+      );
+      expect(runtime.io.requests.last['model'], nativeInstance.id);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: CouncilPage(controller: council, onOpenLibrary: () {}),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
       await tester.ensureVisible(find.byKey(const Key('edit-model-quick')));
       await tester.tap(find.byKey(const Key('edit-model-quick')));
       await tester.pumpAndSettle();
@@ -226,6 +321,17 @@ void main() {
       expect(council.models.definitions, isEmpty);
     },
   );
+}
+
+Future<void> _waitForPage(WidgetTester tester, Finder finder) async {
+  final until = DateTime.now().add(const Duration(seconds: 5));
+  while (finder.evaluate().isEmpty) {
+    if (DateTime.now().isAfter(until)) {
+      fail('The actual public JEV playground action did not complete');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    await tester.pump();
+  }
 }
 
 class _NetworkBoundary extends HttpOverrides {}

@@ -8,7 +8,6 @@ class DecisionIOTrace {
   String? _rawResponse;
   int? _httpStatus;
   bool _sealed = false;
-
   void sent(String body) {
     if (_sealed) return;
     _requestBody = body;
@@ -54,6 +53,15 @@ enum JevDebugProjection {
   debug,
   playgroundResult,
   discovery,
+  llmRequest,
+  llmResponse,
+  llmEvidence,
+  embeddingRequest,
+  embeddingResponse,
+  embeddingEvidence,
+  benchmarkRun,
+  benchmarkQuestionRun,
+  benchmarkGameRun,
 }
 
 /// Redacts display copies only; actual engine input remains intact.
@@ -68,6 +76,16 @@ Map<String, Object?> sealDebugJson(
     JevDebugProjection.debug => _JevProjection.debug,
     JevDebugProjection.playgroundResult => _JevProjection.playgroundResult,
     JevDebugProjection.discovery => _JevProjection.discovery,
+    JevDebugProjection.llmRequest => _JevProjection.llmRequest,
+    JevDebugProjection.llmResponse => _JevProjection.llmResponse,
+    JevDebugProjection.llmEvidence => _JevProjection.llmEvidence,
+    JevDebugProjection.embeddingRequest => _JevProjection.embeddingRequest,
+    JevDebugProjection.embeddingResponse => _JevProjection.embeddingResponse,
+    JevDebugProjection.embeddingEvidence => _JevProjection.embeddingEvidence,
+    JevDebugProjection.benchmarkRun => _JevProjection.benchmarkRun,
+    JevDebugProjection.benchmarkQuestionRun =>
+      _JevProjection.benchmarkQuestionRun,
+    JevDebugProjection.benchmarkGameRun => _JevProjection.benchmarkGameRun,
   };
   final redactor = _CredentialRedactor()..collect(value, context: context);
   return freezeDebugJson(redactor.redact(value, context: context))
@@ -93,6 +111,24 @@ enum _JevProjection {
   answer,
   aggregates,
   aggregate,
+  llmRequest,
+  llmResponse,
+  llmEvidence,
+  embeddingRequest,
+  embeddingResponse,
+  embeddingEvidence,
+  llmMessage,
+  llmChoice,
+  llmDelta,
+  benchmarkRun,
+  benchmarkQuestionRun,
+  benchmarkGameRun,
+  benchmarkGameItem,
+  benchmarkGameCall,
+  benchmarkQuestionItem,
+  benchmarkItem,
+  benchmarkResult,
+  benchmarkIdentity,
 }
 
 class _CredentialRedactor {
@@ -132,9 +168,69 @@ class _CredentialRedactor {
           _JevProjection.request,
           _JevProjection.response,
           _JevProjection.debug,
+          _JevProjection.llmRequest,
+          _JevProjection.llmResponse,
+          _JevProjection.embeddingRequest,
+          _JevProjection.embeddingResponse,
+          _JevProjection.benchmarkRun,
+          _JevProjection.benchmarkQuestionRun,
+          _JevProjection.benchmarkGameRun,
+          _JevProjection.benchmarkIdentity,
         }.contains(context) &&
         key == 'model' &&
         parent[key] is String) {
+      return true;
+    }
+    if (context == _JevProjection.benchmarkGameRun &&
+        const {'suite', 'source_summary', 'groups'}.contains(key)) {
+      return true;
+    }
+    if (context == _JevProjection.benchmarkGameItem &&
+        const {'id', 'recording', 'result'}.contains(key)) {
+      return true;
+    }
+    if (context == _JevProjection.benchmarkQuestionRun &&
+        const {'suite', 'source_summary', 'groups'}.contains(key)) {
+      return true;
+    }
+    if (context == _JevProjection.benchmarkQuestionItem &&
+        const {'id', 'metadata', 'source_result'}.contains(key)) {
+      return true;
+    }
+    if (context == _JevProjection.benchmarkItem &&
+        const {
+          'id',
+          'pair_id',
+          'gold',
+          'prediction',
+          'category',
+          'difficulty',
+        }.contains(key) &&
+        parent[key] is String) {
+      return true;
+    }
+    if (key == 'content' &&
+        parent[key] is String &&
+        (context == _JevProjection.llmMessage &&
+                const {
+                  'system',
+                  'user',
+                  'assistant',
+                }.contains(parent['role']) ||
+            context == _JevProjection.llmDelta)) {
+      return true;
+    }
+    if (context == _JevProjection.llmEvidence &&
+        key == 'text' &&
+        parent[key] is String) {
+      return true;
+    }
+    if (context == _JevProjection.embeddingRequest &&
+        key == 'input' &&
+        parent['model'] is String &&
+        (parent[key] is String ||
+            parent[key] is List &&
+                (parent[key] as List).every((item) => item is String))) {
       return true;
     }
     if (context == _JevProjection.request &&
@@ -201,6 +297,86 @@ class _CredentialRedactor {
     String key,
     _JevProjection context,
   ) => switch (context) {
+    _JevProjection.benchmarkGameRun => switch (key) {
+      'items' => _JevProjection.benchmarkGameItem,
+      'warmup_calls' => _JevProjection.benchmarkGameCall,
+      'identity' => _JevProjection.benchmarkIdentity,
+      _ => _JevProjection.none,
+    },
+    _JevProjection.benchmarkGameItem =>
+      key == 'calls' ? _JevProjection.benchmarkGameCall : _JevProjection.none,
+    _JevProjection.benchmarkGameCall => switch (key) {
+      'request' => _JevProjection.request,
+      'result' => _JevProjection.benchmarkResult,
+      _ => _JevProjection.none,
+    },
+    _JevProjection.benchmarkQuestionRun => switch (key) {
+      'items' => _JevProjection.benchmarkQuestionItem,
+      'identity' => _JevProjection.benchmarkIdentity,
+      _ => _JevProjection.none,
+    },
+    _JevProjection.benchmarkQuestionItem => switch (key) {
+      'request' ||
+      'request_json' ||
+      'original_request_json' => _JevProjection.request,
+      'result' => _JevProjection.benchmarkResult,
+      _ => _JevProjection.none,
+    },
+    _JevProjection.benchmarkRun => switch (key) {
+      'items' => _JevProjection.benchmarkItem,
+      'identity' => _JevProjection.benchmarkIdentity,
+      _ => _JevProjection.none,
+    },
+    _JevProjection.benchmarkIdentity =>
+      key == 'configuration'
+          ? _JevProjection.configuration
+          : _JevProjection.none,
+    _JevProjection.benchmarkItem => switch (key) {
+      'request' || 'request_json' => _JevProjection.request,
+      'result' => _JevProjection.benchmarkResult,
+      _ => _JevProjection.none,
+    },
+    _JevProjection.benchmarkResult => switch (key) {
+      'request' || 'request_json' => _JevProjection.request,
+      'output' =>
+        parent['status'] == 'success'
+            ? _JevProjection.response
+            : _JevProjection.none,
+      'debug' => _JevProjection.debug,
+      'raw_response' =>
+        parent['status'] == 'success' && parent['output'] is Map
+            ? _JevProjection.response
+            : _JevProjection.none,
+      _ => _JevProjection.none,
+    },
+    _JevProjection.llmEvidence => switch (key) {
+      'input' || 'request' || 'request_body' => _JevProjection.llmRequest,
+      'response' || 'raw_response' => _JevProjection.llmResponse,
+      'result' => _JevProjection.llmEvidence,
+      _ => _JevProjection.none,
+    },
+    _JevProjection.embeddingEvidence => switch (key) {
+      'input' ||
+      'input_json' ||
+      'request' ||
+      'request_body' => _JevProjection.embeddingRequest,
+      'response' || 'raw_response' => _JevProjection.embeddingResponse,
+      'result' => _JevProjection.embeddingEvidence,
+      _ => _JevProjection.none,
+    },
+    _JevProjection.embeddingRequest ||
+    _JevProjection.embeddingResponse => _JevProjection.none,
+    _JevProjection.llmRequest =>
+      key == 'messages' ? _JevProjection.llmMessage : _JevProjection.none,
+    _JevProjection.llmResponse =>
+      key == 'choices' && parent['model'] is String
+          ? _JevProjection.llmChoice
+          : _JevProjection.none,
+    _JevProjection.llmChoice => switch (key) {
+      'message' => _JevProjection.llmMessage,
+      'delta' => _JevProjection.llmDelta,
+      _ => _JevProjection.none,
+    },
     _JevProjection.discovery => switch (key) {
       'instances' => _JevProjection.nativeDiscovery,
       'data' => _JevProjection.modelDiscovery,
@@ -290,6 +466,33 @@ class _CredentialRedactor {
         }
       } on FormatException {
         // Malformed raw JSON and error text remain credential-bearing evidence.
+      }
+      if (context == _JevProjection.llmResponse &&
+          const LineSplitter()
+              .convert(value)
+              .any((line) => line.startsWith('data:'))) {
+        // Observe each SSE payload with its response role. Unknown frames and
+        // comments remain generic evidence; raw bytes are never reconstructed.
+        final data = <String>[];
+        void dispatch() {
+          if (data.isEmpty) return;
+          final payload = data.join('\n');
+          data.clear();
+          if (payload != '[DONE]') collect(payload, context: context);
+        }
+
+        for (final line in const LineSplitter().convert(value)) {
+          if (line.isEmpty) {
+            dispatch();
+          } else if (line.startsWith('data:')) {
+            final content = line.substring(5);
+            data.add(content.startsWith(' ') ? content.substring(1) : content);
+          } else {
+            collect(line);
+          }
+        }
+        dispatch();
+        return;
       }
       for (final match in _fields.allMatches(value)) {
         var secret = match.group(2) ?? match.group(3) ?? match.group(4)!;

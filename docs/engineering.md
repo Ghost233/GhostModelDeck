@@ -21,31 +21,45 @@
 | E09 按职责拆分 | 建议 | UI 按页面或功能聚合，共享业务与 I/O 模块按职责组织。按修改需要拆分现有文件；目录迁移作为独立改动评估。 |
 | E10 增加抽象 | 按需 | 重复业务逻辑或过大的界面状态处理出现后，再提取领域模块或 use-case；外部边界及实际需要替换的实现使用接口。说明抽象服务的具体调用方。 |
 | E11 性能措施 | 按需 | 大列表使用惰性构建；CPU 工作、重绘或状态更新影响交互时，先测量，再选择 isolate、重绘隔离等措施，并用相同场景对比。 |
-| E12 依赖变更 | 必须 | 说明新增包解决的问题及 SDK/平台兼容性，在容器解析依赖并保留 lockfile。实验性 API 先验证固定 SDK 与平台支持，再决定是否采用。 |
+| E12 依赖变更 | 必须 | 说明新增包解决的问题及 SDK/平台兼容性，在选定的宿主机或容器环境联网解析依赖并保留 lockfile。实验性 API 先验证固定 SDK 与平台支持，再决定是否采用。 |
 
 状态管理与目录结构服务于这些边界。MVVM 是组织 UI 与状态处理的参考；无需为每个功能复制一套三层目录。
 
 ## 修改与检查流程
 
-1. 确认本次行为、适用规则及可观察的成功标准；涉及领域行为时按 `docs/agents/domain.md` 读取术语与相关 ADR。
-2. 在现有业务入口实现修改。缺陷先复现，行为变更补充相应测试；文档或纯视觉调整使用链接、截图和交互检查验证。
-3. 运行下列检查，逐项报告通过、失败或未执行。失败时给出位置，并区分本次新增与原有问题；仅在零诊断时报告静态分析通过。
+**平台与产物规则：只编译、打包和提供 macOS arm64（Apple Silicon）版本。** 应用、引擎和配套运行时均遵守这一规则；macOS Intel/x64、Linux、Windows 及通用双架构产物全部不提供。构建成功后核对实际 Mach-O 架构，不能仅凭宿主机是 arm64 判定产物符合要求。
+
+固定 Flutter SDK 的非调试 Mac 构建默认可能生成双架构产物。开发构建使用命令级开关，不改全局设置：
 
 ```sh
-./scripts/test-container.sh format --output=none --set-exit-if-changed lib test benchmarks
-./scripts/test-container.sh analyze
-./scripts/test-container.sh test
+FLUTTER_MACOS_ARM64_ONLY=true /Users/ghost233/flutter/bin/flutter build macos --release --no-pub
+```
+
+发布包入口强制同一开关，并拒绝包含其他架构的应用和 Flutter 运行时。Git 源码引擎构建使用 `CMAKE_OSX_ARCHITECTURES=arm64`。这条平台规则是长期交付要求，不只是当前阶段的验收裁剪。
+
+1. 确认本次行为、适用规则及可观察的成功标准；涉及领域行为时按 `docs/agents/domain.md` 读取术语与相关 ADR。
+2. 在现有业务入口实现修改。缺陷先复现，行为变更补充相应测试；文档或纯视觉调整使用链接、截图和交互检查验证。
+3. 本次产品与检查平台统一为 **macOS arm64 宿主机**。使用固定 Flutter 3.47.6（`5fc346839b5d0eef006ed8404392afb4dfae428d`）、Dart 3.13.5、现有 lockfile 和联网依赖解析；格式、静态分析、完整业务/widget 测试及真实 Mac 构建均在该宿主机执行。Linux、Windows、macOS Intel/x64 不属于本次适配或验收范围，运行时只准备 macOS arm64 版本。
+
+2026-10-09 用户进一步统一本次执行方式：不新建或恢复容器，不以 Linux 容器作为默认检查或必需前置。旧容器日志只保留为历史证据，不代替当前宿主门禁。
+
+新增 `scripts/test-host.sh` 统一准备及检查入口：先通过显式 `GMD_FLUTTER_SDK`、`GMD_TEST_PYTHON`、`JEV_LAYOUT_FONT` 核验实际工具链、字体摘要及规范临时目录，在线解析依赖并记录准备清单；后续定点及完整门禁复用同一准备结果。字体和布局断言全部保留，不因缺依赖跳过；SDK 字体使用实际 Mac SDK 路径。
+
+```sh
+export GMD_FLUTTER_SDK=/Users/ghost233/flutter
+export GMD_TEST_PYTHON=/Users/ghost233/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3
+export JEV_LAYOUT_FONT="$PWD/.tooling/check-fonts/NotoSansCJK-Regular.ttc"
+./scripts/test-host.sh prepare
+./scripts/test-host.sh check
 ```
 
 改动 `scripts/` 下的 shell 脚本时，必须先 `bash -n` 静态检查；含副作用的脚本（打包、发布、环境准备）合并前必须完成一次真实干跑并核验产物。变量展开紧邻非 ASCII 字符时必须加花括号（macOS 自带 bash 3.2 会把全角字符字节并入变量名）；依赖 `trap` 清理的脚本须在 trap 内保存并恢复退出码。
 
-脚本在 Socktainer 内解析依赖并检查隔离源码副本；`format --output=none` 只检查，不改写工作区文件。使用新项目容器名称与 `GMD_TEST_CONTAINER`，不覆盖来源测试工作区。应用代码与脚本已迁入；具体已执行范围及限制见 [迁入验证](verification/ghostmodeldeck-migration-validation.md) 和各切片验证记录，不以来源旧测试记录替代本项目结果。
+宿主机检查记录固定 SDK 版本、源码 HEAD 及实际待测内容指纹、执行命令、环境、日志和真实退出码，保留主错误与清理错误。 Flutter 测试同时核对标准报告的成功完成标记及失败记录，保存 `test-outcome.json`；中断收尾后命令退出 0 也不能覆盖原业务失败。原命令退出码仍单独保存，缺失完成证据的检查判为未通过。`format --output=none` 只检查，不改写工作区。切换执行环境后不能冒用另一环境的结果。
 
-检查按联网模式执行；用户明确要求不使用离线模式。外网故障应保留具体请求、超时阶段与失败结果，诊断恢复后重跑，不以缓存离线结果替代正式检查。
+检查按联网模式执行；用户明确要求不使用离线模式。外网故障保留具体请求、超时阶段与失败结果，诊断恢复后重跑，不以缓存离线结果替代正式检查。新增 git 依赖或提升 git ref 后，先核对实际检查环境能否获取固定提交；遇到网络故障再采用经过核验的缓存准备，不沿用旧兼容层的 DNS/复制限制。
 
-容器已知限制（2026-10-07 实测）：容器无法直连 github.com（git fetch 134s 超时），新增 git 依赖或提升 git ref 后，需先从宿主 `~/.pub-cache` 暖容器内 bare pub git 缓存再跑门禁；容器内 `format` 的改写不会传回宿主工作区，容器格式化后必须在宿重复跑 format/analyze；经 Socktainer `docker cp` 单文件可能截断为 0 字节，文件传输改用 base64 over `docker exec`。
-
-通用 Dart/widget 检查在容器执行。Mac 构建、桌面交互、原生引擎和应用内 MCP 的联调按 [规格中的开发边界](spec.md#开发与交付边界) 在 Mac 执行。
+源文件改写使用固定 Dart SDK。固定 #66 候选后，先关闭已确认的原始失败，再集中完成完整门禁、真实模型完整 400 题 HTTP、独立原评分及退出/历史验收。新失败先定点处理，通过后完成必要回归，不反复冻结相同内容。运行记录见 [测试场交付](verification/playground-benchmarks-delivery.md)。
 
 ## 测试与完成证据
 

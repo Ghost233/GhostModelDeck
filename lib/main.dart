@@ -6,15 +6,24 @@ import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import 'app_theme.dart';
+import 'benchmark_game_work.dart';
+import 'benchmark_page.dart';
+import 'benchmark_resources.dart';
+import 'benchmark_run_store.dart';
+import 'benchmark_runner.dart';
 import 'council.dart';
 import 'council_page.dart';
 import 'jev_playground_page.dart';
+import 'jev_playground.dart';
+import 'llm_playground_page.dart';
 import 'council_mcp.dart';
 import 'download_panel.dart';
 import 'download_preferences.dart';
 import 'download_tasks_page.dart';
 import 'engine_catalog.dart';
 import 'engine_page.dart';
+import 'engine_source_build.dart';
+import 'embedding_page.dart';
 import 'omlx_engine.dart';
 import 'hf_model_browser.dart';
 import 'public_gateway.dart';
@@ -29,6 +38,8 @@ import 'manager_lifecycle.dart';
 import 'model_use_registry.dart';
 import 'sdk_service.dart';
 import 'settings_page.dart';
+import 'startlux_readout.dart';
+import 'startlux_runtime.dart';
 import 'software_update_pane.dart';
 import 'update_checker.dart';
 import 'update_download_service.dart';
@@ -54,7 +65,8 @@ class _ManagerShell extends StatefulWidget {
   State<_ManagerShell> createState() => _ManagerShellState();
 }
 
-class _ManagerShellState extends State<_ManagerShell> {
+class _ManagerShellState extends State<_ManagerShell>
+    with TickerProviderStateMixin {
   static const _native = MethodChannel('com.ghost233.ghostmodeldeck/native');
   final _settings = LibraryDirectorySettings.user();
   final _preferences = DownloadPreferences.user();
@@ -65,12 +77,19 @@ class _ManagerShellState extends State<_ManagerShell> {
   late final ModelUseRegistry _useRegistry;
   late final LlamaEngine _officialEngine;
   late final LlamaEngine _standardEngine;
+  late final LlamaEngine _embeddingEngine;
+  late final StartluxRuntime _startluxRuntime;
+  StartluxReadoutFactory? _startluxReadoutFactory;
+  Future<void> _startluxPreparation = Future.value();
   late final OmlxEngine _omlxEngine;
   late final EngineCatalog _engines;
   late final CouncilController _council;
   late final CouncilMcpServer _mcp;
   late final PublicModelRoutes _publicRoutes;
   late final PublicGatewayServer _publicGateway;
+  late final BenchmarkResources _benchmarkResources;
+  late final BenchmarkGameWork _benchmarkGameWork;
+  late final BenchmarkRunner _benchmarks;
   final _startupSet = StartupModelSet.user();
   late final LauncherInferenceService _launcherService;
   late final ManagerLifecycle _lifecycle;
@@ -79,11 +98,18 @@ class _ManagerShellState extends State<_ManagerShell> {
   String? _settingsError;
   String? _appVersion;
   int _page = 0;
+  int _enginePage = 0;
+  int _playgroundPage = 8;
+  int _jevPage = 7;
+  late final TabController _workspaceTabs;
+  late final TabController _capabilityTabs;
   final _openedPages = <int>{0};
 
   @override
   void initState() {
     super.initState();
+    _workspaceTabs = TabController(length: 2, vsync: this);
+    _capabilityTabs = TabController(length: 3, vsync: this);
     _browser = HfModelBrowser(
       cacheDirectory: Directory('${_settings.file.parent.path}/hf-cache'),
     );
@@ -92,12 +118,17 @@ class _ManagerShellState extends State<_ManagerShell> {
       preferences: _preferences,
     );
     _useRegistry = ModelUseRegistry(_library);
+    _startluxRuntime = StartluxRuntime(
+      Directory('${_settings.file.parent.path}/startlux-runtime'),
+      assets: _loadStartluxAsset,
+    );
     _officialEngine = LlamaEngine(
       library: _library,
       installationDirectory: Directory(
         '${_settings.file.parent.path}/engines/llama.cpp',
       ),
       useRegistry: _useRegistry,
+      startStartluxReadout: _startStartluxReadout,
     );
     _standardEngine = LlamaEngine(
       library: _library,
@@ -105,6 +136,15 @@ class _ManagerShellState extends State<_ManagerShell> {
       useRegistry: _useRegistry,
       release: standardLlamaRelease,
       installationId: EngineCatalog.standardId,
+      startStartluxReadout: _startStartluxReadout,
+    );
+    _embeddingEngine = LlamaEngine(
+      library: _library,
+      installationDirectory: _officialEngine.installationDirectory,
+      useRegistry: _useRegistry,
+      release: embeddingLlamaRelease,
+      installationId: EngineCatalog.embeddingId,
+      startStartluxReadout: _startStartluxReadout,
     );
     _omlxEngine = OmlxEngine(
       installationDirectory: Directory(
@@ -115,9 +155,14 @@ class _ManagerShellState extends State<_ManagerShell> {
       library: _library,
       officialEngine: _officialEngine,
       standardEngine: _standardEngine,
+      embeddingEngine: _embeddingEngine,
       omlxEngine: _omlxEngine,
       useRegistry: _useRegistry,
       registryFile: File('${_settings.file.parent.path}/engines.json'),
+      startStartluxReadout: _startStartluxReadout,
+      sourceBuilder: EngineSourceBuilder(
+        Directory('${_settings.file.parent.path}/engines/source'),
+      ),
     );
     _council = CouncilController(
       catalog: _engines,
@@ -126,12 +171,31 @@ class _ManagerShellState extends State<_ManagerShell> {
     _mcp = CouncilMcpServer(controller: _council);
     _publicRoutes = PublicModelRoutes(
       library: _library,
-      runtimes: [_officialEngine, _standardEngine, _omlxEngine],
+      runtimes: [
+        _officialEngine,
+        _standardEngine,
+        _embeddingEngine,
+        _omlxEngine,
+      ],
+      runtimeSources: () => _engines.runtimes.toList(),
       registryFile: File('${_settings.file.parent.path}/public_models.json'),
     );
     _publicGateway = PublicGatewayServer(
       routes: _publicRoutes,
       jevModels: _council.models,
+    );
+    _benchmarkResources = BenchmarkResources(
+      Directory('${_settings.file.parent.path}/benchmark-cache'),
+    );
+    _benchmarkGameWork = BenchmarkGameWork(
+      Directory('${_settings.file.parent.path}/benchmark-game-cache'),
+    );
+    _benchmarks = BenchmarkRunner(
+      client: JevPlayground(gateway: _publicGateway, mcp: _mcp),
+      store: BenchmarkRunStore(
+        directory: Directory('${_settings.file.parent.path}/benchmark-runs'),
+      ),
+      models: _council.models,
     );
     // #28 版本状况桥：与设置页共用 UpdateChecker 查询；当前版本读取包信息
     // 缓存值，未就绪时桥如实按查询失败回报。
@@ -160,18 +224,31 @@ class _ManagerShellState extends State<_ManagerShell> {
       downloader: _downloader,
       gateway: _publicGateway,
       launcher: _launcherService,
+      benchmarks: _benchmarks,
+      benchmarkResources: _benchmarkResources,
+      benchmarkGameWork: _benchmarkGameWork,
     );
     _native.setMethodCallHandler((call) async {
       if (call.method != 'prepareToQuit') throw MissingPluginException();
+      _startluxRuntime.cancelPreparation();
+      final failures = <String>[];
       try {
         await _lifecycle.shutdown();
-        return true;
-      } catch (_) {
+      } catch (error) {
+        failures.add('服务收尾：$error');
+      }
+      try {
+        await _startluxRuntime.close();
+      } catch (error) {
+        failures.add('StartLux 运行时收尾：$error');
+      }
+      if (failures.isNotEmpty) {
         throw PlatformException(
           code: 'shutdown_failed',
-          message: '受管服务尚未完成收尾。',
+          message: failures.join('; '),
         );
       }
+      return true;
     });
     unawaited(_mcp.start().catchError((Object _) {}));
     // 启动失败（含公开端口冲突）保留在网关状态机中显式呈现，不影响其余服务。
@@ -180,6 +257,46 @@ class _ManagerShellState extends State<_ManagerShell> {
     _launcherService.connect();
     _loadSettings();
     _loadAppVersion();
+  }
+
+  Future<StartluxReadout?> _startStartluxReadout(
+    LibraryArtifact asset,
+    Uri nativeEndpoint,
+    String alias,
+    int generation,
+    DecisionCancellation cancellation,
+  ) async {
+    if (!asset.hasStartluxReadout) return null;
+    // Several engine installations share one preparation owner. The caller
+    // retains the real failure; the tail only admits the next preparation.
+    final preparation = _startluxPreparation.then(
+      (_) => _startluxRuntime.prepare(cancellation),
+    );
+    _startluxPreparation = preparation.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    final runtime = await preparation;
+    var factory = _startluxReadoutFactory;
+    if (factory == null || factory.runtime.fingerprint != runtime.fingerprint) {
+      factory = StartluxReadoutFactory(
+        runtime,
+        cacheRoot: Directory('${_settings.file.parent.path}/startlux-readout'),
+        assets: _loadStartluxAsset,
+      );
+      _startluxReadoutFactory = factory;
+    }
+    return factory.start(
+      nativeEndpoint: nativeEndpoint,
+      alias: alias,
+      generation: generation,
+      cancellation: cancellation,
+    );
+  }
+
+  Future<Uint8List> _loadStartluxAsset(String name) async {
+    final data = await rootBundle.load(name);
+    return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
   }
 
   /// 应用内展示的当前版本必须来自包信息（Info.plist），不硬编码。
@@ -243,14 +360,58 @@ class _ManagerShellState extends State<_ManagerShell> {
   void _navigate(int page) => setState(() {
     _page = page;
     _openedPages.add(page);
+    if (page <= 6 && page != 4) {
+      _enginePage = page;
+      _workspaceTabs.index = 0;
+    } else if (page >= 7) {
+      _playgroundPage = page;
+      _capabilityTabs.index = switch (page) {
+        8 => 0,
+        10 => 2,
+        _ => 1,
+      };
+      if (page == 7 || page == 9) _jevPage = page;
+    }
+  });
+
+  void _selectWorkspace(int index) => setState(() {
+    _page = index == 0 ? _enginePage : _playgroundPage;
+    _openedPages.add(_page);
+  });
+
+  void _selectCapability(int index) => setState(() {
+    _playgroundPage = switch (index) {
+      0 => 8,
+      1 => _jevPage,
+      _ => 10,
+    };
+    _page = _playgroundPage;
+    _openedPages.add(_page);
   });
 
   @override
   void dispose() {
+    _capabilityTabs.dispose();
+    _workspaceTabs.dispose();
     _native.setMethodCallHandler(null);
     // 只关闭 SDK 通信，不回收业务；明确退出的完整收尾走 ManagerLifecycle。
     unawaited(_launcherService.dispose().catchError((Object _) {}));
     _browser.close();
+    unawaited(_benchmarks.close().catchError((Object _) {}));
+    unawaited(_benchmarks.store.close().catchError((Object _) {}));
+    unawaited(_benchmarkResources.close().catchError((Object _) {}));
+    unawaited(_benchmarkGameWork.close().catchError((Object _) {}));
+    unawaited(
+      _startluxRuntime.close().catchError((Object error, StackTrace stack) {
+        FlutterError.reportError(
+          FlutterErrorDetails(
+            exception: error,
+            stack: stack,
+            context: ErrorDescription('收尾 StartLux 运行时准备'),
+          ),
+        );
+      }),
+    );
     // Explicit native shutdown awaits the original failure via ManagerLifecycle.
     unawaited(_downloader.close().catchError((Object _) {}));
     _mcp.close();
@@ -260,6 +421,7 @@ class _ManagerShellState extends State<_ManagerShell> {
     _engines.close();
     _officialEngine.close();
     _standardEngine.close();
+    _embeddingEngine.close();
     _library.close();
     _preferences.dispose();
     super.dispose();
@@ -336,140 +498,207 @@ class _ManagerShellState extends State<_ManagerShell> {
     }
     return Scaffold(
       body: SafeArea(
-        child: Row(
+        child: Column(
           children: [
-            Container(
-              width: 188,
-              color: scheme.surfaceContainerLow,
-              child: Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 26, 12, 12),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 28,
-                          height: 28,
-                          decoration: BoxDecoration(
-                            color: scheme.primary,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Icon(
-                            Icons.hub_outlined,
-                            color: scheme.onPrimary,
-                            size: 17,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Tooltip(
-                            message: 'Ghost Model Deck',
-                            child: Text(
-                              'Ghost Model Deck',
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Expanded(
-                    child: ListView(
-                      padding: EdgeInsets.zero,
-                      children: [
-                        _groupLabel('模型'),
-                        _navigation('发现模型', Icons.search_rounded, 0),
-                        _navigation('模型库', Icons.folder_outlined, 2),
-                        _navigation('下载任务', Icons.download_outlined, 1),
-                        _groupLabel('服务'),
-                        _navigation('委员会', Icons.groups_outlined, 5),
-                        _navigation('推理测试场', Icons.science_outlined, 7),
-                        _navigation('MCP', Icons.cable_outlined, 6),
-                        _navigation('引擎管理', Icons.memory_outlined, 3),
-                      ],
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 10,
-                    ),
-                    child: Divider(color: scheme.outlineVariant),
-                  ),
-                  _navigation('设置', Icons.tune_rounded, 4),
-                  const SizedBox(height: 18),
+            TabBar(
+              key: const Key('workspace-tabs'),
+              controller: _workspaceTabs,
+              onTap: _selectWorkspace,
+              tabs: const [
+                Tab(text: '引擎'),
+                Tab(text: '测试场'),
+              ],
+            ),
+            if (_workspaceTabs.index == 1)
+              TabBar.secondary(
+                key: const Key('playground-capability-tabs'),
+                controller: _capabilityTabs,
+                onTap: _selectCapability,
+                tabs: const [
+                  Tab(text: '通用 LLM'),
+                  Tab(text: 'JEV'),
+                  Tab(text: '嵌入'),
                 ],
               ),
-            ),
-            VerticalDivider(width: 1, color: scheme.outlineVariant),
             Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(32, 30, 32, 28),
-                child: IndexedStack(
-                  index: _page,
-                  children: [
-                    ModelSearchPage(
-                      browser: _browser,
-                      downloads: _downloads,
-                      libraryPath: path,
-                      onDownloadStarted: () => _navigate(1),
+              child: Row(
+                children: [
+                  Container(
+                    width: 188,
+                    color: scheme.surfaceContainerLow,
+                    child: Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(24, 26, 12, 12),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 28,
+                                height: 28,
+                                decoration: BoxDecoration(
+                                  color: scheme.primary,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Icon(
+                                  Icons.hub_outlined,
+                                  color: scheme.onPrimary,
+                                  size: 17,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Tooltip(
+                                  message: 'Ghost Model Deck',
+                                  child: Text(
+                                    'Ghost Model Deck',
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Expanded(
+                          child: ListView(
+                            padding: EdgeInsets.zero,
+                            children: [
+                              if (_workspaceTabs.index == 0) ...[
+                                _groupLabel('模型'),
+                                _navigation('发现模型', Icons.search_rounded, 0),
+                                _navigation('模型库', Icons.folder_outlined, 2),
+                                _navigation('下载任务', Icons.download_outlined, 1),
+                                _groupLabel('服务'),
+                                _navigation('引擎管理', Icons.memory_outlined, 3),
+                                _navigation('委员会配置', Icons.groups_outlined, 5),
+                                _navigation('MCP', Icons.cable_outlined, 6),
+                              ] else ...[
+                                _groupLabel('测试'),
+                                _navigation(
+                                  '基础测试',
+                                  Icons.science_outlined,
+                                  switch (_capabilityTabs.index) {
+                                    0 => 8,
+                                    1 => 7,
+                                    _ => 10,
+                                  },
+                                ),
+                                if (_capabilityTabs.index == 1)
+                                  _navigation(
+                                    '基准评测',
+                                    Icons.assessment_outlined,
+                                    9,
+                                  ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 10,
+                          ),
+                          child: Divider(color: scheme.outlineVariant),
+                        ),
+                        _navigation('设置', Icons.tune_rounded, 4),
+                        const SizedBox(height: 18),
+                      ],
                     ),
-                    if (_openedPages.contains(1))
-                      DownloadTasksPage(downloads: _downloads)
-                    else
-                      const SizedBox.shrink(),
-                    if (_openedPages.contains(2))
-                      LibraryPage(
-                        library: _library,
-                        libraryPath: path,
-                        engines: _engines,
-                        publicRoutes: _publicRoutes,
-                        publicGateway: _publicGateway,
-                        startupSet: _startupSet,
-                      )
-                    else
-                      const SizedBox.shrink(),
-                    if (_openedPages.contains(3))
-                      EnginePage(
-                        catalog: _engines,
-                        pickEngineDirectory: _pickEngineDirectory,
-                      )
-                    else
-                      const SizedBox.shrink(),
-                    if (_openedPages.contains(4))
-                      SettingsPage(
-                        preferences: _preferences,
-                        libraryPath: path,
-                        onLibraryPathChanged: _saveDirectory,
-                        pickLibraryDirectory: _pickDirectory,
-                        softwareUpdate: _softwareUpdateConfig(),
-                      )
-                    else
-                      const SizedBox.shrink(),
-                    if (_openedPages.contains(5))
-                      CouncilPage(
-                        controller: _council,
-                        onOpenLibrary: () => _navigate(2),
-                      )
-                    else
-                      const SizedBox.shrink(),
-                    if (_openedPages.contains(6))
-                      McpPage(server: _mcp)
-                    else
-                      const SizedBox.shrink(),
-                    if (_openedPages.contains(7))
-                      JevPlaygroundPage(
-                        controller: _council,
-                        gateway: _publicGateway,
-                        mcp: _mcp,
-                        active: _page == 7,
-                      )
-                    else
-                      const SizedBox.shrink(),
-                  ],
-                ),
+                  ),
+                  VerticalDivider(width: 1, color: scheme.outlineVariant),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(32, 30, 32, 28),
+                      child: IndexedStack(
+                        index: _page,
+                        children: [
+                          ModelSearchPage(
+                            browser: _browser,
+                            downloads: _downloads,
+                            libraryPath: path,
+                            onDownloadStarted: () => _navigate(1),
+                          ),
+                          if (_openedPages.contains(1))
+                            DownloadTasksPage(downloads: _downloads)
+                          else
+                            const SizedBox.shrink(),
+                          if (_openedPages.contains(2))
+                            LibraryPage(
+                              library: _library,
+                              libraryPath: path,
+                              engines: _engines,
+                              publicRoutes: _publicRoutes,
+                              publicGateway: _publicGateway,
+                              startupSet: _startupSet,
+                            )
+                          else
+                            const SizedBox.shrink(),
+                          if (_openedPages.contains(3))
+                            EnginePage(
+                              catalog: _engines,
+                              pickEngineDirectory: _pickEngineDirectory,
+                            )
+                          else
+                            const SizedBox.shrink(),
+                          if (_openedPages.contains(4))
+                            SettingsPage(
+                              preferences: _preferences,
+                              libraryPath: path,
+                              onLibraryPathChanged: _saveDirectory,
+                              pickLibraryDirectory: _pickDirectory,
+                              softwareUpdate: _softwareUpdateConfig(),
+                            )
+                          else
+                            const SizedBox.shrink(),
+                          if (_openedPages.contains(5))
+                            CouncilPage(
+                              controller: _council,
+                              onOpenLibrary: () => _navigate(2),
+                            )
+                          else
+                            const SizedBox.shrink(),
+                          if (_openedPages.contains(6))
+                            McpPage(server: _mcp)
+                          else
+                            const SizedBox.shrink(),
+                          if (_openedPages.contains(7))
+                            JevPlaygroundPage(
+                              gateway: _publicGateway,
+                              mcp: _mcp,
+                              active: _workspaceTabs.index == 1 && _page == 7,
+                            )
+                          else
+                            const SizedBox.shrink(),
+                          if (_openedPages.contains(8))
+                            LlmPlaygroundPage(
+                              gateway: _publicGateway,
+                              active: _workspaceTabs.index == 1 && _page == 8,
+                            )
+                          else
+                            const SizedBox.shrink(),
+                          if (_openedPages.contains(9))
+                            BenchmarkPage(
+                              resources: _benchmarkResources,
+                              runner: _benchmarks,
+                              gameWork: _benchmarkGameWork,
+                            )
+                          else
+                            const SizedBox.shrink(),
+                          if (_openedPages.contains(10))
+                            EmbeddingPage(
+                              gateway: _publicGateway,
+                              active: _workspaceTabs.index == 1 && _page == 10,
+                            )
+                          else
+                            const SizedBox.shrink(),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
