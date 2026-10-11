@@ -32,3 +32,7 @@ flutter:
   assets:
     - benchmarks/manifests/
     - benchmarks/adapters/jevman/bridge.mjs
+    - assets/startlux_runtime/
+    - assets/startlux_readout/
+    - assets/startlux_readout/author/
+    - assets/startlux_readout/author/startlux_decision/

@@ -227,7 +227,13 @@ void main() {
           .exists(),
       isFalse,
     );
-    expect((await store.list()).map((run) => run.id), [other.id]);
+    final history = await store.list();
+    expect(history.map((run) => run.id), [other.id]);
+    // Light history keeps the fixed source identity and score coverage; the
+    // original full-scale storage tests require these same metadata values.
+    expect(history.single.suite, other.suite);
+    expect(history.single.summary, other.summary);
+    expect(history.single.items, isEmpty);
     expect(await otherHeader.readAsBytes(), otherHeaderBytes);
     expect(await otherJournal.readAsBytes(), otherJournalBytes);
     expect(await source.readAsString(), 'protected source marker');

@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ghost_model_deck/benchmark_run_store.dart';
+import 'package:ghost_model_deck/benchmark_runner.dart';
 import 'package:ghost_model_deck/council.dart';
 import 'package:ghost_model_deck/council_mcp.dart';
 import 'package:ghost_model_deck/jev_models.dart';
@@ -15,6 +17,7 @@ import 'package:ghost_model_deck/model_package.dart';
 import 'package:mcp_dart/mcp_dart.dart';
 
 import 'fixtures/council_runtime.dart';
+import 'fixtures/playground_runtime.dart';
 
 Future<McpClient> _client(Uri endpoint) async {
   final client = McpClient(
@@ -25,6 +28,60 @@ Future<McpClient> _client(Uri endpoint) async {
 }
 
 void main() {
+  test('explicit exit closes owned history readers before reporting stopped and preserves original records', () async {
+    final graph = await PlaygroundRuntime.create();
+    addTearDown(graph.close);
+    final store = BenchmarkRunStore(
+      directory: Directory('${graph.runtime.root.path}/history'),
+    );
+    addTearDown(store.close);
+    final record = BenchmarkRun.fromJson({
+      'schema_version': 1,
+      'id': 'run-exit-history',
+      'created_at': '2026-10-11T00:00:00.000Z',
+      'finished_at': '2026-10-11T00:01:00.000Z',
+      'status': 'interrupted',
+      'model': 'quick',
+      'source': 'council',
+      'channel': 'http',
+      'timeout_us': 30000000,
+      'suite': {'name': 'DecideBench', 'item_count': 400, 'pair_count': 200},
+      'identity': {'model': 'quick'},
+      'items': <Object?>[],
+      'groups': <Object?>[],
+      'summary': {'expected': 400, 'attempted': 0, 'complete': false},
+    });
+    await store.save(record);
+    final file = File('${store.directory.path}/${record.id}.json');
+    final bytes = await file.readAsBytes();
+    final reader = store.openHistory(record.id);
+    addTearDown(reader.close);
+    await reader.ready;
+    final runner = BenchmarkRunner(
+      client: graph.playground,
+      store: store,
+      models: graph.council.models,
+    );
+    addTearDown(runner.close);
+    final manager = ManagerLifecycle(
+      council: graph.council,
+      mcp: graph.mcp,
+      engines: graph.runtime.catalog,
+      downloader: ModelDownloader(),
+      gateway: graph.gateway,
+      benchmarks: runner,
+    );
+    final shutdown = manager.shutdown();
+    expect(identical(manager.shutdown(), shutdown), isTrue);
+    await shutdown;
+    expect(manager.state, ManagerLifecycleState.stopped);
+    await expectLater(
+      reader.items(evaluationId: record.id, offset: 0, limit: 20),
+      throwsStateError,
+    );
+    expect(() => store.openHistory(record.id), throwsStateError);
+    expect(await file.readAsBytes(), bytes);
+  });
   test('a real installation rollback failure rejects exit after the remaining files and services are cleaned up', () async {
     final runtime = await CouncilRuntime.create();
     addTearDown(runtime.close);

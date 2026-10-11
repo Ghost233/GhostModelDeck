@@ -9,6 +9,249 @@ import 'package:ghost_model_deck/jev_playground.dart';
 import 'fixtures/playground_runtime.dart';
 
 void main() {
+  test('active history file locations do not read an appending journal and reject foreign ownership or links', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'gmd-history-active-files-',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final store = BenchmarkRunStore(directory: root);
+    const id = 'run-active-files';
+    final suite = jsonDecode(
+      await File('benchmarks/manifests/jevman.json').readAsString(),
+    ) as Map<String, Object?>;
+    final active = BenchmarkRun.gameSnapshot(
+      header: {
+        'schema_version': 5,
+        'id': id,
+        'created_at': '2026-10-09T00:00:00.000Z',
+        'finished_at': null,
+        'status': 'running',
+        'model': 'native-kev',
+        'source': 'native',
+        'channel': 'http',
+        'timeout_us': 2000000,
+        'suite': suite,
+        'identity': {},
+        'source_summary': {
+          'complete': false,
+          'summary': null,
+          'originalSummary': null,
+        },
+        'warmup_calls': [],
+        'client_summary': {},
+        'groups': [],
+        'summary': {
+          'expected': 100,
+          'attempted': 0,
+          'missing': 100,
+          'complete': false,
+          'valid': 0,
+          'failures': 0,
+          'client_timeouts': 0,
+          'server_timeouts': 0,
+          'timeouts': 0,
+        },
+      },
+      items: [],
+    );
+    await store.save(active);
+    final header = File('${root.path}/$id.json');
+    final journal = File('${root.path}/$id-0.items.jsonl');
+    // A producer can be between append and header publication. These partial
+    // bytes deliberately cannot pass full body validation and must not be read.
+    await journal.writeAsString(
+      '{"pending":',
+      mode: FileMode.append,
+      flush: true,
+    );
+    final headerBytes = await header.readAsBytes();
+    final journalBytes = await journal.readAsBytes();
+    expect(await store.recordFilePaths(id), [
+      header.absolute.path,
+      journal.absolute.path,
+    ]);
+    expect(await header.readAsBytes(), headerBytes);
+    expect(await journal.readAsBytes(), journalBytes);
+    final foreign = jsonDecode(utf8.decode(headerBytes)) as Map;
+    foreign['journal']['file'] = 'foreign.items.jsonl';
+    await header.writeAsString(jsonEncode(foreign), flush: true);
+    await expectLater(
+      store.recordFilePaths(id),
+      throwsA(isA<FileSystemException>()),
+    );
+    await header.writeAsBytes(headerBytes, flush: true);
+    final protected = await journal.rename('${root.path}/preserved-journal');
+    await Link(journal.path).create(protected.path);
+    await expectLater(
+      store.recordFilePaths(id),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect(await protected.readAsBytes(), journalBytes);
+    expect(await header.readAsBytes(), headerBytes);
+  });
+  test('history reader ignores opaque legacy extensions and exposes only declared summary fields', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'gmd-history-legacy-extra-',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final store = BenchmarkRunStore(directory: root);
+    final input = jsonDecode(
+      jsonEncode(_interruptedRun('run-legacy-extra').toJson()),
+    ) as Map<String, Object?>;
+    input['source_summary'] = 'opaque legacy extension';
+    input['client_summary'] = 'opaque legacy extension';
+    input['warmup_calls'] = 'opaque legacy extension';
+    input['source_fields'] = {
+      'bootstrap': [1, 2, 3],
+      'raw': 'ordinary extension context',
+    };
+    final original = BenchmarkRun.fromJson(input);
+    await store.save(original);
+    final file = File('${root.path}/${original.id}.json');
+    final before = await file.readAsBytes();
+    expect((await store.load(original.id)).toJson(), original.toJson());
+    final reader = store.openHistory(original.id);
+    addTearDown(reader.close);
+    final summary = await reader.ready;
+    expect(summary.id, original.id);
+    expect(summary.items, isEmpty);
+    expect(summary.toJson().containsKey('source_fields'), isFalse);
+    expect(summary.toJson()['source_summary'], isEmpty);
+    expect(reader.warmupCount(original.id), 0);
+    expect(
+      await reader.items(evaluationId: original.id, offset: 0),
+      hasLength(1),
+    );
+    expect(await file.readAsBytes(), before);
+    expect((await store.load(original.id)).toJson(), original.toJson());
+  });
+  test('history list returns only legacy record summaries while full evidence remains in its original file', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'gmd-history-summary-list-',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final store = BenchmarkRunStore(directory: root);
+    final original = _interruptedRun('run-list-summary');
+    await store.save(original);
+    final file = File('${root.path}/${original.id}.json');
+    final before = await file.readAsBytes();
+    final history = await store.list();
+    expect(history, hasLength(1));
+    expect(history.single.id, original.id);
+    expect(history.single.status, original.status);
+    expect(history.single.summary['attempted'], 1);
+    expect(
+      history.single.items,
+      isEmpty,
+      reason: 'The history list must not preload request/response payloads from legacy records into UI.',
+    );
+    expect(history.single.groups, isEmpty);
+    expect(await file.readAsBytes(), before);
+    expect((await store.load(original.id)).toJson(), original.toJson());
+  });
+  test('full history load performs file reads outside the caller isolate and keeps complete evidence', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'gmd-history-background-',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final store = BenchmarkRunStore(directory: root);
+    final original = _interruptedRun('run-background-load');
+    await store.save(original);
+    final observer = _HistoryReadObserver();
+    final restored = await IOOverrides.runWithIOOverrides(
+      () => store.load(original.id),
+      observer,
+    );
+    expect(restored.toJson(), original.toJson());
+    expect(restored.items, hasLength(1));
+    expect(
+      observer.reads,
+      isEmpty,
+      reason: 'Complete history validation must not read and process its payload on the UI/public-gateway caller isolate. This observes File I/O ownership, not a substitute latency threshold.',
+    );
+  });
+  test('history reader publishes a validated light summary and bounded immutable pages until closed', () async {
+    final root = await Directory.systemTemp.createTemp('gmd-history-reader-');
+    addTearDown(() => root.delete(recursive: true));
+    final store = BenchmarkRunStore(directory: root);
+    final original = _interruptedRun('run-reader-pages');
+    await store.save(original);
+    final reader = store.openHistory(original.id);
+    addTearDown(reader.close);
+    final summary = await reader.ready;
+    expect(summary.id, original.id);
+    expect(summary.status, BenchmarkRunStatus.interrupted);
+    expect(summary.summary['attempted'], 1);
+    expect(summary.items, isEmpty);
+    expect(summary.groups, isEmpty);
+    expect(reader.itemCount(original.id), 1);
+    final page = await reader.items(
+      evaluationId: original.id,
+      offset: 0,
+      limit: 20,
+    );
+    expect(page, hasLength(1));
+    expect(page.single['id'], original.items.single['id']);
+    expect(page.single.containsKey('request'), isFalse);
+    expect(page.single.containsKey('request_json'), isFalse);
+    expect(page.single.containsKey('result'), isFalse);
+    expect(page.single.containsKey('recording'), isFalse);
+    expect(summary.identity['api_key'], '[redacted]');
+    expect(() => page.clear(), throwsUnsupportedError);
+    expect(() => page.single['id'] = 'changed', throwsUnsupportedError);
+    expect(
+      reader.recordFilePath,
+      File('${root.path}/${original.id}.json').absolute.path,
+    );
+    expect(reader.journalFilePaths, isEmpty);
+    expect(
+      await reader.items(evaluationId: original.id, offset: 1, limit: 20),
+      isEmpty,
+    );
+    await reader.close();
+    await expectLater(
+      reader.items(evaluationId: original.id, offset: 0, limit: 20),
+      throwsStateError,
+    );
+    expect(
+      (await store.load(original.id)).items.single['request'],
+      original.items.single['request'],
+    );
+  });
+  test('a comparison seals caller-owned evidence and keeps nested history immutable', () {
+    final input = jsonDecode(
+      jsonEncode(_interruptedRun('run-caller-leaf').toJson()),
+    ) as Map<String, Object?>;
+    final leaf = BenchmarkRun.fromJson(input);
+    final selected = [leaf];
+    final batch = BenchmarkRun.batch(
+      id: 'run-sealed-comparison',
+      createdAt: leaf.createdAt,
+      status: BenchmarkRunStatus.interrupted,
+      evaluations: selected,
+    );
+    final sealed = jsonEncode(batch.toJson());
+    (input['identity'] as Map)['generation'] = 99;
+    final originalItem = (input['items'] as List).single as Map;
+    ((originalItem['request'] as Map)['state'] as Map)['api_key'] = 'changed';
+    (input['items'] as List).clear();
+    selected.clear();
+    expect(jsonEncode(batch.toJson()), sealed);
+    expect(batch.evaluations, hasLength(1));
+    final evidence = batch.evaluations.single;
+    expect((evidence.identity)['generation'], 3);
+    expect(evidence.items, hasLength(1));
+    expect(
+      () =>
+          ((evidence.items.single['request'] as Map)['state']
+                  as Map)['api_key'] =
+              'changed',
+      throwsUnsupportedError,
+    );
+    expect(() => evidence.summary['attempted'] = 0, throwsUnsupportedError);
+    expect(() => evidence.items.clear(), throwsUnsupportedError);
+    expect(() => batch.evaluations.clear(), throwsUnsupportedError);
+  });
   test('saved benchmark evidence survives restart without resuming and preserves JEV task values', () async {
     final root = await Directory.systemTemp.createTemp(
       'gmd-benchmark-records-',
@@ -197,6 +440,37 @@ void main() {
       throwsA(isA<FormatException>()),
     );
   });
+}
+
+final class _HistoryReadObserver extends IOOverrides {
+  final reads = <String>[];
+  @override
+  File createFile(String path) =>
+      _HistoryObservedFile(super.createFile(path), reads);
+}
+
+class _HistoryObservedFile implements File {
+  _HistoryObservedFile(this.original, this.reads);
+  final File original;
+  final List<String> reads;
+  @override
+  String get path => original.path;
+  @override
+  Uri get uri => original.uri;
+  @override
+  Future<String> readAsString({Encoding encoding = utf8}) {
+    reads.add('readAsString');
+    return original.readAsString(encoding: encoding);
+  }
+
+  @override
+  Stream<List<int>> openRead([int? start, int? end]) {
+    reads.add('openRead');
+    return original.openRead(start, end);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 BenchmarkRun _interruptedRun(String id) {

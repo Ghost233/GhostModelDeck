@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/benchmark_game_work.dart';
 import 'package:ghost_model_deck/jevman_runtime.dart';
@@ -17,6 +18,446 @@ import 'package:ghost_model_deck/jev_playground.dart';
 import 'fixtures/playground_runtime.dart';
 
 void main() {
+  testWidgets('快速切换历史后旧reader关闭，迟到摘要与页读取不能覆盖当前选择', (tester) async {
+    final previous = HttpOverrides.current;
+    HttpOverrides.global = _Network();
+    addTearDown(() => HttpOverrides.global = previous);
+    late PlaygroundRuntime fixture;
+    late BenchmarkRunner viewer;
+    late BenchmarkResources resources;
+    late _HistorySessionObserver store;
+    late BenchmarkRun first, second;
+    late Map<String, String> files;
+    await tester.runAsync(() async {
+      fixture = await PlaygroundRuntime.create();
+      resources = BenchmarkResources(
+        Directory('${fixture.runtime.root.path}/late-summary-cache'),
+      );
+      final suite = await DecideBenchSuite.load(
+        Directory('benchmarks/sources/decidebench'),
+      );
+      store = _HistorySessionObserver(
+        Directory('${fixture.runtime.root.path}/late-summary-history'),
+      );
+      viewer = BenchmarkRunner(
+        client: fixture.playground,
+        store: store,
+        models: fixture.council.models,
+      );
+      first = BenchmarkRun.fromJson({
+        'schema_version': 1,
+        'id': 'old-history-reader',
+        'model': 'native-kev',
+        'source': 'native',
+        'channel': 'http',
+        'status': 'interrupted',
+        'timeout_us': 30000000,
+        'created_at': '2026-10-11T00:00:00.000Z',
+        'finished_at': '2026-10-11T00:01:00.000Z',
+        'suite': BenchmarkResources.identity,
+        'identity': {'model': 'native-kev', 'source': 'native'},
+        'summary': {
+          'attempted': 400,
+          'complete': false,
+          'expected': 400,
+          'expected_pairs': 200,
+          'valid': 0,
+          'failures': 400,
+          'missing': 0,
+        },
+        'items': [
+          for (final item in suite.items)
+            {
+              'id': item.id,
+              'pair_id': item.pairId,
+              'gold': item.gold,
+              'category': item.category,
+              'difficulty': item.difficulty,
+              'status': 'failed',
+              'prediction': null,
+              'elapsed_us': 0,
+              'error': 'No valid reply in this external history fixture.',
+              'request': item.request('native-kev'),
+              'request_json': jsonEncode(item.request('native-kev')),
+              'result': null,
+            },
+        ],
+        'groups': <Object?>[],
+      });
+      second = BenchmarkRun.fromJson({
+        ...first.toJson(),
+        'id': 'new-history-reader',
+        'created_at': '2026-10-11T00:02:00.000Z',
+        'finished_at': '2026-10-11T00:03:00.000Z',
+      });
+      await store.save(first);
+      await store.save(second);
+      files = {
+        for (final id in [first.id, second.id])
+          id: await File('${store.directory.path}/$id.json').readAsString(),
+      };
+    });
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.runAsync(() async {
+        await viewer.close();
+        await resources.close();
+        await fixture.close();
+      });
+    });
+    tester.view.physicalSize = const Size(1100, 1300);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.runAsync(() async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: BenchmarkPage(resources: resources, runner: viewer),
+          ),
+        ),
+      );
+      await _wait(tester, find.byKey(Key('benchmark-history-${first.id}')));
+      await tester.ensureVisible(
+        find.byKey(Key('benchmark-history-${first.id}')),
+      );
+      await tester.tap(find.byKey(Key('benchmark-history-${first.id}')));
+      await store.firstOpened.future.timeout(const Duration(seconds: 5));
+      await tester.ensureVisible(
+        find.byKey(Key('benchmark-history-${second.id}')),
+      );
+      await tester.tap(find.byKey(Key('benchmark-history-${second.id}')));
+      await _wait(tester, find.textContaining('批次：${second.id} ·'));
+    });
+    expect(find.textContaining('批次：${first.id} ·'), findsNothing);
+    expect(find.textContaining('记录读取失败'), findsNothing);
+    final old = store.sessions[first.id]!;
+    await tester.runAsync(() async {
+      await expectLater(
+        old.items(evaluationId: first.id, offset: 0),
+        throwsStateError,
+      );
+    });
+    await tester.ensureVisible(find.byKey(const Key('benchmark-detail-items')));
+    await tester.tap(find.byKey(const Key('benchmark-detail-items')));
+    // Supersede a real page RPC with another detail before awaiting its result.
+    await tester.tap(find.byKey(const Key('benchmark-detail-groups')));
+    await tester.runAsync(() async {
+      await _wait(
+        tester,
+        find.byKey(ValueKey('benchmark-groups-${second.id}')),
+      );
+      await tester.pump();
+    });
+    expect(find.byKey(ValueKey('benchmark-items-${second.id}')), findsNothing);
+    expect(find.textContaining('批次：${second.id} ·'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.runAsync(() async {
+      await expectLater(
+        store.sessions[second.id]!.items(evaluationId: second.id, offset: 0),
+        throwsStateError,
+      );
+      for (final entry in files.entries) {
+        expect(
+          await File('${store.directory.path}/${entry.key}.json')
+              .readAsString(),
+          entry.value,
+        );
+      }
+    });
+    expect(fixture.runtime.io.requests, isEmpty);
+    expect(viewer.running, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('历史逐题摘要每页20条可往返且只展示当前页，完整60条原文留在文件', (tester) async {
+    final previous = HttpOverrides.current;
+    HttpOverrides.global = _Network();
+    addTearDown(() => HttpOverrides.global = previous);
+    late PlaygroundRuntime fixture;
+    late BenchmarkRunner viewer;
+    late BenchmarkResources resources;
+    late DecideBenchSuite suite;
+    late BenchmarkRun history;
+    late File original;
+    late String originalBytes;
+    await tester.runAsync(() async {
+      fixture = await PlaygroundRuntime.create();
+      resources = BenchmarkResources(
+        Directory('${fixture.runtime.root.path}/paging-cache'),
+      );
+      suite = await DecideBenchSuite.load(
+        Directory('benchmarks/sources/decidebench'),
+      );
+      viewer = BenchmarkRunner(
+        client: fixture.playground,
+        store: BenchmarkRunStore(
+          directory: Directory('${fixture.runtime.root.path}/paging-history'),
+        ),
+        models: fixture.council.models,
+      );
+      // A readonly external history fixture represents interruption of the
+      // full400 plan. No smaller plan is admitted or scored by the runner.
+      history = BenchmarkRun.fromJson({
+        'schema_version': 1,
+        'id': 'interrupted-paging-history',
+        'model': 'native-kev',
+        'source': 'native',
+        'channel': 'http',
+        'status': 'interrupted',
+        'timeout_us': 30000000,
+        'created_at': '2026-10-11T00:00:00.000Z',
+        'finished_at': '2026-10-11T00:01:00.000Z',
+        'suite': BenchmarkResources.identity,
+        'identity': {'model': 'native-kev', 'source': 'native'},
+        'summary': {
+          'attempted': 60,
+          'complete': false,
+          'expected': 400,
+          'expected_pairs': 200,
+          'valid': 0,
+          'failures': 60,
+          'missing': 340,
+          'correct': 0,
+          'pairs_correct': 0,
+          'accuracy': null,
+          'pair_accuracy': null,
+        },
+        'items': [
+          for (final item in suite.items.take(60))
+            {
+              'id': item.id,
+              'pair_id': item.pairId,
+              'gold': item.gold,
+              'category': item.category,
+              'difficulty': item.difficulty,
+              'status': 'failed',
+              'prediction': null,
+              'elapsed_us': 0,
+              'error': 'Interrupted before a valid reply.',
+              'request': item.request('native-kev'),
+              'request_json': jsonEncode(item.request('native-kev')),
+              'result': null,
+            },
+        ],
+        'groups': <Object?>[],
+      });
+      await viewer.store.save(history);
+      original = File('${viewer.store.directory.path}/${history.id}.json');
+      originalBytes = await original.readAsString();
+    });
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.runAsync(() async {
+        await viewer.close();
+        await resources.close();
+        await fixture.close();
+      });
+    });
+    tester.view.physicalSize = const Size(1100, 1300);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.runAsync(() async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: BenchmarkPage(resources: resources, runner: viewer),
+          ),
+        ),
+      );
+      await _wait(tester, find.byKey(Key('benchmark-history-${history.id}')));
+      await tester.ensureVisible(
+        find.byKey(Key('benchmark-history-${history.id}')),
+      );
+      await tester.tap(find.byKey(Key('benchmark-history-${history.id}')));
+      await _wait(tester, find.byKey(const Key('benchmark-coverage')));
+    });
+    await tester.ensureVisible(find.byKey(const Key('benchmark-detail-items')));
+    await tester.tap(find.byKey(const Key('benchmark-detail-items')));
+    Future<void> page(int index) async {
+      final first = suite.items[index * 20];
+      await tester.runAsync(() async {
+        await _wait(tester, find.byKey(Key('benchmark-item-${first.id}')));
+      });
+      final list = tester.widget<ListView>(
+        find.byKey(ValueKey('benchmark-items-${history.id}')),
+      );
+      expect(
+        (list.childrenDelegate as SliverChildBuilderDelegate).childCount,
+        20,
+      );
+      expect(
+        find.text('第 ${index + 1} / 3 页 · 共 60 条 · 每页 20 条'),
+        findsOneWidget,
+      );
+      expect(find.byKey(Key('benchmark-item-json-${first.id}')), findsNothing);
+      expect(
+        find.byKey(
+          Key('benchmark-item-${suite.items[((index + 1) % 3) * 20].id}'),
+        ),
+        findsNothing,
+      );
+      expect(
+        tester.widget<Text>(find.byKey(const Key('benchmark-coverage'))).data,
+        contains('未完成 · 已执行 60 / 400'),
+      );
+    }
+
+    await page(0);
+    for (final index in [1, 2]) {
+      await tester.ensureVisible(
+        find.byKey(const Key('benchmark-detail-next')),
+      );
+      await tester.tap(find.byKey(const Key('benchmark-detail-next')));
+      await page(index);
+    }
+    expect(
+      tester
+          .widget<TextButton>(find.byKey(const Key('benchmark-detail-next')))
+          .onPressed,
+      isNull,
+    );
+    for (final index in [1, 0]) {
+      await tester.ensureVisible(
+        find.byKey(const Key('benchmark-detail-previous')),
+      );
+      await tester.tap(find.byKey(const Key('benchmark-detail-previous')));
+      await page(index);
+    }
+    expect(
+      tester
+          .widget<TextButton>(
+            find.byKey(const Key('benchmark-detail-previous')),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect((await tester.runAsync(original.readAsString))!, originalBytes);
+    final document = jsonDecode(originalBytes) as Map;
+    expect(document['items'], hasLength(60));
+    expect(
+      document['items'][59]['request'],
+      suite.items[59].request('native-kev'),
+    );
+    expect(fixture.runtime.io.requests, isEmpty);
+    expect(viewer.running, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('评测明细只显示摘要并通过真实文件路径在Finder定位完整记录', (tester) async {
+    final previous = HttpOverrides.current;
+    HttpOverrides.global = _Network();
+    addTearDown(() => HttpOverrides.global = previous);
+    late PlaygroundRuntime fixture;
+    late BenchmarkRunner runner;
+    late BenchmarkResources resources;
+    late DecideBenchSuite suite;
+    late BenchmarkRun record;
+    late Completer<void> arrived, release;
+    await tester.runAsync(() async {
+      fixture = await PlaygroundRuntime.create();
+      resources = BenchmarkResources(
+        Directory('${fixture.runtime.root.path}/summary-files-cache'),
+      );
+      runner = BenchmarkRunner(
+        client: fixture.playground,
+        store: BenchmarkRunStore(
+          directory: Directory(
+            '${fixture.runtime.root.path}/summary-files-history',
+          ),
+        ),
+        models: fixture.council.models,
+      );
+      suite = await DecideBenchSuite.load(
+        Directory('benchmarks/sources/decidebench'),
+      );
+      arrived = Completer<void>();
+      release = Completer<void>();
+      var requestCount = 0;
+      fixture.runtime.io.respond = (body, raw) async {
+        requestCount++;
+        if (requestCount == 2) {
+          arrived.complete();
+          await release.future;
+        }
+        return raw;
+      };
+      // Admit the unchanged full400 plan; explicit cancel creates lifecycle
+      // evidence, never a product quick run or a smaller benchmark.
+      final operation = runner.run(suite: suite, model: 'native-kev');
+      await arrived.future.timeout(const Duration(seconds: 20));
+      runner.cancel();
+      record = await operation.timeout(const Duration(seconds: 10));
+    });
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.runAsync(() async {
+        if (!release.isCompleted) release.complete();
+        await runner.close();
+        await resources.close();
+        await fixture.close();
+      });
+    });
+    final file = File('${runner.store.directory.path}/${record.id}.json')
+        .absolute;
+    final before = (await tester.runAsync(file.readAsString))!;
+    expect(record.status, BenchmarkRunStatus.cancelled);
+    expect(record.summary['expected'], 400);
+    const native = MethodChannel('com.ghost233.ghostmodeldeck/native');
+    final reveals = <MethodCall>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(native, (
+      call,
+    ) async {
+      reveals.add(call);
+      return null;
+    });
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        native,
+        null,
+      ),
+    );
+    tester.view.physicalSize = const Size(1100, 1300);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.runAsync(() async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: BenchmarkPage(resources: resources, runner: runner),
+          ),
+        ),
+      );
+      await _wait(tester, find.byKey(const Key('benchmark-target')));
+      await _wait(tester, find.byKey(const Key('benchmark-coverage')));
+    });
+    await tester.ensureVisible(find.byKey(const Key('benchmark-detail-items')));
+    await tester.tap(find.byKey(const Key('benchmark-detail-items')));
+    final firstId = suite.items.first.id;
+    await tester.runAsync(() async {
+      await _wait(tester, find.byKey(Key('benchmark-item-$firstId')));
+    });
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(Key('benchmark-item-$firstId')));
+    await tester.tap(find.byKey(Key('benchmark-item-$firstId')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(Key('benchmark-item-json-$firstId')), findsNothing);
+    expect(find.textContaining('已执行 2 / 400'), findsOneWidget);
+    expect(find.text(file.path), findsOneWidget);
+    await tester.ensureVisible(
+      find.byKey(const Key('benchmark-record-reveal')),
+    );
+    await tester.tap(find.byKey(const Key('benchmark-record-reveal')));
+    await tester.pumpAndSettle();
+    expect(reveals, hasLength(1));
+    expect(reveals.single.method, 'revealInFinder');
+    expect(reveals.single.arguments, {'path': file.path});
+    expect((await tester.runAsync(file.readAsString))!, before);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'selecting the active original history follows the owned current snapshot without hydrating an appending journal',
     (tester) async {
@@ -153,6 +594,38 @@ void main() {
             .data,
         contains('运行中'),
       );
+      final journalPath = File(
+        '${store.directory.path}/${(firstHeader['journal'] as Map)['file']}',
+      ).absolute.path;
+      expect(
+        (await tester.runAsync(() => File(journalPath).exists()))!,
+        isTrue,
+      );
+      expect(find.text(journalPath), findsOneWidget);
+      const native = MethodChannel('com.ghost233.ghostmodeldeck/native');
+      final reveals = <MethodCall>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(native, (
+        call,
+      ) async {
+        reveals.add(call);
+        return null;
+      });
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          native,
+          null,
+        ),
+      );
+      await tester.ensureVisible(
+        find.byKey(const Key('benchmark-journal-reveal-0')),
+      );
+      await tester.tap(find.byKey(const Key('benchmark-journal-reveal-0')));
+      await tester.pump();
+      expect(reveals, hasLength(1));
+      expect(reveals.single.method, 'revealInFinder');
+      expect(reveals.single.arguments, {'path': journalPath});
+      expect(store.observedLoads, 0);
+      expect(runner.running, isTrue);
       await tester.runAsync(() async {
         store.stopObserving();
         runner.cancel();
@@ -650,11 +1123,14 @@ void main() {
             );
           }
         });
-        final metadata = tester
-            .widget<SelectableText>(
-              find.byKey(const Key('benchmark-suite-metadata')),
+        final metadata = find
+            .descendant(
+              of: find.byKey(const Key('benchmark-suite-metadata')),
+              matching: find.byType(Text),
             )
-            .data!;
+            .evaluate()
+            .map((element) => (element.widget as Text).data ?? '')
+            .join('\n');
         expect(metadata, contains(choice.$2));
         expect(metadata, contains(choice.$3));
         expect(find.text(choice.$4), findsOneWidget);
@@ -727,6 +1203,7 @@ void main() {
           ),
         );
         await _wait(tester, find.byKey(const Key('benchmark-target')));
+        await _wait(tester, find.byKey(const Key('benchmark-coverage')));
       });
       await tester.pump();
       final coverage = tester
@@ -747,12 +1224,20 @@ void main() {
         find.byKey(const Key('benchmark-detail-groups')),
       );
       await tester.tap(find.byKey(const Key('benchmark-detail-groups')));
-      await tester.pump();
       final groupsKey = ValueKey('benchmark-groups-${cancelled.id}');
+      final first = cancelled.groups.first;
+      final groupId = '${first['dimension']}/${first['group']}';
+      await tester.runAsync(() async {
+        await _wait(tester, find.byKey(Key('benchmark-group-$groupId')));
+      });
       final groups = tester.widget<ListView>(find.byKey(groupsKey));
       expect(
         (groups.childrenDelegate as SliverChildBuilderDelegate).childCount,
-        cancelled.groups.length,
+        cancelled.groups.length < 20 ? cancelled.groups.length : 20,
+      );
+      expect(
+        find.textContaining('共 ${cancelled.groups.length} 条'),
+        findsOneWidget,
       );
       expect(cancelled.groups.map((row) => row['dimension']).toSet(), {
         'source',
@@ -761,17 +1246,21 @@ void main() {
         'question_type',
         'input_length_group',
       });
-      final first = cancelled.groups.first;
-      final groupId = '${first['dimension']}/${first['group']}';
       await tester.ensureVisible(find.byKey(Key('benchmark-group-$groupId')));
       await tester.tap(find.byKey(Key('benchmark-group-$groupId')));
       await tester.pump();
-      final displayed = tester
-          .widget<SelectableText>(
-            find.byKey(Key('benchmark-group-json-$groupId')),
-          )
-          .data!;
-      expect(jsonDecode(displayed), first);
+      expect(find.byKey(Key('benchmark-group-json-$groupId')), findsNothing);
+      // The user moved full JSON out of the UI. Keep the original complete
+      // group equality assertion against the real full-data export instead.
+      final exported = File(
+        '${fixture.runtime.root.path}/original-groups-complete.json',
+      );
+      final document = (await tester.runAsync(() async {
+        await runner.store.exportTo(cancelled.id, exported);
+        return jsonDecode(await exported.readAsString()) as Map;
+      }))!;
+      expect((document['groups'] as List).first, first);
+      expect(document['groups'], cancelled.groups);
       expect(fixture.runtime.io.requests, hasLength(1));
       expect(tester.takeException(), isNull);
     },
@@ -929,6 +1418,51 @@ void main() {
       expect(persisted.items.single['index'], 1);
       expect(persisted.items.single['recording'], isNotNull);
       expect(persisted.items.single['calls'], isNotEmpty);
+      final destination = File(
+        '${fixture.runtime.root.path}/cancelled-game.json',
+      );
+      await tester.ensureVisible(find.byKey(const Key('benchmark-export')));
+      await tester.tap(find.byKey(const Key('benchmark-export')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('benchmark-export-path')),
+        destination.path,
+      );
+      await tester.runAsync(() async {
+        await tester.tap(find.byKey(const Key('benchmark-export-save')));
+        await _wait(tester, find.byKey(const Key('benchmark-file-status')));
+      });
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('benchmark-file-status')))
+            .data,
+        '已导出：${destination.path}',
+      );
+      await tester.runAsync(() async {
+        expect(await destination.exists(), isTrue);
+        release.complete();
+        arrived = Completer<void>();
+        release = Completer<void>();
+      });
+      await tester.ensureVisible(
+        find.byKey(const Key('benchmark-select-native-kev')),
+      );
+      await tester.tap(find.byKey(const Key('benchmark-select-native-kev')));
+      await tester.pump();
+      await tester.ensureVisible(find.byKey(const Key('benchmark-run')));
+      await tester.runAsync(() async {
+        await tester.tap(find.byKey(const Key('benchmark-run')));
+        await arrived.future.timeout(const Duration(seconds: 20));
+        await tester.pump();
+      });
+      expect(runner.running, isTrue);
+      expect(runner.current!.id, isNot(runId));
+      expect(runner.current!.summary['expected'], 100);
+      expect(
+        find.byKey(const Key('benchmark-file-status')),
+        findsNothing,
+        reason: 'An earlier export belongs to its saved batch, not the newly started batch.',
+      );
       expect(tester.takeException(), isNull);
     },
   );
@@ -1019,6 +1553,13 @@ void main() {
         await tester.tap(find.byKey(const Key('benchmark-cancel')));
         await pending.timeout(const Duration(seconds: 5));
         await tester.pump();
+      });
+      await tester.runAsync(() async {
+        await _wait(
+          tester,
+          find.textContaining('批次：${runner.current!.evaluations.first.id} ·'),
+          absent: find.byType(LinearProgressIndicator),
+        );
       });
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('benchmark-result-5')), findsOneWidget);
@@ -1204,7 +1745,11 @@ void main() {
             ),
           ),
         );
-        await _wait(tester, find.textContaining('历史读取失败'));
+        await _wait(
+          tester,
+          find.textContaining('历史读取失败'),
+          absent: find.byType(LinearProgressIndicator),
+        );
       });
       await tester.pumpAndSettle();
       expect(find.textContaining('FormatException'), findsOneWidget);
@@ -1637,6 +2182,13 @@ void main() {
           await tester.pump();
         }
       });
+      await tester.runAsync(() async {
+        await _wait(
+          tester,
+          find.textContaining('批次：${runner.current!.id} ·'),
+          absent: find.byType(LinearProgressIndicator),
+        );
+      });
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       final completed = runner.current!;
@@ -1660,18 +2212,24 @@ void main() {
         find.byKey(const Key('benchmark-detail-items')),
       );
       await tester.tap(find.byKey(const Key('benchmark-detail-items')));
-      await tester.pump();
       final first = suite.items.first;
+      await tester.runAsync(() async {
+        await _wait(tester, find.byKey(Key('benchmark-item-${first.id}')));
+      });
       await tester.ensureVisible(find.byKey(Key('benchmark-item-${first.id}')));
       await tester.tap(find.byKey(Key('benchmark-item-${first.id}')));
       await tester.pumpAndSettle();
-      final itemEvidence = jsonDecode(
-        tester
-            .widget<SelectableText>(
-              find.byKey(Key('benchmark-item-json-${first.id}')),
-            )
-            .data!,
-      ) as Map;
+      expect(find.byKey(Key('benchmark-item-json-${first.id}')), findsNothing);
+      final completeFile = File(
+        '${fixture.runtime.root.path}/complete400-original-fields.json',
+      );
+      final document = (await tester.runAsync(() async {
+        await runner.store.exportTo(completed.id, completeFile);
+        return jsonDecode(await completeFile.readAsString()) as Map;
+      }))!;
+      expect(document['items'], hasLength(400));
+      expect(document['groups'], hasLength(200));
+      final itemEvidence = (document['items'] as List).first as Map;
       expect(itemEvidence['request'], first.request('native-kev'));
       expect(itemEvidence['gold'], first.gold);
       expect(itemEvidence['prediction'], first.gold);
@@ -1680,18 +2238,20 @@ void main() {
         find.byKey(const Key('benchmark-detail-groups')),
       );
       await tester.tap(find.byKey(const Key('benchmark-detail-groups')));
-      await tester.pump();
+      await tester.runAsync(() async {
+        await _wait(tester, find.byKey(Key('benchmark-group-${first.pairId}')));
+      });
       await tester.ensureVisible(
         find.byKey(Key('benchmark-group-${first.pairId}')),
       );
       await tester.tap(find.byKey(Key('benchmark-group-${first.pairId}')));
       await tester.pumpAndSettle();
-      final pair = jsonDecode(
-        tester
-            .widget<SelectableText>(
-              find.byKey(Key('benchmark-group-json-${first.pairId}')),
-            )
-            .data!,
+      expect(
+        find.byKey(Key('benchmark-group-json-${first.pairId}')),
+        findsNothing,
+      );
+      final pair = (document['groups'] as List).firstWhere(
+        (row) => row['pair_id'] == first.pairId,
       ) as Map;
       expect(
         pair['members'],
@@ -1713,16 +2273,24 @@ void main() {
       await tester.ensureVisible(
         find.byKey(Key('benchmark-history-${completed.id}')),
       );
-      await tester.tap(find.byKey(Key('benchmark-history-${completed.id}')));
-      await tester.pump();
+      await tester.runAsync(() async {
+        await tester.tap(find.byKey(Key('benchmark-history-${completed.id}')));
+        await _wait(
+          tester,
+          find.textContaining('批次：${completed.id} ·'),
+          absent: find.byType(LinearProgressIndicator),
+        );
+      });
       expect(runner.running, isFalse);
       expect(fixture.runtime.io.requests, hasLength(400));
       final destination = File('${fixture.runtime.root.path}/export-full.json');
       final semantics = tester.ensureSemantics();
       try {
         await tester.ensureVisible(find.byKey(const Key('benchmark-export')));
-        await tester.tap(find.byKey(const Key('benchmark-export')));
-        await tester.pumpAndSettle();
+        await tester.runAsync(() async {
+          await tester.tap(find.byKey(const Key('benchmark-export')));
+          await tester.pumpAndSettle();
+        });
         await tester.enterText(
           find.byKey(const Key('benchmark-export-path')),
           destination.path,
@@ -1731,7 +2299,11 @@ void main() {
           final confirm = find.semantics.byLabel('保存');
           tester.semantics.tap(confirm);
           tester.semantics.tap(confirm);
-          await _wait(tester, find.byKey(const Key('benchmark-file-status')));
+          await _wait(
+            tester,
+            find.byKey(const Key('benchmark-file-status')),
+            frame: const Duration(milliseconds: 10),
+          );
         });
         await tester.pumpAndSettle();
         expect(find.byType(BenchmarkPage), findsOneWidget);
@@ -1739,8 +2311,10 @@ void main() {
         final exported = (await tester.runAsync(destination.readAsString))!;
         expect((jsonDecode(exported)['items'] as List), hasLength(400));
         await tester.ensureVisible(find.byKey(const Key('benchmark-export')));
-        await tester.tap(find.byKey(const Key('benchmark-export')));
-        await tester.pumpAndSettle();
+        await tester.runAsync(() async {
+          await tester.tap(find.byKey(const Key('benchmark-export')));
+          await tester.pumpAndSettle();
+        });
         await tester.runAsync(() async {
           final cancel = find.semantics.byLabel('取消');
           tester.semantics.tap(cancel);
@@ -1749,26 +2323,38 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.byType(BenchmarkPage), findsOneWidget);
         await tester.ensureVisible(find.byKey(const Key('benchmark-export')));
-        await tester.tap(find.byKey(const Key('benchmark-export')));
-        await tester.pumpAndSettle();
+        await tester.runAsync(() async {
+          await tester.tap(find.byKey(const Key('benchmark-export')));
+          await tester.pumpAndSettle();
+        });
         await tester.enterText(
           find.byKey(const Key('benchmark-export-path')),
           destination.path,
         );
         await tester.runAsync(() async {
           await tester.tap(find.byKey(const Key('benchmark-export-save')));
-          await _wait(tester, find.textContaining('导出失败'));
+          await _wait(
+            tester,
+            find.textContaining('导出失败'),
+            frame: const Duration(milliseconds: 10),
+          );
         });
         expect((await tester.runAsync(destination.readAsString))!, exported);
       } finally {
         semantics.dispose();
       }
       await tester.ensureVisible(find.byKey(const Key('benchmark-delete')));
-      await tester.tap(find.byKey(const Key('benchmark-delete')));
-      await tester.pumpAndSettle();
+      await tester.runAsync(() async {
+        await tester.tap(find.byKey(const Key('benchmark-delete')));
+        await tester.pumpAndSettle();
+      });
       await tester.runAsync(() async {
         await tester.tap(find.byKey(const Key('benchmark-delete-confirm')));
-        await _wait(tester, find.text('暂无评测历史'));
+        await _wait(
+          tester,
+          find.text('暂无评测历史'),
+          frame: const Duration(milliseconds: 10),
+        );
       });
       await tester.pumpAndSettle();
       expect((await tester.runAsync(runner.store.list))!, isEmpty);
@@ -1920,6 +2506,13 @@ void main() {
           await tester.pump();
         }
       });
+      await tester.runAsync(() async {
+        await _wait(
+          tester,
+          find.textContaining('批次：${runner.current!.id} ·'),
+          absent: find.byType(LinearProgressIndicator),
+        );
+      });
       await tester.pumpAndSettle();
       expect(held.isCompleted, isFalse);
       expect(runner.current!.status, BenchmarkRunStatus.cancelled);
@@ -1944,14 +2537,21 @@ void main() {
   );
 }
 
-Future<void> _wait(WidgetTester tester, Finder finder) async {
+Future<void> _wait(
+  WidgetTester tester,
+  Finder finder, {
+  Finder? absent,
+  Duration frame = Duration.zero,
+}) async {
   final until = DateTime.now().add(const Duration(seconds: 5));
-  while (finder.evaluate().isEmpty) {
+  await tester.pump();
+  while (finder.evaluate().isEmpty ||
+      (absent?.evaluate().isNotEmpty ?? false)) {
     if (DateTime.now().isAfter(until)) {
       fail('Benchmark page action did not complete');
     }
     await Future<void>.delayed(const Duration(milliseconds: 10));
-    await tester.pump();
+    await tester.pump(frame);
   }
 }
 
@@ -1974,6 +2574,19 @@ Future<JevalSuite> _prepareOriginalJeval(BenchmarkResources resources) async {
 }
 
 /// Observes the public load boundary; all bytes and validation stay real.
+class _HistorySessionObserver extends BenchmarkRunStore {
+  _HistorySessionObserver(Directory directory) : super(directory: directory);
+  final sessions = <String, BenchmarkHistorySession>{};
+  final firstOpened = Completer<void>();
+  @override
+  BenchmarkHistorySession openHistory(String id) {
+    final actual = super.openHistory(id);
+    sessions[id] = actual;
+    if (!firstOpened.isCompleted) firstOpened.complete();
+    return actual;
+  }
+}
+
 class _ObservedJournalStore extends BenchmarkRunStore {
   _ObservedJournalStore(Directory directory) : super(directory: directory);
   String? _observedId;

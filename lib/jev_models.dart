@@ -269,6 +269,7 @@ class JevModels {
               'generation': instance.generation,
               'endpoint': instance.endpoint.toString(),
               'native_alias': instance.nativeAlias,
+              'decision_source': instance.decisionSourceIdentity,
             },
       'launch_configuration': command == null
           ? null
@@ -285,10 +286,14 @@ class JevModels {
 
   List<JevModelBinding> get availableBindings => List.unmodifiable([
     for (final engine in controller.catalog.state.entries)
-      if (engine.family == EngineFamily.llamaCpp &&
-          controller.catalog.providerFor(engine.id).release.supportsSystemone)
+      if (engine.family == EngineFamily.llamaCpp)
         for (final asset in controller.catalog.library.state.artifacts)
-          if (asset.kind == AssetKind.decision)
+          if (asset.hasStartluxReadout ||
+              (asset.kind == AssetKind.decision &&
+                  controller.catalog
+                      .providerFor(engine.id)
+                      .release
+                      .supportsSystemone))
             JevModelBinding(artifactId: asset.id, engineId: engine.id),
   ]);
 
@@ -307,6 +312,60 @@ class JevModels {
   ]);
   List<JevModelAvailability> get callableModels =>
       List.unmodifiable(configuredModels.where((m) => m.available));
+
+  /// Current, identity-bound capacity of callable decision routes. Virtual
+  /// councils share their seats' processes; their capacities are never added.
+  List<Map<String, Object?>> capacityModels() {
+    final models = <Map<String, Object?>>[];
+    for (final availability in callableModels) {
+      final definition = availability.definition;
+      final capacities = <RuntimeCapacity>[];
+      for (final binding in definition.bindings) {
+        try {
+          final seat = _resolve(binding);
+          final capacity = RuntimeCapacity.fromLlamaProperties(
+            seat.instance.properties,
+          );
+          final concurrency = seat.instance.maxDecisionConcurrentRequests;
+          if (capacity == null || concurrency == null) {
+            capacities.clear();
+            break;
+          }
+          capacities.add(
+            RuntimeCapacity(
+              contextPerSlot: capacity.contextPerSlot,
+              slotCount: concurrency,
+            ),
+          );
+        } on JevRequestException {
+          // Public councils can consult their currently ready subset.
+        }
+      }
+      if (capacities.isEmpty) continue;
+      final context = capacities
+          .map((c) => c.contextPerSlot)
+          .reduce((a, b) => a < b ? a : b);
+      final concurrency = capacities
+          .map((c) => c.slotCount)
+          .reduce((a, b) => a < b ? a : b);
+      models.add({
+        'key': definition.name,
+        'type': 'decision',
+        'source': 'ghost-model-deck',
+        'virtual': definition.source == JevModelSource.council,
+        'loaded_instances': [
+          {
+            'id': definition.name,
+            'config': {
+              'context_length': context,
+              'max_concurrent_requests': concurrency,
+            },
+          },
+        ],
+      });
+    }
+    return models;
+  }
 
   String? bindingReason(JevModelBinding binding) {
     try {

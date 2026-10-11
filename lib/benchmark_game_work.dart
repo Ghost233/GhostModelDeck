@@ -9,6 +9,7 @@ import 'benchmark_game_record.dart';
 import 'jev_playground.dart';
 import 'jevman_benchmark.dart';
 import 'jevman_runtime.dart';
+import 'jevman_viewing.dart';
 
 enum BenchmarkGamePreparationStatus {
   idle,
@@ -46,6 +47,24 @@ class BenchmarkGameWork {
   late final StreamSubscription<JevmanRuntimeProgress> _runtimeEvents;
   StreamSubscription<Map<String, Object?>>? _gameEvents;
   JevmanGameBridge? _bridge;
+  final _viewers = <JevmanReplaySession>{};
+  final _openingViewers = <Future<JevmanReplaySession>>{};
+  List<int> get activeViewerProcessIds => [
+    for (final viewer in _viewers)
+      if (viewer.activeProcessId != null) viewer.activeProcessId!,
+  ];
+
+  Future<void> waitForViewersClosed() async {
+    await Future.wait(
+      _openingViewers.toList().map(
+        (opening) => opening.then<void>((_) {}, onError: (Object _) {}),
+      ),
+    );
+    await Future.wait(
+      _viewers.toList().map((viewer) => viewer.closing ?? Future<void>.value()),
+    );
+  }
+
   Map<String, Object?>? _identity;
   Completer<void>? _preparing;
   DecisionCancellation? _activePreparation;
@@ -61,6 +80,7 @@ class BenchmarkGameWork {
       _identity ?? (throw StateError('游戏资源尚未准备'));
   Stream<Map<String, Object?>> get changes => _changes.stream;
   Map<String, Object?>? get latestFrame => _bridge?.latestFrame;
+  Map<String, Object?>? get activeTarget => _bridge?.activeTarget;
   int? get activeProcessId => _bridge?.activeProcessId;
   void cancelPreparation() => _activePreparation?.cancel();
 
@@ -158,6 +178,87 @@ class BenchmarkGameWork {
   Future<Map<String, Object?>> replay(JevmanRecording recording) {
     _requireReady();
     return _bridge!.replay(recording);
+  }
+
+  Future<JevmanReplaySession> openReplay(
+    JevmanRecording recording, {
+    required Map<String, Object?> identity,
+  }) {
+    final opening = _openReplay(recording, identity: identity);
+    _openingViewers.add(opening);
+    unawaited(
+      opening.then<void>(
+        (_) => _openingViewers.remove(opening),
+        onError: (Object _) {
+          _openingViewers.remove(opening);
+        },
+      ),
+    );
+    return opening;
+  }
+
+  Future<JevmanReplaySession> _openReplay(
+    JevmanRecording recording, {
+    required Map<String, Object?> identity,
+  }) async {
+    if (_closed) {
+      throw StateError('游戏资源已关闭');
+    }
+    if (_status != BenchmarkGamePreparationStatus.ready) {
+      await prepare(DecisionCancellation());
+    }
+    // The adapter may gain read-only viewing commands. The actual game modules
+    // and trace schema must still match the historical game's fixed version.
+    if (identity['pin'] != pin || identity['benchVersion'] != 1) {
+      throw const FormatException('录像对应的游戏版本不匹配');
+    }
+    final oldNode = identity['node'];
+    final node = this.identity['node'] as Map;
+    if (oldNode is! Map ||
+        const [
+          'version',
+          'platform',
+          'executableSha256',
+          'licenseSha256',
+        ].any((key) => oldNode[key] != node[key])) {
+      throw const FormatException('录像对应的原游戏运行时版本不匹配');
+    }
+    final oldInputs = identity['bundleInputs'];
+    final inputs = this.identity['bundleInputs'] as List;
+    if (oldInputs is! List ||
+        inputs
+            .where(
+              (input) =>
+                  (input as Map)['path'] !=
+                  'benchmarks/adapters/jevman/entry.ts',
+            )
+            .any(
+              (input) => !oldInputs.any(
+                (old) =>
+                    old is Map &&
+                    old['path'] == (input as Map)['path'] &&
+                    old['sha256'] == input['sha256'],
+              ),
+            )) {
+      throw const FormatException('录像对应的原游戏源码摘要不匹配');
+    }
+    final viewer = await JevmanReplaySession.open(
+      runtime: _runtime,
+      bundle: _bridge!.bundle,
+      bundleSha256: _bridge!.bundleSha256,
+      recording: recording,
+    );
+    if (_closed) {
+      await viewer.close();
+      throw StateError('游戏资源已关闭');
+    }
+    _viewers.add(viewer);
+    _changes.add({'type': 'viewerOpened', 'pid': viewer.activeProcessId});
+    viewer.onClosed = () {
+      _viewers.remove(viewer);
+      _changes.add({'type': 'viewerClosed'});
+    };
+    return viewer;
   }
 
   void _requireReady() {
@@ -274,7 +375,13 @@ class BenchmarkGameWork {
     _closed = true;
     cancelPreparation();
     try {
+      await Future.wait(
+        _openingViewers.toList().map(
+          (opening) => opening.then<void>((_) {}, onError: (Object _) {}),
+        ),
+      );
       await Future.wait([
+        for (final viewer in _viewers.toList()) viewer.close(),
         _bridge?.close() ?? Future<void>.value(),
         _runtime.close(),
         if (_preparing != null) _preparing!.future,

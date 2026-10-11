@@ -26,9 +26,11 @@ class JevmanGameBridge {
   String _cancellationStatus = 'cancelled';
   final _changes = StreamController<Map<String, Object?>>.broadcast();
   Map<String, Object?>? _latestFrame;
+  Map<String, Object?>? _activeTarget;
   int? get activeProcessId => _process?.pid;
   Stream<Map<String, Object?>> get changes => _changes.stream;
   Map<String, Object?>? get latestFrame => _latestFrame;
+  Map<String, Object?>? get activeTarget => _activeTarget;
 
   /// Exactly 100 original real-time games. The application supplies its existing
   /// metadata-only source lock; every decision still traverses a public client.
@@ -44,6 +46,11 @@ class JevmanGameBridge {
     if (_operation != null) throw StateError('Game bridge is active');
     final operation = Completer<void>();
     _operation = operation;
+    _activeTarget = Map<String, Object?>.unmodifiable({
+      'model': model,
+      'channel': channel.name,
+    });
+    _changes.add({'type': 'started', ..._activeTarget!});
     final token = DecisionCancellation();
     _playCancellation = token;
     _cancellationStatus = 'cancelled';
@@ -55,6 +62,7 @@ class JevmanGameBridge {
     Object? commitError;
     StackTrace? commitStack;
     Map<String, Object?>? result;
+    var observedStatus = 'failed';
     Process? process;
     StreamSubscription<String>? lines;
     var exited = false;
@@ -171,6 +179,7 @@ class JevmanGameBridge {
 
     try {
       if (token.isCancelled) {
+        observedStatus = 'cancelled';
         return _emptyResult(model, channel, 'cancelled');
       }
       process = await _start('play');
@@ -225,7 +234,12 @@ class JevmanGameBridge {
                                 row,
                           ],
                         }) as Map<String, Object?>;
-                        _changes.add({'type': 'game', 'game': committed});
+                        _changes.add({
+                          'type': 'game',
+                          'game': committed,
+                          'model': model,
+                          'channel': channel.name,
+                        });
                         if (onGameCommitted != null) {
                           await onGameCommitted(committed);
                         }
@@ -244,8 +258,11 @@ class JevmanGameBridge {
                   }
                   result = value['result'] as Map<String, Object?>;
                 } else {
-                  final sealed =
-                      JevmanRecording._seal(value) as Map<String, Object?>;
+                  final sealed = JevmanRecording._seal({
+                    ...value,
+                    'model': model,
+                    'channel': channel.name,
+                  }) as Map<String, Object?>;
                   if (value['type'] == 'frame') _latestFrame = sealed;
                   _changes.add(sealed);
                 }
@@ -310,6 +327,7 @@ class JevmanGameBridge {
         value['summary'] = null;
         value['originalSummary'] = null;
       }
+      observedStatus = value['status'] as String;
       return JevmanRecording._seal({
         ...value,
         'model': model,
@@ -329,6 +347,14 @@ class JevmanGameBridge {
       unlink();
       _playCancellation = null;
       _process = null;
+      _latestFrame = null;
+      _activeTarget = null;
+      _changes.add({
+        'type': 'ended',
+        'model': model,
+        'channel': channel.name,
+        'status': observedStatus,
+      });
       _operation = null;
       operation.complete();
     }

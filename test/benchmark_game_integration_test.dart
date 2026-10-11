@@ -104,6 +104,11 @@ void main() {
         expect(latencyCoverage['latency_success_coverage'], isNull);
 
         expect(work.activeProcessId, isNull);
+        expect(
+          work.latestFrame,
+          isNull,
+          reason: 'A finished game must not supply a live frame to the next batch admission.',
+        );
         expect(fixture.gateway.activeOwnedRequests, 0);
         for (final name in ['native-kev', 'quick', 'hard']) {
           expect(fixture.council.models.isEvaluationLocked(name), isFalse);
@@ -367,8 +372,10 @@ void main() {
         expect(interrupted.summary['attempted'], 1);
         expect(interrupted.summary['complete'], isFalse);
         expect(work.activeProcessId, isNull);
+        final reopened = BenchmarkRunStore(directory: store.directory);
+        addTearDown(reopened.close);
         expect(
-          (await store.load(interrupted.id)).status,
+          (await reopened.load(interrupted.id)).status,
           BenchmarkRunStatus.interrupted,
         );
         await expectLater(

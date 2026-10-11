@@ -118,7 +118,7 @@ for directory in ('lib', 'test', 'benchmarks'):
     for path in sorted((root / directory).rglob('*')):
         if path.is_file() and '.git' not in path.parts and '__pycache__' not in path.parts:
             source[str(path.relative_to(root))] = digest(path)
-for name in ('pubspec.yaml', 'pubspec.lock', 'analysis_options.yaml', 'scripts/test-host.sh'):
+for name in ('pubspec.yaml', 'pubspec.lock', 'analysis_options.yaml', 'scripts/test-host.sh', 'scripts/verify_flutter_test_result.py'):
     source[name] = digest(root / name)
 record = {
     'environment': identity, 'head': command(['git', 'rev-parse', 'HEAD']),
@@ -136,6 +136,10 @@ run_check() {
   printf '%s\n' "$step_exit" > "$run_dir/$step.exit"
   tail -n 20 "$run_dir/$step.log"
   printf 'Step %s exit %s. Full log: %s\n' "$step" "$step_exit" "$run_dir/$step.log"
+  if [[ "$step" == test ]]; then
+    "$GMD_TEST_PYTHON" scripts/verify_flutter_test_result.py \
+      "$run_dir/$step.log" "$step_exit" "$run_dir/test-outcome.json" || return 1
+  fi
   return "$step_exit"
 }
 if [[ "$host_mode" == prepare ]]; then

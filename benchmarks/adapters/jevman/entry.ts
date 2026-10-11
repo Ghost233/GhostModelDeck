@@ -40,6 +40,22 @@ for await (const line of input) {
   break;
 }
 input.close();
+} else if (mode === 'view') {
+  let recording: Recording | null = null;
+  let replay: Replay | null = null;
+  for await (const line of input) {
+    const message = JSON.parse(line);
+    if (message.type === 'open') {
+      recording = message.recording;
+      replay = new Replay(recording!);
+      emit({ id: message.id, verdict: verifyGame(recording!), frame: 0, state: summarizeState(replay.state), status: replay.state.status });
+    } else if (message.type === 'seek' && recording && replay) {
+      if (!Number.isInteger(message.frame) || message.frame < 0 || message.frame > recording.frames.length) throw new Error('Invalid replay frame');
+      if (message.frame < replay.frame) replay = new Replay(recording);
+      while (replay.frame < message.frame) replay.stepFrame();
+      emit({ id: message.id, frame: replay.frame, state: summarizeState(replay.state), status: replay.state.status });
+    } else throw new Error('Invalid viewing command');
+  }
 } else {
   throw new Error('Unknown Jevman runtime command');
 }

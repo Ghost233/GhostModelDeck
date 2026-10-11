@@ -43,8 +43,10 @@ class ManagerLifecycle {
     if (_shutdown != null) return _shutdown!;
     state = ManagerLifecycleState.stopping;
     final benchmarkRuns = benchmarks?.close() ?? Future<void>.value();
+    final history = benchmarks?.store.close() ?? Future<void>.value();
     final resources = benchmarkResources?.close() ?? Future<void>.value();
     benchmarkRuns.ignore();
+    history.ignore();
     resources.ignore();
     final games = benchmarkGameWork?.close() ?? Future<void>.value();
     games.ignore();
@@ -54,18 +56,26 @@ class ManagerLifecycle {
     gateway?.beginShutdown();
     final downloads = downloader.close();
     downloads.ignore();
-    return _shutdown = _finish(downloads, benchmarkRuns, resources, games);
+    return _shutdown = _finish(
+      downloads,
+      benchmarkRuns,
+      history,
+      resources,
+      games,
+    );
   }
 
   Future<void> _finish(
     Future<void> downloads,
     Future<void> benchmarkRuns,
+    Future<void> history,
     Future<void> resources,
     Future<void> games,
   ) async {
     final failures = <String>[];
     for (final step in [
       ('基准记录', () => benchmarkRuns),
+      ('历史读取', () => history),
       ('基准资源', () => resources),
       ('游戏资源', () => games),
       ('MCP', mcp.stop),

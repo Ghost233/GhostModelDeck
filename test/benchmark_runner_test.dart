@@ -1030,14 +1030,13 @@ void main() {
       expect(fixture.runtime.io.requests, hasLength(400));
       final records = await store.list();
       expect(records, hasLength(4));
+      final completedHistory = records.singleWhere(
+        (entry) => entry.status == BenchmarkRunStatus.completed,
+      );
+      expect(completedHistory.items, isEmpty);
+      expect(completedHistory.groups, isEmpty);
       expect(
-        jsonEncode(
-          records
-              .singleWhere(
-                (entry) => entry.status == BenchmarkRunStatus.completed,
-              )
-              .toJson(),
-        ),
+        jsonEncode((await store.load(completedHistory.id)).toJson()),
         completedBytes,
       );
       final restarted = BenchmarkRunner(

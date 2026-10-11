@@ -22,6 +22,8 @@ import 'download_preferences.dart';
 import 'download_tasks_page.dart';
 import 'engine_catalog.dart';
 import 'engine_page.dart';
+import 'engine_source_build.dart';
+import 'embedding_page.dart';
 import 'omlx_engine.dart';
 import 'hf_model_browser.dart';
 import 'public_gateway.dart';
@@ -36,6 +38,8 @@ import 'manager_lifecycle.dart';
 import 'model_use_registry.dart';
 import 'sdk_service.dart';
 import 'settings_page.dart';
+import 'startlux_readout.dart';
+import 'startlux_runtime.dart';
 import 'software_update_pane.dart';
 import 'update_checker.dart';
 import 'update_download_service.dart';
@@ -73,6 +77,10 @@ class _ManagerShellState extends State<_ManagerShell>
   late final ModelUseRegistry _useRegistry;
   late final LlamaEngine _officialEngine;
   late final LlamaEngine _standardEngine;
+  late final LlamaEngine _embeddingEngine;
+  late final StartluxRuntime _startluxRuntime;
+  StartluxReadoutFactory? _startluxReadoutFactory;
+  Future<void> _startluxPreparation = Future.value();
   late final OmlxEngine _omlxEngine;
   late final EngineCatalog _engines;
   late final CouncilController _council;
@@ -101,7 +109,7 @@ class _ManagerShellState extends State<_ManagerShell>
   void initState() {
     super.initState();
     _workspaceTabs = TabController(length: 2, vsync: this);
-    _capabilityTabs = TabController(length: 2, vsync: this);
+    _capabilityTabs = TabController(length: 3, vsync: this);
     _browser = HfModelBrowser(
       cacheDirectory: Directory('${_settings.file.parent.path}/hf-cache'),
     );
@@ -110,12 +118,17 @@ class _ManagerShellState extends State<_ManagerShell>
       preferences: _preferences,
     );
     _useRegistry = ModelUseRegistry(_library);
+    _startluxRuntime = StartluxRuntime(
+      Directory('${_settings.file.parent.path}/startlux-runtime'),
+      assets: _loadStartluxAsset,
+    );
     _officialEngine = LlamaEngine(
       library: _library,
       installationDirectory: Directory(
         '${_settings.file.parent.path}/engines/llama.cpp',
       ),
       useRegistry: _useRegistry,
+      startStartluxReadout: _startStartluxReadout,
     );
     _standardEngine = LlamaEngine(
       library: _library,
@@ -123,6 +136,15 @@ class _ManagerShellState extends State<_ManagerShell>
       useRegistry: _useRegistry,
       release: standardLlamaRelease,
       installationId: EngineCatalog.standardId,
+      startStartluxReadout: _startStartluxReadout,
+    );
+    _embeddingEngine = LlamaEngine(
+      library: _library,
+      installationDirectory: _officialEngine.installationDirectory,
+      useRegistry: _useRegistry,
+      release: embeddingLlamaRelease,
+      installationId: EngineCatalog.embeddingId,
+      startStartluxReadout: _startStartluxReadout,
     );
     _omlxEngine = OmlxEngine(
       installationDirectory: Directory(
@@ -133,9 +155,14 @@ class _ManagerShellState extends State<_ManagerShell>
       library: _library,
       officialEngine: _officialEngine,
       standardEngine: _standardEngine,
+      embeddingEngine: _embeddingEngine,
       omlxEngine: _omlxEngine,
       useRegistry: _useRegistry,
       registryFile: File('${_settings.file.parent.path}/engines.json'),
+      startStartluxReadout: _startStartluxReadout,
+      sourceBuilder: EngineSourceBuilder(
+        Directory('${_settings.file.parent.path}/engines/source'),
+      ),
     );
     _council = CouncilController(
       catalog: _engines,
@@ -144,7 +171,13 @@ class _ManagerShellState extends State<_ManagerShell>
     _mcp = CouncilMcpServer(controller: _council);
     _publicRoutes = PublicModelRoutes(
       library: _library,
-      runtimes: [_officialEngine, _standardEngine, _omlxEngine],
+      runtimes: [
+        _officialEngine,
+        _standardEngine,
+        _embeddingEngine,
+        _omlxEngine,
+      ],
+      runtimeSources: () => _engines.runtimes.toList(),
       registryFile: File('${_settings.file.parent.path}/public_models.json'),
     );
     _publicGateway = PublicGatewayServer(
@@ -197,15 +230,25 @@ class _ManagerShellState extends State<_ManagerShell>
     );
     _native.setMethodCallHandler((call) async {
       if (call.method != 'prepareToQuit') throw MissingPluginException();
+      _startluxRuntime.cancelPreparation();
+      final failures = <String>[];
       try {
         await _lifecycle.shutdown();
-        return true;
-      } catch (_) {
+      } catch (error) {
+        failures.add('服务收尾：$error');
+      }
+      try {
+        await _startluxRuntime.close();
+      } catch (error) {
+        failures.add('StartLux 运行时收尾：$error');
+      }
+      if (failures.isNotEmpty) {
         throw PlatformException(
           code: 'shutdown_failed',
-          message: '受管服务尚未完成收尾。',
+          message: failures.join('; '),
         );
       }
+      return true;
     });
     unawaited(_mcp.start().catchError((Object _) {}));
     // 启动失败（含公开端口冲突）保留在网关状态机中显式呈现，不影响其余服务。
@@ -214,6 +257,46 @@ class _ManagerShellState extends State<_ManagerShell>
     _launcherService.connect();
     _loadSettings();
     _loadAppVersion();
+  }
+
+  Future<StartluxReadout?> _startStartluxReadout(
+    LibraryArtifact asset,
+    Uri nativeEndpoint,
+    String alias,
+    int generation,
+    DecisionCancellation cancellation,
+  ) async {
+    if (!asset.hasStartluxReadout) return null;
+    // Several engine installations share one preparation owner. The caller
+    // retains the real failure; the tail only admits the next preparation.
+    final preparation = _startluxPreparation.then(
+      (_) => _startluxRuntime.prepare(cancellation),
+    );
+    _startluxPreparation = preparation.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    final runtime = await preparation;
+    var factory = _startluxReadoutFactory;
+    if (factory == null || factory.runtime.fingerprint != runtime.fingerprint) {
+      factory = StartluxReadoutFactory(
+        runtime,
+        cacheRoot: Directory('${_settings.file.parent.path}/startlux-readout'),
+        assets: _loadStartluxAsset,
+      );
+      _startluxReadoutFactory = factory;
+    }
+    return factory.start(
+      nativeEndpoint: nativeEndpoint,
+      alias: alias,
+      generation: generation,
+      cancellation: cancellation,
+    );
+  }
+
+  Future<Uint8List> _loadStartluxAsset(String name) async {
+    final data = await rootBundle.load(name);
+    return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
   }
 
   /// 应用内展示的当前版本必须来自包信息（Info.plist），不硬编码。
@@ -282,8 +365,12 @@ class _ManagerShellState extends State<_ManagerShell>
       _workspaceTabs.index = 0;
     } else if (page >= 7) {
       _playgroundPage = page;
-      _capabilityTabs.index = page == 8 ? 0 : 1;
-      if (page != 8) _jevPage = page;
+      _capabilityTabs.index = switch (page) {
+        8 => 0,
+        10 => 2,
+        _ => 1,
+      };
+      if (page == 7 || page == 9) _jevPage = page;
     }
   });
 
@@ -293,7 +380,11 @@ class _ManagerShellState extends State<_ManagerShell>
   });
 
   void _selectCapability(int index) => setState(() {
-    _playgroundPage = index == 0 ? 8 : _jevPage;
+    _playgroundPage = switch (index) {
+      0 => 8,
+      1 => _jevPage,
+      _ => 10,
+    };
     _page = _playgroundPage;
     _openedPages.add(_page);
   });
@@ -307,8 +398,20 @@ class _ManagerShellState extends State<_ManagerShell>
     unawaited(_launcherService.dispose().catchError((Object _) {}));
     _browser.close();
     unawaited(_benchmarks.close().catchError((Object _) {}));
+    unawaited(_benchmarks.store.close().catchError((Object _) {}));
     unawaited(_benchmarkResources.close().catchError((Object _) {}));
     unawaited(_benchmarkGameWork.close().catchError((Object _) {}));
+    unawaited(
+      _startluxRuntime.close().catchError((Object error, StackTrace stack) {
+        FlutterError.reportError(
+          FlutterErrorDetails(
+            exception: error,
+            stack: stack,
+            context: ErrorDescription('收尾 StartLux 运行时准备'),
+          ),
+        );
+      }),
+    );
     // Explicit native shutdown awaits the original failure via ManagerLifecycle.
     unawaited(_downloader.close().catchError((Object _) {}));
     _mcp.close();
@@ -318,6 +421,7 @@ class _ManagerShellState extends State<_ManagerShell>
     _engines.close();
     _officialEngine.close();
     _standardEngine.close();
+    _embeddingEngine.close();
     _library.close();
     _preferences.dispose();
     super.dispose();
@@ -413,6 +517,7 @@ class _ManagerShellState extends State<_ManagerShell>
                 tabs: const [
                   Tab(text: '通用 LLM'),
                   Tab(text: 'JEV'),
+                  Tab(text: '嵌入'),
                 ],
               ),
             Expanded(
@@ -475,7 +580,11 @@ class _ManagerShellState extends State<_ManagerShell>
                                 _navigation(
                                   '基础测试',
                                   Icons.science_outlined,
-                                  _capabilityTabs.index == 0 ? 8 : 7,
+                                  switch (_capabilityTabs.index) {
+                                    0 => 8,
+                                    1 => 7,
+                                    _ => 10,
+                                  },
                                 ),
                                 if (_capabilityTabs.index == 1)
                                   _navigation(
@@ -575,6 +684,13 @@ class _ManagerShellState extends State<_ManagerShell>
                               resources: _benchmarkResources,
                               runner: _benchmarks,
                               gameWork: _benchmarkGameWork,
+                            )
+                          else
+                            const SizedBox.shrink(),
+                          if (_openedPages.contains(10))
+                            EmbeddingPage(
+                              gateway: _publicGateway,
+                              active: _workspaceTabs.index == 1 && _page == 10,
                             )
                           else
                             const SizedBox.shrink(),

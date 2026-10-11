@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:crypto/crypto.dart';
 
@@ -9,6 +11,8 @@ import 'decision_protocol.dart';
 import 'jev_debug.dart';
 import 'jev_models.dart';
 import 'jev_playground.dart';
+
+part 'benchmark_history_reader.dart';
 
 enum BenchmarkRunStatus {
   running,
@@ -196,9 +200,6 @@ class BenchmarkRun {
         for (final run in evaluations) run.toJson(),
       ]),
     };
-    if (!questionBatch) {
-      return BenchmarkRun._(freezeDebugJson(document) as Map<String, Object?>);
-    }
     final header = freezeDebugJson({
       ...document,
       'evaluations': <Object?>[],
@@ -832,6 +833,42 @@ class BenchmarkRunStore {
   BenchmarkRunStore({required this.directory});
   final Directory directory;
   final _journals = <String, _QuestionJournal>{};
+  final _historyReaders = <BenchmarkHistorySession>{};
+  final _historyOperations = <Future<void>>{};
+  Future<void>? _historyClosing;
+
+  BenchmarkHistorySession openHistory(String id) {
+    _file(id);
+    if (_historyClosing != null) {
+      throw StateError('历史读取已关闭');
+    }
+    final reader = BenchmarkHistorySession._(directory.absolute.path, id);
+    _historyReaders.add(reader);
+    reader._onClosed = () => _historyReaders.remove(reader);
+    return reader;
+  }
+
+  Future<void> close() => _historyClosing ??= Future.wait([
+    for (final reader in _historyReaders.toList()) reader.close(),
+    ..._historyOperations,
+  ]).then((_) {});
+
+  Future<T> _ownHistoryOperation<T>(Future<T> operation) {
+    final settled = operation.then<void>((_) {}, onError: (Object _) {});
+    _historyOperations.add(settled);
+    unawaited(
+      settled.then<void>((_) {
+        _historyOperations.remove(settled);
+      }),
+    );
+    return operation;
+  }
+
+  void _requireHistoryOpen() {
+    if (_historyClosing != null) {
+      throw StateError('历史读取已关闭');
+    }
+  }
 
   File _file(String id) {
     if (!BenchmarkRun._validId(id)) throw const FormatException('评测记录 ID 无效');
@@ -855,10 +892,7 @@ class BenchmarkRunStore {
     }
     final temporary = await File('${target.path}.part').create(exclusive: true);
     try {
-      await temporary.writeAsString(
-        const JsonEncoder.withIndent('  ').convert(document),
-        flush: true,
-      );
+      await temporary.writeAsString(jsonEncode(document), flush: true);
       await temporary.rename(target.path);
     } catch (error) {
       try {
@@ -873,16 +907,57 @@ class BenchmarkRunStore {
     }
   }
 
-  Future<List<BenchmarkRun>> list() async {
+  Future<List<BenchmarkRun>> list() {
+    _requireHistoryOpen();
+    return _ownHistoryOperation(_historySummaryList(directory.absolute.path));
+  }
+
+  /// File locations only. An active journal may be between append and header
+  /// publication, so this does not hydrate or verify its unfinished body.
+  Future<List<String>> recordFilePaths(String id) {
+    _requireHistoryOpen();
+    return _ownHistoryOperation(
+      _historyRecordFilePaths((directory.absolute.path, id)),
+    );
+  }
+
+  Future<List<String>> _recordFilePaths(String id) async {
+    final document = await _readDocument(id);
+    final paths = <String>[_file(id).absolute.path];
+    if (const {3, 4, 5, 6}.contains(document['schema_version'])) {
+      final entries = _questionEntries(document);
+      for (var index = 0; index < entries.length; index++) {
+        final descriptor = entries[index]['journal'];
+        final file = _journalFile(id, index);
+        if (descriptor is! Map ||
+            descriptor['format'] != 'gmd-frozen-request-journal-v1' ||
+            descriptor['file'] != file.uri.pathSegments.last ||
+            entries[index]['id'] !=
+                (const {3, 5}.contains(document['schema_version'])
+                    ? id
+                    : '$id-$index') ||
+            await FileSystemEntity.type(file.path, followLinks: false) !=
+                FileSystemEntityType.file) {
+          throw FileSystemException('历史文件描述符不属于该对象或不是普通文件', file.path);
+        }
+        paths.add(file.absolute.path);
+      }
+    }
+    return List<String>.unmodifiable(paths);
+  }
+
+  Future<List<BenchmarkRun>> _listSummaries() async {
     if (!await directory.exists()) return const [];
     final records = <BenchmarkRun>[];
     await for (final entry in directory.list(followLinks: false)) {
       if (entry is File && entry.path.endsWith('.json')) {
         final filename = entry.uri.pathSegments.last;
         records.add(
-          await _load(
-            filename.substring(0, filename.length - 5),
-            details: false,
+          _historyLightRecord(
+            await _load(
+              filename.substring(0, filename.length - 5),
+              details: false,
+            ),
           ),
         );
       }
@@ -893,12 +968,15 @@ class BenchmarkRunStore {
 
   Future<void> exportTo(String id, File destination) async {
     if (!destination.isAbsolute) throw ArgumentError('导出需要完整绝对路径');
-    final record = await load(id);
-    final serialized = const JsonEncoder.withIndent('  ')
-        .convert(record.toJson());
+    _requireHistoryOpen();
+    await _ownHistoryOperation(_exportVerifiedHistory(id, destination));
+  }
+
+  Future<void> _exportVerifiedHistory(String id, File destination) async {
+    final bytes = await _historyExportBytes((directory.absolute.path, id));
     await destination.create(exclusive: true);
     try {
-      await destination.writeAsString(serialized, flush: true);
+      await destination.writeAsBytes(bytes, flush: true);
     } catch (error) {
       try {
         await destination.delete();
@@ -913,6 +991,20 @@ class BenchmarkRunStore {
   }
 
   Future<void> delete(String id) async {
+    _requireHistoryOpen();
+    await _ownHistoryOperation(_deleteVerifiedHistory(id));
+  }
+
+  Future<void> _deleteVerifiedHistory(String id) async {
+    final paths = await _historyDeletionFiles((directory.absolute.path, id));
+    for (var index = 0; index < paths.length; index++) {
+      await File(paths[index]).delete();
+      _journals.remove('$id/$index');
+    }
+    await _file(id).delete();
+  }
+
+  Future<List<String>> _validatedDeletionFiles(String id) async {
     final target = _file(id);
     if (await FileSystemEntity.type(target.path, followLinks: false) !=
         FileSystemEntityType.file) {
@@ -923,15 +1015,20 @@ class BenchmarkRunStore {
       // Validate every owner-bound journal before any deletion starts.
       await _load(id, details: true);
       final entries = _questionEntries(document);
-      for (var index = 0; index < entries.length; index++) {
-        await _journalFile(id, index).delete();
-        _journals.remove('$id/$index');
-      }
+      return [
+        for (var index = 0; index < entries.length; index++)
+          _journalFile(id, index).absolute.path,
+      ];
     }
-    await target.delete();
+    return const [];
   }
 
-  Future<BenchmarkRun> load(String id) => _load(id, details: true);
+  Future<BenchmarkRun> load(String id) {
+    _requireHistoryOpen();
+    return _ownHistoryOperation(
+      _historyCompleteLoad((directory.absolute.path, id)),
+    );
+  }
 
   Future<Map<String, Object?>> _readDocument(String id) async {
     final file = _file(id);
@@ -1059,12 +1156,22 @@ class BenchmarkRunStore {
     await _saveDocument(run.id, document);
   }
 
-  Future<BenchmarkRun> _load(String id, {required bool details}) async {
+  Future<BenchmarkRun> _load(
+    String id, {
+    required bool details,
+    void Function(Map<String, Object?>)? onProgress,
+  }) async {
     final document = await _readDocument(id);
     if (!const {3, 4, 5, 6}.contains(document['schema_version'])) {
       return BenchmarkRun.fromJson(document);
     }
     final entries = _questionEntries(document);
+    var validated = 0;
+    final total = entries.fold<int>(0, (sum, entry) {
+      final summary = entry['summary'];
+      final attempted = summary is Map ? summary['attempted'] : null;
+      return sum + (attempted is int && attempted >= 0 ? attempted : 0);
+    });
     final evaluations = <BenchmarkRun>[];
     for (var index = 0; index < entries.length; index++) {
       final entry = entries[index];
@@ -1108,6 +1215,13 @@ class BenchmarkRunStore {
       final rows = <Map<String, Object?>>[];
       var head = _QuestionJournal.emptyHead;
       final ids = <String>{};
+      onProgress?.call({
+        'phase': 'validating',
+        'validated_items': validated,
+        'total_items': total,
+        'file': file.absolute.path,
+        'line': 1,
+      });
       await for (final line
           in file
               .openRead()
@@ -1143,11 +1257,25 @@ class BenchmarkRunStore {
           );
         }
         rows.add(row);
+        validated++;
+        onProgress?.call({
+          'phase': 'validating',
+          'validated_items': validated,
+          'total_items': total,
+          'file': file.absolute.path,
+          'line': rows.length + 1,
+        });
         head = digest;
       }
       if (rows.length != descriptor['count'] || head != descriptor['sha256']) {
         throw const FormatException('原题日志未完整封存或含额外请求');
       }
+      onProgress?.call({
+        'phase': 'final_validation',
+        'validated_items': validated,
+        'total_items': total,
+        'file': file.absolute.path,
+      });
       evaluations.add(BenchmarkRun.fromJson({...header, 'items': rows}));
     }
     if (document['schema_version'] == 3 || document['schema_version'] == 5) {

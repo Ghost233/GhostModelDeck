@@ -62,7 +62,9 @@ void main() {
       final first = manager.shutdown();
       expect(identical(first, manager.shutdown()), isTrue);
       await first.timeout(const Duration(seconds: 5));
-      final record = await store.load(id);
+      final reopened = BenchmarkRunStore(directory: store.directory);
+      addTearDown(reopened.close);
+      final record = await reopened.load(id);
       expect(record.status, BenchmarkRunStatus.interrupted);
       expect(record.summary['complete'], isFalse);
       expect(record.summary['accuracy'], isNull);
@@ -78,7 +80,7 @@ void main() {
       );
       held.complete();
       await Future<void>.delayed(const Duration(milliseconds: 20));
-      expect((await store.load(id)).status, BenchmarkRunStatus.interrupted);
+      expect((await reopened.load(id)).status, BenchmarkRunStatus.interrupted);
       expect(operationError, isNull);
     } finally {
       await fixture.runtime.catalog.stopManaged();

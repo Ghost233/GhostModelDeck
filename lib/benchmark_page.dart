@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -11,6 +10,7 @@ import 'benchmark_resources.dart';
 import 'benchmark_runner.dart';
 import 'benchmark_run_store.dart';
 import 'jev_playground.dart';
+import 'jevman_viewer.dart';
 
 /// The application owns resources and batches; this page only observes them.
 class BenchmarkPage extends StatefulWidget {
@@ -78,10 +78,27 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
   BenchmarkRun? _record;
   List<BenchmarkRun> _history = const [];
   bool _historyLoading = true;
+  String? _historyListError;
   String? _historyError;
   bool _viewingHistory = false;
   int _historySelection = 0;
   int _detail = 0;
+  static const _pageSize = 20;
+  int _detailPage = 0;
+  int _historyPage = 0;
+  int _detailGeneration = 0;
+  BenchmarkHistorySession? _historySession;
+  StreamSubscription<Object?>? _historyProgressSubscription;
+  String? _historyOwnerId;
+  bool _historyDetailsLoading = false;
+  bool _detailLoading = false;
+  List<Map<String, Object?>> _detailRows = const [];
+  List<String> _sourceFiles = const [];
+  int _sourcePage = 0;
+  String? _exportedFile;
+  String? _activeFilesId;
+  List<String> _activeFiles = const [];
+  int _filesGeneration = 0;
   bool _fileBusy = false;
   String? _fileStatus;
   String? _error;
@@ -140,21 +157,39 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
         unawaited(_loadSuiteMetadata(activeSuite));
       }
     }
-    _resourceSubscription = widget.resources.changes.listen((_) => _changed());
+    _resourceSubscription = widget.resources.changes.listen((_) {
+      _changed();
+      if (!widget.resources.preparing) unawaited(_loadSourceFiles());
+    });
     _gameSubscription = widget.gameWork?.changes.listen((_) => _changed());
     _subscription = widget.runner.changes.listen((record) {
       if (mounted) {
         setState(() {
           if (!_viewingHistory) _record = record;
         });
+        if (!_viewingHistory &&
+            _historySession == null &&
+            _activeFilesId != record.id) {
+          unawaited(_loadActiveFiles(record));
+        }
         if (record.status != BenchmarkRunStatus.running) {
           unawaited(_loadHistory());
+          if (!_viewingHistory && _historyOwnerId != record.id) {
+            unawaited(_view(record));
+          }
         }
       }
     });
     _timeout.addListener(_changed);
     unawaited(_discover());
     unawaited(_loadHistory());
+    unawaited(_loadSourceFiles());
+    if (_record != null && _record!.status == BenchmarkRunStatus.running) {
+      unawaited(_loadActiveFiles(_record!));
+    }
+    if (_record != null && _record!.status != BenchmarkRunStatus.running) {
+      unawaited(_view(_record!));
+    }
   }
 
   Future<void> _loadSuiteMetadata(String id) async {
@@ -164,6 +199,7 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
         _metadataLoading = false;
         _metadataError = null;
       });
+      unawaited(_loadSourceFiles());
       return;
     }
     setState(() {
@@ -175,6 +211,7 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
       final metadata = await BenchmarkResources.questionManifest(id);
       if (mounted && _suiteChoice == id) {
         setState(() => _suiteMetadata = metadata);
+        unawaited(_loadSourceFiles());
       }
     } catch (error) {
       if (mounted && _suiteChoice == id) {
@@ -260,9 +297,20 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
       _historySelection++;
       _viewingHistory = false;
       _record = null;
+      _fileStatus = null;
       _detail = 0;
       _evaluationIndex = 0;
+      _detailPage = 0;
+      _exportedFile = null;
+      _activeFilesId = null;
+      _activeFiles = const [];
+      _filesGeneration++;
     });
+    unawaited(
+      _closeHistory().catchError((Object error) {
+        if (mounted) setState(() => _historyError = '历史读取收尾失败：$error');
+      }),
+    );
     try {
       // Leaving this page does not abandon the prepared application batch.
       if (suiteId == 'jevman') {
@@ -314,11 +362,15 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
       if (mounted) {
         setState(() {
           _history = history;
-          _historyError = null;
+          _historyListError = null;
+          final lastPage = history.isEmpty
+              ? 0
+              : (history.length - 1) ~/ _pageSize;
+          if (_historyPage > lastPage) _historyPage = lastPage;
         });
       }
     } catch (error) {
-      if (mounted) setState(() => _historyError = '历史读取失败：$error');
+      if (mounted) setState(() => _historyListError = '历史读取失败：$error');
     } finally {
       if (mounted) setState(() => _historyLoading = false);
     }
@@ -327,19 +379,66 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
   Future<void> _view(BenchmarkRun selected) async {
     final selection = ++_historySelection;
     try {
-      final active = widget.runner.current;
-      final record =
-          active != null &&
-              widget.runner.running &&
-              active.status == BenchmarkRunStatus.running &&
-              active.id == selected.id
-          ? active
-          : await widget.runner.store.load(selected.id);
+      final closing = _closeHistory();
       if (mounted && selection == _historySelection) {
         setState(() {
-          final current = widget.runner.current;
-          _viewingHistory = current?.id != record.id;
-          _record = _viewingHistory ? record : current;
+          _viewingHistory = true;
+          _record = null;
+          _historyDetailsLoading = true;
+          _historyError = null;
+        });
+      }
+      await closing;
+    } catch (error) {
+      if (mounted && selection == _historySelection) {
+        setState(() {
+          _historyDetailsLoading = false;
+          _historyError = '历史读取收尾失败：$error';
+        });
+      }
+      return;
+    }
+    if (!mounted || selection != _historySelection) return;
+    final active = widget.runner.current;
+    if (active != null &&
+        widget.runner.running &&
+        active.status == BenchmarkRunStatus.running &&
+        active.id == selected.id) {
+      setState(() {
+        _viewingHistory = false;
+        _record = active;
+        _historyError = null;
+        _detail = 0;
+        _detailPage = 0;
+        _evaluationIndex = 0;
+      });
+      if (_activeFilesId != active.id || _activeFiles.isEmpty) {
+        unawaited(_loadActiveFiles(active));
+      }
+      return;
+    }
+    final session = widget.runner.store.openHistory(selected.id);
+    _historySession = session;
+    _historyOwnerId = selected.id;
+    setState(() {
+      _viewingHistory = true;
+      _record = null;
+      _historyDetailsLoading = true;
+      _historyError = null;
+      _detail = 0;
+      _detailPage = 0;
+      _evaluationIndex = 0;
+      _fileStatus = null;
+    });
+    _historyProgressSubscription = session.changes.listen((_) {
+      if (mounted && selection == _historySelection) _changed();
+    });
+    try {
+      final record = await session.ready;
+      if (mounted && selection == _historySelection) {
+        setState(() {
+          _record = record;
+          _historyDetailsLoading = false;
           _detail = 0;
           _evaluationIndex = 0;
           _fileStatus = null;
@@ -348,7 +447,106 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
       }
     } catch (error) {
       if (mounted && selection == _historySelection) {
-        setState(() => _historyError = '记录读取失败：$error');
+        setState(() {
+          _historyDetailsLoading = false;
+          _historyError = '记录读取失败：$error';
+        });
+      }
+    }
+  }
+
+  Future<void> _closeHistory() async {
+    final session = _historySession;
+    final subscription = _historyProgressSubscription;
+    _historySession = null;
+    _historyProgressSubscription = null;
+    _historyOwnerId = null;
+    _historyDetailsLoading = false;
+    _detailGeneration++;
+    _filesGeneration++;
+    _detailLoading = false;
+    _detailRows = const [];
+    await subscription?.cancel();
+    await session?.close();
+  }
+
+  Future<void> _loadActiveFiles(BenchmarkRun record) async {
+    final generation = ++_filesGeneration;
+    final selection = _historySelection;
+    _activeFilesId = record.id;
+    _activeFiles = const [];
+    try {
+      final files = await widget.runner.store.recordFilePaths(record.id);
+      if (mounted &&
+          generation == _filesGeneration &&
+          selection == _historySelection &&
+          !_viewingHistory &&
+          _historySession == null &&
+          _record?.id == record.id) {
+        setState(() => _activeFiles = files);
+      }
+    } catch (error) {
+      if (mounted &&
+          generation == _filesGeneration &&
+          selection == _historySelection) {
+        setState(() => _fileStatus = '评测文件地址读取失败：$error');
+      }
+    }
+  }
+
+  BenchmarkRun? get _evaluation {
+    final record = _record;
+    if (record == null) return null;
+    if (!record.isBatch) return record;
+    return record.evaluations[_evaluationIndex.clamp(
+      0,
+      record.evaluations.length - 1,
+    )];
+  }
+
+  Future<void> _selectDetail(int value, {int page = 0}) async {
+    final generation = ++_detailGeneration;
+    final selection = _historySelection;
+    setState(() {
+      _detail = value;
+      _detailPage = page;
+      _detailRows = const [];
+      _detailLoading = value != 0 && _historySession != null;
+    });
+    final record = _evaluation;
+    final session = _historySession;
+    if (record == null || session == null || value == 0) return;
+    try {
+      final rows = value == 1
+          ? await session.items(
+              evaluationId: record.id,
+              offset: page * _pageSize,
+            )
+          : record.isGameRun
+          ? await session.warmupCalls(
+              evaluationId: record.id,
+              offset: page * _pageSize,
+            )
+          : await session.groups(
+              evaluationId: record.id,
+              offset: page * _pageSize,
+            );
+      if (mounted &&
+          selection == _historySelection &&
+          generation == _detailGeneration) {
+        setState(() {
+          _detailRows = rows;
+          _detailLoading = false;
+        });
+      }
+    } catch (error) {
+      if (mounted &&
+          selection == _historySelection &&
+          generation == _detailGeneration) {
+        setState(() {
+          _detailLoading = false;
+          _historyError = '明细读取失败：$error';
+        });
       }
     }
   }
@@ -400,7 +598,12 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
       );
       if (destination == null) return;
       await widget.runner.store.exportTo(record.id, File(destination));
-      if (mounted) setState(() => _fileStatus = '已导出：$destination');
+      if (mounted) {
+        setState(() {
+          _fileStatus = '已导出：$destination';
+          _exportedFile = destination;
+        });
+      }
     } catch (error) {
       if (mounted) setState(() => _fileStatus = '导出失败：$error');
     } finally {
@@ -448,6 +651,7 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
         ),
       );
       if (confirmed != true) return;
+      await _closeHistory();
       await widget.runner.store.delete(record.id);
       if (mounted) {
         setState(() {
@@ -476,34 +680,332 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
   String _percent(Object? value) =>
       value is num ? '${(value * 100).toStringAsFixed(2)}%' : '未完成，不发布完整分数';
 
-  Widget _json(Object? value, String key) {
-    // The store has already validated and sealed all known task/evidence roles.
-    // Reapplying generic credential rules here would corrupt legal task data.
-    final text = const JsonEncoder.withIndent('  ').convert(value);
+  Widget _facts(Map<String, Object?> values) {
+    final scalars = values.entries
+        .where(
+          (entry) =>
+              entry.value is String ||
+              entry.value is num ||
+              entry.value is bool,
+        )
+        .toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton.icon(
-            key: Key('$key-copy'),
-            onPressed: () => Clipboard.setData(ClipboardData(text: text)),
-            icon: const Icon(Icons.copy, size: 16),
-            label: const Text('复制 JSON'),
+        for (final entry in scalars.take(_pageSize))
+          Text(
+            '${entry.key}：${_summaryText(entry.value.toString())}',
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
           ),
-        ),
-        SelectableText(
-          text,
-          key: Key(key),
-          style: Theme.of(context).textTheme.bodySmall
-              ?.copyWith(fontFamily: 'monospace'),
+        if (scalars.length > _pageSize) const Text('完整字段保留在记录文件中。'),
+      ],
+    );
+  }
+
+  String _summaryText(String value) => value.length <= 512
+      ? value
+      : '${String.fromCharCodes(value.runes.take(512))}…（完整内容见文件）';
+
+  Map<String, Object?> _rowSummary(
+    BenchmarkRun record,
+    Map<String, Object?> row,
+  ) => {
+    for (final key in const [
+      'id',
+      'index',
+      'status',
+      'category',
+      'difficulty',
+      'gold',
+      'prediction',
+      'elapsed_us',
+      'error',
+      'complete',
+      'costKnown',
+      'pair_id',
+      'dimension',
+      'group',
+      'relation',
+      'kind',
+      'attempted',
+      'total',
+      'expected',
+      'planned',
+      'n',
+      'correct',
+      'accuracy',
+      'scoreMae',
+      'brier',
+      'ece',
+      'http_status',
+      'phase',
+    ])
+      if (row.containsKey(key)) key: row[key],
+    if (row['metadata'] is Map)
+      'metadata': {
+        for (final key in const [
+          'source',
+          'category',
+          'case',
+          'question_type',
+          'primitive',
+        ])
+          if ((row['metadata'] as Map).containsKey(key))
+            key: (row['metadata'] as Map)[key],
+      },
+    if (record.isGameRun && row['result'] is Map)
+      'result': {
+        for (final entry in (row['result'] as Map).entries)
+          if (entry.value is num || entry.value is bool)
+            entry.key as String: entry.value,
+      },
+  };
+
+  Future<void> _loadSourceFiles() async {
+    final id = _suiteChoice;
+    final metadata = _suiteMetadata;
+    if (metadata == null) return;
+    final pin = metadata['pin'];
+    if (pin is! String) return;
+    final paths = id == 'decidebench'
+        ? BenchmarkResources.files.map((file) => file.path).toList()
+        : (metadata['files'] is List
+              ? (metadata['files'] as List)
+                    .whereType<Map>()
+                    .map((file) => file['path'])
+                    .whereType<String>()
+                    .toList()
+              : <String>[]);
+    final roots = [
+      Directory('${widget.resources.cacheRoot.path}/$id/$pin'),
+      Directory('benchmarks/sources/$id'),
+    ];
+    final files = <String>[];
+    for (final root in roots) {
+      if (!await root.exists()) continue;
+      for (final path in paths) {
+        final file = File('${root.path}/$path').absolute;
+        if (await file.exists()) files.add(file.path);
+      }
+      if (files.isNotEmpty) break;
+    }
+    if (id == 'jevman' && widget.gameWork != null) {
+      final root = widget.gameWork!.cacheRoot;
+      if (await root.exists()) files.add(root.absolute.path);
+    }
+    if (mounted && id == _suiteChoice) {
+      setState(() {
+        _sourceFiles = files;
+        _sourcePage = 0;
+      });
+    }
+  }
+
+  Future<void> _reveal(String path) async {
+    try {
+      await const MethodChannel('com.ghost233.ghostmodeldeck/native')
+          .invokeMethod<void>('revealInFinder', {'path': path});
+    } catch (error) {
+      if (mounted) setState(() => _fileStatus = 'Finder 定位失败：$error');
+    }
+  }
+
+  Widget _path(String label, String path, String key) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Wrap(
+        spacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Text(label),
+          TextButton.icon(
+            key: Key(key),
+            onPressed: () => _reveal(path),
+            icon: const Icon(Icons.folder_open, size: 18),
+            label: const Text('在 Finder 中显示'),
+          ),
+        ],
+      ),
+      SelectableText(path),
+    ],
+  );
+
+  Widget _recordFiles(BenchmarkRun owner) {
+    final session = _historySession;
+    final active = _activeFilesId == owner.id ? _activeFiles : const <String>[];
+    final journals = session?.journalFilePaths ?? active.skip(1).toList();
+    final path =
+        session?.recordFilePath ??
+        active.firstOrNull ??
+        File('${widget.runner.store.directory.path}/${owner.id}.json')
+            .absolute
+            .path;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text('完整输入、响应、分组、运行身份和原始录像保留在文件中；页面只显示摘要。'),
+        _path('评测记录', path, 'benchmark-record-reveal'),
+        for (final entry in journals.indexed)
+          _path(
+            '逐项日志 ${entry.$1 + 1}',
+            entry.$2,
+            'benchmark-journal-reveal-${entry.$1}',
+          ),
+        if (_exportedFile != null)
+          _path('完整导出', _exportedFile!, 'benchmark-export-reveal'),
+      ],
+    );
+  }
+
+  int _rowCount(BenchmarkRun record) {
+    final session = _historySession;
+    if (session != null) {
+      return _detail == 1
+          ? session.itemCount(record.id)
+          : record.isGameRun
+          ? session.warmupCount(record.id)
+          : session.groupCount(record.id);
+    }
+    if (_detail == 1) return record.items.length;
+    if (record.isGameRun) {
+      return (record.toJson()['warmup_calls'] as List).length;
+    }
+    return record.groups.length;
+  }
+
+  List<Map<String, Object?>> _visibleRows(BenchmarkRun record) {
+    if (_historySession != null) return _detailRows;
+    final rows = _detail == 1
+        ? record.items
+        : record.isGameRun
+        ? (record.toJson()['warmup_calls'] as List).cast<Map<String, Object?>>()
+        : record.groups;
+    return rows
+        .skip(_detailPage * _pageSize)
+        .take(_pageSize)
+        .map((row) => _rowSummary(record, row))
+        .toList();
+  }
+
+  Widget _pagination(int count) => Wrap(
+    spacing: 12,
+    crossAxisAlignment: WrapCrossAlignment.center,
+    children: [
+      Text(
+        '第 ${_detailPage + 1} / ${count == 0 ? 1 : (count + _pageSize - 1) ~/ _pageSize} 页 · 共 $count 条 · 每页 $_pageSize 条',
+        key: const Key('benchmark-detail-pagination'),
+      ),
+      TextButton(
+        key: const Key('benchmark-detail-previous'),
+        onPressed: _detailLoading || _detailPage == 0
+            ? null
+            : () => _selectDetail(_detail, page: _detailPage - 1),
+        child: const Text('上一页'),
+      ),
+      TextButton(
+        key: const Key('benchmark-detail-next'),
+        onPressed: _detailLoading || (_detailPage + 1) * _pageSize >= count
+            ? null
+            : () => _selectDetail(_detail, page: _detailPage + 1),
+        child: const Text('下一页'),
+      ),
+    ],
+  );
+
+  Widget _detailList(BenchmarkRun record) {
+    final rows = _visibleRows(record);
+    final question = record.isQuestionRun;
+    final items = _detail == 1;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _pagination(_rowCount(record)),
+        if (_detailLoading) const LinearProgressIndicator(),
+        if (_detailLoading) const Text('后台读取并核对当前页摘要…'),
+        SizedBox(
+          height: 430,
+          child: ListView.builder(
+            key: ValueKey(
+              '${items ? 'benchmark-items' : 'benchmark-groups'}-${record.id}',
+            ),
+            itemCount: rows.length,
+            itemBuilder: (context, index) {
+              final row = rows[index];
+              final id = items
+                  ? row['id'] as String
+                  : record.isGameRun
+                  ? '${row['id'] ?? index}'
+                  : question
+                  ? _sourceGroupId(row, _detailPage * _pageSize + index)
+                  : row['pair_id'] as String;
+              return ExpansionTile(
+                key: Key('benchmark-${items ? 'item' : 'group'}-$id'),
+                title: Text(
+                  items
+                      ? record.isGameRun
+                            ? '第 ${row['index']} 局 · ${row['complete'] == true ? '完整' : '部分录像'}'
+                            : '$id · ${row['status']}'
+                      : record.isGameRun
+                      ? '预热调用 $id · ${row['http_status'] ?? row['error'] ?? '已记录'}'
+                      : question
+                      ? '${row['dimension'] ?? row['kind'] ?? row['relation'] ?? '原分组'} · ${row['group'] ?? row['category'] ?? id}'
+                      : '$id · ${row['attempted']} / 2',
+                ),
+                subtitle: items && !record.isGameRun
+                    ? Text(
+                        question
+                            ? '${_sourceItemDescription(row)} · ${row['elapsed_us']} μs'
+                            : '${row['category']} · ${row['difficulty']} · 原标签 ${row['gold']} · 预测 ${row['prediction'] ?? '无有效预测'} · ${row['elapsed_us']} μs',
+                      )
+                    : null,
+                children: [
+                  _facts(row),
+                  if (row['result'] is Map)
+                    _facts(Map<String, Object?>.from(row['result'] as Map)),
+                  if (items && record.isGameRun && widget.gameWork != null)
+                    TextButton.icon(
+                      key: Key('benchmark-game-replay-$id'),
+                      onPressed: () => _replay(record, id),
+                      icon: const Icon(Icons.replay),
+                      label: const Text('回放本局 / 独立核对'),
+                    ),
+                ],
+              );
+            },
+          ),
         ),
       ],
     );
   }
 
+  Future<void> _replay(BenchmarkRun record, String id) async {
+    final selection = _historySelection;
+    try {
+      final session = _historySession;
+      final game = session == null
+          ? record.items.singleWhere((row) => row['id'] == id)
+          : await session.game(evaluationId: record.id, gameId: id);
+      if (mounted && selection == _historySelection) {
+        await _watchGame(game: game, identity: record.suite);
+      }
+    } catch (error) {
+      if (mounted && selection == _historySelection) {
+        setState(() => _fileStatus = '回放读取失败：$error');
+      }
+    }
+  }
+
   Widget _report(BenchmarkRun record) {
-    if (!record.isBatch) return _evaluationReport(record, owner: record);
+    if (!record.isBatch) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _evaluationReport(record, owner: record),
+          _recordFiles(record),
+        ],
+      );
+    }
     final evaluations = record.evaluations;
     final selected =
         evaluations[_evaluationIndex.clamp(0, evaluations.length - 1)];
@@ -537,6 +1039,9 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
                 onSelected: (_) => setState(() {
                   _evaluationIndex = index;
                   _detail = 0;
+                  _detailPage = 0;
+                  _detailGeneration++;
+                  _detailRows = const [];
                 }),
               ),
           ],
@@ -551,6 +1056,7 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
         const Text('成功席位覆盖：未在性能请求中取得公开席位证据，未知；配置成员数不表示成功席位数。'),
         const SizedBox(height: 12),
         _evaluationReport(selected, owner: record),
+        _recordFiles(record),
       ],
     );
   }
@@ -629,7 +1135,7 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
                 key: Key(entry.$2),
                 label: Text(entry.$3),
                 selected: _detail == entry.$1,
-                onSelected: (_) => setState(() => _detail = entry.$1),
+                onSelected: (_) => _selectDetail(entry.$1),
               ),
             TextButton.icon(
               key: const Key('benchmark-export'),
@@ -651,70 +1157,15 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
         ),
         if (_detail == 0)
           ExpansionTile(
-            title: const Text('固定来源 / 原评分 / 运行身份'),
+            title: const Text('固定来源 / 原评分 / 运行身份摘要'),
             children: [
-              _json({
-                'suite': record.suite,
-                'identity': record.identity,
-                'summary': summary,
-                if (question) 'source_summary': sourceSummary,
-              }, 'benchmark-summary-json'),
+              _facts(record.suite),
+              _facts(record.identity),
+              _facts(summary),
+              if (question) _facts(sourceSummary),
             ],
           ),
-        if (_detail == 1)
-          SizedBox(
-            height: 430,
-            child: ListView.builder(
-              key: ValueKey('benchmark-items-${record.id}'),
-              itemCount: record.items.length,
-              itemBuilder: (context, index) {
-                final item = record.items[index];
-                final id = item['id'] as String;
-                return ExpansionTile(
-                  key: Key('benchmark-item-$id'),
-                  title: Text('$id · ${item['status']}'),
-                  subtitle: Text(
-                    question
-                        ? '${_sourceItemDescription(item)} · ${item['elapsed_us']} μs'
-                        : '${item['category']} · ${item['difficulty']} · 原标签 ${item['gold']} · 预测 ${item['prediction'] ?? '无有效预测'} · ${item['elapsed_us']} μs',
-                  ),
-                  children: [_json(item, 'benchmark-item-json-$id')],
-                );
-              },
-            ),
-          ),
-        if (_detail == 2)
-          SizedBox(
-            height: 430,
-            child: ListView.builder(
-              key: ValueKey('benchmark-groups-${record.id}'),
-              itemCount: record.groups.length,
-              itemBuilder: (context, index) {
-                final group = record.groups[index];
-                final id = question
-                    ? _sourceGroupId(group, index)
-                    : group['pair_id'] as String;
-                return ExpansionTile(
-                  key: Key('benchmark-group-$id'),
-                  title: Text(
-                    question
-                        ? '${group['dimension'] ?? group['kind'] ?? group['relation'] ?? "原分组"} · ${group['group'] ?? group['category'] ?? id} · ${group['attempted'] ?? group['n'] ?? "未知"} / ${group['total'] ?? group['expected'] ?? group['planned'] ?? "未知"}'
-                        : '$id · ${group['attempted']} / 2',
-                  ),
-                  subtitle: Text(
-                    question
-                        ? '固定原分组；指标定义及适用覆盖见完整 JSON'
-                        : group['complete'] == true
-                        ? (group['correct'] == true
-                              ? '两个题都正确'
-                              : '完整执行，有错误或无效回答')
-                        : '未完成',
-                  ),
-                  children: [_json(group, 'benchmark-group-json-$id')],
-                );
-              },
-            ),
-          ),
+        if (_detail != 0) _detailList(record),
         if (_fileStatus != null)
           Text(_fileStatus!, key: const Key('benchmark-file-status')),
       ],
@@ -725,7 +1176,13 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
     final summary = record.summary;
     final source = record.toJson()['source_summary'];
     final client = record.toJson()['client_summary'] as Map;
-    final live = owner.id == widget.runner.current?.id && widget.runner.running;
+    final activeTarget = widget.gameWork?.activeTarget;
+    final live =
+        owner.id == widget.runner.current?.id &&
+        widget.runner.running &&
+        record.status == BenchmarkRunStatus.running &&
+        activeTarget?['model'] == record.model &&
+        activeTarget?['channel'] == record.channel;
     final frame = live ? widget.gameWork?.latestFrame : null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -749,6 +1206,13 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
             '当前第 ${frame['game']} 局 · 帧 ${frame['frame']} · 原playingSeconds ${frame['playingSeconds']} · ${frame['status']}',
             key: const Key('benchmark-game-live-progress'),
           ),
+        if (live && widget.gameWork != null)
+          TextButton.icon(
+            key: const Key('benchmark-game-watch'),
+            onPressed: () => _watchGame(),
+            icon: const Icon(Icons.visibility),
+            label: const Text('观看当前实际游戏'),
+          ),
         const Text('模型决策与greedy fallback分别统计；未完成不发布完整100局成绩。时间、用量、费用未知项保持未知。'),
         Text(
           '辅助指标：正式局成功公开调用端到端 P50 ${summary['latency_success_p50_ms'] ?? '不可用'} ms · P95 ${summary['latency_success_p95_ms'] ?? '不可用'} ms · 耗时样本 ${client['latency_success_samples'] ?? '未知'} / ${client['game_successes'] ?? '未知'} 次成功调用 · 覆盖率 ${client['latency_success_coverage'] ?? '未知'}（包含发现与请求；排除预热、失败和超时）',
@@ -768,7 +1232,7 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
                 key: Key(entry.$2),
                 label: Text(entry.$3),
                 selected: _detail == entry.$1,
-                onSelected: (_) => setState(() => _detail = entry.$1),
+                onSelected: (_) => _selectDetail(entry.$1),
               ),
             TextButton.icon(
               key: const Key('benchmark-export'),
@@ -790,45 +1254,58 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
         ),
         if (_detail == 0)
           ExpansionTile(
-            title: const Text('固定游戏 / 原独立成绩 / 运行身份'),
+            title: const Text('固定游戏 / 原独立成绩 / 运行身份摘要'),
             children: [
-              _json({
-                'suite': record.suite,
-                'identity': record.identity,
-                'summary': summary,
-                'source_summary': source,
-                'client_summary': record.toJson()['client_summary'],
-              }, 'benchmark-summary-json'),
+              _facts(record.suite),
+              _facts(record.identity),
+              _facts(summary),
+              if (source is Map) _facts(Map<String, Object?>.from(source)),
+              _facts(Map<String, Object?>.from(client)),
             ],
           ),
-        if (_detail == 1)
-          SizedBox(
-            height: 430,
-            child: ListView.builder(
-              key: ValueKey('benchmark-items-${record.id}'),
-              itemCount: record.items.length,
-              itemBuilder: (context, index) {
-                final game = record.items[index];
-                final id = game['id'] as String;
-                return ExpansionTile(
-                  key: Key('benchmark-item-$id'),
-                  title: Text(
-                    '第 ${game['index']} 局 · ${game['complete'] == true ? '完整' : '部分录像'}',
-                  ),
-                  subtitle: Text('原游戏结果、决策、fallback、完整公开calls与逐帧录像'),
-                  children: [_json(game, 'benchmark-item-json-$id')],
-                );
-              },
-            ),
-          ),
-        if (_detail == 2)
-          _json({
-            'warmup_calls': record.toJson()['warmup_calls'],
-            'client_summary': record.toJson()['client_summary'],
-          }, 'benchmark-game-calls-json'),
+        if (_detail != 0) _detailList(record),
         if (_fileStatus != null)
           Text(_fileStatus!, key: const Key('benchmark-file-status')),
       ],
+    );
+  }
+
+  Future<void> _watchGame({
+    Map<String, Object?>? game,
+    Map<String, Object?>? identity,
+  }) async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => Dialog(
+        child: SizedBox(
+          width: 760,
+          height: 780,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: IconButton(
+                    tooltip: '关闭观看',
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                  ),
+                ),
+                Expanded(
+                  child: JevmanViewer(
+                    work: widget.gameWork!,
+                    recording: game?['recording'],
+                    identity: identity,
+                    complete: game?['complete'] == true,
+                    gameIndex: game?['index'] as int?,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -849,6 +1326,17 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
     unawaited(_resourceSubscription.cancel());
     unawaited(_gameSubscription?.cancel());
     _timeout.dispose();
+    unawaited(
+      _closeHistory().catchError((Object error, StackTrace stack) {
+        FlutterError.reportError(
+          FlutterErrorDetails(
+            exception: error,
+            stack: stack,
+            context: ErrorDescription('关闭历史分页读取'),
+          ),
+        );
+      }),
+    );
     // The application closes its runner/resources at explicit quit.
     super.dispose();
   }
@@ -886,8 +1374,12 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
   };
 
   String _sourceItemDescription(Map<String, Object?> item) {
-    final metadata = item['metadata'] as Map;
-    return '${metadata['source'] ?? metadata['category'] ?? metadata['case'] ?? '原任务'} · ${metadata['question_type'] ?? metadata['primitive'] ?? '原请求组'}';
+    final metadata = item['metadata'] is Map
+        ? item['metadata'] as Map
+        : const {};
+    return _summaryText(
+      '${metadata['source'] ?? metadata['category'] ?? metadata['case'] ?? '原任务'} · ${metadata['question_type'] ?? metadata['primitive'] ?? '原请求组'}',
+    );
   }
 
   String _sourceGroupId(Map<String, Object?> group, int index) {
@@ -919,7 +1411,11 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
                 ? null
                 : (id) {
                     if (id == null) return;
-                    setState(() => _suiteChoice = id);
+                    setState(() {
+                      _suiteChoice = id;
+                      _sourceFiles = const [];
+                      _sourcePage = 0;
+                    });
                     unawaited(_loadSuiteMetadata(id));
                   },
           ),
@@ -932,20 +1428,51 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
           if (_metadataLoading) const Text('读取固定题源元信息…'),
           if (_metadataError != null) Text(_metadataError!),
           if (identity != null) ...[
-            SelectableText(
-              const JsonEncoder.withIndent('  ').convert({
-                for (final entry in identity.entries)
-                  if (entry.value is! List && entry.value is! Map)
-                    entry.key: entry.value,
-              }),
+            KeyedSubtree(
               key: const Key('benchmark-suite-metadata'),
+              child: _facts(identity),
             ),
-            if (_suiteChoice == 'decidebench') ...[
+            if (_suiteChoice == 'decidebench')
               const Text('297 条原示例 / 63 个原模板；保留原始语言、内容、标签及配对结构。'),
-            ],
             ExpansionTile(
-              title: const Text('原来源条件、署名、文件摘要与评分版本'),
-              children: [_json(identity, 'benchmark-source-metadata-json')],
+              title: const Text('实际题源文件与 Finder'),
+              children: [
+                if (_sourceFiles.isEmpty) const Text('题源文件尚未准备；准备后显示真实文件地址。'),
+                for (final file
+                    in _sourceFiles
+                        .skip(_sourcePage * _pageSize)
+                        .take(_pageSize)
+                        .indexed)
+                  _path(
+                    '题源文件 ${file.$1 + 1}',
+                    file.$2,
+                    'benchmark-source-reveal-${file.$1}',
+                  ),
+                if (_sourceFiles.length > _pageSize)
+                  Wrap(
+                    spacing: 12,
+                    children: [
+                      Text(
+                        '题源文件第 ${_sourcePage + 1} 页 · 共 ${_sourceFiles.length} 个实际路径',
+                      ),
+                      TextButton(
+                        key: const Key('benchmark-source-previous'),
+                        onPressed: _sourcePage == 0
+                            ? null
+                            : () => setState(() => _sourcePage--),
+                        child: const Text('上一页'),
+                      ),
+                      TextButton(
+                        key: const Key('benchmark-source-next'),
+                        onPressed:
+                            (_sourcePage + 1) * _pageSize >= _sourceFiles.length
+                            ? null
+                            : () => setState(() => _sourcePage++),
+                        child: const Text('下一页'),
+                      ),
+                    ],
+                  ),
+              ],
             ),
           ],
           const Text('固定题源版本随应用更新；原版本缓存与历史独立保留，不隐式更新正在运行的批次。'),
@@ -1083,27 +1610,58 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
             onPressed: _loadHistory,
             child: const Text('刷新历史'),
           ),
-          if (_historyLoading) const LinearProgressIndicator(),
+          if (_historyLoading || _historyDetailsLoading)
+            const LinearProgressIndicator(),
+          if (_historyDetailsLoading)
+            Text(
+              '后台校验历史与准备摘要 · ${_historySession?.progress['phase'] ?? 'opening'} · 已核对 ${_historySession?.progress['validated_items'] ?? 0} / ${_historySession?.progress['total_items'] ?? '读取中'} 行',
+              key: const Key('benchmark-history-progress'),
+            ),
+          if (_historyListError != null) Text(_historyListError!),
           if (_historyError != null) Text(_historyError!),
           if (!_historyLoading && _history.isEmpty) const Text('暂无评测历史'),
           if (_history.isNotEmpty)
             SizedBox(
               height: 260,
               child: ListView.builder(
-                itemCount: _history.length,
+                itemCount: (_history.length - _historyPage * _pageSize).clamp(
+                  0,
+                  _pageSize,
+                ),
                 itemBuilder: (context, index) {
-                  final saved = _history[index];
+                  final saved = _history[_historyPage * _pageSize + index];
                   return ListTile(
                     key: Key('benchmark-history-${saved.id}'),
                     title: Text('${saved.model} · ${_status(saved.status)}'),
                     subtitle: Text(
                       '${saved.createdAt.toLocal()} · ${saved.isBatch ? '独立通道对照' : saved.channel.toUpperCase()} · ${saved.summary['attempted']} / ${saved.summary['expected'] ?? 400} · ${saved.suite['pin']}',
                     ),
-                    selected: saved.id == _record?.id,
+                    selected: saved.id == (_historyOwnerId ?? _record?.id),
                     onTap: () => _view(saved),
                   );
                 },
               ),
+            ),
+          if (_history.length > _pageSize)
+            Wrap(
+              spacing: 12,
+              children: [
+                Text('历史第 ${_historyPage + 1} 页 · 共 ${_history.length} 批'),
+                TextButton(
+                  key: const Key('benchmark-history-previous'),
+                  onPressed: _historyPage == 0
+                      ? null
+                      : () => setState(() => _historyPage--),
+                  child: const Text('上一页'),
+                ),
+                TextButton(
+                  key: const Key('benchmark-history-next'),
+                  onPressed: (_historyPage + 1) * _pageSize >= _history.length
+                      ? null
+                      : () => setState(() => _historyPage++),
+                  child: const Text('下一页'),
+                ),
+              ],
             ),
           const SizedBox(height: 24),
         ],

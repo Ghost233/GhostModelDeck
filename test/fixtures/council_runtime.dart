@@ -98,6 +98,7 @@ class CouncilRuntimeIO implements EngineProcessIO {
   Completer<void>? exitRelease;
   bool failScoreForOther = false;
   bool recordChoiceConsultations = false;
+  Map<String, Object?> capacityProperties = const {};
   int consultationStatus = 200;
   final _servers = <String, HttpServer>{};
   Future<void> closeEndpoint(String instanceId) =>
@@ -178,6 +179,7 @@ class CouncilRuntimeIO implements EngineProcessIO {
           jsonEncode({
             'model_alias': identityAliases[arg('--alias')] ?? arg('--alias'),
             'model_path': arg('--model'),
+            ...capacityProperties,
           }),
         );
       } else {

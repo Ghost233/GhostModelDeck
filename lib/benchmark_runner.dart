@@ -526,6 +526,18 @@ class _DecideEvaluation extends _Evaluation {
   final predictions = <String, String?>{};
   final probabilities = <String, Map<String, double>>{};
   final byPair = <String, List<DecideBenchItem>>{};
+  BenchmarkRun? _unchangedSnapshot;
+  (int, Map<String, Object?>?, BenchmarkRunStatus, String?, DateTime?, String)?
+  _unchangedInputs;
+  (int, Map<String, Object?>?, BenchmarkRunStatus, String?, DateTime?, String)
+  get _snapshotInputs => (
+    results.length,
+    selection?.identity,
+    status,
+    failure,
+    finishedAt,
+    source,
+  );
   @override
   void record(Object task, JevPlaygroundResult reply) {
     final item = task as DecideBenchItem;
@@ -560,6 +572,9 @@ class _DecideEvaluation extends _Evaluation {
     final terminal = _terminalSnapshot;
     if (status != BenchmarkRunStatus.running && terminal?.status == status) {
       return terminal!;
+    }
+    if (_unchangedSnapshot != null && _unchangedInputs == _snapshotInputs) {
+      return _unchangedSnapshot!;
     }
     final score = suite.score(predictions, probabilities: probabilities);
     final complete = status == BenchmarkRunStatus.completed && score.complete;
@@ -644,6 +659,10 @@ class _DecideEvaluation extends _Evaluation {
         'error': failure,
       },
     });
+    _unchangedSnapshot = record;
+    // Building the first terminal header may assign finishedAt. Capture its
+    // committed value; every new row still executes the full existing seal.
+    _unchangedInputs = _snapshotInputs;
     if (status != BenchmarkRunStatus.running) _terminalSnapshot = record;
     return record;
   }

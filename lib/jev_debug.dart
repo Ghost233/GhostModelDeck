@@ -57,6 +57,9 @@ enum JevDebugProjection {
   llmRequest,
   llmResponse,
   llmEvidence,
+  embeddingRequest,
+  embeddingResponse,
+  embeddingEvidence,
   benchmarkRun,
   benchmarkQuestionRun,
   benchmarkGameRun,
@@ -77,6 +80,9 @@ Map<String, Object?> sealDebugJson(
     JevDebugProjection.llmRequest => _JevProjection.llmRequest,
     JevDebugProjection.llmResponse => _JevProjection.llmResponse,
     JevDebugProjection.llmEvidence => _JevProjection.llmEvidence,
+    JevDebugProjection.embeddingRequest => _JevProjection.embeddingRequest,
+    JevDebugProjection.embeddingResponse => _JevProjection.embeddingResponse,
+    JevDebugProjection.embeddingEvidence => _JevProjection.embeddingEvidence,
     JevDebugProjection.benchmarkRun => _JevProjection.benchmarkRun,
     JevDebugProjection.benchmarkQuestionRun =>
       _JevProjection.benchmarkQuestionRun,
@@ -109,6 +115,9 @@ enum _JevProjection {
   llmRequest,
   llmResponse,
   llmEvidence,
+  embeddingRequest,
+  embeddingResponse,
+  embeddingEvidence,
   llmMessage,
   llmChoice,
   llmDelta,
@@ -162,6 +171,8 @@ class _CredentialRedactor {
           _JevProjection.debug,
           _JevProjection.llmRequest,
           _JevProjection.llmResponse,
+          _JevProjection.embeddingRequest,
+          _JevProjection.embeddingResponse,
           _JevProjection.benchmarkRun,
           _JevProjection.benchmarkQuestionRun,
           _JevProjection.benchmarkGameRun,
@@ -213,6 +224,14 @@ class _CredentialRedactor {
     if (context == _JevProjection.llmEvidence &&
         key == 'text' &&
         parent[key] is String) {
+      return true;
+    }
+    if (context == _JevProjection.embeddingRequest &&
+        key == 'input' &&
+        parent['model'] is String &&
+        (parent[key] is String ||
+            parent[key] is List &&
+                (parent[key] as List).every((item) => item is String))) {
       return true;
     }
     if (context == _JevProjection.request &&
@@ -337,6 +356,17 @@ class _CredentialRedactor {
       'result' => _JevProjection.llmEvidence,
       _ => _JevProjection.none,
     },
+    _JevProjection.embeddingEvidence => switch (key) {
+      'input' ||
+      'input_json' ||
+      'request' ||
+      'request_body' => _JevProjection.embeddingRequest,
+      'response' || 'raw_response' => _JevProjection.embeddingResponse,
+      'result' => _JevProjection.embeddingEvidence,
+      _ => _JevProjection.none,
+    },
+    _JevProjection.embeddingRequest ||
+    _JevProjection.embeddingResponse => _JevProjection.none,
     _JevProjection.llmRequest =>
       key == 'messages' ? _JevProjection.llmMessage : _JevProjection.none,
     _JevProjection.llmResponse =>
