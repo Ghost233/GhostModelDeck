@@ -341,7 +341,8 @@ Future<void> _historyReaderWorker(Map<String, Object?> arguments) async {
       'journals': [
         if (record.usesJournal)
           for (var index = 0; index < evaluations.length; index++)
-            store._journalFile(id, index).absolute.path,
+            if (record.evaluations[index].usesJournal)
+              store._journalFile(id, index).absolute.path,
       ],
     });
     await for (final incoming in commands) {

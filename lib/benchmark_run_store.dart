@@ -28,7 +28,8 @@ class BenchmarkRun {
   factory BenchmarkRun.fromJson(Map<String, Object?> value) {
     if (value['schema_version'] == 2 ||
         value['schema_version'] == 4 ||
-        value['schema_version'] == 6) {
+        value['schema_version'] == 6 ||
+        value['schema_version'] == 7) {
       return _batchFromJson(value);
     }
     if (value['schema_version'] == 3) return _questionFromJson(value);
@@ -147,32 +148,40 @@ class BenchmarkRun {
       throw const FormatException('对照批次需要独立对象/通道结果');
     }
     final journalSchema = evaluations.first.toJson()['schema_version'];
+    final mixed = evaluations.any(
+      (run) =>
+          run.toJson()['schema_version'] != journalSchema ||
+          !_sameJson(run.suite, evaluations.first.suite),
+    );
     final questionBatch = journalSchema == 3 || journalSchema == 5;
-    if (evaluations.any(
-      (run) => run.toJson()['schema_version'] != journalSchema,
-    )) {
-      throw const FormatException('同批不能混用不同题集记录格式');
-    }
-    if (questionBatch) {
+    if (mixed || questionBatch) {
       for (var index = 0; index < evaluations.length; index++) {
         if (evaluations[index].id != '$id-$index') {
-          throw const FormatException('原题独立日志只能属于当前批次对象/通道');
+          throw const FormatException('独立日志只能属于当前批次对象/基准/通道');
         }
       }
     }
-    final expected = questionBatch
-        ? evaluations.fold<int>(
-            0,
-            (sum, run) => sum + (run.summary['expected'] as int),
-          )
-        : evaluations.length * 400;
+    final expected = evaluations.fold<int>(
+      0,
+      (sum, run) => sum + (run.summary['expected'] as int? ?? 400),
+    );
+    final suites = <Map<String, Object?>>[];
+    for (final run in evaluations) {
+      if (!suites.any((suite) => _sameJson(suite, run.suite))) {
+        suites.add(run.suite);
+      }
+    }
     final names = evaluations.map((run) => run.model).toSet();
     final attempted = evaluations.fold<int>(
       0,
       (sum, run) => sum + (run.summary['attempted'] as int),
     );
     final document = {
-      'schema_version': questionBatch ? (journalSchema as int) + 1 : 2,
+      'schema_version': mixed
+          ? 7
+          : questionBatch
+          ? (journalSchema as int) + 1
+          : 2,
       'id': id,
       'created_at': createdAt.toIso8601String(),
       'finished_at': status == BenchmarkRunStatus.running
@@ -183,7 +192,9 @@ class BenchmarkRun {
       'source': 'comparison',
       'channel': 'separate',
       'timeout_us': evaluations.first.timeout.inMicroseconds,
-      'suite': evaluations.first.suite,
+      'suite': mixed
+          ? {'id': 'multi', 'suites': suites}
+          : evaluations.first.suite,
       'identity': {},
       'items': [],
       'groups': [],
@@ -225,10 +236,12 @@ class BenchmarkRun {
         entries.any(
           (entry) =>
               entry is! Map ||
-              entry['schema_version'] !=
-                  (value['schema_version'] == 2
-                      ? 1
-                      : (value['schema_version'] as int) - 1),
+              (value['schema_version'] == 7
+                  ? !const {1, 3, 5}.contains(entry['schema_version'])
+                  : entry['schema_version'] !=
+                        (value['schema_version'] == 2
+                            ? 1
+                            : (value['schema_version'] as int) - 1)),
         )) {
       throw const FormatException('对照批次身份、状态或独立结果无效');
     }
@@ -236,17 +249,7 @@ class BenchmarkRun {
       for (final entry in entries)
         BenchmarkRun.fromJson(Map<String, Object?>.from(entry as Map)),
     ];
-    final pairs = <String>{};
-    final identities = <String, Map<String, Object?>>{};
-    for (final run in evaluations) {
-      final identity = identities.putIfAbsent(run.model, () => run.identity);
-      if (!_sameJson(identity, run.identity) ||
-          !pairs.add(jsonEncode([run.model, run.channel])) ||
-          run.timeout != evaluations.first.timeout ||
-          !_sameJson(run.suite, evaluations.first.suite)) {
-        throw const FormatException('对照批次对象/通道重复或题库/期限/运行身份不一致');
-      }
-    }
+    _validateBatchEvaluations(evaluations, mixed: value['schema_version'] == 7);
     final rebuilt = BenchmarkRun.batch(
       id: value['id'] as String,
       createdAt: DateTime.parse(value['created_at'] as String),
@@ -265,6 +268,28 @@ class BenchmarkRun {
         'finished_at': value['finished_at'],
       }) as Map<String, Object?>,
     );
+  }
+
+  static void _validateBatchEvaluations(
+    List<BenchmarkRun> evaluations, {
+    required bool mixed,
+  }) {
+    final pairs = <String>{};
+    final identities = <String, Map<String, Object?>>{};
+    final timeouts = <String, Duration>{};
+    for (final run in evaluations) {
+      final suite = jsonEncode(run.suite);
+      final identity = identities.putIfAbsent(run.model, () => run.identity);
+      final timeout = timeouts.putIfAbsent(suite, () => run.timeout);
+      if (!_sameJson(identity, run.identity) ||
+          !pairs.add(jsonEncode([run.model, suite, run.channel])) ||
+          run.timeout != timeout ||
+          (!mixed &&
+              (!_sameJson(run.suite, evaluations.first.suite) ||
+                  run.timeout != evaluations.first.timeout))) {
+        throw const FormatException('对照批次对象/基准/通道重复或运行身份/期限不一致');
+      }
+    }
   }
 
   /// Trusted application snapshots reuse already sealed rows. Their immutable
@@ -646,12 +671,17 @@ class BenchmarkRun {
   bool get isBatch =>
       _json['schema_version'] == 2 ||
       _json['schema_version'] == 4 ||
-      _json['schema_version'] == 6;
+      _json['schema_version'] == 6 ||
+      _json['schema_version'] == 7;
   bool get isQuestionRun =>
       _json['schema_version'] == 3 || _json['schema_version'] == 4;
   bool get isGameRun =>
       _json['schema_version'] == 5 || _json['schema_version'] == 6;
-  bool get usesJournal => isQuestionRun || isGameRun;
+  bool get usesJournal =>
+      isQuestionRun ||
+      isGameRun ||
+      (_json['schema_version'] == 7 &&
+          evaluations.any((run) => run.usesJournal));
   bool get hasItemDetails => isBatch
       ? evaluations.every((run) => run.hasItemDetails)
       : items.length == summary['attempted'];
@@ -671,7 +701,10 @@ class BenchmarkRun {
     final rows = <Map<String, Object?>>[];
     for (final council in evaluations.where((run) => run.source == 'council')) {
       for (final native in evaluations.where(
-        (run) => run.source == 'native' && run.channel == council.channel,
+        (run) =>
+            run.source == 'native' &&
+            run.channel == council.channel &&
+            _sameJson(run.suite, council.suite),
       )) {
         double? difference(String key) {
           final left = council.summary[key], right = native.summary[key];
@@ -684,6 +717,7 @@ class BenchmarkRun {
         }
 
         rows.add({
+          'suite': council.suite['id'],
           'council': council.model,
           'native': native.model,
           'channel': council.channel,
@@ -838,7 +872,7 @@ class BenchmarkRunStore {
   void releaseEncodedSnapshots() => _encodedEvaluations.clear();
 
   String _encodeDocument(Map<String, Object?> document) {
-    if (document['schema_version'] != 2) {
+    if (!const {2, 7}.contains(document['schema_version'])) {
       releaseEncodedSnapshots();
       return jsonEncode(document);
     }
@@ -947,9 +981,10 @@ class BenchmarkRunStore {
   Future<List<String>> _recordFilePaths(String id) async {
     final document = await _readDocument(id);
     final paths = <String>[_file(id).absolute.path];
-    if (const {3, 4, 5, 6}.contains(document['schema_version'])) {
+    if (const {3, 4, 5, 6, 7}.contains(document['schema_version'])) {
       final entries = _questionEntries(document);
       for (var index = 0; index < entries.length; index++) {
+        if (entries[index]['schema_version'] == 1) continue;
         final descriptor = entries[index]['journal'];
         final file = _journalFile(id, index);
         if (descriptor is! Map ||
@@ -1022,8 +1057,8 @@ class BenchmarkRunStore {
     final paths = await _historyDeletionFiles((directory.absolute.path, id));
     for (var index = 0; index < paths.length; index++) {
       await File(paths[index]).delete();
-      _journals.remove('$id/$index');
     }
+    _journals.removeWhere((key, _) => key.startsWith('$id/'));
     await _file(id).delete();
   }
 
@@ -1034,13 +1069,14 @@ class BenchmarkRunStore {
       throw FileSystemException('只能删除本批普通记录文件', target.path);
     }
     final document = await _readDocument(id);
-    if (const {3, 4, 5, 6}.contains(document['schema_version'])) {
+    if (const {3, 4, 5, 6, 7}.contains(document['schema_version'])) {
       // Validate every owner-bound journal before any deletion starts.
       await _load(id, details: true);
       final entries = _questionEntries(document);
       return [
         for (var index = 0; index < entries.length; index++)
-          _journalFile(id, index).absolute.path,
+          if (entries[index]['schema_version'] != 1)
+            _journalFile(id, index).absolute.path,
       ];
     }
     return const [];
@@ -1075,14 +1111,16 @@ class BenchmarkRunStore {
       return [document];
     }
     final entries = document['evaluations'];
-    if (!const {4, 6}.contains(document['schema_version']) ||
+    if (!const {4, 6, 7}.contains(document['schema_version']) ||
         entries is! List ||
         entries.isEmpty ||
         entries.any(
           (entry) =>
               entry is! Map ||
-              entry['schema_version'] !=
-                  (document['schema_version'] as int) - 1,
+              (document['schema_version'] == 7
+                  ? !const {1, 3, 5}.contains(entry['schema_version'])
+                  : entry['schema_version'] !=
+                        (document['schema_version'] as int) - 1),
         )) {
       throw const FormatException('原题批次独立记录无效');
     }
@@ -1098,6 +1136,10 @@ class BenchmarkRunStore {
     final evaluations = run.evaluations;
     for (var index = 0; index < evaluations.length; index++) {
       final evaluation = evaluations[index];
+      if (!evaluation.usesJournal) {
+        stored.add(evaluation.toJson());
+        continue;
+      }
       final key = '${run.id}/$index';
       final file = _journalFile(run.id, index);
       var journal = _journals[key];
@@ -1185,7 +1227,7 @@ class BenchmarkRunStore {
     void Function(Map<String, Object?>)? onProgress,
   }) async {
     final document = await _readDocument(id);
-    if (!const {3, 4, 5, 6}.contains(document['schema_version'])) {
+    if (!const {3, 4, 5, 6, 7}.contains(document['schema_version'])) {
       return BenchmarkRun.fromJson(document);
     }
     final entries = _questionEntries(document);
@@ -1198,6 +1240,22 @@ class BenchmarkRunStore {
     final evaluations = <BenchmarkRun>[];
     for (var index = 0; index < entries.length; index++) {
       final entry = entries[index];
+      if (entry['schema_version'] == 1) {
+        if (entry['id'] != '$id-$index') {
+          throw const FormatException('混合批次记录归属无效');
+        }
+        evaluations.add(BenchmarkRun.fromJson(entry));
+        if (details) {
+          validated += (entry['summary'] as Map)['attempted'] as int;
+          onProgress?.call({
+            'phase': 'validating',
+            'validated_items': validated,
+            'total_items': total,
+            'file': _file(id).absolute.path,
+          });
+        }
+        continue;
+      }
       if (entry['schema_version'] == 5) {
         BenchmarkRun._validateGameHeader(entry);
       } else {
@@ -1310,20 +1368,10 @@ class BenchmarkRunStore {
         )) {
       throw const FormatException('原题对照批次状态无效');
     }
-    final pairs = <String>{};
-    final identities = <String, Map<String, Object?>>{};
-    for (final evaluation in evaluations) {
-      final identity = identities.putIfAbsent(
-        evaluation.model,
-        () => evaluation.identity,
-      );
-      if (!pairs.add(jsonEncode([evaluation.model, evaluation.channel])) ||
-          !BenchmarkRun._sameJson(identity, evaluation.identity) ||
-          !BenchmarkRun._sameJson(evaluation.suite, evaluations.first.suite) ||
-          evaluation.timeout != evaluations.first.timeout) {
-        throw const FormatException('原题对照对象、题集、身份或期限不一致');
-      }
-    }
+    BenchmarkRun._validateBatchEvaluations(
+      evaluations,
+      mixed: document['schema_version'] == 7,
+    );
     final rebuilt = BenchmarkRun.batch(
       id: id,
       createdAt: DateTime.parse(document['created_at'] as String),
