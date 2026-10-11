@@ -49,3 +49,9 @@ Spec：核对 #62–#73、#76–#78 及用户最新范围。保留原生题目�
 | 嵌入、Git 克隆编译与来源登记 | 功能与产物未变；已验证能力、27 份源码产物指纹复用 |
 
 完整命令、日志、输入、真实退出码位于 `.tooling/host-tests/`。原生、构建与审查收据位于 ignored `.scratch/playground-benchmarks/implementation/`。未删除验收取消记录，保留用户及其他会话修改；不正式发布、不修改版本、不创建 tag。
+
+## Git 交付
+
+最后阶段候选 `da496ae869fee00b1575cdd6f60d057094e2dd9a` 已通过 [PR #80](https://github.com/Ghost233/GhostModelDeck/pull/80) 合入 dev。阶段一至四 PR #74、#75、#79、#80 均已集成。总 [PR #81](https://github.com/Ghost233/GhostModelDeck/pull/81) 从 dev 指向 main，保持 ready，等待用户合并。父项 #62 在总 PR 合并后关闭。
+
+本地 dev 先合并、再推送同一提交。最后交付状态更新只改文档，功能代码与已验证产物保持。main 未改动，其他阶段本地与各自远端一致；外来 `docs/agents/label-colors.json` 保留，未 stash 或备份。实际完整 hash 与最终状态核对保存于 `final-local-remote-sync.json`。
