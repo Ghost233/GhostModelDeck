@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/main.dart';
 import 'package:ghost_model_deck/mcp_page.dart';
 import 'package:ghost_model_deck/llm_playground_page.dart';
+import 'package:ghost_model_deck/embedding_page.dart';
 import 'package:ghost_model_deck/jev_playground_page.dart';
 import 'package:ghost_model_deck/settings_page.dart';
 import 'package:ghost_model_deck/council_page.dart';
@@ -58,6 +59,7 @@ void main() {
       expect(capabilities, findsOneWidget);
       expect(find.text('通用 LLM'), findsOneWidget);
       expect(find.text('JEV'), findsOneWidget);
+      expect(find.text('嵌入'), findsOneWidget);
       expect(
         tester.getBottomLeft(capabilities).dy,
         lessThanOrEqualTo(tester.getTopLeft(_navigation('基础测试')).dy),
@@ -70,6 +72,17 @@ void main() {
       expect(_navigation('MCP'), findsNothing);
       expect(_navigation('模型库'), findsNothing);
       expect(find.text('基准评测'), findsNothing);
+      final gateway = tester
+          .widget<LlmPlaygroundPage>(find.byType(LlmPlaygroundPage))
+          .gateway;
+      await _tap(tester, find.text('嵌入'));
+      final embedding = tester.widget<EmbeddingPage>(
+        find.byType(EmbeddingPage),
+      );
+      expect(embedding.active, isTrue);
+      expect(identical(embedding.gateway, gateway), isTrue);
+      expect(_navigation('基准评测'), findsNothing);
+      await _tap(tester, find.text('通用 LLM'));
       await _tap(tester, _navigation('设置'));
       expect(find.byType(SettingsPage), findsOneWidget);
       expect(

@@ -24,8 +24,14 @@ class PlaygroundRuntime {
   final CouncilMcpServer mcp;
   JevPlayground get playground => JevPlayground(gateway: gateway, mcp: mcp);
 
-  static Future<PlaygroundRuntime> create({CouncilRuntimeIO? io}) async {
-    final runtime = await CouncilRuntime.create(processIO: io);
+  static Future<PlaygroundRuntime> create({
+    CouncilRuntimeIO? io,
+    bool sourceSystemone = false,
+  }) async {
+    final runtime = await CouncilRuntime.create(
+      processIO: io,
+      sourceSystemone: sourceSystemone,
+    );
     final council = CouncilController(catalog: runtime.catalog);
     final bindings = council.models.availableBindings;
     await council.models.save(

@@ -2,13 +2,142 @@
 
 规格：[#62](https://github.com/Ghost233/GhostModelDeck/issues/62)。起点：`07729aec710cb5516e77ae853b152f529ab3b897`。
 
-用户已授权 dev 集成分支、阶段分支/PR；最终 dev → main 总 PR 保持 ready 待合并。阶段一 #63–#65 已验收并通过 [阶段 PR #74](https://github.com/Ghost233/GhostModelDeck/pull/74) 合入 dev（`8da3777caf5a2eab8fffa8e230cdead28578caa4`）。当前阶段二 #66–#67。#66 重开后的超时边界与 #67 对照评测均已完成当前候选验收，待发布结项与阶段集成。全部五项基准和真实完整评测仍属于总验收，不降低规模。
+用户已授权 dev 集成分支、阶段分支/PR；最终 dev → main 总 PR 保持 ready 待合并。阶段一 #63–#65 已验收并通过 [阶段 PR #74](https://github.com/Ghost233/GhostModelDeck/pull/74) 合入 dev（`8da3777caf5a2eab8fffa8e230cdead28578caa4`）。阶段二 #66–#67 已验收关闭，PR #75 已合入 dev。当前进入阶段三 #68–#72，并纳入用户新增的 [StartLux 受管概率读出与同源实际容量发现（#76）](https://github.com/Ghost233/GhostModelDeck/issues/76)。五项完整基准属于产品功能范围；按用户选择运行完整规模，不要求每个模型必跑。
 
-## 当前交付状态（2026-10-10，macOS arm64）
+## 唯一当前交付清单（2026-10-12，按产品功能收尾）
 
-阶段二 [PR #75](https://github.com/Ghost233/GhostModelDeck/pull/75) 目标 dev，仍为 draft。代码候选固定为 `072335d0cdaa44296ae44103f36b5a13171229dd`，实机开始时的文档提交为 `bc0276beeb80ab193d27fec96d859587be1ff6b2`，随后仅更新交付记录。主线程负责 Git、门禁和实机队列；`comparison_67` 负责代码修复，`native_66` 负责唯一实机验收。
+**2026-10-12 接入规则修正**：用户在支线明确移除 Qwen 专用读出和模型／commit 白名单。源码引擎按用户选择的 Git 地址与 ref、接口支持声明接入，GMD 直接调用原生 `/v1/systemone`；实际不支持时保留失败。当前未提交代码已作局部调整，主线程应按 [原生 JEV 接入规则](native-systemone-source-policy.md) 继续功能验收，不继续旧的专用 candidate-logits 路径。旧门禁和产物不覆盖这次修改。
 
-当前完整宿主门禁 `run-VqlJZR` 已通过：121 文件格式零改动、全仓分析零诊断、718 项测试通过。三个步骤与整体退出码均为 0，296 个输入摘要与当前源码一致。固定 Flutter 3.47.6／Dart 3.13.5、现有 lockfile、联网解析和已核验字体环境继续复用。字体与布局断言完整保留。Linux、Windows 和 Intel/x64 已移出本次范围；本次没有新建或恢复容器。
+本节是唯一执行清单。下方历史过程、原派发计划及旧状态文件仅作为证据，不再产生待办。负责人是主线程，不启动子代理。当前分支 `codex/playground-stage-3`，增量基准 `1ab32b9acb2edd643263141de06422d8dcfa2d1a`；当前候选由 run-6UlogP 的 697 个源码输入及实机收据锁定，提交身份以本批 Git 记录为准。保留其他会话的 `docs/agents/label-colors.json`，不正式发布。
+
+Qwen、StartLux 是模型；执行引擎是 llama.cpp。选择引擎、保存参数、启动模型属于使用配置，不单列产品交付条件。新增概率能力按 GMD 的发现、选择、公开路由及协议转换功能验收，不扩展为模型成绩评测。通用委员会 #67 已完成、PR #75 已合入 dev；特定 StartLux＋Qwen 组合不作为交付前置。
+
+保留原生题目、固定 submodule、公开 HTTP/MCP、五项完整基准、Jevman 100 局和无快速试跑。评测集是可选功能，未受影响成功证据直接复用。UI 分批展示摘要，完整数据通过文件与 Finder 查看。
+
+### 未实现功能
+
+- [#73 多基准整批功能](https://github.com/Ghost233/GhostModelDeck/issues/73)：多套件选择、对象 → 基准 → 通道调度、混合历史、分项报告和整批取消。阶段三验收、审查并合入 dev 后再开发。这是目前明确尚未实现的主要功能。
+
+### 未验证变更
+
+当前阶段三代码没有未收取的检查、构建或接口验收。提交与 PR 集成前匹配当前源码和审查指纹；#73 尚未实现，后续变更另行验证。旧黑屏事件保留在历史问题，不宣称已修复。
+
+### 已验证待提交
+
+- **原生接口直通当前候选**：用户已明确确认源码声明设计。`supports_systemone` 保存／恢复，`source_declaration` 不表示模型能力已探测；三个题型直接走实例 `/v1/systemone`，真实失败不补概率。公开外壳接线 run-rbcavG 三项通过；最终完整宿主 run-6UlogP 的 886 项、格式、分析及整体退出 0，697 输入前后与当前一致。对应 App 构建退出 0、输入未变、三个二进制均 arm64。
+- **真实 Mac 接线**：新 App PID 5085、唯一 llama.cpp 实例 PID 7810、实际 65536／1 槽。HTTP 保留上游 501 为 502 engine_error，MCP isError 保留同一原始原因；随后文本请求 200／OK。正常停止后发现撤销、HTTP／MCP model_not_ready，20 份保护文件未变。首次 Ready 前的提前调用失败单独保留；没有执行真实题集。详见 [本批验收](stage-three-native-policy-acceptance.md)。
+- **增量审查**：主线程复审原四个 P2、缓存修复及新原生声明／公开路由，两个轴没有新增 P0/P1/P2；复用未变化阶段覆盖。用户禁止子代理，本次不称为两个独立审查者。剩余动作是提交、阶段 PR、dev 集成及本地同步。
+
+- **受影响原生交互**：已有第 1 局观看完成独立核对并正常双击关闭，根页面／HTTP 服务保留，自有观看进程退出；精确同回调重复关闭单测复用。文件入口已在 Finder 选中原文件。正常退出／冷启动释放监听、保持 20 份配置／头文件／旧日志，不自动加载或续跑。与后续源码策略无关的这些证据直接复用，不再列作待办。
+- **完整宿主检查基线**：run-wDl25K，886 项通过，格式、分析、测试及整体退出 0，成功完成标记有效，702 个输入在该次运行前后一致。它覆盖当时的候选；后续 `lib/jev_models.dart`、打包脚本与针对性检查的变化分别记录，不将基线称为最终候选全量通过。
+- **macOS arm64 产物及打包规则**：构建、实际架构核对、本地包预检通过。主程序、App.framework 和 FlutterMacOS.framework 均仅 arm64。规则已写入 README、工程规范、规格和发布文档；打包入口强制 ARM-only 并拒绝其他架构。新增两个打包边界检查和 shell 静态检查通过。后续 Dart 来源筛选修改不由旧产物覆盖。
+- **llama.cpp 源码构建**：本次源码已通过 GMD 克隆、编译并登记；真实 commit 为 `27f475a3bc4f7d2e63017b6caf55ec8cb4804790`，27 份文件／链接指纹一致，产物 arm64。该项移出待办，不重复编译。
+- **四项 P2 及保存缓存修复**：原失败、定点通过和受影响检查已保存；run-gK53CE 的 57 项、run-DU385l、run-lPupRX、run-EFSpc8 直接复用。最终增量审查仍需覆盖新增变更。
+- **既有产品验收证据**：#63–#67 与 PR #74／#75 已完成。委员会、StartLux 评测及独立评分、分页、Finder、历史回放、嵌入接口等未受影响证据继续复用，不重新列为开发待办。
+
+本类的剩余动作只有纳入最终候选、增量审查、提交和阶段 PR。验收通过后合入 dev，并同步本地分支。
+
+### 历史问题
+
+- **此前转换路径的 GMD 接线证据**：当时来源发现／选择原始失败已关闭，普通 HTTP/MCP 返回及取消、实例停止失效通过。六项返回检查保留完整候选与问题，取消释放＋恢复为 4.94／4.88 秒，未放宽原 10 秒预算，也未杀共享实例；之后普通停止验证撤销路由与容量。证据为 `gmd-new-probability-wiring-acceptance-summary.json`。这不是模型成绩验收，不要求新委员会。该专用路径现已被另一会话移除，成功记录保留为历史证据，不能覆盖当前原生直通策略。
+
+- **旧黑屏事件**：根因未确认。核对最终候选是否仍可复现；需要时定点诊断。后续正常运行不等于已证明修复，大题集重跑也不能替代诊断。
+- **旧门禁失败与取消**：run-G81N7Q、重复回归 run-yKLvU6、额外 JEVal 取消记录及编译 ENOSPC 原错保留。失败、取消、超时和缺失完成证据不计通过；已关闭或被新有效证据覆盖的项不重新变成待办。
+- **工具输入／证据检查错误**：表单文本选择及首次符号链接摘要检查错误分别保留；源码登记结果已通过真实参数和链接感知摘要核对。这些不单列产品缺陷。
+
+### 执行顺序与当前作业
+
+顺序固定为：GMD 新增接口接线及受影响原生验收 → 阶段三增量审查、提交、PR、dev 集成及本地同步 → #73 开发与验收 → 总审查、最终检查和 dev → main 总 PR ready，等待用户合并。
+
+当前没有主线程在途检查、构建或真实题集。当前 App PID 5085 是包含原生策略的 arm64 产物，接口验收实例已经正常停止，两个公开服务保留、发现为空。run-6UlogP、构建和实机接口验收均已完成，不再列作等待项。原字段编译失败 run-UEVNC0、lint 失败 run-1ZQNyj 及 Ready 前提前调用保留；其后有效成功证据分别记录。
+
+同一作业只运行一份。长作业由主线程执行 sleep 300，实际结束后再轮询；短检查直接收取。当前真实模型题集作业为 0。此前 App 已完成资源重启验收，未自动启动模型；20 份最新配置／历史及旧日志摘要保持，源码构建产物保留。服务恢复属于使用配置与资源收尾，不新增产品交付条件。
+
+主要证据位于 ignored `.scratch/playground-benchmarks/implementation/`：`stage3-main-thread-qwen-integration.json`、`qwen-gmd-source-build-acceptance.json`、`qwen-jev-binding-original-failure.json` 和各宿主 run 的输入／结果。旧 JSON 状态入口仅指向本节，历史快照不参与调度。
+
+## 历史验证过程
+
+以下记录按过程保留。旧描述只表示当时状态，最新结论以上方当前入口和状态表为准。
+
+最新必需门禁为 `run-PDMyPl`：170 个文件只读格式零改动、全仓静态分析零诊断，退出均为 0；完整测试仍在进行，源码固定。此前 `run-AV8XkI` 自然完成 872 项通过、2 项失败，整体退出 1、源码未变，四项完整原题规模存储均通过。两项旧退出／观战边界的原失败保留，修复后分别通过 `run-wml7LA`、`run-LzMUb1`。后续已失败的 `run-FoNaTb` 仅对核验过的自有 Flutter 控制进程发送 SIGINT；原失败与中断时 Flutter 工具的 stream 收尾异常均保留。原进程退出 0 不能代替完成证据，校验器判整体 1，未记通过；应用与三个自有模型／读出进程均保留。新加载帧在原 5 秒期限内先渲染再判断公开就绪，原用例 `run-2pPif6` 通过；三模块 `run-6JP59L` 的 22 项全部通过、退出 0、源码未变，完整 400 题／全文／导出／删除保护及观战、退出断言均保留。摘要版 Mac 产物尚未构建，Finder 原生操作及原 78 MB 历史／绝对 5 秒服务期限仍待；新模型完整评测尚未开始。最新只读远端核对确认本地 main／dev／阶段一／阶段二完整 hash 分别与实际远端一致，阶段三仍未提交和发布，两个待交付 PR 尚未创建。
+
+最新摘要展示修正：历史明细不再在页面编码和显示原始 JSON，完整记录通过实际文件路径及 Finder 查看。初始历史 reader、摘要与 Finder 边界、完整历史后台读取的定点检查均已通过；分页边界 `run-N0PpC6` 一项通过、退出 0，核对三页每页 20 条、前后切换和原 60 条记录文件不变，评测分母仍为 400。旧格式列表读取 `run-kOs1IE` 真实失败：列表仍返回完整逐题请求，正在修复；`run-5Fbe9L` 是固定 SDK 缓存权限故障，不计作业务失败。应用仍运行旧 `672d58f` 产物，最新摘要源码尚未部署；完整门禁、Finder 原生操作及原 5 秒发现超时复验仍待。题集已获用户恢复授权，尚未开始新完整批次。
+
+上述列表失败已由 `run-AIDBHR` 一项通过关闭，列表只返回摘要，完整原文件和完整读取结果保持。快速切换历史、旧 reader 关闭和迟到页面结果隔离由 `run-MmlAc4` 一项通过。随后合法旧格式扩展字段误拒失败 `run-un9GXD` 和明确退出后 reader 仍可读取失败 `run-8G7Rg9` 均保留；最小修复后原用例分别在 `run-WJbQMs`、`run-fWZBqR` 一项通过、退出 0。退出流程现在封闭并等待自有历史 reader 与文件工作收尾；这些定点结果仍不替代最终模块回归、完整门禁及实机验收。
+
+运行中批次的文件定位也已接入。`recordFilePaths` 只在后台读取普通头文件，校验日志归属和实际普通文件路径，不读取或校验正在追加的正文。接口缺失红 `run-4MNzT7`、页面路径缺失红 `run-G2fkwH` 保留，原用例分别由 `run-hvvxyn`、`run-z2FKGy` 一项通过；原 JEVal 11,257 题分母、活动日志及 Finder 精确路径断言保留。游戏退出后旧 store 拒绝读取的 `run-4tYIDv` 通过重新打开同一原文件完成验收，`run-aNIT1h` 一项通过，原中断状态、100 局分母和期限均保留。当前集中进行八个受影响模块的唯一回归运行，尚未取得终态；机械格式改写不算只读格式门禁。
+
+该模块运行 `run-ijW2AU` 已完成：90 项通过、7 项失败，测试和整体退出 1，源码前后未变。五项页面失败为旧历史错误原因显示两项、三项原页面 `pumpAndSettle` 超时；两项 runner 失败为安全服务错误原因被泛化、旧列表用例仍要求完整 JSON。原结果保留，按原始失败定点修复，不删字体、布局、原数据或期限断言。旧列表用例改为摘要列表与同 ID 完整读取，原全文逐字相等断言保留。当前仍未构建摘要版应用，也未关闭原生 5 秒发现超时。
+
+错误呈现的三个原失败现分别由 `run-EuCmSB`、`run-AeVWou`、`run-eh2Kci` 一项通过关闭。后台只转交有限、已知的安全校验原因和安全服务错误，不传原 JSON source 或任意动态错误后缀。新增与原完整规模存储测试相同的元信息断言在 `run-qc1Dmq` 变红，确认轻摘要丢失 `contentSha256` 等源身份字段；补回已校验固定题源身份及评分覆盖后，`run-BC5qJD` 一项通过，完整导出、原文件和共享资源保护仍通过。三个页面等待用例只调整测试的真实异步调度，在既有 5 秒内等待公开摘要就绪和进度结束，再执行原动画与业务断言，生产 reader 与进度保持；该定点运行尚待终态。
+
+2026-10-11 用户已明确恢复测试集评测。原五项完整基准、400 题、Jevman 100 局及委员会对照保持，后续先收齐当前候选修复和完整门禁，再集中真实评测。用户随后明确要求：大数据分批加载，GMD 只显示摘要；测试集和评测记录的原始 JSON 通过实际文件路径及 Finder 查看。完整原数据、计分、导出和隐私校验保持，基础 JSON 请求编辑器继续可用。StartLux／Qwen3.5 的上下文均为 65536，原其他参数保持；题集恢复授权后尚未启动新完整批次。
+
+
+
+新增嵌入能力采用独立官方 llama.cpp b11457，固定完整 GGUF 与 macOS arm64 引擎摘要，保留用户原文件。最终候选的普通 HTTP 断开后恢复也通过：55 毫秒关闭客户端连接，后续请求在 1.192 秒返回 HTTP 200／768 维。测试场新增二级“嵌入”Tab，支持输入、维度／范数／余弦关系查看及完整原始 JSON 导出。最终应用的正常退出／重启验收待 Wiki 当前独立 StartLux 验收释放服务后集中执行，不能将强制清理记为通过。对应证据为 ignored `embedding-gmd-final-http.json`、`embedding-gui-final-export.json`、`embedding-gui-final-audit.json` 和 `embedding-gmd-final-http-cancel.json`。
+
+当前继续开发 [Jevman 实时观战与历史逐局回放（#72）](https://github.com/Ghost233/GhostModelDeck/issues/72)。功能已接入：被动画面来自实际游戏；历史逐局入口、播放／暂停／速度／定位、固定上游独立重算、录像错误提示及观看资源收尾均已实现。`run-f3CFiR` 三项公开业务／widget 定点通过，相关八模块 `run-XL1syC` 64 项通过。随后发现多对象观战身份与终态问题，原失败 `run-ur3gt6` 保留，最小修复后 `run-d6Ncvg` 三项通过；最终只读格式 `run-CTaKGt` 169 文件零改动、分析 `run-eyWEIK` 零诊断。最终五模块 `run-ByQlzr` 22 项通过，退出 0、源码一致；新 Mac 构建退出 0、输入一致，应用 PID 6440 已启动。旧所属模型、概率读出及监听正常退出，无强制清理；重启没有自动续跑。原完整 100 局及部分历史已在桌面读取，逐局回放操作仍待核对。以上代码检查仅使用外部引擎 I/O 替身与原游戏／已发布录像，不发真实模型题集请求；旧 Kev 100 局作为历史回放输入，不冒充新模型或委员会参赛。当前运行的新 App.framework 已包含观看和 SSE 修复；#72 真实模型观看及 #73 整批对照仍待，本项目题集评测保持暂停。Sentinel 侧用户另行授权仅恢复它的独立验收，不扩大本项目基准范围。
+
+本轮关闭了回放定位与播放的时序缺陷。定位到第 2000 帧尚未返回时点击播放，原用例 `run-AtbXLK` 的下一帧回到第 7 帧，测试与整体退出 1。最小修复只在显式定位提交后重设播放时钟。原用例 `run-TKfBGG` 通过；最终两条离线回放用例 `run-q5TbnX` 通过，保留上游 1480 分轨迹、原 5 秒期限及资源关闭断言。两文件只读格式 `run-pT1ICJ` 零改动，分析 `run-ZBdguz` 零诊断，退出均为 0、源码一致。本轮没有模型推理、正式游戏或题集执行。新 Mac 构建真实退出 0、输入一致，App.framework SHA-256 为 `672d58f8ee43943e78fa56f137a055922e742586f0cd68268f721443c38cda06`，已包含这一时钟修复。
+
+桌面已显示历史完整 100 局，但本轮回放按钮和同条折叠点击均未取得有效响应，也未创建回放 Node。该交互尚未验收，不能据此断定产品故障。服务发现原 5 秒超时仍未关闭：Store 和页面隔离诊断没有复现；90 秒只读元数据采样有 357 次成功、零失败，但窗口内没有重新触发大历史读取，不能据此证明并发读取性能。
+
+新产物恢复及资源核对已完成。旧应用 PID 6440、两项模型和作者读出通过正常菜单退出，原监听全部释放，无强制清理。新应用 PID 10061 冷启动的公开列表为空，没有自动续跑。随后只各提交一次原模型启动：StartLux PID 14157、作者读出 PID 16108、Qwen3.5 PID 29050。实际参数与公开容量均为 65536，其他原参数保持；五份配置和 12 条历史头文件摘要一致，EmbeddingGemma 未启动。两次等待均由 Root 直接执行唯一 `sleep 300`，自然退出后检查原启动。证据为 ignored `viewing72-seek-build-result.json`、`viewing72-seek-normal-exit.json`、`viewing72-seek-native-restart.json` 和 `viewing72-seek-services-restored.json`。
+
+启动期间的一秒原生采样，经当前产物 DWARF 符号核对，显示主线程热点为同步 SHA 流计算。当前 GUI 成功路径对同一权重完整计算两遍 SHA，保留进程创建前的资产一致性要求；没有跳过核验或据此归因旧 5 秒超时。恢复后的桌面回放尚未开始，工具报告 Mac 已锁屏，已请求人类手动解锁，没有创建观看 Node。共享服务按既有人类授权交接 Sentinel 的有界独立验收；本项目题集暂停继续生效。解锁及该窗口在途归零后再继续桌面回放，不重复冷加载。
+
+最新桌面回放已通过已有完整记录的第 1 局和第 100 局。第 1 局终局为 1460 分、2208 帧；第 100 局为 1140 分、2511 帧，与原记录一致。播放、2 倍速、中段定位后继续及正常关闭均已实际操作，观看 Node 全部退出，模型、五配置及 12 条历史头摘要保持。以上只验收旧轨迹回放，不计作新模型完整评测。
+
+同一大历史加载的普通 HTTP 采样复现原 5 秒失败：90 秒内 323 次采样，1 次 TimeoutError，5002.84 ms，采样退出 1。Root 的唯一 `sleep 300` 自然退出后取得该原结果。当前完整门禁暂不启动；按用户新增要求实现后台完整校验、轻摘要和分批明细，移除 UI 全文 JSON，提供文件路径与 Finder。原始定点记录 `summary-only-history-original-reds.json` 保留：读取器缺 API 红 `run-3ATX0Y` 和 UI 仍显示完整 JSON 的业务红 `run-fjwVZ7`，均退出 1、源码一致。Finder 原生桥接的 Swift 语法检查退出 0，实际构建与 Finder 验收仍待。
+
+[#73 五项完整基准整批对照](https://github.com/Ghost233/GhostModelDeck/issues/73) 的原生依赖核验显示 #68、#69、#70 和 #72 仍开放。本轮已记录执行器、混合题库历史格式和报告入口的具体缺口，尚未跨阶段启动实现。后续先完成阶段三验收、审查与集成，再推进 #73。当前 dev、main 和已发布阶段分支的本地与实际远端完整 hash 分别相同；阶段三尚未发布，用户和其他会话的改动保持。
+
+当前新增工作为 [从本地 Git 或 GitHub 源码构建并绑定 llama.cpp 引擎（#78）](https://github.com/Ghost233/GhostModelDeck/issues/78)，需求见 [Git 源码引擎](../requirements/git-source-engines.md)。引擎版本由用户指定的仓库与可选引用决定，每次构建记录真实 commit。现有固定发行版安装仅保留既有登记兼容。后端、界面与主应用分别实施，Root 串行执行 SDK 检查；新入口的原始业务红为 `run-jCd2x5`。本机 Git 与 Apple 编译工具已就绪，显式 CMake 路径使用官方 3.31.12 归档，下载摘要已核对。当前运行的 StartLux 保持原二进制，供 Wiki 独立验收使用。
+
+下列记录保留各候选执行时的状态与原始失败。当前交付状态以本表为准，旧候选的门禁不能替代新修改的验证。
+
+本轮主要证据位于 ignored `.scratch/playground-benchmarks/implementation/`：`all-model-context-20261011/acceptance-summary.json`、`startlux-reference-full400-20261011.independent-audit.json`、`native-stage3-new-admission-fix-progress.json` 和 `current-goal-frontier-20261011.json`。阶段三、#72、#73、#76 及最终总 PR 均未完成。
+
+`a791469` 的两轴增量复审独立核对了 647 个门禁输入、提交 blob 和全部真实退出文件。旧审查的 645 项未改输入保持，本次仅重审 Page、测试和交付记录及受影响调用路径；Standards 与 Spec 均为新增 P0／P1／P2 各 0。报告为 ignored `stage3-page-standards-review.md/json` 和 `stage3-page-spec-review.md/json`，该结论不代表阶段三全部验收完成。
+
+同一提交的 Mac Release 构建真实退出 0，记录器退出 0，678 个输入和 HEAD 前后保持。App.framework SHA-256 为 `c3c61841a41a940c37e4360043a8ad737804479d747decd6507d91cc06464b38`，版本保持 0.1.4。SDK 默认包含 arm64 和 x86_64 slices；本次仅验收 macOS arm64，未执行 Intel 适配、运行或产物裁剪。记录为 ignored `native-stage3-build-page-result.json`。已向授权服务使用方发送下一轮交接请求，等待在途请求完成及暂停确认；尚未关闭已归还的原服务。下一步在实际交接时备份当时最新配置和身份，再执行完整 Jevman 100 局及新候选原生历史／退出验收。
+
+用户明确要求 discard `93a86ff` 的三个发布文档改动。主线程先核对文件没有额外修改，再创建撤销提交 `8091f9e5adda4237eaf5a27699c079a7426035b0`；三个文件内容与 dev 逐字节一致，原提交仍在历史中，其余文件保持。原 skill 元信息及四项 Markdown 引用检查通过，未执行正式发布。全部 678 个构建输入未变，原 780 项门禁和 Mac 产物继续复用；没有 reset、rebase 或 cherry-pick。证据为 ignored `stage3-release-doc-discard-before.json` 和 `stage3-release-doc-discard-validation.json`。
+
+服务使用方在自身会话明确确认活跃分析与未收尾请求均为 0，可释放；两条协议和 36 条质量样本尚未启动。Qwen3.5 4B 已加入库但未启动或公开，最新备份包含该新增文件。实际接管前六配置复制前后保持，四项权重及收据共五文件摘要、八条历史头文件已保存。正常 CmdQ 后原 app 840 和两模型均退出；新候选日志启动 PID 80216，实际采样退出 0、Code Type ARM64、版本 0.1.4。
+
+GUI 按原 b11381、4096 上下文、4096 batch／ubatch、单并行和 GPU99 参数启动 Kev；普通 GET models 返回 200 和 `sentinel-kev`。Jevman 固定原提交、64,433 字节桥接及 Mac arm64 Node 摘要核验完成，完整 100 局于 2026-10-10 21:13:26 本地开始，run 为 `run-1791638006807303`。初次原生观察完整局 1、当前第 2 局及 59 次正式成功公开调用样本；未完成时完整 P50／P95 和成绩仍不发布。期限保持决策 2 秒、warmup 30 秒与原服务预算，不减局、不重试。当前自有 model 70383 和 Node 75971 均由 app 80216 创建，六项配置与当下最新备份一致。Root 独占 GUI，唯一小头文件观察器按非阻塞 CLI sleep300 记录至终态。证据为 ignored `native-stage3-game-baseline.json`、`native-stage3-game-app-launch.json`、`native-stage3-game-current-provenance.json` 与 `native-stage3-game-watch-*.json`。
+
+JEVal 全量独立分组核对已完成，固定 Python 3.12.14 真实退出 0。顶层 `groups` 的 77 个分组全部一致：来源 58、领域 10、语言 2、题型 3、输入长度 4。各维度均覆盖全部 11,257 条记录，指标差异及缺失组均为 0。长度维度是声明的 UTF-8 字节辅助分桶。全部 1,629 个失败中，1,623 个为原模型上下文超限，6 个为公开入口请求字节上限拒绝。原导出前后字节数和 SHA 不变。记录为 ignored `native-stage3-jeval-groups-audit-result.json` 和 `native-stage3-jeval-groups-audit-execution.json`。
+
+一致性批次于 2026-10-10 10:05:22 UTC 完成。10,320 个请求全部有效，50 个关系各覆盖 240 案例，12,000 个关系试验及 14,838 个 outcomes 全部评分。普通 GUI 导出为 251,045,036 字节，SHA-256 `5c83b259a84a7eb374f2b127aced4dfb8c6eddc53580d048c874cd7970e193f9`。固定 CPython 3.12.14 的原作者审计真实退出 0，406 个字段、固定阈值、bootstrap 和 CI 全部一致。binary 为 67.12990196078431%，graded 为 93.14047453961789%；这些均为本项基准成绩。证据为 ignored `native-stage3-author-audit-controller-coherence.json` 和 `native-stage3-controller-coherence-author-audit-summary.json`。
+
+终态首次 GUI 仍显示旧 3,221 条进度，并出现日志未完整封存的读取错误。正常刷新后 AX 未更新；后续普通 Tab 使错误消失，历史更新为完整 10,320 条。选择准确运行编号后，报告与正常 GUI 导出成功。原始失败及恢复分别保留，普通公开发现返回 200，诊断日志只有 Impeller 启动信息。恢复动作不能证明错误根因；只读诊断确认了活跃日志追加与旧描述符读取的竞争窗口，尚待有限复现。现有页面代际修复不覆盖该读取路径。记录为 ignored `native-stage3-root-coherence-gui-recovery.json` 和 `native-stage3-coherence-history-diagnosis.md`。
+
+JevAdvBench `run-1791627398683874` 于 10:25:54 UTC 完成全部 11,368 次公开 HTTP 请求，没有重试或截题。有效 9,474、失败 1,894、超时及缺失均为 0。正常 GUI 导出为 409,569,490 字节，SHA-256 `00dc6100288ce202c1cb1b02d0752df6fc46358427de8a17459a1352826d4059`。独立原作者核对真实退出 0，1,515 个字段及原请求摘要一致。全部失败为 1,581 个 HTTP 400 附加字段拒绝和 313 个 HTTP 502 包装的引擎上下文超限。原完整报告不可用，129 个分组未评分，52 个配对分组有缺口；失败没有计作抗扰动成功。人工标签与模型共识、有效覆盖和未知分母分别保留。证据为 ignored `native-stage3-author-audit-controller-adversarial.json` 及 `native-stage3-controller-adversarial-*.json`。
+
+三份完整当前记录保存后，日志捕获实例正常 CmdQ 退出。自有 app 90625 和 Kev 21079 均消失，54841、54842 和 58045 拒绝连接；未发送信号。三份完整历史头文件字节保持，六项配置与最新接管基线一致，外部 LM Studio 进程保留。这仅证明该实例的空闲正常退出，旧黑屏后的退出失败和新候选的运行中中断验收仍待。记录为 ignored `native-stage3-root-logged-normal-quit-before.json` 与 `native-stage3-root-logged-normal-quit-after.json`。
+
+活跃日志的有限复现 `run-YRUGX1` 真实退出 1：旧描述符捕获第一行长度后，普通 HTTP 合法持久化第二行，原 Store 末尾校验正确拒绝旧描述符，页面显示读取错误。另一原失败 `run-raD60J` 确认成功选择合法历史后旧错误残留。最小 Page 修复仅让同 ID 的真实活跃批次直接跟随当前快照，并在成功选择时清旧错误；静态及完成历史仍严格读取。两项同例 `run-8v3bNR` 全断言通过，测试及外层退出 0，输入一致。测试接缝初次 `File.open` 签名错误单独保留，未计业务红。必要 Page／navigation／game integration／Store 四文件回归 `run-7G93Zd` 在途，随后相关分析及最终完整门禁仍待。证据为 ignored `stage3-check-queue-active-history-*.json`。
+
+本轮历史修复的必要四文件回归 `run-7G93Zd` 完成 27 项，测试及外层退出 0。分析 `run-B8mBNW` 首次退出 1，只有新增测试两处大括号诊断；原实现者仅机械补括号，逆向重构源码摘要证明其他内容保持。修复后同分析 `run-lUBOcm` 零诊断退出 0，格式 `run-MwmzmQ` 两文件零改动退出 0。当前 647 个输入与最终清单逐一匹配，源码继续冻结，由唯一 SDK 队列执行 `run-I9PGT7` 完整门禁。记录为 ignored `stage3-check-queue-active-history-affected-summary.json` 及 `stage3-check-queue-active-history-final-full-*.json`。
+
+原黑屏实例 PID 70984 的历史统一日志补查真实退出 0，取得故障时段 476 条事件。AppKit 在 16:14:31 本地时间记录退出请求和 `NSTerminateLater`，晚于 16:07 的首次黑屏；这说明当时原生退出等待 Dart 收尾结果，但日志没有暴露此前 Flutter 失去正文与 HTTP 关闭的原因。没有将缺少日志当作根因排除或验收通过。记录为 ignored `native-stage3-black-historical-log-summary.json`。
+
+当前没有本次原生评测在途，最终宿主门禁不依赖真实模型。为释放共享服务，主线程按已有授权恢复原安装版 0.1.3／build 8，app 840、Qwen 8748 和 Kev 11665 均运行。普通 HTTP 200 精确发现原 Qwen ID 与 `sentinel-kev`；普通 MCP 经 initialize、工具发现和实际公布的 `list_jev_models` 返回 native 对象，客户端会话已关闭。六项配置仍与接管时最新基线逐字节一致，已向授权会话发送恢复通知。恢复的是原 Qwen2.5-0.5B，与对方计划验证的 Qwen3.5 区分；没有冒称后者 Ready 或质量通过。下一次 Jevman 实机前重新协调在途请求，并备份当时最新状态。首次未初始化请求及错误工具名调用分别保留为协议操作失败。记录为 ignored `native-stage3-interim-original-service-ready.json`、`native-stage3-interim-original-mcp-tools.json` 和 `native-stage3-interim-original-mcp-discovery.json`。
+
+两轴首审发现唯一 P2：Jevman 正式成功公开调用的端到端 P50/P95 为空。当前固定 `112680b` 的两轴 V2 复审均为 P0/P1/P2 各 0，原问题已关闭。复审复用 `fa6` 的 48 文件覆盖，独立核对当前 647 个输入全部匹配。报告为 ignored `stage3-prenative-standards-review-v2.md/json` 和 `stage3-prenative-spec-review-v2.md/json`。修复保留原游戏评分和平均延迟，排除预热、失败与取消。原失败 `run-yAfkSA` 保留；同例 `run-HzXjuz`、无成功及页面两项 `run-UZH5yj`、相关分析 `run-pUZnkK` 均退出 0。唯一三文件回归 `run-7SkElR` 已完成：48 项通过，测试与外层退出均为 0，输入前后一致。四文件最终格式检查 `run-EJRENm` 零改动。唯一新完整门禁 `run-W06BOL` 已通过：145 文件格式零改动、分析零诊断、777 项全测试，三个步骤与整体退出均为 0，用时 29 分 07 秒。647 个输入与当前源码逐一相同，清单摘要 `a60e2ec3e6a3c0420fd8d840f0661f544ea98ea4f428f441266777649ef1eadd`。准确记录为 ignored `stage3-check-queue-p2-final-host-summary.md` 与 `stage3-check-queue-p2-final-host-result.json`。
+
+旧候选 Mac Release 编译真实退出 0，678 个构建输入一致。另一会话在构建期间提交了三个发布文档，记录器因 HEAD 改变而退出 1；两种结果分别保留。当前生产代码修复需要新产物。其他会话提交及未跟踪的标签文件保持。阶段 PR 如何排除这三个外来文档，留到 Git 交付时处理。真实模型接管尚未开始；新门禁和构建通过后，沿用用户授权协调旧服务释放。
+
+当前候选 Mac Release 构建为 ignored `native-stage3-build-repair1-result.json`。编译和记录器真实退出均为 0，HEAD 前后为 `112680b`，678 个输入前后及当前一致。App.framework SHA-256 为 `cd563edfcd24dae304179ecd6aa79bffe6c13dadeed928cd3eecaecc0744f113`。SDK 默认产物含 arm64 和 x86_64 slices；本次仅验收 macOS arm64，未执行 Intel 适配或测试。真实应用和模型尚未启动。
+
+首条服务协调消息遭自动审批拒绝，理由是需要指定会话的明确授权。用户随后明确授权向“讨论 Codex Observer 监控方案”发送交接及恢复消息，同一工具发送成功。Sentinel 已确认真实推理结束、没有在途调用、后续测试不需要模型。主线程已发送接管通知，并授权唯一 native_stage3 执行者先备份当下最新六项配置，再正常退出旧应用并开始完整真实评测；实际初次 CUA 选取调用等待 852.8 秒后中断，没有退出或修改配置。主线程接管后成功读取界面；再次核对最新六项配置与备份一致，正常 CmdQ 后旧应用及两个自有模型退出，公开端口拒绝连接。一次退出后的目标 AX 观测重新打开了旧应用，已再次正常 CmdQ 并以进程检查确认退出；外部 LM Studio 保持。新候选 PID 70984 的 sample 退出 0，Code Type 为 ARM64，普通公开发现返回 200。GUI 按既有 b11381 原参数启动 Kev，选择现有 `sentinel-kev`，完整 JEVal HTTP 运行 `run-1791617331969869` 于 15:28:51 开始。当前观察 2,340 / 11,257 个有效返回，零失败、零超时；运行期配置与调用名锁定，离页及关窗／重开仍同 PID、同 run 持续执行。完整成绩和独立评分尚待，未把部分成绩当验收。当前执行者为主线程，唯一有效运行按非阻塞 CLI 五分钟观察。证据为 ignored `native-stage3-root-*.json`。
+
+阶段二 [PR #75](https://github.com/Ghost233/GhostModelDeck/pull/75) 已合入 dev，合并提交 `a7c1aaced3b3f679fb8d3f7886ab82c64ca3f5a4`。代码候选固定为 `072335d0cdaa44296ae44103f36b5a13171229dd`，实机开始时的文档提交为 `bc0276beeb80ab193d27fec96d859587be1ff6b2`，随后仅更新交付记录。主线程负责 Git、门禁和实机队列；`comparison_67` 负责代码修复，`native_66` 负责唯一实机验收。
+
+阶段二候选的完整宿主门禁 `run-VqlJZR` 已通过：121 文件格式零改动、全仓分析零诊断、718 项测试通过。三个步骤与整体退出码均为 0，296 个输入摘要与已验收的阶段二源码一致；该门禁不覆盖当前阶段三工作区。固定 Flutter 3.47.6／Dart 3.13.5、现有 lockfile、联网解析和已核验字体环境继续复用。字体与布局断言完整保留。Linux、Windows 和 Intel/x64 已移出本次范围；本次没有新建或恢复容器。
 
 单题期限误取消整批、启动窗口忽略中断和 typed 超限 POST 提前取消请求体三项问题均已修复。原失败、定点回归与完整门禁记录保留。两轴 V2 复审均为 P0/P1/P2 各 0，原启动窗口 P2 已关闭。当前 Release 构建真实退出 0，版本保持 0.1.4，86 个构建输入未变。实际 Dart App.framework 摘要为 `ea1652ef2e747b2a5076b40d85b312bebc3e62e79f5be5116d88f4326569fbed`；实际应用运行于 ARM64。
 
@@ -18,7 +147,39 @@ GUI 导出包含完整六份独立结果。六份上游未修改请求构造、�
 
 正常 CmdQ 将执行中的 MCP 批次封存为 interrupted（31/1,200），后续对象零执行，完整成绩为空。应用及其拥有的模型进程全部消失，五个相关端口均拒绝连接。先前完整记录字节保持不变。重启历史、导出和删除保护均已完成。GUI 删除本次取消记录 `run-1791590650888920` 曾被自动审批拒绝；用户随后明确确认这条已备份记录，同一 GUI 删除成功。其余五条历史、22 个题源和四个模型摘要未变。最新六项配置的字节和存在状态全部恢复，安装版 0.1.3／build 8 及原 Qwen、Kev 两项 Ready 服务正常运行，公开 HTTP/MCP 发现精确匹配。主线程核对实际配置、历史及进程后，已通知 Sentinel 服务恢复。
 
-证据位于 ignored `.scratch/playground-benchmarks/implementation/`：`stage2-final-repairs-host-gates.json`、两份 `stage2-*-review-v2.md`、`native67-build-current-result.json`、`native67-full-batch-author-audit/summary.json`、`native67-public-client-result.json`、`native67-manual-stop-terminal-evidence.json` 、`native67-normal-quit-evidence.json`、`native67-summary.json`、`native67-restoration-final.json` 和 `stage2-acceptance-merger.md`。独立 merger 已逐项核对 #66 九项与 #67 七项，全部满足；工单结项与阶段 PR 集成由主线程继续执行。#68–#73、五项完整基准及最终 dev → main 总 PR 仍待完成。
+证据位于 ignored `.scratch/playground-benchmarks/implementation/`：`stage2-final-repairs-host-gates.json`、两份 `stage2-*-review-v2.md`、`native67-build-current-result.json`、`native67-full-batch-author-audit/summary.json`、`native67-public-client-result.json`、`native67-manual-stop-terminal-evidence.json` 、`native67-normal-quit-evidence.json`、`native67-summary.json`、`native67-restoration-final.json` 和 `stage2-acceptance-merger.md`。独立 merger 已逐项核对 #66 九项与 #67 七项，全部满足；#66、#67 已发布验收评论并关闭。主线程先更新本地 dev，再推送远端；dev、main 及两条阶段分支的本地／实际远端完整 hash 均分别一致。#68–#73、五项完整基准及最终 dev → main 总 PR 仍待完成。
+
+阶段三基于已同步 dev `a7c1aaced3b3f679fb8d3f7886ab82c64ca3f5a4`，工作分支为 `codex/playground-stage-3`，实现候选已提交为 `fa6da5f`，尚未创建阶段 PR。JEVal、一致性 JevBench、JevAdvBench 与 Jevman 原题子模块均已固定完整提交；HF 子模块取得真实 33,533,925 字节 Parquet，摘要匹配原 LFS 对象。Git LFS 仅在本任务目录准备固定 Mac arm64 工具，不修改全局安装；检出原失败及修复记录保留。
+
+JEVal 原题模块的全量字段、原评分和有限边界 6 项回归 `run-mR1p7P` 退出 0，两模块分析 `run-qiO5A7` 零诊断。完整一致性请求、两套独立作者向量、50 关系及固定 CI、非法概率和 95% 覆盖边界 4 项回归 `run-fORtgR` 退出 0，模块与共享数值接口分析 `run-NJzml8` 零诊断。朴素求和造成的原评分差异已由独立诊断重现，并对齐当前固定 CPython 3.12.14 的求和语义；原评分期望、容差和分母未变。上游历史具体运行时未知，留空。
+
+原攻击的 JSON 转义、额外字段及送达事实已有定点反馈。公开客户端保留原 HTTP 文档，来源可将不支持字段交给正常 HTTP/MCP 入口真实判断；基础编辑器默认预校验保持。实际双通道拒绝、原文证据与受影响 53 项回归 `run-bY8m3u` 全部通过。扰动模块的原统计、精确整数原文、MCP 拒绝分类及有限边界已完成，最终模块回归 `run-MWf7WK` 与分析 `run-UduXpY` 均退出 0；原失败保留。应用原题资源／runner／增量历史集成和受管 Jevman 正在实施。新增 manifest 资产入口后，宿主准备 `run-83BV1K` 在线解析和整体退出均为 0，lockfile 未再改变。
+
+阶段三第二轮有界队列已完成：原题完整分母保护由 `run-7GGYP9` 失败闭环至 `run-ZUv3ss` 通过；日志写前归属保护由 `run-AC1wWh` 失败闭环至 `run-vLlP8X` 通过，相关历史与资源回归均退出 0。原游戏预热普通 HTTP 取消 `run-P0sgJs` 及原录像重放、解析、运行时回归 `run-LY2NJE` 共七项通过，最终联合分析 `run-QeLOLT` 零诊断。自包含游戏桥接产物为 64,433 字节，SHA-256 `e4c1296b3f2c9958e9837ef329daceb9aadc8cb7e400e27c86a7ba5d379e8c39`，14 个构建输入与 manifest 一致。详细记录为 ignored `stage3-check-queue-loop2-summary.json`；取消是生命周期边界检查，未执行完整 100 局。当前由唯一 SDK/Node 队列继续游戏运行中取消及日志完整性分类，主线程继续负责最终候选、完整门禁、实机与 Git 交付。
+
+第三轮有界队列已完成：游戏运行中取消 `run-KXq36M` 首次退出 0，保留第一局真实部分录像、完整成绩为空、自有进程与请求释放、原模型实例存活，封存结果不可修改。日志完整性与安全分类 `run-7t9816` 六项首次全部通过；同长损坏、符号链接和异主 descriptor 均明确拒绝，正常独立导出及只删除所选 header/journal 的保护通过。相关分析 `run-9ufLDC` 零诊断，业务检查输入前后不变；没有重建未变游戏产物或重复无关成功。记录为 ignored `stage3-check-queue-loop3-summary.json`。后继队列集中检查游戏目标失效／正常关闭／公开业务错误与四题库页面；游戏应用组装拟复用现有唯一批次 operation、配置锁和逐局增量日志，不修改原帧调度。
+
+第四轮集中反馈：游戏目标失效、正常关闭及 HTTP/MCP 业务错误四项 `run-rdRLAe` 首次通过。四题库选择器先保留真实网络测试接缝失败，修正后取得缺少选择器的业务红 `run-7k3bKV`，最小实现后 `run-xQ6Ys4` 通过，原页面与导航 12 项 `run-HbGklq` 全部退出 0（含完整 400 题报告）。游戏日志 codec 由缺 API 红 `run-QTLV5m` 闭环至 `run-djRd80` 通过；逐局持久化回调由缺 API 红 `run-xvvJ5u` 闭环至两项 `run-vJloHM` 通过，游戏文件十项 `run-1fCYPa` 全部退出 0。游戏桥接已按修改后的原结束收尾接缝重新构建，当前 64,433 字节产物 SHA-256 为 `2da761b7a73588f015d95ccf97793b09966fcfe375ad992dc7a741b714c8bbd8`，14 个输入和 manifest 已核对。未改原帧调度，未运行完整 100 局。受管游戏资源组装由实际缺 API 红 `run-BPQeJY` 进入实现；安装资产入口新增桥接文件后，统一队列负责一次联网准备与后续定点验证，原评分／分组报告及共用游戏批次接线仍待闭环。
+
+第四轮最终收尾：`run-xLIQN0` 联网依赖准备与整体退出均为 0，lockfile 未变；游戏资源组装 `run-UYqjVP` 三项通过，验证安装资源校验、固定 arm64 缓存复用、损坏桥接和符号链接保护。相关十文件分析 `run-yYb5Bs` 零诊断，645 个输入与交接时内容一致。第五轮关闭独立评分报告失败：测试先仅将两个 Completer 移至真实异步区，原 20 秒／10 秒期限不变，`run-O5UnH3` 得到没有超时或清理错误的 `1 / 400` 对 `1 / 11257` 业务红。最小报告修复后 `run-sm2nug` 通过，原分母、部分 ACC／MAE 为空、五维原分组与 JSON、无配对指标及一次正常 HTTP 请求均核对；受影响四文件 `run-Pq32S1` 二十项通过，最后相关七文件分析 `run-VjwsTk` 零诊断。详细记录为 ignored `stage3-check-queue-loop4-summary.json` 和 `stage3-check-queue-loop5-summary.json`。当前继续共用游戏 operation／历史／退出接线，并准备三来源完整原输入的日志规模验证；没有阶段三完整门禁或真实完整模型验收的通过声明。
+
+第六轮已完成共用游戏执行器与完整输入存储验证。游戏批次 API 缺失红 `run-BErXW2` 后，首候选语法错误 `run-q8lTr2` 真实退出 65 已保留；修复后 `run-77zpzd` 两项通过，验证唯一批次门禁、全部配置锁、schema 5／6 部分录像历史往返及零执行准入窗口退出。相关分析 `run-ubQvVy` 零诊断。唯一完整日志规模作业 `run-wz1RW0` 用时 8 分 42 秒，四项全部通过，测试与整体真实退出码均为 0，647 个输入前后未变，清理完成。JEVal 11,257 行、coherence 10,320 行及 Adv 11,368 行的 journal 分别为 585,297,271／168,530,809／359,273,665 字节；Adv HTTP／MCP 两份完整 leaf 共 22,736 行，独立导出为 821,214,025 字节。原输入摘要、原字段／原文、4,564 个数字字面量、全量读取／导出和 owner 拒绝均通过。三份逐题 snapshot／save 各读取 N 行、每行最多一次、重复终态保存零历史读取，原 `≤ 2N + 2` 断言未放宽。这些用例为明确标识的 cancelled 存储 fixture，没有执行模型，不证明系统累计 I/O 或真实模型完整评测。记录为 ignored `stage3-check-queue-loop6-summary.json` 和 `stage3-check-queue-loop6-scale-outer-result.json`。当前推进 main／ManagerLifecycle／页面的游戏装配；受影响回归集中留到接线后一次执行，完整门禁与实机仍待。
+
+游戏应用组装已完成本批闭环：原构造参数缺失 `run-SZAd6u`、错误要求游戏 manifest 有 `files` 的页面失败 `run-UU8oi9` 保留，按原 `bundleInputs/games` 修复后 `run-52SPtQ` 通过准备、正常 HTTP 首局、离页继续、重挂取消、部分历史和自有资源收尾。唯一受影响回归 `run-b9ZDBh` 二十文件 130 项全部通过，相关 34 项分析 `run-GMZina` 零诊断。随后固定 #68–#71 候选，唯一全仓宿主门禁 `run-I0GRe7` 完成 145 文件格式零改动、全仓分析零诊断、776 项全测试（含完整 Scale 与全部旧断言），三个步骤及整体退出均为 0，用时 27 分 29 秒，清理正常。647 个源码输入前后及当前一致，清单摘要 `c0ca5ffab390d28536aae693df471e5e4910a95ec10d0c38c9adc8d703365752`；SDK、字体、lock、五个实际固定子模块和当前游戏产物一致。证据为 ignored `stage3-check-queue-loop7-summary.json`、`stage3-check-queue-prenative-summary.md` 与 `stage3-check-queue-prenative-result.json`。该门禁允许进入当前 Mac 构建和真实模型验收，不代表 #72、阶段三 PR 或总规格完成。
+
+上述阶段三证据属于原题模块与定点回归，尚不代表安装版集成、真实模型完整 11,257／10,320／11,368 请求、Jevman 100 局或新的完整门禁通过。旧阶段二 718 项和原生六份记录仅覆盖已验收的阶段二候选。阶段三仍须固定最终内容后完成本阶段完整门禁、真实模型、独立原评分及资源收尾；最终总 PR 继续待全部规格完成后创建并保持 ready。
+
+实机 JEVal `run-1791617331969869` 已完整执行：11,257 / 11,257，缺失 0；9,628 有效、1,629 失败，客户端和服务端超时均为 0。首个原始错误为模型请求 7,147 tokens 超过原 4,096-token 上下文，经普通 HTTP 返回 502；没有截题、改参数或重试。GUI 完整导出为 620,489,987 字节，SHA-256 `b5362228a645e7e498944e136bb303ed311b281bcf426424d94268b673e24c24`。独立固定 CPython 审计退出 0，原始七字段摘要一致，原分类分母 10,938、score 分母 319；accuracy 0.44459681843115745、Brier 0.5869310679447592、ECE 0.16444844651608945、score MAE 1.1214232346609345 与导出相符。原失败输入法为自动化 AX setter 没有触发 TextField.onChanged，正常键盘输入后 GUI 导出成功。准确证据为 ignored `native-stage3-root-jeval-independent-score*.json`。
+
+导出后切换题库出现原生窗口黑屏、普通发现端口拒绝连接，app 70984 和自有 Kev 74256 仍运行。正文缺失检查真实变红，正常 CmdQ 未释放资源；核验路径及父子关系后只对这两个 PID 发 TERM 清理。原进程退出码不可取得，清理辅助命令退出 0，清理不算正常退出通过。完整历史及配置保护保留。当前以同一已验证二进制 PID 90625 捕获 stderr，有限重放的来源切换、完整历史加载、关窗重开、Ready 模型条件均保持正文，原问题尚未复现或关闭。没有修改产品代码、放宽断言或重跑 JEVal。此候选阶段验收仍未完成。记录为 ignored `native-stage3-root-black-*.json` 和 `native-lifecycle-diagnosis.md`。
+
+同一二进制日志捕获下，一致性 `run-1791621521579905` 于 16:38:41 经 GUI 开始普通 HTTP 全量评测，固定 jevbench-240、10,320 唯一请求 / 12,000 关系，首次 123 有效返回、零失败。只有一个有效运行；唯一只读观察者使用 CLI 五分钟间隔，主线程保留应用操作。完整成绩、独立评分、JevAdvBench 11,368、Jevman 100 局及退出／恢复仍待。
+
+用户提醒完成时，小头文件显示一致性仍在运行，1,548 / 10,320，尚未封存；GUI 却显示旧 JEVal 的“完整执行”报告。进程核对只有同一个 app 90625。原完整历史加载与新批次启动重叠时，`run-215nzI` 确认新运行及公开 HTTP 首请求成立，但界面缺少新运行编号，真实退出 1。
+
+最小页面修复给历史选择增加代际检查。主动开始新批次会废弃旧加载并清空旧报告；runner、题源、评分和预算保持。同例 `run-4JTOZG` 全断言通过，测试与外层退出 0。新报告、取消、旧完整 400 题保留、正常重选和零额外 HTTP 均已核对。准备时序错误及新测试占位文本误判保留；原期限与业务断言保持。
+
+必要三文件回归 `run-4fMlcV` 的 19 项全部通过，测试与外层退出 0；分析 `run-cD2zk2` 零诊断，格式 `run-REpQI7` 零改动。647 个输入前后与当前一致，清单摘要 `f2ba01fd862fe3b69a390bd5e7f6042036763a05578524db66517efd24ac74b4`。新完整门禁已授权唯一 SDK 队列执行，对应构建尚待。正在运行的一致性评测继续使用原 `112680b` 产物，页面修复尚未部署。证据为 ignored `question-integration-history-selection-handoff.md` 与 `stage3-check-queue-history-selection-race-*.json`。
 
 JEVal 三族来源后续核查已完成。作者论文证实 Decider、JevBench 和 JevForge 的原项目指针；JevBench 的 200 行均唯一映射到公开原题。作者历史导入提交及其他两族逐行绑定仍未知。报告为 ignored `jeval-source-identity-followup.md`，不代表 #68 产品或模型验收。
 
@@ -130,3 +291,71 @@ Git 状态：阶段一 PR [#74](https://github.com/Ghost233/GhostModelDeck/pull/
 当前代码候选 072335d：全部已确认修复已通过718项完整宿主门禁；两轴复审分别为Standards P0/P1/P2均0、Spec P0/P1/P2均0，原启动窗口P2已关闭，覆盖固定base8da至当前完整diff。当前Release构建真实退出0、版本0.1.4，86构建输入与HEAD前后一致。实际Dart App.framework摘要为`ea1652ef2e747b2a5076b40d85b312bebc3e62e79f5be5116d88f4326569fbed`。记录为ignored stage2-standards-review-v2.md、stage2-spec-review-v2.md、native67-build-current-result.json。
 
 本阶段剩余为真实3对象×HTTP/MCP六份完整400题、独立原评分和正常客户端核对、原生退出／历史验收。实际54841/54842及0.1.3两个Ready模型仍由Sentinel会话保留；新候选已准备，但没有实机GO。需要落实临时正常退出旧服务、保留最新六配置、验收后恢复原服务的使用安排，获准前只读观察。阶段PR75仍draft，#66/#67和总规格不以代码门禁或旧真实400题代替最终验收。
+
+2026-10-10 21:26–21:27 本地，当前完整 100 局运行中完成顶层引擎／测试场切换及普通 CmdW 关闭窗口／重新打开验收。同一 run `run-1791638006807303` 保持第 19 局，帧由 127 → 587 → 1548 前进；关闭窗口后普通 models 为 200、仅 `sentinel-kev`，应用 80216、模型 70383、Node 75971 均存活且两个子进程仍属同一应用。未取消、重启或新增批次。该证据仅覆盖页面和普通窗口生命周期，不代替完整 100 局、显式 CmdQ、历史恢复或原黑屏原因验收；记录 `native-stage3-game-page-window-acceptance.json`。
+
+当前新候选在完整 100 局运行中刷新历史并选择该活动记录，再往返基础测试页：同一 run 第 20 局帧 1072 → 1300 → 1705 持续前进，显示已保存 19 局，未见陈旧日志 FormatException 或历史错误。此验收支持活动历史读取修复，不代替已完成大历史加载／导出与原黑屏原因关闭。记录 `native-stage3-game-active-history-acceptance.json`。
+
+原生运行中配置锁定验收：引擎／委员会配置页对 `sentinel-kev` 显示“评测中 · 配置与调用名已锁定”，编辑入口呈灰色，点击后没有编辑对话框或 AX 变化；返回测试场仍是原 run，已保存 22 局、当前第 23 局。未点击删除、修改配置或停止模型。证据 `native-stage3-game-config-lock-gui.json`。随后六项配置存在状态及摘要与最新接管基线逐项一致，四份实际备份文件摘要也一致；只读证据 `native-stage3-game-config-lock-readonly.json`。
+
+本轮依据 #71/#72 的原验收项整理完整运行结束后的执行顺序，固定实际完整导出、原作者 100 局逐局重放及汇总核对、普通公开调用对照、独立取消／目标失效／CmdQ 与历史恢复、最新配置与共享模型恢复。计划和离线 argv 位于 ignored `native-stage3-game-terminal-acceptance-plan.md` 与 `native-stage3-game-full-independent-audit-command.json`；尚未执行完整审计，没有将准备或既有回放样例记为真实 100 局通过。
+
+用户询问主线程为何没有显示 `sleep 300`。此前唯一五分钟 CLI timer 实际由观察子任务执行；原 session 51516 自然退出 0 后产生第 4 检查，新唯一 session 2368 已启动。主线程尝试接管该句柄返回 Unknown process id，保留为工具会话可见性限制，不据此判原 timer 或评测结束。已要求子任务完成当前原 timer、最后检查后不再启动后继，主线程再直接执行下一次 `sleep 300`。证据 `native-stage3-game-watch-root-handoff.json`。新增 1 次客户端超时保留原口径，不重试或放宽预算。
+
+观察子任务的最后原 `sleep 300`（session 2368 / PID 59202，13:40:09 UTC 启动）已自然退出 0，并完成最后小头部检查，随后停止全部 timer/header 操作。主线程接手直接执行 `sleep 300`，唯一句柄 11128；记录 `native-stage3-game-root-watch-state.json`。最后检查 43/100 局有效、局失败 0、客户端超时累计 4，原结果保留。
+
+主线程 `sleep 300` / session 11128 已自然退出 0，之后只读一次 8,246 字节头部：50/100 局有效，正式调用 3,641 / 成功 3,637，客户端超时仍为 4，无新增，错误 null。原观察 `native-stage3-game-root-watch-006.json`；随后直接启动下一唯一 `sleep 300` / session 22012。
+
+2026-10-10 22:33:34 本地，主线程 `sleep 300` / session 18358 自然退出 0 后观察到完整终态，实际 finished_at 为 22:30:00.777881。GUI 显示 100/100、完整局 100、部分录像 0、缺失 0，并导出新文件 `native-stage3-game-full-export.json`，117,014,578 字节，SHA256 `f27a1884cb2b174be241191de2d1b9bbf8b8ce125d90d0ac22cb119a1083768b`。GUI 成功提示与实际导出身份/结构已核对。
+
+固定 Mac arm64 Node 24.21.0 与未修改原 Jevman `1c8b77ac61bafa10956c601b1c9b339dcd277836` 的 `verifyGame`/`summarize` 对实际 100 局、263,602 帧独立回放，所有每局结果和汇总一致，真实审计退出 0。原均分 1327、最好 2940、标准误 33、平均存活 36.8 秒、fallbackRate 0.009。原始 costPerGame=0 留在 originalSummary，产品投影 costPerGame=null，100 局均没有实际费用证据。审计 `native-stage3-game-full-independent-audit.json` 与执行/退出文件保留；其中 full_model_acceptance=false 明确保留，用于提示该离线审计不能单独证明真实服务及生命周期。
+
+公开 HTTP 记录独立核对通过：7,434 次正式请求的 model/state/questions、记录 request_json、通道与无 diagnostic 均一致，成功 7,425 次为 HTTP200，原客户端超时 9 次，另有独立 warmup 1 次。原生服务预算 10 秒、正式剩余预算不超过 2 秒、warmup 不超过 30 秒；未重试或延预算，超时实际耗时原样保留。成功正式请求外层耗时独立分位数 P50=233.417ms、P95=519.3422ms，与产品一致；不混入 warmup/失败/超时。证据 `native-stage3-game-full-public-record-audit.json`。这些证据不替代尚待的独立取消／目标失效／CmdQ 中断、重启历史、原黑屏原因关闭和后续 #72/#73。
+
+本轮后续原生生命周期验收（当前 a791 产品／8091 文档候选）：新的完整计划 `run-1791643075649054` 在实际第一局帧运行后通过 GUI 明确取消，落盘 cancelled、不完整 1/100，保留一局部分录像且不提供原完整成绩。本次游戏 Node94647退出，应用80216与Kev70383保持，普通 HTTP models200仍有sentinel-kev；GUI导出和原头部记录为 `native-stage3-game-cancel-native.json` 与 `native-stage3-game-cancel-export-inspection.json`。取消记录有原客户端超时1，未改写为全部调用成功。
+
+对象失效计划 `run-1791643185733989` 在实际第一局运行后，通过 GUI 正常停止Kev70383，批次targetUnavailable并记录具体原因、不完整1/100，保留1,901帧/55调用。模型70383和游戏Node97921均退出、应用80216存活，公开发现HTTP200/空models；独立GUI导出SHA256 `915da593c839c7c536bd82b2317821061c3cc4ce263a273cb938052a86c718fc`。证据 `native-stage3-game-target-unavailable-native.json`。未强制信号、删除历史或接触其他模型。
+
+按原 b11381 与4096 ctx/batch/ubatch、parallel1、GPU99/MTL0恢复Kev后，退出计划 `run-1791643438420462` 实际第一局帧/调用运行中执行正常 CmdQ，落盘interrupted、不完整1/100，finished_at=14:44:28.215583UTC。自有应用80216、Kev6834、Node8406全部退出，54841/54842 connect_ex=61，此前11历史头部逐字节一致。无强制信号；不伪造无父进程应用exit0。证据 `native-stage3-game-explicit-quit-before.json`／`-after.json`。
+
+重启候选PID11705后普通models200为空、无模型/游戏子进程，端口实际lsof归属11705；同时出现安装版PID16141（/Applications/Ghost Model Deck.app），作为外部进程保持，不回收。重启GUI加载/导出中断记录651,452字节、1,683帧/40调用；完整100局历史导出仍117,014,578字节，SHA256及全部字节与退出前完整导出一致。11原头部及中断头部均未改写，无自动续跑。证据 `native-stage3-game-restart-history-acceptance.json`。随后受保护五份模型/安装凭据全SHA再次一致，包含新Qwen3.5-4B；证据 `native-stage3-game-protected-assets-after-lifecycle.json`。
+
+新增已确认显示问题保持开放：新批次0/100且未取得首帧时，短暂显示前批次第100局末帧，且前批次已导出提示残留至新批次；原GUI/AX和身份在 `native-stage3-game-new-run-stale-frame-original.json`。历史切换在实际加载结束后已正确清除fileStatus，不属于新增修复范围。下一步仅针对新批次启动状态做原失败回归和最小修复，保留原轨迹、调度、期限和全部验收断言。
+
+Qwen2.5的public_models.json另从启用变为空enabled，来源未确定，当前六配置只有此项变化。已保存当前副本与摘要，不用旧备份覆盖，等待用户选择测试后恢复启用或保留停用；其余独立工作继续。证据 `native-stage3-game-public-models-change-record.json`。原黑屏原因仍未建立；本轮正常退出/历史证据不替代其诊断。
+
+## 剩余工作梳理（2026-10-10，用户要求先梳理）
+
+当前 HEAD `8091f9e5adda4237eaf5a27699c079a7426035b0`，产品代码仍为 a791；本轮新问题尚未写入实现或回归测试。没有有效评测 timer、模型批次或本任务宿主长测试。780 项门禁仅证明当前既有候选，后续源码改动须有对应最终完整验证。以下是剩余交付范围，不表示已实施。
+
+| 顺序 | 工作 | 当前事实 | 完成证据 |
+|---|---|---|---|
+| 1 | 修复新批次启动显示残留 | 旧末帧和旧导出提示已原生复现；历史切换清除已正确，不扩入修复 | 两项原失败测试先红后绿，受影响模块回归及当前产物对应实机场景；原规则、题量、HTTP和评分不变 |
+| 2 | 收敛原黑屏／公开服务失联诊断 | 旧一次真实失败保留；本轮窗口、退出和历史通过，原因仍未建立 | 固定原 JEVal 历史／导出／切来源场景，保留日志与进程/端口证据；复现则只修该原始失败，不重复完整模型评测碰运气 |
+| 3 | #72 实时观看与历史逐局回放 | 尚未实现交互画面；目前只有进度文本及离线原作者审计 | 当前真实状态画面、切页重新附着、100局任意选择及播放控制、无新推理的独立重放、损坏/版本错误提示，实际桌面及回归；等待 #71 当前问题验收 |
+| 4 | 阶段三审查、门禁和集成 | PR尚未创建；已有两轴审查及780门禁不能替代新增源码最终验证 | #68–#72全部验收、已确认P0/P1/P2关闭、必要复审/复盘、最终完整宿主门禁及构建，阶段PR合入dev和本地FF同步 |
+| 5 | #73 五基准、多对象、HTTP/MCP整批对照 | 尚未实现通用五套件同批选择；现有完整委员会对照仅DecideBench | 一次选择单模型+至少两命名委员会、五套件和两通道，顺序真实完整执行、各项独立报告、游戏MCP、配置锁/失败/取消/历史；实际全量与独立评分，不以旧单项记录冒充新整批 |
+| 6 | 最终跨阶段验收与Git交付 | 最终总PR尚未创建，不能宣称收尾完成 | B01–B12逐项对账，最终源码门禁/构建/实机、总diff两轴审查，阶段四PR合入dev；dev→main总PRready待人合并，涉及本地与远端完整hash一致 |
+| 独立 | 本轮服务恢复与公开配置变化 | Qwen2.5公开配置变为空，来源未定；当前变更副本已保留，用户恢复选择待回复；外部安装版进程16141不回收 | 仅按已授权及确认策略恢复相应字段/原服务，保护最新配置、四模型及安装凭据，普通HTTP/MCP发现及授权会话恢复通知；不覆盖未知来源新改动 |
+
+结果复用原则：DecideBench六份完整400题、三项原题完整执行、Jevman100及原评分/轨迹、生命周期记录均保留。新显示修复只改变当前帧和局部提示时，旧完整轨迹/评分可在确认调用链未受影响后复用；新产物必须重验受影响原生行为。新五基准整批、多对象/MCP和观战功能需各自新增真实证据。模型原题失败与不可评分属于公开结果，不能静默删除或通过重试改善报表。
+
+执行节奏：用户当前要求先梳理，未开启新修复或长测试。后续按以上依赖推进，每个原失败先定点，修改收齐后运行相应阶段一次有效完整门禁；只有存在真实在途长作业时，主线程才执行唯一CLI `sleep 300` 轮询。减少无变化等待消息，明确区分阶段实现与最终交付。
+
+2026-10-10 22:57:38 本地，应已获用户授权的服务使用方协调请求，主线程确认候选11705无模型/游戏子进程、无在途评测或timer，普通models200为空后正常CmdQ释放候选。实际ps确认11705退出，外部安装版16141仍存活，54841/54842 connect_ex=61且无监听；public_models.json当前空enabled摘要保持，不用旧备份覆盖。随后按原人类明确授权向“讨论 Codex Observer 监控方案”会话发送服务交接，说明可由其正常接管准备Qwen3.5，但接口尚无Ready模型，不冒充恢复就绪。证据 `native-stage3-game-service-release-for-observer.json`。未打开/前置/重启DSH，不中断外部应用。后续代码修复与门禁无需占用共享模型，新增实机需求再协调有界接管。
+
+用户要求继续完成未完成开发/验收后，主线程开始新批次显示残留闭环。现有游戏生命周期测试新增结束后无实时帧断言，原失败 `run-eIB69p` exit1明确读到旧帧；仅在play收尾清空_latestFrame后，同用例 `run-n36Jqc` exit0。现有游戏Page测试通过普通GUI导出取消记录，再启动完整100局新计划，新增旧导出提示不存在断言；原失败 `run-8llAhO` exit1命中已导出提示，_start仅增加_fileStatus=null后 `run-EXUVEX` exit0。两处生产改动合计2行，不修改原规则、请求、期限、轨迹存储或计分。第一次 `run-XpcxZz` 是固定SDK缓存写入被沙箱拒绝、测试尚未执行的环境失败，保留原错误后同命令授权重跑。固定SDK格式4文件/1改动exit0，4文件分析 `run-qFwV5y` 零诊断exit0。
+
+当前受影响5模块全部回归唯一session53490仍在执行，退出码尚未取得；主线程已直接执行唯一CLI `sleep 300` / session94157。新源码尚未通过最终完整门禁和新产物原生复验，不冒用旧780结果。进度及当前4输入摘要为 `native-stage3-new-admission-fix-progress.json`；共享模型由服务使用方继续持有。
+
+本轮受影响5模块回归 `run-3N828o` 已全部通过37项、2分03秒、真实test/整体exit0，原断言完整保留。随后固定这两处最小修复，唯一完整宿主门禁 `run-6YwXny` / session41357 开始，647输入相对旧780门禁恰好只有本轮4个文件变化。格式exit0、分析exit0，全仓测试仍运行，整体退出未知；不冒用旧780覆盖新输入。主线程已直接启动唯一 `sleep 300` / session68588，上一94157已自然exit0。证据 `native-stage3-new-admission-fix-progress.json`。检查期间不再修改源码，不启动第二份完整门禁。
+
+完整门禁 `run-6YwXny` 第3正常轮询发现已确认失败，当前不通过：六组完整2400题对照用例12:26触发原8分钟TimeoutException，清理后原completed断言读到interrupted；14:49首HTTP超时用例原500ms期限内实际client_timeouts=2，原断言要求1。未改期限、题量或期望，Runner/公开客户端生产源码在本轮2行显示修改中未变化；因果尚未建立，不能将无关源码变化等同环境原因。当前宿主64GiB、free67%只证明采样时充足，不证明失败时原因。原门禁仍唯一运行、先收齐实际退出和错误，再按原失败定点诊断，不重开完整门禁。证据 `native-stage3-new-admission-gate-original-failures.json`，主线程唯一 `sleep 300` / session28300，前53789自然exit0。
+
+唯一完整门禁 `run-6YwXny` 已自然结束，31分35秒、778通过/2失败，test及整体exit1，格式/分析exit0，647输入前后及当前逐项一致，清理正常。失败精确为原8分钟六组完整2400题超时及原500ms首HTTP超时计数1→2。未宣称通过、未提交当前修复。按诊断流程，原Runner测试仅加入唯一前缀 `[DEBUG-GMD-deadline]` 的阶段计时和失败行元数据，不输出请求/响应/凭据、不改原断言。首个原用例定点 `run-6Prodj` / session65112 仍运行，保持2400题/六组/8分钟；已观察native HTTP入口342ms、MCP入口34552ms、quick HTTP入口82955ms。主线程唯一 `sleep 300` / session19797，前40611自然exit0。临时插桩将在得到区分原因的证据后清除，未启动新的完整门禁。
+
+## 新增嵌入模型支持（2026-10-11）
+
+新增工单：[嵌入模型：GGUF 启动、公开向量接口与测试场（#77）](https://github.com/Ghost233/GhostModelDeck/issues/77)。用户指定 `embeddinggemma-2-F16.gguf`，文件大小 557,950,240 字节，SHA-256 `0d4350867eddbb94af485501a3d07e9374c47779d88f8a39cd1abd6a8e2d0901` 与上游一致。保留原始 LM Studio 文件，当前模型库增加独立 APFS 克隆。先实施文本向量、普通公开 `/v1/embeddings` 和嵌入测试页。
+
+b11381 和 b11429 的真实加载均报 `unknown model architecture: gemma-embedding2`。经上游 PR #30054 核对，采用独立 b11457 macOS arm64 引擎，不替换两个在用引擎。官方包大小 12,007,659，SHA-256 `e234070cbde0c8b0d30f79fa08ff8246abe22c72acb752619349b8d9c46f7839`。沙箱内 Metal 队列创建失败后，宿主机真实探测 HTTP 200：三条中文输入、每条 768 维、约 0.26 秒，向量范数约 1。临时引擎自然清理退出 0；该证据证明引擎兼容，不代替 GMD 产品路由、取消和退出验收。原始证据：`embeddinggemma2-b11457-real-probe.json`、`embedding-engine-b11457.json`、`embedding-library-import.json`。

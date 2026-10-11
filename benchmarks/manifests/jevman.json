@@ -1,0 +1,104 @@
+{
+  "id": "jevman",
+  "name": "Jevman",
+  "source": "https://github.com/opper-ai/jevman-benchmark",
+  "pin": "1c8b77ac61bafa10956c601b1c9b339dcd277836",
+  "license": "AGPL-3.0-or-later",
+  "benchVersion": 1,
+  "games": 100,
+  "maxPlayingSeconds": 300,
+  "decisionTimeoutMs": 2000,
+  "warmupTimeoutMs": 30000,
+  "warmupMaxMs": 300000,
+  "warmupAcceptMs": 1800,
+  "ghosts": "scripted",
+  "bundle": "benchmarks/adapters/jevman/bridge.mjs",
+  "node": {
+    "version": "v24.21.0",
+    "platform": "darwin-arm64",
+    "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-darwin-arm64.tar.gz",
+    "bytes": 52909993,
+    "sha256": "bed7eea5325e1108f32ce5228ddd6a5f0f08a499ee42aa7442aea583702f6057",
+    "executableSha256": "e4b5a3af0e05c75de2eae013904145f40fe7fc2a6e6f17510128bf45cca4e79b",
+    "licenseSha256": "5888dbb9a1d2b18f2c3e6c5f6af1b39de658372b402a0577b002777f14c62ace"
+  },
+  "packageLockSha256": "32840e33d159f332bf486b004b89da9c0f4450c771508704610c9cc129e04850",
+  "bundleSha256": "4a1d84e94614a9df1a8b52f5e7572da4386b8674aa1b2cc2a92c781a968cf0d8",
+  "bundleBytes": 65359,
+  "bundleInputs": [
+    {
+      "path": "benchmarks/sources/jevman/src/layout.ts",
+      "bytes": 1793,
+      "sha256": "1e386d532a7bfde38b1c24562f64ab34d52ae24511a262f587a14aa235be1935"
+    },
+    {
+      "path": "benchmarks/sources/jevman/src/types.ts",
+      "bytes": 517,
+      "sha256": "31fae0ba7a1dfc816bdec236518d79bc7e7f371e299e6767473063e443fa79a9"
+    },
+    {
+      "path": "benchmarks/sources/jevman/src/maze.ts",
+      "bytes": 3434,
+      "sha256": "d3e58d8673a64e670c231b70b38d29abfdcd1b204d4768a087a71500287fb28b"
+    },
+    {
+      "path": "benchmarks/sources/jevman/src/sim.ts",
+      "bytes": 18307,
+      "sha256": "a5c36687cda333a7f08f463a9f4ad99cb9a8d41150fd27033fa0104eba514493"
+    },
+    {
+      "path": "benchmarks/sources/jevman/src/replay.ts",
+      "bytes": 5118,
+      "sha256": "f12172b83c1ec96fe5011d1e82ca9ec5ed7084dc96c56780c8a79b89b02d6dd4"
+    },
+    {
+      "path": "benchmarks/sources/jevman/shared/models.ts",
+      "bytes": 1414,
+      "sha256": "a2dd80b0c9c56b6875dfb1066a0a52ffc437d3188cf9011cfe62b9b811701fb1"
+    },
+    {
+      "path": "benchmarks/sources/jevman/src/features.ts",
+      "bytes": 11044,
+      "sha256": "cd4ff4ce8fcf27e00da02044a7583496c9e7ffa04db48f470f69aa0f70ea77d2"
+    },
+    {
+      "path": "benchmarks/sources/jevman/src/brain.ts",
+      "bytes": 12131,
+      "sha256": "eb6960ce03073e84c1263b7d8aba5831972f53db5b902401f00a63b5b2963ff0"
+    },
+    {
+      "path": "benchmarks/sources/jevman/src/stats.ts",
+      "bytes": 8160,
+      "sha256": "4b117a9ecd389914a3f82b0f3c7a9f10f12346467d6cadecc7fe0eedd4f9907c"
+    },
+    {
+      "path": "benchmarks/sources/jevman/shared/leaderboard.ts",
+      "bytes": 5696,
+      "sha256": "c3509e6717e858ab2df037599995e1d059fa342c5f0c04732eb7ef8265efe993"
+    },
+    {
+      "path": "benchmarks/sources/jevman/scripts/game.ts",
+      "bytes": 1702,
+      "sha256": "f287af5dd4b6ce92f87ff1572bf53ea4d0115de10ac74c9800dad91b5aa19a06"
+    },
+    {
+      "path": "benchmarks/sources/jevman/scripts/verify.ts",
+      "bytes": 8943,
+      "sha256": "114c1951598084d1ec678916b37ec0d61af9465612683f898afee76f8f4d2f36"
+    },
+    {
+      "path": "benchmarks/sources/jevman/src/scheduler.ts",
+      "bytes": 10284,
+      "sha256": "f4d6ce2200fa645b62832b1e5c7778c97123efa459747b2fdb8906790f3994d6"
+    },
+    {
+      "path": "benchmarks/adapters/jevman/entry.ts",
+      "bytes": 10560,
+      "sha256": "4146cac2b949528c99de1f8d3f4246f5130b9b0f8dfd6344da9e12eec994f216"
+    }
+  ],
+  "buildTool": {
+    "esbuildSha256": "10b6243df618d374bb2d5c9cfbe7052e1405f6aa4e53a6164f11a91b9f2e1384",
+    "platform": "darwin-arm64"
+  }
+}

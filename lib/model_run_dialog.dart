@@ -51,7 +51,11 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
   bool _previewBlocked = false;
   LibraryArtifact? get _configurationAsset => widget.variant.artifacts
       .where(
-        (asset) => [AssetKind.decision, AssetKind.chat].contains(asset.kind),
+        (asset) => [
+          AssetKind.decision,
+          AssetKind.chat,
+          AssetKind.embedding,
+        ].contains(asset.kind),
       )
       .singleOrNull;
   @override
@@ -94,7 +98,11 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
     );
     final assets = widget.variant.artifacts
         .where(
-          (asset) => [AssetKind.decision, AssetKind.chat].contains(asset.kind),
+          (asset) => [
+            AssetKind.decision,
+            AssetKind.chat,
+            AssetKind.embedding,
+          ].contains(asset.kind),
         )
         .toList();
     if (assets.length != 1) return null;
@@ -151,13 +159,16 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
     try {
       final assets = (await widget.library.verify(widget.variant.artifactIds))
           .where(
-            (value) =>
-                [AssetKind.decision, AssetKind.chat].contains(value.kind),
+            (value) => [
+              AssetKind.decision,
+              AssetKind.chat,
+              AssetKind.embedding,
+            ].contains(value.kind),
           )
           .toList();
       if (assets.length != 1 ||
           assets.single.integrity != AssetIntegrity.complete) {
-        throw const LlamaEngineException('此变体缺少完整文本或决策 GGUF 资产');
+        throw const LlamaEngineException('此变体缺少完整文本、决策或嵌入 GGUF 资产');
       }
       final instance = await widget.catalog
           .providerFor(_engineId!)

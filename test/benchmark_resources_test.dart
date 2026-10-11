@@ -7,6 +7,39 @@ import 'package:ghost_model_deck/decidebench.dart';
 import 'package:ghost_model_deck/engine_runtime.dart';
 
 void main() {
+  test('source file discovery belongs to resources and prefers existing fixed cache files', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'gmd-source-file-paths-',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final resources = BenchmarkResources(root);
+    addTearDown(resources.close);
+    final original = await resources.sourceFilePaths(
+      'decidebench',
+      BenchmarkResources.identity,
+    );
+    expect(
+      original,
+      contains(
+        File(
+          'benchmarks/sources/decidebench/${BenchmarkResources.files.first.path}',
+        ).absolute.path,
+      ),
+    );
+    final cached = File(
+      '${root.path}/decidebench/${BenchmarkResources.pin}/${BenchmarkResources.files.first.path}',
+    );
+    await cached.parent.create(recursive: true);
+    await File(original.first).copy(cached.path);
+    expect(
+      await resources.sourceFilePaths(
+        'decidebench',
+        BenchmarkResources.identity,
+      ),
+      [cached.absolute.path],
+    );
+    expect(await resources.sourceFilePaths('decidebench', {}), isEmpty);
+  });
   test(
     'prepare downloads the fixed complete original suite and rechecks cache',
     () async {

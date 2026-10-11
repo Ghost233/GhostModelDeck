@@ -2,6 +2,7 @@ import 'engine_catalog.dart';
 import 'engine_runtime.dart';
 
 String engineDisplayName(EngineRegistration entry) {
+  if (entry.sourceBuild != null) return entry.name;
   if (entry.source == EngineSource.linked) {
     return entry.family == EngineFamily.omlx ? 'oMLX' : 'llama.cpp';
   }
@@ -9,6 +10,7 @@ String engineDisplayName(EngineRegistration entry) {
 }
 
 String engineSourceLabel(EngineRegistration entry) {
+  if (entry.sourceBuild != null) return 'Git 源码构建';
   if (entry.source == EngineSource.managed) return 'Ghost Model Deck';
   if (entry.path?.contains('/.lmstudio/extensions/backends/') ?? false) {
     final runtime = RegExp(r'-(\d+\.\d+\.\d+)(?:/|$)').firstMatch(entry.path!);

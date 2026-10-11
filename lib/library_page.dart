@@ -502,6 +502,7 @@ class _LibraryPageState extends State<LibraryPage> {
                                                         [
                                                           AssetKind.decision,
                                                           AssetKind.chat,
+                                                          AssetKind.embedding,
                                                         ].contains(
                                                           asset.kind,
                                                         ) &&
@@ -549,8 +550,10 @@ class _LibraryPageState extends State<LibraryPage> {
                                   _runRow(run, busy),
                                 if (widget.publicRoutes != null &&
                                     variant.artifacts.length == 1 &&
-                                    variant.artifacts.single.kind ==
-                                        AssetKind.chat)
+                                    [
+                                      AssetKind.chat,
+                                      AssetKind.embedding,
+                                    ].contains(variant.artifacts.single.kind))
                                   _publicApiRow(variant.artifacts.single),
                                 if (_expanded.contains(package.id))
                                   Padding(
@@ -892,6 +895,9 @@ String _status(LibraryArtifact artifact) {
         : '聊天 · 文件待核验';
   }
   if (artifact.kind == AssetKind.unknown) return '已发现 · 未知';
+  if (artifact.kind == AssetKind.embedding) {
+    return '嵌入模型 · ${artifact.embeddingDimensions ?? "未知"} 维 · 待能力验证';
+  }
   return artifact.integrity == AssetIntegrity.complete
       ? artifact.fingerprintsVerified
             ? '完整 · 待能力验证'

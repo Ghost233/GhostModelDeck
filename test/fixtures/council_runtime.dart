@@ -24,11 +24,14 @@ class CouncilRuntime {
   static Future<CouncilRuntime> create({
     int modelCount = 2,
     CouncilRuntimeIO? processIO,
+    bool sourceSystemone = false,
   }) async {
     final root = await Directory.systemTemp.createTemp('jev-council-');
     final models = Directory('${root.path}/models');
     await models.create();
-    final first = modelCount == 0 ? null : await writeDecisionKev(models);
+    final first = modelCount == 0
+        ? null
+        : await writeDecisionKev(models, ordinaryChat: sourceSystemone);
     if (modelCount > 1) {
       final other = File('${models.path}/author/Other/Other-Q8_0.gguf');
       await other.parent.create(recursive: true);
@@ -47,6 +50,13 @@ class CouncilRuntime {
     final archive = await File('${root.path}/release.tar.gz')
         .writeAsBytes(bytes);
     final engine = LlamaEngine(
+      sourceBuild: sourceSystemone
+          ? {
+              'source': 'https://github.com/example/llama.cpp',
+              'requested_ref': 'feature/native-systemone',
+              'supports_systemone': true,
+            }
+          : null,
       library: library,
       installationDirectory: Directory('${root.path}/engines'),
       io: io,
@@ -88,6 +98,7 @@ class CouncilRuntime {
 
 class CouncilRuntimeIO implements EngineProcessIO {
   final requests = <Map<String, dynamic>>[];
+  final decisionPaths = <String>[];
   Future<String> Function(Map<String, dynamic> request, String response)?
   respond;
   int killedChildren = 0;
@@ -98,6 +109,7 @@ class CouncilRuntimeIO implements EngineProcessIO {
   Completer<void>? exitRelease;
   bool failScoreForOther = false;
   bool recordChoiceConsultations = false;
+  Map<String, Object?> capacityProperties = const {};
   int consultationStatus = 200;
   final _servers = <String, HttpServer>{};
   Future<void> closeEndpoint(String instanceId) =>
@@ -178,9 +190,29 @@ class CouncilRuntimeIO implements EngineProcessIO {
           jsonEncode({
             'model_alias': identityAliases[arg('--alias')] ?? arg('--alias'),
             'model_path': arg('--model'),
+            ...capacityProperties,
+          }),
+        );
+      } else if (request.uri.path == '/v1/chat/completions') {
+        request.response.write(
+          jsonEncode({
+            'model': alias,
+            'choices': [
+              {
+                'index': 0,
+                'message': {'role': 'assistant', 'content': 'Hello.'},
+                'finish_reason': 'stop',
+              },
+            ],
+            'usage': {
+              'prompt_tokens': 4,
+              'completion_tokens': 2,
+              'total_tokens': 6,
+            },
           }),
         );
       } else {
+        decisionPaths.add(request.uri.path);
         final body = jsonDecode(
           await utf8.decoder.bind(request).join(),
         ) as Map<String, dynamic>;

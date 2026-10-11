@@ -2,9 +2,16 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-Future<File> writeDecisionKev(
+Future<File> writeDecisionKev(Directory root, {bool ordinaryChat = false}) =>
+    _writeTestGguf(root, ordinaryChat: ordinaryChat);
+
+Future<File> writeEmbeddingGguf(Directory root) =>
+    _writeTestGguf(root, embedding: true);
+
+Future<File> _writeTestGguf(
   Directory root, {
   bool ordinaryChat = false,
+  bool embedding = false,
 }) async {
   final fields = <String, Object>{
     'general.architecture': 'qwen35',
@@ -50,7 +57,25 @@ Future<File> writeDecisionKev(
     'cls.output.weight': [1, 2],
     'cls.output.bias': [2],
   };
-  if (ordinaryChat) {
+  if (embedding) {
+    fields
+      ..clear()
+      ..addAll({
+        'general.architecture': 'gemma-embedding2',
+        'gemma-embedding2.context_length': 8192,
+        'gemma-embedding2.embedding_length': 1,
+        'gemma-embedding2.embedding_length_out': 2,
+        'gemma-embedding2.attention.causal': false,
+        'gemma-embedding2.pooling_type': 1,
+        'tokenizer.ggml.model': 'gpt2',
+        'tokenizer.ggml.tokens': ['token'],
+      });
+    tensors
+      ..clear()
+      ..addAll({
+        'token_embd.weight': [1, 1],
+      });
+  } else if (ordinaryChat) {
     fields.removeWhere(
       (key, _) => key.contains('.decision.') || key.endsWith('.systemone'),
     );
@@ -82,6 +107,9 @@ Future<File> writeDecisionKev(
       case int value:
         u32(4);
         u32(value);
+      case bool value:
+        u32(7);
+        bytes.addByte(value ? 1 : 0);
       case double value:
         u32(6);
         bytes.add(
@@ -118,7 +146,11 @@ Future<File> writeDecisionKev(
     offset += ((size + 31) ~/ 32) * 32;
   }
   bytes.add(Uint8List((32 - bytes.length % 32) % 32 + offset));
-  final file = File('${root.path}/author/Kev/Kev-Q8_0.gguf');
+  final file = File(
+    embedding
+        ? '${root.path}/author/Embedding/Embedding-F16.gguf'
+        : '${root.path}/author/Kev/Kev-Q8_0.gguf',
+  );
   await file.parent.create(recursive: true);
   return file.writeAsBytes(bytes.toBytes());
 }

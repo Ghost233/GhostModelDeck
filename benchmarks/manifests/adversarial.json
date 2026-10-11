@@ -1,0 +1,73 @@
+{
+  "id": "adversarial",
+  "name": "JevAdvBench",
+  "pin": "3218e05f98f2b72c69b6f8a1a4a42092955b7bc7",
+  "sourceUrl": "https://github.com/JevAdvBench/JevAdvBench",
+  "submodule": "benchmarks/sources/adversarial",
+  "questionCount": 812,
+  "attackCount": 9744,
+  "repeatCount": 812,
+  "requestCount": 11368,
+  "scenarioCount": 66,
+  "codeLicense": "MIT",
+  "dataLicense": "CC-BY-NC-4.0",
+  "sourceConditions": "Vendor-derived scenarios retain their original terms. README License/Citation and per-question provenance are retained. 143 human_review labels; 669 jev_default five-run consensus labels are not independent ground truth.",
+  "scoring": "data_analysis/common.py; data_analysis/flips.py; data_analysis/effects.py",
+  "schedule": "code/eval_corrected_attacks.py then code/eval_clean_repeat.py: isolated single-question requests; attack/clean/original-repeat linkage retained; no retries or answer reuse in this application.",
+  "files": [
+    {
+      "path": "LICENSE",
+      "bytes": 1148,
+      "sha256": "923da33e7a5e5a6b502078e86a18c3fab399569d99a21a99dd9a0fe1fdbee43b",
+      "url": "https://raw.githubusercontent.com/JevAdvBench/JevAdvBench/3218e05f98f2b72c69b6f8a1a4a42092955b7bc7/LICENSE"
+    },
+    {
+      "path": "README.md",
+      "bytes": 11663,
+      "sha256": "9dd2b331797756acd01229ca3aaed939a91518912410f49e6bdb7cb288548469",
+      "url": "https://raw.githubusercontent.com/JevAdvBench/JevAdvBench/3218e05f98f2b72c69b6f8a1a4a42092955b7bc7/README.md"
+    },
+    {
+      "path": "data/Bench1.0.json",
+      "bytes": 641156,
+      "sha256": "ce0c9253e5c81db8e6d30226e58ed4b945cb2635f4e33fbeb92feb2c9a9a7050",
+      "url": "https://raw.githubusercontent.com/JevAdvBench/JevAdvBench/3218e05f98f2b72c69b6f8a1a4a42092955b7bc7/data/Bench1.0.json"
+    },
+    {
+      "path": "data/AdvBench1.0.json",
+      "bytes": 41923337,
+      "sha256": "0feca66fb37977bff7cf9e8f24cbc3461ca9dae0db23a38555474341230fb2e9",
+      "url": "https://raw.githubusercontent.com/JevAdvBench/JevAdvBench/3218e05f98f2b72c69b6f8a1a4a42092955b7bc7/data/AdvBench1.0.json"
+    },
+    {
+      "path": "data_analysis/common.py",
+      "bytes": 7257,
+      "sha256": "208f2a30d74f0c9f61517b5f90f34dd46c7e6b460978d6d0046262223af43809",
+      "url": "https://raw.githubusercontent.com/JevAdvBench/JevAdvBench/3218e05f98f2b72c69b6f8a1a4a42092955b7bc7/data_analysis/common.py"
+    },
+    {
+      "path": "data_analysis/flips.py",
+      "bytes": 4027,
+      "sha256": "2d20eacff38259d4324a40ab8303eb0e8ed7dbf4fd06902b2330facd774d6cce",
+      "url": "https://raw.githubusercontent.com/JevAdvBench/JevAdvBench/3218e05f98f2b72c69b6f8a1a4a42092955b7bc7/data_analysis/flips.py"
+    },
+    {
+      "path": "data_analysis/effects.py",
+      "bytes": 10708,
+      "sha256": "606a1e51154d310b527e6a9c269451d922f8caf74816d46db9e87c8a383c95d0",
+      "url": "https://raw.githubusercontent.com/JevAdvBench/JevAdvBench/3218e05f98f2b72c69b6f8a1a4a42092955b7bc7/data_analysis/effects.py"
+    },
+    {
+      "path": "code/eval_corrected_attacks.py",
+      "bytes": 6956,
+      "sha256": "6aa36a6f292258c834fdfb7216a815e7fff7ea5b0d56fe0a8d3a973ee86b5111",
+      "url": "https://raw.githubusercontent.com/JevAdvBench/JevAdvBench/3218e05f98f2b72c69b6f8a1a4a42092955b7bc7/code/eval_corrected_attacks.py"
+    },
+    {
+      "path": "code/eval_clean_repeat.py",
+      "bytes": 6587,
+      "sha256": "c9c9edf82079064a5ee5335efa2e386f4f713d97b68f8033b8c34c5bd624288d",
+      "url": "https://raw.githubusercontent.com/JevAdvBench/JevAdvBench/3218e05f98f2b72c69b6f8a1a4a42092955b7bc7/code/eval_clean_repeat.py"
+    }
+  ]
+}

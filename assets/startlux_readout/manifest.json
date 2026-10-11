@@ -1,0 +1,77 @@
+{
+  "author_pin": "07e13ea49c67f41da795c28abb4590347e745b7a",
+  "code_fingerprint": "17887f2e752f481fe6be59776e4f97deb4a3652775268785c359b95e5e2f2ee6",
+  "files": {
+    "author/LICENSE": {
+      "bytes": 19347,
+      "sha256": "41003d4a74749c0220e33dd415042164b5a1093ed401f36277234f772d22d3d0"
+    },
+    "author/NOTICE": {
+      "bytes": 12330,
+      "sha256": "ec7d09e98f04667acf3a33358ee4e830f6ee3b41251af388035aec40d4e47fe2"
+    },
+    "author/chat_template.jinja": {
+      "bytes": 7756,
+      "sha256": "a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715"
+    },
+    "author/config.json": {
+      "bytes": 3161,
+      "sha256": "ddc63e1c717afa86c865bb5e01313d89d72bb53b97ad4a8a03ba8510c0621670"
+    },
+    "author/decision_config.json": {
+      "bytes": 476,
+      "sha256": "5ab7e2671a3fe113e89b5ebad2b808c64a6b751ab2663c025913922c0df065f7"
+    },
+    "author/merges.txt": {
+      "bytes": 3353259,
+      "sha256": "a9d356d7bdf1ef4949e3e748e95b8e10ad9d4e2e838eddc38a0a7b6b94d1db8d"
+    },
+    "author/startlux_decision/__init__.py": {
+      "bytes": 184,
+      "sha256": "52c7fd27759098245b8fbe8fdb50846eefa06116b5500466621f6ff1139d61b0"
+    },
+    "author/startlux_decision/check.py": {
+      "bytes": 702,
+      "sha256": "1e0b0eb0b5f078d6b0b97a8916536831f1d19818f7237c18ed48ab4b059431b7"
+    },
+    "author/startlux_decision/gguf_server.py": {
+      "bytes": 5441,
+      "sha256": "c96fe68c65a7d876cf7ee7275f02c2088b8bd419e70c6d6005096c80b1fc1823"
+    },
+    "author/startlux_decision/jevfmt.py": {
+      "bytes": 7937,
+      "sha256": "b0bd50b78e6391d91a8428db781949224012ee6b1ba8e6eda2889fda1ca4bfa7"
+    },
+    "author/startlux_decision/model.py": {
+      "bytes": 15400,
+      "sha256": "a902607fdd2b34b7007bc26763cd17f9e9157c54a45dc0f3a5ef3b3e4e38db62"
+    },
+    "author/startlux_decision/server.py": {
+      "bytes": 4702,
+      "sha256": "327b6488997ac75cab0e532d96950a02d579262eff827008458768f3b3f02b84"
+    },
+    "author/tokenizer.json": {
+      "bytes": 12807982,
+      "sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42"
+    },
+    "author/tokenizer_config.json": {
+      "bytes": 16710,
+      "sha256": "316230d6a809701f4db5ea8f8fc862bc3a6f3229c937c174e674ff3ca0a64ac8"
+    },
+    "author/vocab.json": {
+      "bytes": 6722759,
+      "sha256": "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003"
+    },
+    "managed_transport.py": {
+      "bytes": 12479,
+      "sha256": "942a71a09fbea37c0862fb6d63cabc5da0dc19bc8df7f8e0918bb4250f95841d"
+    },
+    "receipt.json": {
+      "bytes": 5031,
+      "sha256": "a849af158ead934f5e9815ec46d9aa92924bed29afbbfbc8311326127ea00824"
+    }
+  },
+  "model_sha256": "36c2aec2c3741f0602b0d931273c1f55a7a8650bdb0be8d4adc9848a19b34b30",
+  "temperature_sha256": "5ab7e2671a3fe113e89b5ebad2b808c64a6b751ab2663c025913922c0df065f7",
+  "tokenizer_fingerprint": "e68234d932a886141b1aa1e078b573c3cd2c2152a9f8f7f303d0c5ef7a9def79"
+}

@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import 'chat_protocol.dart';
 import 'decision_protocol.dart';
+import 'embedding_protocol.dart';
 import 'engine_runtime.dart';
 import 'jev_models.dart';
 import 'jev_debug.dart';
@@ -52,6 +53,7 @@ class PublicModelRoutes {
   PublicModelRoutes({
     required this._library,
     required List<EngineRuntime> runtimes,
+    this._runtimeSources,
     this._registryFile,
   }) : _runtimes = List.unmodifiable(runtimes);
 
@@ -59,6 +61,7 @@ class PublicModelRoutes {
 
   final ModelLibrary _library;
   final List<EngineRuntime> _runtimes;
+  final List<EngineRuntime> Function()? _runtimeSources;
   final File? _registryFile;
   final Set<String> _enabled = {};
   final _changes = StreamController<void>.broadcast();
@@ -105,8 +108,9 @@ class PublicModelRoutes {
     if (artifact == null) {
       throw StateError('公开模型不存在于模型库：$artifactId');
     }
-    if (artifact.kind != AssetKind.chat) {
-      throw StateError('仅标准文本对话模型可公开访问：$artifactId');
+    if (artifact.kind != AssetKind.chat &&
+        artifact.kind != AssetKind.embedding) {
+      throw StateError('仅标准文本或嵌入模型可登记公开访问：$artifactId');
     }
     final publicId = publicIdFor(artifactId);
     final conflict = _enabled.any(
@@ -131,10 +135,15 @@ class PublicModelRoutes {
   }
 
   /// Enabled artifacts that currently have at least one ready text instance.
-  List<PublicModelEntry> listModels() {
+  List<PublicModelEntry> listModels({
+    RuntimeCapability requiredCapability = RuntimeCapability.textGeneration,
+  }) {
     final entries = <PublicModelEntry>[];
     for (final artifactId in _enabled.toList()..sort()) {
-      if (_readyInstances(artifactId).isNotEmpty) {
+      final ready = _readyInstances(artifactId, requiredCapability);
+      if (requiredCapability == RuntimeCapability.embeddings
+          ? ready.length == 1
+          : ready.isNotEmpty) {
         entries.add(
           PublicModelEntry(
             publicId: publicIdFor(artifactId),
@@ -147,7 +156,10 @@ class PublicModelRoutes {
   }
 
   /// Per-request resolution. Refusals happen before any upstream contact.
-  PublicRouteTarget resolve(String publicId) {
+  PublicRouteTarget resolve(
+    String publicId, {
+    RuntimeCapability requiredCapability = RuntimeCapability.textGeneration,
+  }) {
     if (publicId.length != 68 || !publicId.startsWith('gmd-')) {
       throw const PublicRequestException(404, 'model_not_found', '公开模型不存在');
     }
@@ -159,7 +171,7 @@ class PublicModelRoutes {
         '公开模型不存在或未启用公开访问',
       );
     }
-    final ready = _readyInstances(artifactId);
+    final ready = _readyInstances(artifactId, requiredCapability);
     if (ready.isEmpty) {
       throw const PublicRequestException(
         503,
@@ -185,20 +197,72 @@ class PublicModelRoutes {
 
   List<({EngineRuntime runtime, RuntimeInstance instance})> _readyInstances(
     String artifactId,
+    RuntimeCapability capability,
   ) {
     final found = <({EngineRuntime runtime, RuntimeInstance instance})>[];
-    for (final runtime in _runtimes) {
+    // Linked and source-built registrations can arrive after these routes.
+    // Several catalog entries may also share one runtime pool.
+    final runtimes = Set<EngineRuntime>.identity()
+      ..addAll(_runtimeSources?.call() ?? _runtimes);
+    for (final runtime in runtimes) {
       for (final instance in runtime.runtimeInstances) {
         if (instance.artifactId == artifactId &&
             instance.status == RuntimeInstanceStatus.ready &&
             instance.acceptingRequests &&
             instance.hasLiveProcess &&
-            instance.capabilities.contains(RuntimeCapability.textGeneration)) {
+            instance.capabilities.contains(capability) &&
+            (capability != RuntimeCapability.embeddings ||
+                runtime is EmbeddingRuntime)) {
           found.add((runtime: runtime, instance: instance));
         }
       }
     }
     return found;
+  }
+
+  /// Capacity belongs to the sole currently callable runtime, never a file's
+  /// declared maximum or a saved launch form. Ambiguous routes stay absent.
+  List<Map<String, Object?>> capacityModels() {
+    final entries = <Map<String, Object?>>[];
+    for (final artifactId in _enabled.toList()..sort()) {
+      final artifact = _library.state.artifacts
+          .where((artifact) => artifact.id == artifactId)
+          .firstOrNull;
+      if (artifact == null ||
+          (artifact.kind != AssetKind.chat &&
+              artifact.kind != AssetKind.embedding)) {
+        continue;
+      }
+      final capability = artifact.kind == AssetKind.embedding
+          ? RuntimeCapability.embeddings
+          : RuntimeCapability.textGeneration;
+      final ready = _readyInstances(artifactId, capability);
+      if (ready.length != 1) continue;
+      final capacity = ready.single.instance.capacity;
+      if (capacity == null ||
+          capacity.contextPerSlot <= 0 ||
+          capacity.slotCount <= 0) {
+        continue;
+      }
+      final publicId = publicIdFor(artifactId);
+      entries.add({
+        'key': publicId,
+        'type': capability == RuntimeCapability.embeddings
+            ? 'embedding'
+            : 'llm',
+        'source': 'ghost-model-deck',
+        'loaded_instances': [
+          {
+            'id': publicId,
+            'config': {
+              'context_length': capacity.contextPerSlot,
+              'max_concurrent_requests': capacity.slotCount,
+            },
+          },
+        ],
+      });
+    }
+    return entries;
   }
 
   Future<void> _persist() async {
@@ -465,6 +529,26 @@ class PublicGatewayServer {
                 'object': 'model',
                 'owned_by': 'ghostmodeldeck',
               },
+            for (final entry in _routes.listModels(
+              requiredCapability: RuntimeCapability.embeddings,
+            ))
+              {
+                'id': entry.publicId,
+                'object': 'model',
+                'owned_by': 'ghostmodeldeck',
+                'type': 'embedding',
+                'source': 'embedding',
+              },
+          ],
+        });
+        return;
+      }
+      if (request.method == 'GET' && path == '/api/v1/models') {
+        _sendJson(request.response, 200, {
+          'source': 'ghost-model-deck',
+          'models': [
+            ..._routes.capacityModels(),
+            ...?jevModels?.capacityModels(),
           ],
         });
         return;
@@ -479,6 +563,10 @@ class PublicGatewayServer {
         await _chat(request, inflight.cancellation);
         return;
       }
+      if (request.method == 'POST' && path == '/v1/embeddings') {
+        await _embeddings(request, inflight.cancellation);
+        return;
+      }
       _sendError(request.response, 404, 'invalid_request_error', '路径不存在');
     } on JevRequestException catch (error) {
       _sendJson(request.response, error.statusCode, error.toJson());
@@ -486,6 +574,8 @@ class PublicGatewayServer {
       _sendJson(request.response, 400, {
         'error': {'code': 'invalid_input', 'message': error.message},
       });
+    } on EmbeddingProtocolException catch (error) {
+      _sendError(request.response, 400, 'invalid_request_error', error.message);
     } on FormatException {
       _sendJson(request.response, 400, {
         'error': {'code': 'invalid_input', 'message': '请求体不是有效 JSON'},
@@ -613,6 +703,81 @@ class PublicGatewayServer {
     } else {
       await _chatOnce(request, parsed, target, cancellation);
     }
+  }
+
+  Future<void> _embeddings(
+    HttpRequest request,
+    DecisionCancellation cancellation,
+  ) async {
+    final builder = BytesBuilder(copy: false);
+    final body = StreamIterator<List<int>>(request);
+    final cancelled = cancellation.whenCancelled.then<bool>(
+      (_) => throw const PublicRequestException(409, 'cancelled', '本次调用已取消'),
+    );
+    try {
+      while (await Future.any([body.moveNext(), cancelled])) {
+        builder.add(body.current);
+        if (builder.length > _bodyLimit) {
+          request.response.persistentConnection = false;
+          _sendError(
+            request.response,
+            413,
+            'invalid_request_error',
+            '请求体超过 1MiB 上限',
+          );
+          await request.response.done;
+          return;
+        }
+      }
+    } finally {
+      await body.cancel();
+    }
+    if (cancellation.isCancelled) {
+      throw const PublicRequestException(409, 'cancelled', '本次调用已取消');
+    }
+    final decoded = jsonDecode(utf8.decode(builder.takeBytes()));
+    if (decoded is! Map) {
+      throw const EmbeddingProtocolException('请求体需要是 JSON 对象');
+    }
+    final parsed = EmbeddingRequest.fromJson(
+      Map<String, Object?>.from(decoded),
+    );
+    final target = _routes.resolve(
+      parsed.model,
+      requiredCapability: RuntimeCapability.embeddings,
+    );
+    final runtime = target.runtime;
+    if (runtime is! EmbeddingRuntime) {
+      throw const PublicRequestException(
+        503,
+        'model_not_ready',
+        '嵌入运行实例当前不可调用',
+      );
+    }
+    await _jsonConnection(request, cancellation, () async {
+      try {
+        final result = await runtime.generateEmbeddings(
+          target.instance.id,
+          parsed,
+          cancellation: cancellation,
+        );
+        return (
+          200,
+          sealDebugJson({
+            ...result.toJson(),
+            'model': target.publicId,
+          }, projection: JevDebugProjection.embeddingResponse),
+        );
+      } on LlamaRequestException catch (error) {
+        return _upstreamError(error.kind.name);
+      } on LlamaEngineException {
+        // Identity failures retain their original error and cleanup in the
+        // engine. The public connection must still receive an HTTP verdict.
+        return _upstreamError('failed');
+      } on EmbeddingProtocolException {
+        return _upstreamError('invalidResponse');
+      }
+    });
   }
 
   Future<_ParsedChat?> _readChat(HttpRequest request) async {
@@ -837,28 +1002,35 @@ class PublicGatewayServer {
           )
           .listen(
             (event) {
-              final result = event.result;
-              if (result != null) {
-                final write = started ? _writeSseFrame : _writeSseChunk;
-                started = true;
-                write(response, target.publicId, {
-                  'index': 0,
-                  'delta': <String, Object?>{},
-                  'finish_reason': result.finishReason,
-                }, usage: result.usage);
-                response.write('data: [DONE]\n\n');
-              } else if (event.delta.isNotEmpty) {
-                final first = !started;
-                final write = first ? _writeSseChunk : _writeSseFrame;
-                started = true;
-                write(response, target.publicId, {
-                  'index': 0,
-                  'delta': {
-                    if (first) 'role': 'assistant',
-                    'content': event.delta,
-                  },
-                  'finish_reason': null,
-                });
+              if (finished.isCompleted) return;
+              try {
+                final result = event.result;
+                if (result != null) {
+                  final write = started ? _writeSseFrame : _writeSseChunk;
+                  started = true;
+                  write(response, target.publicId, {
+                    'index': 0,
+                    'delta': <String, Object?>{},
+                    'finish_reason': result.finishReason,
+                  }, usage: result.usage);
+                  response.write('data: [DONE]\n\n');
+                } else if (event.delta.isNotEmpty) {
+                  final first = !started;
+                  final write = first ? _writeSseChunk : _writeSseFrame;
+                  started = true;
+                  write(response, target.publicId, {
+                    'index': 0,
+                    'delta': {
+                      if (first) 'role': 'assistant',
+                      'content': event.delta,
+                    },
+                    'finish_reason': null,
+                  });
+                }
+              } catch (error, stack) {
+                if (!finished.isCompleted) {
+                  finished.completeError(error, stack);
+                }
               }
             },
             onError: (Object error) {
@@ -870,6 +1042,9 @@ class PublicGatewayServer {
           );
       if (heartbeatInterval > Duration.zero) {
         heartbeat = Timer.periodic(heartbeatInterval, (_) {
+          // The first actual frame owns SSE headers. Earlier failures must
+          // still be able to select their truthful JSON status and headers.
+          if (!started || finished.isCompleted) return;
           try {
             // SSE comment frame: a dead client only surfaces on a write, at
             // which point response.done completes and cancels the upstream.

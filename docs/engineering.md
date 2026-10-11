@@ -27,6 +27,16 @@
 
 ## 修改与检查流程
 
+**平台与产物规则：只编译、打包和提供 macOS arm64（Apple Silicon）版本。** 应用、引擎和配套运行时均遵守这一规则；macOS Intel/x64、Linux、Windows 及通用双架构产物全部不提供。构建成功后核对实际 Mach-O 架构，不能仅凭宿主机是 arm64 判定产物符合要求。
+
+固定 Flutter SDK 的非调试 Mac 构建默认可能生成双架构产物。开发构建使用命令级开关，不改全局设置：
+
+```sh
+FLUTTER_MACOS_ARM64_ONLY=true /Users/ghost233/flutter/bin/flutter build macos --release --no-pub
+```
+
+发布包入口强制同一开关，并拒绝包含其他架构的应用和 Flutter 运行时。Git 源码引擎构建使用 `CMAKE_OSX_ARCHITECTURES=arm64`。这条平台规则是长期交付要求，不只是当前阶段的验收裁剪。
+
 1. 确认本次行为、适用规则及可观察的成功标准；涉及领域行为时按 `docs/agents/domain.md` 读取术语与相关 ADR。
 2. 在现有业务入口实现修改。缺陷先复现，行为变更补充相应测试；文档或纯视觉调整使用链接、截图和交互检查验证。
 3. 本次产品与检查平台统一为 **macOS arm64 宿主机**。使用固定 Flutter 3.47.6（`5fc346839b5d0eef006ed8404392afb4dfae428d`）、Dart 3.13.5、现有 lockfile 和联网依赖解析；格式、静态分析、完整业务/widget 测试及真实 Mac 构建均在该宿主机执行。Linux、Windows、macOS Intel/x64 不属于本次适配或验收范围，运行时只准备 macOS arm64 版本。
@@ -45,7 +55,7 @@ export JEV_LAYOUT_FONT="$PWD/.tooling/check-fonts/NotoSansCJK-Regular.ttc"
 
 改动 `scripts/` 下的 shell 脚本时，必须先 `bash -n` 静态检查；含副作用的脚本（打包、发布、环境准备）合并前必须完成一次真实干跑并核验产物。变量展开紧邻非 ASCII 字符时必须加花括号（macOS 自带 bash 3.2 会把全角字符字节并入变量名）；依赖 `trap` 清理的脚本须在 trap 内保存并恢复退出码。
 
-宿主机检查记录固定 SDK 版本、源码 HEAD 及实际待测内容指纹、执行命令、环境、日志和真实退出码，保留主错误与清理错误。`format --output=none` 只检查，不改写工作区。切换执行环境后不能冒用另一环境的结果。
+宿主机检查记录固定 SDK 版本、源码 HEAD 及实际待测内容指纹、执行命令、环境、日志和真实退出码，保留主错误与清理错误。 Flutter 测试同时核对标准报告的成功完成标记及失败记录，保存 `test-outcome.json`；中断收尾后命令退出 0 也不能覆盖原业务失败。原命令退出码仍单独保存，缺失完成证据的检查判为未通过。`format --output=none` 只检查，不改写工作区。切换执行环境后不能冒用另一环境的结果。
 
 检查按联网模式执行；用户明确要求不使用离线模式。外网故障保留具体请求、超时阶段与失败结果，诊断恢复后重跑，不以缓存离线结果替代正式检查。新增 git 依赖或提升 git ref 后，先核对实际检查环境能否获取固定提交；遇到网络故障再采用经过核验的缓存准备，不沿用旧兼容层的 DNS/复制限制。
 

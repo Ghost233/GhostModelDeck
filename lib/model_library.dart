@@ -7,7 +7,7 @@ import 'package:crypto/crypto.dart';
 
 import 'hf_model_browser.dart';
 
-enum AssetKind { decision, chat, adapter, encoder, unknown }
+enum AssetKind { decision, chat, embedding, adapter, encoder, unknown }
 
 enum AssetIntegrity { complete, incomplete, corrupt, unknown }
 
@@ -26,6 +26,7 @@ class LibraryArtifact {
     this.architecture,
     this.quantization,
     this.decisionType,
+    this.embeddingDimensions,
     this.sourceVerified = false,
     this.repoId,
     this.revision,
@@ -45,6 +46,7 @@ class LibraryArtifact {
   /// Configuration evidence only; neither tensor validation nor engine support.
   final String? quantization;
   final String? decisionType;
+  final int? embeddingDimensions;
   final bool sourceVerified;
   final String? repoId;
   final String? revision;
@@ -55,6 +57,13 @@ class LibraryArtifact {
   int get sizeBytes => files.fold(0, (sum, file) => sum + file.sizeBytes);
   bool get fingerprintsVerified =>
       files.isNotEmpty && files.every((file) => file.sha256 != null);
+
+  bool get hasStartluxReadout =>
+      kind == AssetKind.chat &&
+      architecture == 'qwen35' &&
+      files.length == 1 &&
+      files.single.sha256 ==
+          '36c2aec2c3741f0602b0d931273c1f55a7a8650bdb0be8d4adc9848a19b34b30';
 }
 
 class LibraryFile {
@@ -639,6 +648,7 @@ Future<List<LibraryArtifact>> _applyManifests(
         architecture: artifact.architecture,
         quantization: artifact.quantization,
         decisionType: artifact.decisionType,
+        embeddingDimensions: artifact.embeddingDimensions,
         sourceVerified: sourceVerified,
         repoId: manifest['repoId'] as String,
         revision: manifest['revision'] as String,
@@ -1694,6 +1704,7 @@ LibraryArtifact _ggufArtifact(List<_ScannedFile> files) {
       ? AssetIntegrity.unknown
       : AssetIntegrity.complete;
   var kind = AssetKind.unknown;
+  int? embeddingDimensions;
   final tensors = <String, List<int>>{};
   for (final file in files) {
     for (final tensor in file.inspection.tensors.entries) {
@@ -1838,6 +1849,26 @@ LibraryArtifact _ggufArtifact(List<_ScannedFile> files) {
       }
     } else if (!decisionMarker &&
         [
+          'gemma-embedding',
+          'gemma-embedding2',
+          'nomic-bert',
+          'bert',
+        ].contains(architecture)) {
+      kind = AssetKind.embedding;
+      final dimensions =
+          metadata['$architecture.embedding_length_out'] ??
+          metadata['$architecture.embedding_length'];
+      if (dimensions is! int || dimensions <= 0) {
+        missing('缺少有效嵌入输出维度');
+      } else {
+        embeddingDimensions = dimensions;
+      }
+      if (metadata['$architecture.attention.causal'] == true ||
+          metadata['$architecture.pooling_type'] != 1) {
+        missing('当前嵌入启动仅支持非因果 mean pooling 配置');
+      }
+    } else if (!decisionMarker &&
+        [
           'qwen35',
           'qwen2',
           'qwen3',
@@ -1873,6 +1904,7 @@ LibraryArtifact _ggufArtifact(List<_ScannedFile> files) {
     integrity: integrity,
     architecture: architecture,
     decisionType: decisionType,
+    embeddingDimensions: embeddingDimensions,
     engineCapability: EngineCapability.awaitingVerification,
     diagnostics: diagnostics,
   );

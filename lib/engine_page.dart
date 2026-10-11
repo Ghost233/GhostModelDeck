@@ -5,6 +5,7 @@ import 'engine_catalog.dart';
 import 'engine_labels.dart';
 import 'engine_launch_editor.dart';
 import 'engine_runtime.dart';
+import 'engine_source_dialog.dart';
 import 'omlx_engine.dart';
 import 'llama_engine.dart';
 
@@ -54,6 +55,12 @@ class _EnginePageState extends State<EnginePage> {
       });
     }
   }
+
+  Future<void> _buildSource() => showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => EngineSourceDialog(catalog: widget.catalog),
+  );
 
   Future<void> _showUnlinkedConfigurations() => showDialog<void>(
     context: context,
@@ -278,6 +285,7 @@ class _EnginePageState extends State<EnginePage> {
   }
 
   void _details(EngineRegistration entry) {
+    final sourceBuild = entry.sourceBuild;
     showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
@@ -287,7 +295,14 @@ class _EnginePageState extends State<EnginePage> {
           child: SingleChildScrollView(
             child: SelectableText(
               [
-                engineSourceLabel(entry),
+                sourceBuild == null ? engineSourceLabel(entry) : 'Git 源码构建',
+                if (sourceBuild != null) ...[
+                  '引擎名称 ${entry.name}',
+                  '来源地址 ${sourceBuild['source']}',
+                  '请求版本 ${sourceBuild['requested_ref'] ?? '仓库默认版本'}',
+                  '实际提交 ${sourceBuild['commit']}',
+                  '构建日志 ${sourceBuild['log_path']}',
+                ],
                 if (entry.family == EngineFamily.omlx) ...[
                   '完整官方 app · 生产模型运行尚未接通',
                   OmlxEngine.artifactUrl,
@@ -352,6 +367,20 @@ class _EnginePageState extends State<EnginePage> {
                   onPressed: busy ? null : _link,
                   icon: const Icon(Icons.link, size: 18),
                   label: const Text('关联引擎'),
+                ),
+                const SizedBox(width: 8),
+                Tooltip(
+                  message: widget.catalog.sourceBuilder == null
+                      ? '源码构建服务尚未准备'
+                      : '从本地仓库或 GitHub 构建新的引擎',
+                  child: OutlinedButton.icon(
+                    key: const Key('engine-source-open'),
+                    onPressed: busy || widget.catalog.sourceBuilder == null
+                        ? null
+                        : _buildSource,
+                    icon: const Icon(Icons.build_outlined, size: 18),
+                    label: const Text('从 Git 构建'),
+                  ),
                 ),
                 if (widget.catalog.unlinkedConfigurations.isNotEmpty) ...[
                   const SizedBox(width: 8),

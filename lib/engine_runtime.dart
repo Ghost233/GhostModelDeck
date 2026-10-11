@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'chat_protocol.dart';
+import 'embedding_protocol.dart';
 
 enum EngineFamily { llamaCpp, omlx, splash }
 
@@ -11,6 +12,26 @@ enum RuntimeCapability {
   scoreProbability,
   noulScalar,
   textGeneration,
+  embeddings,
+}
+
+class RuntimeCapacity {
+  const RuntimeCapacity({
+    required this.contextPerSlot,
+    required this.slotCount,
+  });
+  final int contextPerSlot;
+  final int slotCount;
+
+  static RuntimeCapacity? fromLlamaProperties(Map<String, dynamic> properties) {
+    final settings = properties['default_generation_settings'];
+    final context = settings is Map ? settings['n_ctx'] : null;
+    final slots = properties['total_slots'];
+    if (context is! int || context <= 0 || slots is! int || slots <= 0) {
+      return null;
+    }
+    return RuntimeCapacity(contextPerSlot: context, slotCount: slots);
+  }
 }
 
 /// Immutable observations, not another owner of processes or request permits.
@@ -25,6 +46,7 @@ class RuntimeInstance {
     required this.hasLiveProcess,
     required Set<RuntimeCapability> capabilities,
     this.error,
+    this.capacity,
   }) : capabilities = Set.unmodifiable(capabilities);
   final String id;
   final String artifactId;
@@ -35,6 +57,16 @@ class RuntimeInstance {
   final bool hasLiveProcess;
   final Set<RuntimeCapability> capabilities;
   final String? error;
+  final RuntimeCapacity? capacity;
+}
+
+abstract interface class EmbeddingRuntime implements EngineRuntime {
+  Future<EmbeddingResult> generateEmbeddings(
+    String instanceId,
+    EmbeddingRequest request, {
+    Duration timeout = const Duration(seconds: 120),
+    DecisionCancellation? cancellation,
+  });
 }
 
 /// The catalog returns its existing owner through this family-neutral interface.

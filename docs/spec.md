@@ -1,5 +1,7 @@
 # Ghost Model Deck 首期规格
 
+2026-10-11 平台交付规则：只编译和提供 macOS arm64（Apple Silicon）应用、引擎及配套运行时；其他平台与架构全部不提供，包括 macOS Intel/x64、Linux、Windows 和通用双架构包。实际产物必须通过架构核对，构建入口见 [工程规范](engineering.md)。
+
 Stage: ready-for-agent
 状态：规格已定，待实施；不表示构建、模型运行或验收已通过。
 日期：2026-10-05。
@@ -218,6 +220,8 @@ LLM完整文件/哈希/模板见 [fixture研究](research/acceptance-model-fixtu
 
 ## 后续已确认需求
 
+2026-10-11，用户要求从指定的本地 Git 仓库或 GitHub 地址获取引擎源码，在本机克隆、编译，再登记并绑定模型运行。引擎版本由用户的仓库与可选引用决定，每次构建记录实际 commit；已有运行实例保持原产物。当前新增切片覆盖 llama.cpp 及相同构建和服务协议的分支，详见 [Git 源码引擎需求](requirements/git-source-engines.md) 和 [实施工单 #78](https://github.com/Ghost233/GhostModelDeck/issues/78)。上文固定发行版仅表示既有验收来源，不限制新引擎接入的版本。源码构建与实际运行正在实施和验收。
+
 2026-10-07 新增的原生协议兼容、协议转换器及应用内推理测试场需求以 [命名 JEV 模型路由、标准协议与应用内推理测试场规格](https://github.com/Ghost233/GhostModelDeck/issues/32) 为规范工单，本地定稿见 [规格正文](requirements/protocol-converters-and-playground.md)。委员会默认输出改为标准 JEV，Jev typed HTTP 与 MCP 共用该结果结构，完整委员会自有结构仅用于单次显式 debug；本期不增加 OpenAI Chat 输出转换。完整输入、输出、失败、取消、调试及测试场契约已由用户确认，待实施；用户后续将本期测试场与专项验收收窄到 JEV，标准文本 llama.cpp/oMLX 和 SSE 测试移出本期，不改变上述首期规格及既有验收的范围，也不表示新增功能已经实现。
 
 命名委员会配置（如 quick/hard）与按固定原生调用名直连的新增需求已完成 Q15–Q25 分支决定与整体确认，完整行为及验收见 [补充需求](requirements/jev-model-routing-and-council-profiles.md)，已整合进上述规格正文。当前契约采用必填 model 的显式命名路由，配置在软件内管理并持久保存，允许离线保存绑定，执行中的请求使用入场快照；MCP 决策工具为 decide_jev / decide_jev_batch。该后续规格替换首期的旧 JEV 工具命名约定；实际实施与验收以 #32 及其子工单为准。
@@ -225,3 +229,7 @@ LLM完整文件/哈希/模板见 [fixture研究](research/acceptance-model-fixtu
 2026-10-08 用户完成并确认引擎启动参数配置的 Q1–Q21 讨论，规范工单为 [引擎启动参数配置：文本优先、模型独立配置与最终命令预览规格](https://github.com/Ghost233/GhostModelDeck/issues/44)，本地定稿见 [规格正文](requirements/engine-launch-configuration-spec.md)，来源决策见 [已确认需求](requirements/engine-launch-configuration.md)，配置层级与边界见 [ADR 0003](adr/0003-engine-and-model-launch-configuration.md)。采用引擎默认配置与模型变体 × 具体引擎的独立配置，表单可填写、文本优先，提供最终命令预览；本次运行参数应用覆盖当前可运行的 llama.cpp / JEV，oMLX 提供配置保存和识别，oMLX 完整运行与 Splash 适配保持后续范围。参数功能当前待实施。
 
 2026-10-09 用户完成测试场与基准的 Q1–Q20 决定，并明确调用 to-spec 发布 [引擎与测试场分区、原题基准评测规格](https://github.com/Ghost233/GhostModelDeck/issues/62)，本地定稿见 [规格正文](requirements/playground-and-benchmarks-spec.md)，来源决策见 [讨论记录](requirements/playground-and-benchmarks.md)。采用顶层引擎/测试场与能力二级 Tab，集中基础推理测试；通用 LLM 首版基础 HTTP/SSE，JEV 基础与五项完整原题基准。测试场只用已 Ready 对象，必须通过真实公开 HTTP/MCP，替换原内部原生通道及进程内取消特权。题源通过 submodule 锁定、安装版首次获取受支持固定版本，不翻译且不限语言；Jevman 默认 100 局、受管运行时、观战及回放。完整请求、原评分、批次锁定、跨页/关窗运行、退出中断和持久历史按新规格及 [原题来源 ADR](adr/0004-original-benchmark-sources.md)、[真实客户端 ADR](adr/0005-real-client-evaluation-boundary.md)、[批次生命周期 ADR](adr/0006-evaluation-run-lifecycle.md)执行。规格标签为 ready-for-agent，尚未开始实施或验收，不改变旧阶段完成范围，也不表示正式发布。
+
+2026-10-11 用户明确：评测集是可选产品功能，不是每个模型的接入或交付必跑项。完整规模约束用户主动选择的评测批次；开发以功能、原评分和生命周期验收为目标，复用未受影响的完整证据。新模型补真实接口及必要委员会功能验证，质量评测由用户主动选择。五套完整基准、原题量、Jevman 100 局和原功能测试继续保留，详见测试场规格第 26 条。
+
+2026-10-12 用户确认 [源码引擎原生 JEV 接入规则](verification/native-systemone-source-policy.md)：保存 `supports_systemone` 声明，直接请求所选实例的 `/v1/systemone`，实际不支持时保留真实失败。`source_declaration` 表示来源声明，不代表各模型能力或校准已验证；不以模型 SHA、token 表或唯一 commit 作为准入白名单。既有非源码安装的兼容能力保持。
