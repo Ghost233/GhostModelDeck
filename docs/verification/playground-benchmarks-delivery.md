@@ -346,4 +346,3 @@ Qwen2.5的public_models.json另从启用变为空enabled，来源未确定，当
 新增工单：[嵌入模型：GGUF 启动、公开向量接口与测试场（#77）](https://github.com/Ghost233/GhostModelDeck/issues/77)。用户指定 `embeddinggemma-2-F16.gguf`，文件大小 557,950,240 字节，SHA-256 `0d4350867eddbb94af485501a3d07e9374c47779d88f8a39cd1abd6a8e2d0901` 与上游一致。保留原始 LM Studio 文件，当前模型库增加独立 APFS 克隆。先实施文本向量、普通公开 `/v1/embeddings` 和嵌入测试页。
 
 b11381 和 b11429 的真实加载均报 `unknown model architecture: gemma-embedding2`。经上游 PR #30054 核对，采用独立 b11457 macOS arm64 引擎，不替换两个在用引擎。官方包大小 12,007,659，SHA-256 `e234070cbde0c8b0d30f79fa08ff8246abe22c72acb752619349b8d9c46f7839`。沙箱内 Metal 队列创建失败后，宿主机真实探测 HTTP 200：三条中文输入、每条 768 维、约 0.26 秒，向量范数约 1。临时引擎自然清理退出 0；该证据证明引擎兼容，不代替 GMD 产品路由、取消和退出验收。原始证据：`embeddinggemma2-b11457-real-probe.json`、`embedding-engine-b11457.json`、`embedding-library-import.json`。
-
