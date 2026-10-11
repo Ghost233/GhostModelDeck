@@ -13,11 +13,134 @@ import 'package:ghost_model_deck/benchmark_runner.dart';
 import 'package:ghost_model_deck/benchmark_run_store.dart';
 import 'package:ghost_model_deck/decidebench.dart';
 import 'package:ghost_model_deck/jeval.dart';
+import 'package:ghost_model_deck/coherence_benchmark.dart';
+import 'package:ghost_model_deck/adversarial_benchmark.dart';
 import 'package:ghost_model_deck/jev_playground.dart';
 
 import 'fixtures/playground_runtime.dart';
 
 void main() {
+  testWidgets(
+    'multi-suite page retains all five choices and shows only twenty result summaries per page',
+    (tester) async {
+      final previous = HttpOverrides.current;
+      HttpOverrides.global = _Network();
+      addTearDown(() => HttpOverrides.global = previous);
+      late PlaygroundRuntime fixture;
+      late BenchmarkRunner runner;
+      late BenchmarkResources resources;
+      late BenchmarkGameWork work;
+      late Completer<void> arrived, release;
+      await tester.runAsync(() async {
+        arrived = Completer<void>();
+        release = Completer<void>();
+        fixture = await PlaygroundRuntime.create();
+        resources = BenchmarkResources(
+          Directory('${fixture.runtime.root.path}/multi-page-cache'),
+        );
+        work = BenchmarkGameWork(
+          Directory('${fixture.runtime.root.path}/multi-page-game'),
+        );
+        runner = BenchmarkRunner(
+          client: fixture.playground,
+          store: BenchmarkRunStore(
+            directory: Directory(
+              '${fixture.runtime.root.path}/multi-page-history',
+            ),
+          ),
+          models: fixture.council.models,
+        );
+        fixture.runtime.io.respond = (_, raw) async {
+          if (!arrived.isCompleted) arrived.complete();
+          await release.future;
+          return raw;
+        };
+        final suites = <Object>[
+          await DecideBenchSuite.load(
+            Directory('benchmarks/sources/decidebench'),
+          ),
+          await JevalSuite.load(Directory('benchmarks/sources/jeval')),
+          await CoherenceSuite.load(Directory('benchmarks/sources/coherence')),
+          await AdversarialSuite.load(
+            Directory('benchmarks/sources/adversarial'),
+          ),
+        ];
+        final pending = runner.runBatch(
+          suites: suites,
+          modelNames: ['native-kev', 'quick', 'hard'],
+          channels: JevPlaygroundMode.values,
+        );
+        await arrived.future.timeout(const Duration(seconds: 20));
+        runner.cancel();
+        await pending.timeout(const Duration(seconds: 10));
+        release.complete();
+      });
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.runAsync(() async {
+          await runner.close();
+          await resources.close();
+          await work.close();
+          await fixture.close();
+        });
+      });
+      tester.view.physicalSize = const Size(1024, 840);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.runAsync(() async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: BenchmarkPage(
+                resources: resources,
+                runner: runner,
+                gameWork: work,
+              ),
+            ),
+          ),
+        );
+        await _wait(
+          tester,
+          find.byKey(const Key('benchmark-target')),
+          absent: find.byType(LinearProgressIndicator),
+        );
+      });
+      await tester.pumpAndSettle();
+      for (final id in [
+        'decidebench',
+        'jeval',
+        'coherence',
+        'adversarial',
+        'jevman',
+      ]) {
+        expect(find.byKey(Key('benchmark-suite-select-$id')), findsOneWidget);
+      }
+      final resultChips = find.byWidgetPredicate(
+        (w) => w is ChoiceChip && '${w.key}'.contains('benchmark-result-'),
+      );
+      expect(resultChips, findsNWidgets(20));
+      expect(find.textContaining('多基准；逐项版本见报告'), findsOneWidget);
+      expect(find.byKey(const Key('benchmark-result-20')), findsNothing);
+      await tester.ensureVisible(
+        find.byKey(const Key('benchmark-results-next')),
+      );
+      await tester.tap(find.byKey(const Key('benchmark-results-next')));
+      await tester.pump();
+      expect(resultChips, findsNWidgets(4));
+      expect(find.byKey(const Key('benchmark-result-20')), findsOneWidget);
+      await tester.ensureVisible(find.byKey(const Key('benchmark-result-20')));
+      await tester.tap(find.byKey(const Key('benchmark-result-20')));
+      await tester.pump();
+      expect(
+        tester.widget<Text>(find.byKey(const Key('benchmark-coverage'))).data,
+        contains('10320'),
+      );
+      expect(fixture.runtime.io.requests, hasLength(1));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('快速切换历史后旧reader关闭，迟到摘要与页读取不能覆盖当前选择', (tester) async {
     final previous = HttpOverrides.current;
     HttpOverrides.global = _Network();
@@ -926,6 +1049,7 @@ void main() {
         await tester.tap(find.text('JEVal').last);
         await tester.pump();
         await _wait(tester, find.byKey(const Key('benchmark-suite-metadata')));
+        await _selectSuites(tester, ['jeval']);
       });
       await tester.ensureVisible(
         find.byKey(const Key('benchmark-select-native-kev')),
@@ -1133,6 +1257,14 @@ void main() {
             .join('\n');
         expect(metadata, contains(choice.$2));
         expect(metadata, contains(choice.$3));
+        await _selectSuites(tester, [
+          switch (choice.$1) {
+            'JEVal' => 'jeval',
+            '一致性 JevBench' => 'coherence',
+            'JevAdvBench' => 'adversarial',
+            _ => 'decidebench',
+          },
+        ]);
         expect(find.text(choice.$4), findsOneWidget);
         expect(find.textContaining('快速试跑'), findsNothing);
       }
@@ -1353,6 +1485,7 @@ void main() {
       await tester.runAsync(
         () => _wait(tester, find.byKey(const Key('benchmark-suite-metadata'))),
       );
+      await _selectSuites(tester, ['jevman']);
       expect(find.text('完整评测 · 100 局'), findsOneWidget);
       expect(work.status.name, 'idle');
       await tester.ensureVisible(
@@ -1948,7 +2081,11 @@ void main() {
       });
       expect(tester.takeException(), isNull);
       expect(requested, [BenchmarkResources.files.first.url]);
-      expect(runner.running, isFalse);
+      expect(
+        runner.running,
+        isTrue,
+        reason: 'The app owns the whole multi-suite preparation operation.',
+      );
       expect(runner.current, isNull);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.runAsync(() async {
@@ -2695,4 +2832,22 @@ class _SourceRoutingClient implements HttpClient {
   void close({bool force = false}) => _client.close(force: force);
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+Future<void> _selectSuites(WidgetTester tester, List<String> ids) async {
+  for (final id in [
+    'decidebench',
+    'jeval',
+    'coherence',
+    'adversarial',
+    'jevman',
+  ]) {
+    final finder = find.byKey(Key('benchmark-suite-select-$id'));
+    if (finder.evaluate().isEmpty) continue;
+    if (tester.widget<CheckboxListTile>(finder).value != ids.contains(id)) {
+      await tester.ensureVisible(finder);
+      await tester.tap(finder);
+      await tester.pump();
+    }
+  }
 }

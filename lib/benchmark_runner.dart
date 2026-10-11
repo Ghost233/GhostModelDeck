@@ -3,10 +3,12 @@ import 'dart:convert';
 
 import 'benchmark_game_work.dart';
 import 'benchmark_run_store.dart';
+import 'benchmark_resources.dart';
 import 'decidebench.dart';
 import 'frozen_question_suite.dart';
 import 'jev_models.dart';
 import 'jev_playground.dart';
+import 'jevman_runtime.dart' show JevmanRuntimeCancelled;
 
 /// Application-owned evaluation over the normal public client graph.
 class BenchmarkRunner {
@@ -20,6 +22,8 @@ class BenchmarkRunner {
   final JevModels models;
   final _changes = StreamController<BenchmarkRun>.broadcast();
   BenchmarkRun? current;
+  List<String> _selectedSuiteIds = const [];
+  List<String> get selectedSuiteIds => _selectedSuiteIds;
   Future<BenchmarkRun>? _operation;
   DecisionCancellation? _batchCancellation;
   BenchmarkRunStatus? _requestedStatus;
@@ -46,7 +50,7 @@ class BenchmarkRunner {
     List<JevPlaygroundMode> channels = const [JevPlaygroundMode.http],
     Duration timeout = const Duration(seconds: 30),
   }) => _start(
-    suite: suite,
+    suites: [suite],
     model: model,
     modelNames: modelNames,
     channels: channels,
@@ -60,7 +64,7 @@ class BenchmarkRunner {
     List<JevPlaygroundMode> channels = const [JevPlaygroundMode.http],
     Duration timeout = const Duration(seconds: 30),
   }) => _start(
-    suite: suite,
+    suites: [suite],
     model: model,
     modelNames: modelNames,
     channels: channels,
@@ -73,31 +77,79 @@ class BenchmarkRunner {
     List<String>? modelNames,
     List<JevPlaygroundMode> channels = const [JevPlaygroundMode.http],
   }) => _start(
-    suite: work,
+    suites: [work],
     model: model,
     modelNames: modelNames,
     channels: channels,
     timeout: const Duration(seconds: 2),
   );
 
-  Future<BenchmarkRun> _start({
-    required Object suite,
-    String? model,
-    List<String>? modelNames,
-    required List<JevPlaygroundMode> channels,
-    required Duration timeout,
+  Future<BenchmarkRun> runBatch({
+    required List<Object> suites,
+    required List<String> modelNames,
+    List<JevPlaygroundMode> channels = const [JevPlaygroundMode.http],
+    Duration timeout = const Duration(seconds: 30),
+  }) => _start(
+    suites: suites,
+    modelNames: modelNames,
+    channels: channels,
+    timeout: timeout,
+  );
+
+  Future<BenchmarkRun> runSelected({
+    required List<String> suiteIds,
+    required BenchmarkResources resources,
+    BenchmarkGameWork? gameWork,
+    required List<String> modelNames,
+    List<JevPlaygroundMode> channels = const [JevPlaygroundMode.http],
+    Duration timeout = const Duration(seconds: 30),
   }) {
-    if (_closed) throw StateError('评测执行器已关闭');
-    final previousFailure = _terminalFailure;
-    if (previousFailure != null) {
-      Error.throwWithStackTrace(previousFailure.error, previousFailure.stack);
+    final ids = List<String>.unmodifiable(suiteIds);
+    if (ids.isEmpty ||
+        ids.toSet().length != ids.length ||
+        ids.any(
+          (id) => !const {
+            'decidebench',
+            'jeval',
+            'coherence',
+            'adversarial',
+            'jevman',
+          }.contains(id),
+        ) ||
+        (ids.contains('jevman') && gameWork == null)) {
+      throw const FormatException('需要唯一且受支持的完整套件');
     }
-    if (_operation != null) throw StateError('已有评测批次在运行');
-    final names = List<String>.unmodifiable(
-      modelNames ?? (model == null ? const <String>[] : [model]),
+    return _start(
+      suites: const [],
+      modelNames: modelNames,
+      channels: channels,
+      timeout: timeout,
+      preparingSuiteIds: ids,
+      prepare: (token) async {
+        final prepared = <Object>[];
+        for (final id in ids) {
+          if (token.isCancelled) throw const BenchmarkResourceCancelled();
+          if (id == 'jevman') {
+            try {
+              await gameWork!.prepare(token);
+            } on JevmanRuntimeCancelled {
+              throw const BenchmarkResourceCancelled();
+            }
+            prepared.add(gameWork);
+          } else if (id == 'decidebench') {
+            prepared.add(await resources.prepareSuite(token));
+          } else {
+            prepared.add(await resources.prepareQuestions(id, token));
+          }
+        }
+        if (token.isCancelled) throw const BenchmarkResourceCancelled();
+        return prepared;
+      },
     );
-    final modes = List<JevPlaygroundMode>.unmodifiable(channels);
-    final fullSuite = suite is DecideBenchSuite
+  }
+
+  static bool _validSuites(List<Object> suites) {
+    bool fullSuite(Object suite) => suite is DecideBenchSuite
         ? suite.items.length == 400
         : suite is BenchmarkGameWork
         ? suite.identity['games'] == 100
@@ -109,7 +161,42 @@ class BenchmarkRunner {
                     'adversarial' => 11368,
                     _ => -1,
                   };
-    if (!fullSuite ||
+    final ids = suites
+        .map(
+          (suite) => switch (suite) {
+            DecideBenchSuite() => suite.identity['id'],
+            BenchmarkGameWork() => suite.identity['id'],
+            FrozenQuestionSuite() => suite.identity['id'],
+            _ => null,
+          },
+        )
+        .toSet();
+    return suites.isNotEmpty &&
+        suites.every(fullSuite) &&
+        ids.length == suites.length;
+  }
+
+  Future<BenchmarkRun> _start({
+    required List<Object> suites,
+    String? model,
+    List<String>? modelNames,
+    required List<JevPlaygroundMode> channels,
+    required Duration timeout,
+    Future<List<Object>> Function(DecisionCancellation)? prepare,
+    List<String>? preparingSuiteIds,
+  }) {
+    if (_closed) throw StateError('评测执行器已关闭');
+    final previousFailure = _terminalFailure;
+    if (previousFailure != null) {
+      Error.throwWithStackTrace(previousFailure.error, previousFailure.stack);
+    }
+    if (_operation != null) throw StateError('已有评测批次在运行');
+    final names = List<String>.unmodifiable(
+      modelNames ?? (model == null ? const <String>[] : [model]),
+    );
+    final modes = List<JevPlaygroundMode>.unmodifiable(channels);
+    final selectedSuites = List<Object>.unmodifiable(suites);
+    if ((prepare == null && !_validSuites(selectedSuites)) ||
         timeout <= Duration.zero ||
         names.isEmpty ||
         names.any((name) => name.isEmpty) ||
@@ -119,17 +206,41 @@ class BenchmarkRunner {
         modes.toSet().length != modes.length) {
       throw const FormatException('需要完整原题、唯一参赛对象/通道及正客户端期限');
     }
+    _selectedSuiteIds = List<String>.unmodifiable(
+      preparingSuiteIds ??
+          [
+            for (final suite in selectedSuites)
+              switch (suite) {
+                DecideBenchSuite() => suite.identity['id'] as String,
+                BenchmarkGameWork() => suite.identity['id'] as String,
+                FrozenQuestionSuite() => suite.identity['id'] as String,
+                _ => throw const FormatException('未知题集'),
+              },
+          ],
+    );
+    if (prepare != null) current = null;
     _requestedStatus = null;
     final cancellation = DecisionCancellation();
     _batchCancellation = cancellation;
-    final operation = _execute(
-      suite,
+    Future<BenchmarkRun> execute(List<Object> selected) => _execute(
+      selected,
       names,
       modes,
       timeout,
       cancellation,
-      names.length * modes.length > 1,
+      names.length * modes.length * selected.length > 1,
     );
+    final operation = prepare == null
+        ? execute(selectedSuites)
+        : prepare(cancellation).then((selected) {
+            if (cancellation.isCancelled) {
+              throw const BenchmarkResourceCancelled();
+            }
+            if (!_validSuites(selected)) {
+              throw const FormatException('准备的完整题集无效');
+            }
+            return execute(selected);
+          });
     _operation = operation;
     return operation.whenComplete(() {
       _operation = null;
@@ -138,7 +249,7 @@ class BenchmarkRunner {
   }
 
   Future<BenchmarkRun> _execute(
-    Object suite,
+    List<Object> suites,
     List<String> names,
     List<JevPlaygroundMode> channels,
     Duration timeout,
@@ -157,38 +268,40 @@ class BenchmarkRunner {
             .where((entry) => entry.name == name)
             .firstOrNull;
         if (definition == null) throw StateError('$name 未在模型注册配置中');
-        for (final channel in channels) {
-          evaluations.add(
-            suite is DecideBenchSuite
-                ? _DecideEvaluation(
-                    suite: suite,
-                    model: name,
-                    channel: channel,
-                    declaredSource: definition.source.name,
-                    timeout: timeout,
-                    started: started,
-                    id: batch ? '$id-${evaluations.length}' : id,
-                  )
-                : suite is BenchmarkGameWork
-                ? _GameEvaluation(
-                    work: suite,
-                    model: name,
-                    channel: channel,
-                    declaredSource: definition.source.name,
-                    timeout: timeout,
-                    started: started,
-                    id: batch ? '$id-${evaluations.length}' : id,
-                  )
-                : _QuestionEvaluation(
-                    suite: suite as FrozenQuestionSuite,
-                    model: name,
-                    channel: channel,
-                    declaredSource: definition.source.name,
-                    timeout: timeout,
-                    started: started,
-                    id: batch ? '$id-${evaluations.length}' : id,
-                  ),
-          );
+        for (final suite in suites) {
+          for (final channel in channels) {
+            evaluations.add(
+              suite is DecideBenchSuite
+                  ? _DecideEvaluation(
+                      suite: suite,
+                      model: name,
+                      channel: channel,
+                      declaredSource: definition.source.name,
+                      timeout: timeout,
+                      started: started,
+                      id: batch ? '$id-${evaluations.length}' : id,
+                    )
+                  : suite is BenchmarkGameWork
+                  ? _GameEvaluation(
+                      work: suite,
+                      model: name,
+                      channel: channel,
+                      declaredSource: definition.source.name,
+                      timeout: const Duration(seconds: 2),
+                      started: started,
+                      id: batch ? '$id-${evaluations.length}' : id,
+                    )
+                  : _QuestionEvaluation(
+                      suite: suite as FrozenQuestionSuite,
+                      model: name,
+                      channel: channel,
+                      declaredSource: definition.source.name,
+                      timeout: timeout,
+                      started: started,
+                      id: batch ? '$id-${evaluations.length}' : id,
+                    ),
+            );
+          }
         }
       }
       var preparing = true;
@@ -297,7 +410,7 @@ class BenchmarkRunner {
           if (_requestedStatus != null) break;
           if (unavailable.contains(evaluation.model)) {
             evaluation.status = BenchmarkRunStatus.targetUnavailable;
-            evaluation.failure = '同批对象此前已不可用；未执行此通道';
+            evaluation.failure = '同批对象此前已不可用；未执行此基准/通道';
             await persist();
             continue;
           }
@@ -362,7 +475,7 @@ class BenchmarkRunner {
                 evaluation.channel,
                 evaluation.requestDocument(item),
                 validateBeforeSend: evaluation.validateBeforeSend,
-                timeout: timeout,
+                timeout: evaluation.timeout,
                 cancellation: requestCancellation,
               );
             } finally {
@@ -444,11 +557,19 @@ class BenchmarkRunner {
   Future<void> interrupt() {
     _requestInterruption();
     final operation = _operation;
-    if (operation != null) return operation.then<void>((_) {});
+    if (operation != null) return _settleOwnedOperation(operation);
     final failure = _terminalFailure;
     return failure == null
         ? Future<void>.value()
         : Future<void>.error(failure.error, failure.stack);
+  }
+
+  Future<void> _settleOwnedOperation(Future<BenchmarkRun> operation) async {
+    try {
+      await operation;
+    } on BenchmarkResourceCancelled {
+      if (_requestedStatus == null) rethrow;
+    }
   }
 
   Future<void> close() {
@@ -461,7 +582,7 @@ class BenchmarkRunner {
 
   Future<void> _finishClosing(Future<BenchmarkRun>? operation) async {
     try {
-      if (operation != null) await operation;
+      if (operation != null) await _settleOwnedOperation(operation);
       final failure = _terminalFailure;
       if (failure != null) {
         Error.throwWithStackTrace(failure.error, failure.stack);

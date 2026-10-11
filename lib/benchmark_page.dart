@@ -39,6 +39,24 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
   final _selected = <String>{};
   String _channelChoice = 'http';
   String _suiteChoice = 'decidebench';
+  final _selectedSuites = <String>{'decidebench'};
+  List<String> get _batchSuites =>
+      _suiteNames.keys.where(_selectedSuites.contains).toList();
+  bool get _onlyGames =>
+      _batchSuites.length == 1 && _batchSuites.single == 'jevman';
+  String get _batchScale => _batchSuites
+      .map(
+        (id) =>
+            '${_batchSuites.length > 1 ? '${_suiteNames[id]} ' : ''}${switch (id) {
+              'jevman' => '100 局',
+              'jeval' => '11257 题',
+              'coherence' => '10320 请求',
+              'adversarial' => '11368 请求',
+              _ => '400 题',
+            }}',
+      )
+      .join(' · ');
+
   Map<String, Object?>? _suiteMetadata = BenchmarkResources.identity;
   bool _metadataLoading = false;
   String? _metadataError;
@@ -68,6 +86,8 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
     _ => '400 题 / 200 对 · 默认上游 JEV 示例模板',
   };
   int _evaluationIndex = 0;
+  int _resultPage = 0;
+  int _comparisonPage = 0;
   List<JevPlaygroundMode> get _channels => switch (_channelChoice) {
     'mcp' => [JevPlaygroundMode.mcp],
     'both' => [JevPlaygroundMode.http, JevPlaygroundMode.mcp],
@@ -146,6 +166,12 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
   void initState() {
     super.initState();
     _record = widget.runner.current;
+    if (widget.runner.selectedSuiteIds.isNotEmpty) {
+      _selectedSuites
+        ..clear()
+        ..addAll(widget.runner.selectedSuiteIds);
+    }
+
     final activeSuite =
         widget.gameWork?.status == BenchmarkGamePreparationStatus.preparing
         ? 'jevman'
@@ -284,14 +310,12 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
 
   Future<void> _start() async {
     final names = _selected.toList();
-    final suiteId = _suiteChoice;
+    final suiteIds = _batchSuites;
     final channels = _channels;
-    final deadline = _gameMode ? const Duration(seconds: 2) : _deadline;
-    if (_busy || names.isEmpty || deadline == null) return;
+    final deadline = _onlyGames ? const Duration(seconds: 2) : _deadline;
+    if (_busy || names.isEmpty || suiteIds.isEmpty || deadline == null) return;
     final resources = widget.resources;
     final runner = widget.runner;
-    final token = DecisionCancellation();
-    var preparingStage = true;
     setState(() {
       _starting = true;
       _error = null;
@@ -301,6 +325,8 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
       _fileStatus = null;
       _detail = 0;
       _evaluationIndex = 0;
+      _resultPage = 0;
+      _comparisonPage = 0;
       _detailPage = 0;
       _exportedFile = null;
       _activeFilesId = null;
@@ -313,43 +339,25 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
       }),
     );
     try {
-      // Leaving this page does not abandon the prepared application batch.
-      if (suiteId == 'jevman') {
-        final work = widget.gameWork!;
-        await work.prepare(token);
-        preparingStage = false;
-        await runner.runJevman(
-          work: work,
-          modelNames: names,
-          channels: channels,
-        );
-      } else if (suiteId == 'decidebench') {
-        final suite = await resources.prepareSuite(token);
-        preparingStage = false;
-        await runner.run(
-          suite: suite,
-          modelNames: names,
-          channels: channels,
-          timeout: deadline,
-        );
-      } else {
-        final suite = await resources.prepareQuestions(suiteId, token);
-        preparingStage = false;
-        await runner.runQuestions(
-          suite: suite,
-          modelNames: names,
-          channels: channels,
-          timeout: deadline,
-        );
-      }
+      await runner.runSelected(
+        suiteIds: suiteIds,
+        resources: resources,
+        gameWork: widget.gameWork,
+        modelNames: names,
+        channels: channels,
+        timeout: deadline,
+      );
     } on BenchmarkResourceCancelled {
       // The resource owner publishes its terminal cancellation to every page.
     } catch (error) {
-      if (mounted &&
-          (!preparingStage ||
-              resources.status != BenchmarkResourceStatus.failed)) {
+      if (mounted) {
         setState(() {
-          _error = preparingStage ? '无法开始准备：$error' : '评测失败：$error';
+          _error =
+              resources.status == BenchmarkResourceStatus.failed ||
+                  widget.gameWork?.status ==
+                      BenchmarkGamePreparationStatus.failed
+              ? '无法开始准备：$error'
+              : '评测失败：$error';
         });
       }
     } finally {
@@ -988,6 +996,15 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
       );
     }
     final evaluations = record.evaluations;
+    final comparisons = record.comparisons;
+    final resultPage = _resultPage.clamp(
+      0,
+      (evaluations.length - 1) ~/ _pageSize,
+    );
+    final comparisonPage = _comparisonPage.clamp(
+      0,
+      comparisons.isEmpty ? 0 : (comparisons.length - 1) ~/ _pageSize,
+    );
     final selected =
         evaluations[_evaluationIndex.clamp(0, evaluations.length - 1)];
     return Column(
@@ -998,7 +1015,7 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
           key: const Key('benchmark-batch-status'),
         ),
         Text(
-          '${record.model} · 已执行 ${record.summary['attempted']} / ${record.summary['expected']} · 按对象和通道顺序',
+          '${record.model} · 已执行 ${record.summary['attempted']} / ${record.summary['expected']} · 按对象、基准和通道顺序',
         ),
         if (record.status == BenchmarkRunStatus.running)
           LinearProgressIndicator(
@@ -1006,15 +1023,26 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
                 (record.summary['attempted'] as int) /
                 (record.summary['expected'] as int),
           ),
+        _summaryPages(
+          'benchmark-results',
+          evaluations.length,
+          resultPage,
+          (page) => setState(() => _resultPage = page),
+        ),
         Wrap(
           spacing: 8,
           runSpacing: 8,
           children: [
-            for (var index = 0; index < evaluations.length; index++)
+            for (
+              var index = resultPage * _pageSize;
+              index < evaluations.length &&
+                  index < (resultPage + 1) * _pageSize;
+              index++
+            )
               ChoiceChip(
                 key: Key('benchmark-result-$index'),
                 label: Text(
-                  '${evaluations[index].model} · ${evaluations[index].channel.toUpperCase()} · ${_status(evaluations[index].status)}',
+                  '${evaluations[index].model} · ${_suiteNames[evaluations[index].suite['id']] ?? evaluations[index].suite['id']} · ${evaluations[index].channel.toUpperCase()} · ${_status(evaluations[index].status)}',
                 ),
                 selected: index == _evaluationIndex,
                 onSelected: (_) => setState(() {
@@ -1028,10 +1056,17 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
           ],
         ),
         const Text('委员会收益与代价：仅比较同批完整结果及同一通道；名称不代表速度、难度或质量。'),
-        if (record.comparisons.isEmpty) const Text('选择同批原生模型及委员会后可显示对照。'),
-        for (final comparison in record.comparisons)
+        if (comparisons.isEmpty) const Text('选择同批原生模型及委员会后可显示对照。'),
+        _summaryPages(
+          'benchmark-comparisons',
+          comparisons.length,
+          comparisonPage,
+          (page) => setState(() => _comparisonPage = page),
+        ),
+        for (final comparison
+            in comparisons.skip(comparisonPage * _pageSize).take(_pageSize))
           Text(
-            '${comparison['council']} 对 ${comparison['native']} · ${(comparison['channel'] as String).toUpperCase()} · '
+            '${comparison['suite']} · ${comparison['council']} 对 ${comparison['native']} · ${(comparison['channel'] as String).toUpperCase()} · '
             '${comparison['comparable'] == true ? "accuracy Δ ${comparison['accuracy_delta']} / pair accuracy Δ ${comparison['pair_accuracy_delta']} · P50 Δ ${comparison['latency_success_p50_ms_delta']} ms / P95 Δ ${comparison['latency_success_p95_ms_delta']} ms · 失败 Δ ${comparison['failures_delta']}" : "未完成，不能计算完整成绩差值"}',
           ),
         const Text('成功席位覆盖：未在性能请求中取得公开席位证据，未知；配置成员数不表示成功席位数。'),
@@ -1041,6 +1076,32 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
       ],
     );
   }
+
+  Widget _summaryPages(
+    String key,
+    int total,
+    int page,
+    void Function(int) select,
+  ) => total <= _pageSize
+      ? const SizedBox.shrink()
+      : Wrap(
+          spacing: 12,
+          children: [
+            Text('第 ${page + 1} 页 · 共 $total 项'),
+            TextButton(
+              key: Key('$key-previous'),
+              onPressed: page == 0 ? null : () => select(page - 1),
+              child: const Text('上一页'),
+            ),
+            TextButton(
+              key: Key('$key-next'),
+              onPressed: (page + 1) * _pageSize >= total
+                  ? null
+                  : () => select(page + 1),
+              child: const Text('下一页'),
+            ),
+          ],
+        );
 
   Widget _evaluationReport(BenchmarkRun record, {required BenchmarkRun owner}) {
     if (record.isGameRun) return _gameReport(record, owner: owner);
@@ -1303,12 +1364,11 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
   }
 
   void _cancel() {
+    widget.runner.cancel();
     if (widget.gameWork?.status == BenchmarkGamePreparationStatus.preparing) {
       widget.gameWork!.cancelPreparation();
     } else if (_preparing) {
       widget.resources.cancelPreparation();
-    } else {
-      widget.runner.cancel();
     }
   }
 
@@ -1392,10 +1452,27 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          const Text('本批完整基准（按以下顺序执行）'),
+          for (final entry in _suiteNames.entries)
+            CheckboxListTile(
+              key: Key('benchmark-suite-select-${entry.key}'),
+              title: Text(entry.value),
+              value: _selectedSuites.contains(entry.key),
+              onChanged: _busy
+                  ? null
+                  : (selected) => setState(() {
+                      if (selected == true) {
+                        _selectedSuites.add(entry.key);
+                      } else {
+                        _selectedSuites.remove(entry.key);
+                      }
+                    }),
+            ),
+          const Text('按对象 → 基准 → 通道执行；每项完整规模与原评分独立保留。'),
           DropdownButtonFormField<String>(
             key: const Key('benchmark-suite'),
             initialValue: _suiteChoice,
-            decoration: const InputDecoration(labelText: '完整原题基准'),
+            decoration: const InputDecoration(labelText: '查看题源摘要'),
             items: [
               for (final entry in _suiteNames.entries)
                 DropdownMenuItem(value: entry.key, child: Text(entry.value)),
@@ -1553,7 +1630,7 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
             onPressed: _busy || _discovering ? null : _discover,
             child: const Text('重新公开发现对象'),
           ),
-          if (_gameMode)
+          if (_onlyGames)
             const Text('原游戏客户端决策期限固定 2 秒；warmup 固定 30 秒，不修改服务端预算。')
           else
             TextField(
@@ -1568,7 +1645,7 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
                 helperText: '默认 30 秒；题源准备不计入模型端到端耗时。',
               ),
             ),
-          if (!_gameMode && _deadline == null) const Text('客户端期限必须为有效正秒数。'),
+          if (!_onlyGames && _deadline == null) const Text('客户端期限必须为有效正秒数。'),
           const SizedBox(height: 12),
           Wrap(
             spacing: 12,
@@ -1580,10 +1657,11 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
                         _metadataLoading ||
                         _metadataError != null ||
                         _selected.isEmpty ||
-                        (!_gameMode && _deadline == null)
+                        _selectedSuites.isEmpty ||
+                        (!_onlyGames && _deadline == null)
                     ? null
                     : _start,
-                child: Text('完整评测 · $_fullScale'),
+                child: Text('完整评测 · $_batchScale'),
               ),
               if (_busy)
                 TextButton(
@@ -1627,7 +1705,7 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
                     key: Key('benchmark-history-${saved.id}'),
                     title: Text('${saved.model} · ${_status(saved.status)}'),
                     subtitle: Text(
-                      '${saved.createdAt.toLocal()} · ${saved.isBatch ? '独立通道对照' : saved.channel.toUpperCase()} · ${saved.summary['attempted']} / ${saved.summary['expected'] ?? 400} · ${saved.suite['pin']}',
+                      '${saved.createdAt.toLocal()} · ${saved.isBatch ? '独立通道对照' : saved.channel.toUpperCase()} · ${saved.summary['attempted']} / ${saved.summary['expected'] ?? 400} · ${saved.suite['pin'] ?? '多基准；逐项版本见报告'}',
                     ),
                     selected: saved.id == (_historyOwnerId ?? _record?.id),
                     onTap: () => _view(saved),
