@@ -8,7 +8,7 @@
 
 **2026-10-12 接入规则修正**：用户在支线明确移除 Qwen 专用读出和模型／commit 白名单。源码引擎按用户选择的 Git 地址与 ref、接口支持声明接入，GMD 直接调用原生 `/v1/systemone`；实际不支持时保留失败。该策略已在 PR #79 中通过接口验收和阶段集成，继续按 [原生 JEV 接入规则](native-systemone-source-policy.md) 继续功能验收，不继续旧的专用 candidate-logits 路径。后续 #73 修改由新候选检查覆盖。
 
-本节是唯一执行清单。下方历史过程、原派发计划及旧状态文件仅作为证据，不再产生待办。负责人是主线程，不启动子代理。当前分支 `dev`。最后阶段候选 `da496ae869fee00b1575cdd6f60d057094e2dd9a` 经 PR #80 集成为 `e6bd02669e3f3bd2723ea0a2ad9caccee2daad4d`；总 PR #81 的合并提交为 `549956affb1a8c9be4bac91d05c777ca2e8c3189`。本地和远端 main／dev 已同步；合并后状态更新仅修改交付文档。保留其他会话的 `docs/agents/label-colors.json`，不正式发布。
+本节是唯一执行清单。下方历史过程、原派发计划及旧状态文件仅作为证据，不再产生待办。负责人是主线程，不启动子代理。当前分支 `dev`。最后阶段候选 `da496ae869fee00b1575cdd6f60d057094e2dd9a` 经 PR #80 集成为 `e6bd02669e3f3bd2723ea0a2ad9caccee2daad4d`；总 PR #81 的合并提交为 `549956affb1a8c9be4bac91d05c777ca2e8c3189`。本地和远端 main／dev 已同步；合并后状态更新仅修改交付文档。用户已确定正式发布 0.1.5，并授权原样提交 `docs/agents/label-colors.json`；发布状态见 [0.1.5 发布记录](release-0.1.5.md)。
 
 Qwen、StartLux 是模型；执行引擎是 llama.cpp。选择引擎、保存参数、启动模型属于使用配置，不单列产品交付条件。新增概率能力按 GMD 的发现、选择、公开路由及协议转换功能验收，不扩展为模型成绩评测。通用委员会 #67 已完成、PR #75 已合入 dev；特定 StartLux＋Qwen 组合不作为交付前置。
 
