@@ -1,6 +1,8 @@
 # Ghost Model Deck
 Ghost Model Deck
 
+只编译和提供 **macOS arm64（Apple Silicon）** 版本，应用及配套引擎、运行时均遵守这一限制。不提供 macOS Intel/x64、Linux 或 Windows 版本，也不提供通用双架构安装包。构建和检查要求见 [工程规范](docs/engineering.md)。
+
 ## 文档先行迁移
 
 Ghost Model Deck 将从 JevManager 扩展为通用模型及多类引擎的统一管理入口。规范和来源资料已先行迁入，首期规格已汇总；应用源码迁入与新能力实现由后续工单交付。

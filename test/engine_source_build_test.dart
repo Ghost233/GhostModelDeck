@@ -11,6 +11,55 @@ import 'package:ghost_model_deck/model_library.dart';
 import 'package:ghost_model_deck/model_use_registry.dart';
 
 void main() {
+  for (final injected in [false, true]) {
+    test(
+      injected
+          ? 'builder closes its work without closing caller-owned native process IO'
+          : 'builder releases its default native process IO launcher on close',
+      () async {
+        final root = await _temp('gmd-source-io-owner-');
+        addTearDown(() => root.delete(recursive: true));
+        final retained = await File('${root.path}/retained.txt')
+            .writeAsString('caller data');
+        final external = injected ? NativeEngineSourceProcessIO() : null;
+        if (external != null) {
+          addTearDown(external.close);
+        }
+        final builder = EngineSourceBuilder(root, io: external);
+        addTearDown(builder.close);
+        await IOOverrides.runZoned(() async {
+          final toolchain = await builder.preflight(
+            cmakePath: '/Users/ghost233/Ghost233Code/GhostModelDeck/.tooling/source-engine-tools/cmake-3.31.12-macos-universal/CMake.app/Contents/bin/cmake',
+          );
+          expect(toolchain.available, isTrue);
+          final launchers = await root
+              .list()
+              .where(
+                (entry) =>
+                    entry is Directory &&
+                    entry.path.contains('/.source-process-'),
+              )
+              .toList();
+          expect(launchers, hasLength(1));
+          await builder.close();
+          expect(await launchers.single.exists(), injected);
+          if (injected) {
+            final process = await external!.start(
+              '/usr/bin/true',
+              [],
+              workingDirectory: root.path,
+            );
+            await Future.wait([
+              process.stdout.drain<void>(),
+              process.stderr.drain<void>(),
+            ]);
+            expect(await process.exited, 0);
+          }
+          expect(await retained.readAsString(), 'caller data');
+        }, getSystemTempDirectory: () => root);
+      },
+    );
+  }
   test(
     'source input rejects option injection and credential-bearing addresses',
     () {
@@ -244,6 +293,7 @@ void main() {
         source: '/fixture/source',
         name: 'dynamic fork',
         ref: 'main',
+        supportsSystemone: false,
       ),
     );
     expect(entry.name, 'dynamic fork');
@@ -255,6 +305,8 @@ void main() {
       '0123456789abcdef0123456789abcdef01234567',
     );
     expect(owner.runtimes, contains(owner.runtimeFor(entry.id)));
+    expect(entry.sourceBuild!['supports_systemone'], isFalse);
+    expect(owner.providerFor(entry.id).declaresSystemone, isFalse);
     final reopened = catalog(null);
     addTearDown(reopened.close);
     await reopened.refresh();
@@ -262,6 +314,11 @@ void main() {
       (e) => e.id == entry.id,
     );
     expect(restored.sourceBuild, entry.sourceBuild);
+    expect(reopened.providerFor(restored.id).declaresSystemone, isFalse);
+    expect(
+      (reopened.runtimeFor(restored.id) as LlamaEngine).sourceBuild,
+      entry.sourceBuild,
+    );
     expect(restored.path, entry.path);
     await owner.shutdown();
     await reopened.shutdown();

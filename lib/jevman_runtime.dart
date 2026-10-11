@@ -76,6 +76,7 @@ class JevmanRuntime {
     final unlink = cancellation.listen(token.cancel);
     Directory? staging;
     HttpClient? client;
+    var primaryFailure = false;
     _status = JevmanRuntimeStatus.preparing;
     _lastError = null;
     _prepared = null;
@@ -190,6 +191,7 @@ class JevmanRuntime {
       _report('ready', archiveBytes);
       return _prepared!;
     } catch (error) {
+      primaryFailure = true;
       _prepared = null;
       if (token.isCancelled) {
         _status = JevmanRuntimeStatus.cancelled;
@@ -200,14 +202,25 @@ class JevmanRuntime {
       _lastError = error.toString();
       rethrow;
     } finally {
-      client?.close(force: true);
-      if (staging != null && await staging.exists()) {
-        await staging.delete(recursive: true);
+      try {
+        client?.close(force: true);
+        if (staging != null && await staging.exists()) {
+          await staging.delete(recursive: true);
+        }
+      } catch (cleanupError) {
+        _lastError =
+            '${_lastError ?? "Node preparation cleanup failed"}; cleanup: $cleanupError';
+        if (!primaryFailure) {
+          _status = JevmanRuntimeStatus.failed;
+          _prepared = null;
+          rethrow;
+        }
+      } finally {
+        unlink();
+        _active = null;
+        _operation = null;
+        done.complete();
       }
-      unlink();
-      _active = null;
-      _operation = null;
-      done.complete();
     }
   }
 

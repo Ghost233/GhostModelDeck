@@ -832,6 +832,29 @@ class BenchmarkRun {
 class BenchmarkRunStore {
   BenchmarkRunStore({required this.directory});
   final Directory directory;
+  Map<Map<String, Object?>, String> _encodedEvaluations = HashMap.identity();
+
+  /// Encoding is transient; records and full read validation stay independent.
+  void releaseEncodedSnapshots() => _encodedEvaluations.clear();
+
+  String _encodeDocument(Map<String, Object?> document) {
+    if (document['schema_version'] != 2) {
+      releaseEncodedSnapshots();
+      return jsonEncode(document);
+    }
+    // Only sealed immutable evaluation maps from BenchmarkRun reach this path.
+    // A new privacy projection is a new map, even for the same object/channel.
+    final next = HashMap<Map<String, Object?>, String>.identity();
+    final leaves = [
+      for (final evaluation
+          in (document['evaluations'] as List).cast<Map<String, Object?>>())
+        next[evaluation] =
+            _encodedEvaluations[evaluation] ?? jsonEncode(evaluation),
+    ];
+    _encodedEvaluations = next;
+    return '{${[for (final entry in document.entries) '${jsonEncode(entry.key)}:${entry.key == 'evaluations' ? '[${leaves.join(',')}]' : jsonEncode(entry.value)}'].join(',')}}';
+  }
+
   final _journals = <String, _QuestionJournal>{};
   final _historyReaders = <BenchmarkHistorySession>{};
   final _historyOperations = <Future<void>>{};
@@ -851,7 +874,7 @@ class BenchmarkRunStore {
   Future<void> close() => _historyClosing ??= Future.wait([
     for (final reader in _historyReaders.toList()) reader.close(),
     ..._historyOperations,
-  ]).then((_) {});
+  ]).then((_) {}).whenComplete(releaseEncodedSnapshots);
 
   Future<T> _ownHistoryOperation<T>(Future<T> operation) {
     final settled = operation.then<void>((_) {}, onError: (Object _) {});
@@ -892,7 +915,7 @@ class BenchmarkRunStore {
     }
     final temporary = await File('${target.path}.part').create(exclusive: true);
     try {
-      await temporary.writeAsString(jsonEncode(document), flush: true);
+      await temporary.writeAsString(_encodeDocument(document), flush: true);
       await temporary.rename(target.path);
     } catch (error) {
       try {

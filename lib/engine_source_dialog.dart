@@ -29,6 +29,7 @@ class _EngineSourceDialogState extends State<EngineSourceDialog> {
   bool _building = false;
   bool _checking = false;
   bool _cancelRequested = false;
+  bool _supportsSystemone = true;
 
   bool get _busy => _building || _checking;
 
@@ -112,6 +113,7 @@ class _EngineSourceDialogState extends State<EngineSourceDialog> {
           name: _name.text.trim(),
           ref: _ref.text.trim().isEmpty ? null : _ref.text.trim(),
           cmakePath: _cmakePath,
+          supportsSystemone: _supportsSystemone,
         ),
         cancellation: cancellation,
       );
@@ -209,6 +211,18 @@ class _EngineSourceDialogState extends State<EngineSourceDialog> {
                       helperText: '可填写本机 CMake 路径；留空自动查找',
                     ),
                     onChanged: (_) => setState(() => _tools = null),
+                  ),
+                  CheckboxListTile(
+                    key: const Key('engine-source-systemone'),
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('此仓库与版本声明支持原生 JEV 接口'),
+                    subtitle: const Text('通过 /v1/systemone 调用；实际不支持时显示引擎错误。'),
+                    value: _supportsSystemone,
+                    onChanged: _busy
+                        ? null
+                        : (value) => setState(() {
+                            _supportsSystemone = value!;
+                          }),
                   ),
                   Align(
                     alignment: Alignment.centerLeft,

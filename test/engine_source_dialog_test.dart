@@ -113,6 +113,11 @@ void main() {
       final before = fixture.runtime.engine.state.instances.single;
       await _open(tester, fixture.catalog);
       await _fill(tester, source: 'https://github.com/ggml-org/llama.cpp');
+      await tester.ensureVisible(
+        find.byKey(const Key('engine-source-systemone')),
+      );
+      await tester.tap(find.byKey(const Key('engine-source-systemone')));
+      await tester.pumpAndSettle();
       await tester.runAsync(() async {
         await tester.tap(find.byKey(const Key('engine-source-build')));
         await _until(
@@ -128,6 +133,7 @@ void main() {
       final entry = fixture.catalog.state.entries.singleWhere(
         (entry) => entry.name == '本地源码',
       );
+      expect(entry.sourceBuild!['supports_systemone'], isFalse);
       expect(entry.status, LlamaInstallationStatus.installed);
       expect(fixture.catalog.providerFor(entry.id).executablePath, entry.path);
       expect(

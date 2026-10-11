@@ -234,6 +234,46 @@ void main() {
         await _waitFor(tester, find.byKey(const Key('jevman-live-target')));
       });
       expect(find.text('实际参赛对象：native-kev · HTTP'), findsOneWidget);
+      final semantics = tester.ensureSemantics();
+      try {
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        final close = find.semantics.byPredicate(
+          (node) => node.getSemanticsData().tooltip == '关闭观看',
+        );
+        expect(close, findsOneWidget);
+        await tester.runAsync(() async {
+          tester.semantics.tap(close);
+          tester.semantics.tap(close);
+          expect(
+            ModalRoute.of(tester.element(find.byType(BenchmarkPage)))
+                ?.isCurrent,
+            isTrue,
+            reason: 'Repeated viewer Close must leave the underlying page route current.',
+          );
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 300));
+        });
+        expect(
+          find.byType(BenchmarkPage),
+          findsOneWidget,
+          reason: 'Two actual Close activations before a frame may only pop the owned viewer route.',
+        );
+        expect(find.byType(JevmanViewer), findsNothing);
+        expect(runner.running, isTrue);
+        expect(work.activeProcessId, pid);
+        await Scrollable.ensureVisible(
+          tester.element(find.byKey(const Key('benchmark-game-watch'))),
+          alignment: .5,
+        );
+        await tester.pump();
+        await tester.runAsync(() async {
+          await tester.tap(find.byKey(const Key('benchmark-game-watch')));
+          await _waitFor(tester, find.byKey(const Key('jevman-live-target')));
+        });
+      } finally {
+        semantics.dispose();
+      }
       await tester.runAsync(() async {
         runner.cancel();
         final terminal = await game;

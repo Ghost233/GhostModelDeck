@@ -62,6 +62,45 @@ class BenchmarkResources {
   BenchmarkResources(this.cacheRoot, {HttpClient Function()? createHttpClient})
     : _createHttpClient = createHttpClient ?? HttpClient.new;
   final Directory cacheRoot;
+
+  Future<List<String>> sourceFilePaths(
+    String id,
+    Map<String, Object?> metadata,
+  ) async {
+    final pin = metadata['pin'];
+    if (pin is! String) {
+      return const [];
+    }
+    final paths = id == 'decidebench'
+        ? files.map((file) => file.path).toList()
+        : (metadata['files'] is List
+              ? (metadata['files'] as List)
+                    .whereType<Map>()
+                    .map((file) => file['path'])
+                    .whereType<String>()
+                    .toList()
+              : <String>[]);
+    for (final root in [
+      Directory('${cacheRoot.path}/$id/$pin'),
+      Directory('benchmarks/sources/$id'),
+    ]) {
+      if (!await root.exists()) {
+        continue;
+      }
+      final found = <String>[];
+      for (final path in paths) {
+        final file = File('${root.path}/$path').absolute;
+        if (await file.exists()) {
+          found.add(file.path);
+        }
+      }
+      if (found.isNotEmpty) {
+        return List<String>.unmodifiable(found);
+      }
+    }
+    return const [];
+  }
+
   final HttpClient Function() _createHttpClient;
   BenchmarkResourceStatus get status => _status;
   String? get lastError => _lastError;

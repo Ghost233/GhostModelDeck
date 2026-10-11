@@ -41,6 +41,9 @@ class BenchmarkGameWork {
   static const bundleAsset = 'benchmarks/adapters/jevman/bridge.mjs';
   static const manifestAsset = 'benchmarks/manifests/jevman.json';
   final Directory cacheRoot;
+  Future<List<String>> sourceFilePaths() async => await cacheRoot.exists()
+      ? List<String>.unmodifiable([cacheRoot.absolute.path])
+      : const [];
   final Future<ByteData> Function(String) _loadAsset;
   final JevmanRuntime _runtime;
   final _changes = StreamController<Map<String, Object?>>.broadcast();

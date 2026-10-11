@@ -184,6 +184,27 @@ print('unexpected gh operation',file=sys.stderr);sys.exit(2)
         self.assertIn("应用版本不匹配", result.stderr)
         self.assertFalse(out.exists())
 
+    @unittest.skipUnless(os.uname().sysname == "Darwin", "macOS package validation")
+    def test_prebuilt_universal_app_is_rejected_before_packaging(self):
+        shutil.copy2(SOURCE / "build-release.sh", self.repo / "scripts/build-release.sh")
+        sdk = Path(os.environ.get("GMD_FLUTTER_SDK", "/Users/ghost233/flutter"))
+        universal = sdk / "bin/cache/artifacts/engine/darwin-x64-release/FlutterMacOS.xcframework/macos-arm64_x86_64/FlutterMacOS.framework/Versions/A/FlutterMacOS"
+        self.assertTrue(universal.is_file(), "fixed SDK native fixture missing")
+        app = self.root / "Ghost Model Deck.app"
+        (app / "Contents/MacOS").mkdir(parents=True)
+        # Reuse the SDK's existing universal binary; compile no Intel artifact.
+        shutil.copy2(universal, app / "Contents/MacOS/Ghost Model Deck")
+        with (app / "Contents/Info.plist").open("wb") as file:
+            plistlib.dump({"CFBundleIdentifier": "com.ghost233.ghostmodeldeck",
+                          "CFBundleShortVersionString": "0.1.3"}, file)
+        out = self.root / "package-output"
+        result = subprocess.run(["bash", str(self.repo / "scripts/build-release.sh"),
+                                 "--app-path", str(app), "--output-dir", str(out)],
+                                capture_output=True, text=True, timeout=10)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("仅提供 macOS arm64", result.stderr)
+        self.assertFalse(out.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

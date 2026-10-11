@@ -6,6 +6,42 @@ import 'package:ghost_model_deck/engine_runtime.dart';
 import 'package:ghost_model_deck/jevman_runtime.dart';
 
 void main() {
+  for (final failExists in [true, false]) {
+    test(
+      'Node staging ${failExists ? "exists" : "delete"} failure preserves the primary error and completes close',
+      () async {
+        final root = await Directory.systemTemp.createTemp('gmd-node-cleanup-');
+        addTearDown(() => root.delete(recursive: true));
+        final runtime = JevmanRuntime(
+          _CleanupRoot(root, failExists),
+          createHttpClient: _CorruptClient.new,
+        );
+        Object? failure;
+        try {
+          await runtime.prepare(DecisionCancellation());
+        } catch (error) {
+          failure = error;
+        }
+        Object? closeFailure;
+        try {
+          await runtime.close().timeout(const Duration(seconds: 5));
+        } catch (error) {
+          closeFailure = error;
+        }
+        expect(failure, isA<FormatException>());
+        expect(failure.toString(), contains('SHA256'));
+        expect(
+          runtime.lastError,
+          contains('staging ${failExists ? "exists" : "delete"} failure'),
+        );
+        expect(
+          closeFailure,
+          isNull,
+          reason: 'Failed staging cleanup must not leave an unfinished owned operation.',
+        );
+      },
+    );
+  }
   test(
     'fixed official archive installs exactly Node and LICENSE and is reused',
     () async {
@@ -141,6 +177,43 @@ void main() {
       );
     },
   );
+}
+
+class _CleanupRoot implements Directory {
+  _CleanupRoot(this.original, this.failExists);
+  final Directory original;
+  final bool failExists;
+  @override
+  String get path => original.path;
+  @override
+  Future<Directory> create({bool recursive = false}) =>
+      original.create(recursive: recursive);
+  @override
+  Future<Directory> createTemp([String? prefix]) async =>
+      _CleanupStaging(await original.createTemp(prefix), failExists);
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _CleanupStaging implements Directory {
+  _CleanupStaging(this.original, this.failExists);
+  final Directory original;
+  final bool failExists;
+  @override
+  String get path => original.path;
+  @override
+  Future<bool> exists() async {
+    if (failExists) {
+      throw FileSystemException('staging exists failure', path);
+    }
+    return original.exists();
+  }
+
+  @override
+  Future<FileSystemEntity> delete({bool recursive = false}) async =>
+      throw FileSystemException('staging delete failure', path);
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _ArchiveClient implements HttpClient {

@@ -10,6 +10,21 @@ import 'package:ghost_model_deck/jevman_runtime.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test(
+    'game work exposes only its existing managed source cache location',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'gmd-game-source-paths-',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      final cache = Directory('${root.path}/cache');
+      final work = BenchmarkGameWork(cache);
+      addTearDown(work.close);
+      expect(await work.sourceFilePaths(), isEmpty);
+      await cache.create();
+      expect(await work.sourceFilePaths(), [cache.absolute.path]);
+    },
+  );
   test('bundled game work prepares fixed arm64 assets and reuses verified app cache', () async {
     final root = await Directory.systemTemp.createTemp('gmd-game-work-');
     addTearDown(() => root.delete(recursive: true));

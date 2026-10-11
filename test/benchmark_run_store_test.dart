@@ -252,6 +252,68 @@ void main() {
     expect(() => evidence.items.clear(), throwsUnsupportedError);
     expect(() => batch.evaluations.clear(), throwsUnsupportedError);
   });
+  test('comparison saves match full JSON bytes and new sealed identities invalidate late-secret echoes across channels', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'gmd-cached-comparison-',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final store = BenchmarkRunStore(directory: root);
+    const lateSecret = 'newly-discovered-credential';
+    Map<String, Object?> input(String channel) {
+      final raw = jsonDecode(
+        jsonEncode(_interruptedRun('leaf-$channel').toJson()),
+      ) as Map<String, Object?>;
+      raw['channel'] = channel;
+      final item = (raw['items'] as List).single as Map;
+      (item['request'] as Map)['state'] = {'echo': lateSecret};
+      item['request_json'] = jsonEncode(item['request']);
+      return raw;
+    }
+
+    final rawHttp = input('http'), rawMcp = input('mcp');
+    final original = [
+      BenchmarkRun.fromJson(rawHttp),
+      BenchmarkRun.fromJson(rawMcp),
+    ];
+    BenchmarkRun batch(List<BenchmarkRun> evaluations) => BenchmarkRun.batch(
+      id: 'run-cache-by-snapshot',
+      createdAt: original.first.createdAt,
+      status: BenchmarkRunStatus.interrupted,
+      evaluations: evaluations,
+    );
+    final first = batch(original);
+    await store.save(first);
+    final path = File('${root.path}/${first.id}.json');
+    expect(await path.readAsString(), jsonEncode(first.toJson()));
+    final oldBytes = jsonEncode(first.toJson());
+    expect(oldBytes, contains(lateSecret));
+    for (final raw in [rawHttp, rawMcp]) {
+      (raw['identity'] as Map)['api_key'] = lateSecret;
+    }
+    final sealed = [
+      BenchmarkRun.fromJson(rawHttp),
+      BenchmarkRun.fromJson(rawMcp),
+    ];
+    expect(identical(sealed.first.toJson(), original.first.toJson()), isFalse);
+    final changed = batch(sealed);
+    await store.save(changed);
+    expect(await path.readAsString(), jsonEncode(changed.toJson()));
+    expect(await path.readAsString(), isNot(contains(lateSecret)));
+    expect(jsonEncode(first.toJson()), oldBytes);
+    final reader = BenchmarkRunStore(directory: root);
+    expect((await reader.load(changed.id)).toJson(), changed.toJson());
+    final repeated = batch(sealed);
+    await store.save(repeated);
+    expect(await path.readAsString(), jsonEncode(repeated.toJson()));
+    final cancelled = BenchmarkRun.batch(
+      id: repeated.id,
+      createdAt: repeated.createdAt,
+      status: BenchmarkRunStatus.cancelled,
+      evaluations: sealed,
+    );
+    await store.save(cancelled);
+    expect(await path.readAsString(), jsonEncode(cancelled.toJson()));
+  });
   test('saved benchmark evidence survives restart without resuming and preserves JEV task values', () async {
     final root = await Directory.systemTemp.createTemp(
       'gmd-benchmark-records-',

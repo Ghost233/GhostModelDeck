@@ -8,7 +8,6 @@ class DecisionIOTrace {
   String? _rawResponse;
   int? _httpStatus;
   bool _sealed = false;
-
   void sent(String body) {
     if (_sealed) return;
     _requestBody = body;

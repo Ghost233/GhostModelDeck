@@ -288,12 +288,14 @@ class JevModels {
     for (final engine in controller.catalog.state.entries)
       if (engine.family == EngineFamily.llamaCpp)
         for (final asset in controller.catalog.library.state.artifacts)
-          if (asset.hasStartluxReadout ||
+          if ((asset.hasStartluxReadout &&
+                  controller.catalog.providerFor(engine.id).sourceBuild ==
+                      null) ||
+              (controller.catalog.providerFor(engine.id).declaresSystemone &&
+                  asset.format == 'GGUF' &&
+                  [AssetKind.chat, AssetKind.decision].contains(asset.kind)) ||
               (asset.kind == AssetKind.decision &&
-                  controller.catalog
-                      .providerFor(engine.id)
-                      .release
-                      .supportsSystemone))
+                  controller.catalog.providerFor(engine.id).supportsSystemone))
             JevModelBinding(artifactId: asset.id, engineId: engine.id),
   ]);
 

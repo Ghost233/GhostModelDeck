@@ -467,6 +467,7 @@ class BenchmarkRunner {
         Error.throwWithStackTrace(failure.error, failure.stack);
       }
     } finally {
+      store.releaseEncodedSnapshots();
       await _changes.close();
     }
   }

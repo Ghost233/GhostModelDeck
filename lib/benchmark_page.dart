@@ -95,6 +95,7 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
   List<Map<String, Object?>> _detailRows = const [];
   List<String> _sourceFiles = const [];
   int _sourcePage = 0;
+  int _sourceSelection = 0;
   String? _exportedFile;
   String? _activeFilesId;
   List<String> _activeFiles = const [];
@@ -763,38 +764,18 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
   };
 
   Future<void> _loadSourceFiles() async {
+    final selection = ++_sourceSelection;
     final id = _suiteChoice;
     final metadata = _suiteMetadata;
     if (metadata == null) return;
-    final pin = metadata['pin'];
-    if (pin is! String) return;
-    final paths = id == 'decidebench'
-        ? BenchmarkResources.files.map((file) => file.path).toList()
-        : (metadata['files'] is List
-              ? (metadata['files'] as List)
-                    .whereType<Map>()
-                    .map((file) => file['path'])
-                    .whereType<String>()
-                    .toList()
-              : <String>[]);
-    final roots = [
-      Directory('${widget.resources.cacheRoot.path}/$id/$pin'),
-      Directory('benchmarks/sources/$id'),
-    ];
-    final files = <String>[];
-    for (final root in roots) {
-      if (!await root.exists()) continue;
-      for (final path in paths) {
-        final file = File('${root.path}/$path').absolute;
-        if (await file.exists()) files.add(file.path);
-      }
-      if (files.isNotEmpty) break;
-    }
+    final files = [...await widget.resources.sourceFilePaths(id, metadata)];
     if (id == 'jevman' && widget.gameWork != null) {
-      final root = widget.gameWork!.cacheRoot;
-      if (await root.exists()) files.add(root.absolute.path);
+      files.addAll(await widget.gameWork!.sourceFilePaths());
     }
-    if (mounted && id == _suiteChoice) {
+    if (mounted &&
+        id == _suiteChoice &&
+        selection == _sourceSelection &&
+        identical(metadata, _suiteMetadata)) {
       setState(() {
         _sourceFiles = files;
         _sourcePage = 0;
@@ -1274,38 +1255,50 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
     Map<String, Object?>? game,
     Map<String, Object?>? identity,
   }) async {
+    var completed = false;
     await showDialog<void>(
       context: context,
-      builder: (context) => Dialog(
-        child: SizedBox(
-          width: 760,
-          height: 780,
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: IconButton(
-                    tooltip: '关闭观看',
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close),
+      builder: (context) {
+        final route = ModalRoute.of(context);
+        void close() {
+          if (completed || !context.mounted || route?.isCurrent != true) {
+            return;
+          }
+          completed = true;
+          Navigator.of(context).pop();
+        }
+
+        return Dialog(
+          child: SizedBox(
+            width: 760,
+            height: 780,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: IconButton(
+                      tooltip: '关闭观看',
+                      onPressed: close,
+                      icon: const Icon(Icons.close),
+                    ),
                   ),
-                ),
-                Expanded(
-                  child: JevmanViewer(
-                    work: widget.gameWork!,
-                    recording: game?['recording'],
-                    identity: identity,
-                    complete: game?['complete'] == true,
-                    gameIndex: game?['index'] as int?,
+                  Expanded(
+                    child: JevmanViewer(
+                      work: widget.gameWork!,
+                      recording: game?['recording'],
+                      identity: identity,
+                      complete: game?['complete'] == true,
+                      gameIndex: game?['index'] as int?,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 

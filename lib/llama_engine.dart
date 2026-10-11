@@ -350,8 +350,8 @@ class _NativeChild implements EngineChild {
   bool kill(ProcessSignal signal) => process.kill(signal);
 }
 
-/// Each capability is earned by a request, never by asset metadata or health.
-/// Choice does not imply score/noul support.
+/// Legacy installations earn capabilities by requests. Source installations use
+/// their declared protocol support; every actual response remains validated.
 enum LlamaCapability {
   choiceProbability,
   scoreProbability,
@@ -403,7 +403,8 @@ class LlamaInstance {
   final Uri? decisionEndpoint;
   final Map<String, Object?>? decisionSourceIdentity;
   final int? decisionPid;
-  int? get maxDecisionConcurrentRequests => decisionSourceIdentity != null
+  int? get maxDecisionConcurrentRequests =>
+      decisionSourceIdentity?['kind'] == 'startlux_author_readout'
       ? 1
       : RuntimeCapacity.fromLlamaProperties(properties)?.slotCount;
   final int? pid;
@@ -528,8 +529,10 @@ class LlamaEngine implements EmbeddingRuntime {
     this.loadTimeout = const Duration(seconds: 120),
     this.linkedInstallation,
     this.startStartluxReadout,
+    Map<String, Object?>? sourceBuild,
     String? installationId,
-  }) : installationId =
+  }) : sourceBuild = sourceBuild == null ? null : Map.unmodifiable(sourceBuild),
+       installationId =
            installationId ??
            (linkedInstallation == null
                ? 'official-llama-${(release ?? officialLlamaRelease).tag}'
@@ -561,6 +564,15 @@ class LlamaEngine implements EmbeddingRuntime {
   final LinkedLlamaInstallation? linkedInstallation;
   final String? installationId;
   final StartluxReadoutStarter? startStartluxReadout;
+  final Map<String, Object?>? sourceBuild;
+
+  /// Capability declaration of the selected repository/ref, not a model allowlist.
+  /// Earlier source registrations predate the explicit toggle and declare JEV.
+  bool get declaresSystemone =>
+      sourceBuild != null &&
+      (sourceBuild!['supports_systemone'] ?? true) == true;
+  bool get supportsSystemone =>
+      sourceBuild == null ? release.supportsSystemone : declaresSystemone;
   final _changes = StreamController<LlamaEngineState>.broadcast();
   LlamaEngineState _state = const LlamaEngineState();
   LlamaEngineState get state => _state;
@@ -719,12 +731,15 @@ class LlamaEngine implements EmbeddingRuntime {
           assets.single.integrity != AssetIntegrity.complete ||
           !assets.single.fingerprintsVerified ||
           (assets.single.kind == AssetKind.decision &&
+              sourceBuild == null &&
               !['kev', 'laya'].contains(assets.single.decisionType))) {
         throw const LlamaEngineException('请选择完整且已核验的文本、嵌入或 Kev/Laya GGUF 模型变体');
       }
       final asset = assets.single;
-      if (asset.kind == AssetKind.decision && !release.supportsSystemone) {
-        throw const LlamaEngineException('此固定标准发行不支持 /v1/systemone；请选择 JEV 引擎');
+      if (asset.kind == AssetKind.decision && !supportsSystemone) {
+        throw const LlamaEngineException(
+          '此引擎未声明支持 /v1/systemone；请选择支持 JEV 的引擎',
+        );
       }
       final alias =
           'jev-${List.generate(24, (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0')).join()}';
@@ -892,7 +907,9 @@ class LlamaEngine implements EmbeddingRuntime {
           cancellation: owned.startupCancellation,
         );
         owned.instance = _copy(owned.instance, properties: properties);
-        if (asset.kind == AssetKind.chat && startStartluxReadout != null) {
+        if (asset.kind == AssetKind.chat &&
+            startStartluxReadout != null &&
+            sourceBuild == null) {
           StartluxReadout? readout;
           try {
             readout = await startStartluxReadout!(
@@ -939,7 +956,8 @@ class LlamaEngine implements EmbeddingRuntime {
           }
           capabilities.add(LlamaCapability.embeddings);
         }
-        if (asset.kind == AssetKind.decision || owned.readout != null) {
+        if (!declaresSystemone &&
+            (asset.kind == AssetKind.decision || owned.readout != null)) {
           result = await _decision(
             owned,
             DecisionRequest(
@@ -996,6 +1014,29 @@ class LlamaEngine implements EmbeddingRuntime {
           }
         }
         checkStartup();
+        if (declaresSystemone && asset.kind != AssetKind.embedding) {
+          capabilities.addAll({
+            LlamaCapability.choiceProbability,
+            LlamaCapability.scoreProbability,
+            LlamaCapability.noulScalar,
+          });
+          owned.instance = _copy(
+            owned.instance,
+            decisionEndpoint: endpoint,
+            decisionPid: owned.child.pid,
+            decisionSourceIdentity: {
+              'kind': 'engine_declared_systemone',
+              'capability_origin': 'source_declaration',
+              'source': sourceBuild!['source'],
+              'requested_ref': sourceBuild!['requested_ref'],
+              'commit': sourceBuild!['commit'],
+              'binary_sha256': owned.instance.binarySha256,
+              'native_endpoint': endpoint.toString(),
+              'generation': instanceGeneration,
+              'model': alias,
+            },
+          );
+        }
         if (owned.readout != null &&
             ![
               LlamaCapability.choiceProbability,
@@ -1174,7 +1215,7 @@ class LlamaEngine implements EmbeddingRuntime {
         )) {
       ioTrace?.seal();
       throw const LlamaRequestException(
-        '所选受管实例没有已验证的 typed 能力',
+        '所选受管实例没有可用的 typed 能力',
         kind: DecisionFailureKind.notReady,
       );
     }

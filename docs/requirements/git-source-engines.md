@@ -23,3 +23,7 @@
 - 当前固定 Flutter／Dart SDK、lockfile 和 macOS arm64 宿主门禁通过。真实桌面完成 Git 源码构建、选择新引擎加载模型及普通公开 HTTP 调用。
 
 构建方法参考 [llama.cpp 官方说明](https://github.com/ggml-org/llama.cpp/blob/master/docs/build.md)。CMake 编译与运行协议是本切片的明确边界，不能凭任意仓库地址宣称所有引擎都已适配。
+
+## 原生 JEV 接口声明（2026-10-12）
+
+按用户选定的 Git 地址和分支／引用构建，不以特定模型 SHA 或唯一 commit 授权。源码登记保存是否声明支持 `/v1/systemone`；声明支持则提供直接原生调用，实际不支持时正常保留引擎错误。提交和摘要用于记录、完整性与复现。GMD 不实现某个文本模型专用的 token 标签、模板或概率转换。该声明不承诺所有模型都支持决策接口或概率已校准。

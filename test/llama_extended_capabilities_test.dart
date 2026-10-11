@@ -19,6 +19,100 @@ import 'fixtures/engine_archive.dart';
 import 'fixtures/typed_answers.dart';
 
 void main() {
+  test('source declaration routes any text model natively and preserves unsupported errors', () async {
+    final harness = await _Harness.create(sourceSystemone: true);
+    addTearDown(harness.close);
+    final instance = await harness.engine.start(harness.asset.id);
+    expect(harness.io.nativeTypedRequests, 0);
+    expect(
+      instance.capabilities,
+      containsAll([
+        LlamaCapability.textGeneration,
+        LlamaCapability.choiceProbability,
+        LlamaCapability.scoreProbability,
+        LlamaCapability.noulScalar,
+      ]),
+    );
+    expect(instance.typedEvidence, isEmpty);
+    expect(
+      instance.decisionSourceIdentity!['capability_origin'],
+      'source_declaration',
+    );
+    expect(
+      instance.decisionSourceIdentity!['requested_ref'],
+      'feature/systemone',
+    );
+    expect(instance.maxDecisionConcurrentRequests, 2);
+    await expectLater(
+      harness.engine.decideBatch(
+        instance.id,
+        DecisionBatchRequest(
+          state: 'state',
+          questions: {
+            'q': ChoiceQuestion(
+              instructions: 'Pick.',
+              options: {'a': 'A', 'b': 'B'},
+            ),
+          },
+        ),
+      ),
+      throwsA(
+        isA<LlamaRequestException>().having(
+          (e) => e.message,
+          'upstream error',
+          contains('HTTP 404'),
+        ),
+      ),
+    );
+    expect(harness.io.nativeTypedRequests, 1);
+    expect(harness.io.nativeTypedPaths, ['/v1/systemone']);
+    expect(
+      harness.engine.state.instances.single.status,
+      LlamaInstanceStatus.ready,
+    );
+    expect(harness.engine.runtimeInstances.single.activeRequests, 0);
+    expect(
+      (await harness.engine.generateText(
+        instance.id,
+        TextRequest(prompt: 'Hi'),
+      )).text,
+      'Hello.',
+    );
+  });
+
+  test(
+    'source declaration can disable native JEV without changing text readiness',
+    () async {
+      final harness = await _Harness.create(sourceSystemone: false);
+      addTearDown(harness.close);
+      final instance = await harness.engine.start(harness.asset.id);
+      expect(instance.capabilities, {LlamaCapability.textGeneration});
+      expect(harness.io.nativeTypedRequests, 0);
+      await expectLater(
+        harness.engine.decideBatch(
+          instance.id,
+          DecisionBatchRequest(
+            state: 'state',
+            questions: {
+              'q': ChoiceQuestion(
+                instructions: 'Pick.',
+                options: {'a': 'A', 'b': 'B'},
+              ),
+            },
+          ),
+        ),
+        throwsA(
+          isA<LlamaRequestException>().having(
+            (e) => e.kind,
+            'kind',
+            DecisionFailureKind.notReady,
+          ),
+        ),
+      );
+      expect(harness.io.nativeTypedRequests, 0);
+    },
+  );
+
   test(
     'managed readout earns typed abilities while CPP text remains native',
     () async {
@@ -408,6 +502,7 @@ class _Harness {
   final readoutWire = <Map<String, Object?>>[];
 
   static Future<_Harness> create({
+    bool? sourceSystemone,
     bool readout = false,
     bool embedding = false,
     bool rejectScore = false,
@@ -436,6 +531,14 @@ class _Harness {
     final io = _NativeIO(invalidEmbedding);
     late _Harness harness;
     final engine = LlamaEngine(
+      sourceBuild: sourceSystemone == null
+          ? null
+          : {
+              'source': 'https://github.com/example/llama.cpp',
+              'requested_ref': 'feature/systemone',
+              'commit': 'ffffffffffffffffffffffffffffffffffffffff',
+              'supports_systemone': sourceSystemone,
+            },
       library: library,
       installationDirectory: Directory('${root.path}/engines'),
       io: io,
@@ -568,6 +671,7 @@ class _NativeIO implements EngineProcessIO {
   List<String> arguments = [];
   int textRequests = 0;
   int nativeTypedRequests = 0;
+  final nativeTypedPaths = <String>[];
   @override
   Future<EngineCommandResult> run(
     String executable,
@@ -651,6 +755,7 @@ class _NativeIO implements EngineProcessIO {
         );
       } else {
         nativeTypedRequests++;
+        nativeTypedPaths.add(request.uri.path);
         request.response.statusCode = 404;
       }
       await request.response.close();

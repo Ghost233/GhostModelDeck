@@ -27,6 +27,16 @@
 
 ## 修改与检查流程
 
+**平台与产物规则：只编译、打包和提供 macOS arm64（Apple Silicon）版本。** 应用、引擎和配套运行时均遵守这一规则；macOS Intel/x64、Linux、Windows 及通用双架构产物全部不提供。构建成功后核对实际 Mach-O 架构，不能仅凭宿主机是 arm64 判定产物符合要求。
+
+固定 Flutter SDK 的非调试 Mac 构建默认可能生成双架构产物。开发构建使用命令级开关，不改全局设置：
+
+```sh
+FLUTTER_MACOS_ARM64_ONLY=true /Users/ghost233/flutter/bin/flutter build macos --release --no-pub
+```
+
+发布包入口强制同一开关，并拒绝包含其他架构的应用和 Flutter 运行时。Git 源码引擎构建使用 `CMAKE_OSX_ARCHITECTURES=arm64`。这条平台规则是长期交付要求，不只是当前阶段的验收裁剪。
+
 1. 确认本次行为、适用规则及可观察的成功标准；涉及领域行为时按 `docs/agents/domain.md` 读取术语与相关 ADR。
 2. 在现有业务入口实现修改。缺陷先复现，行为变更补充相应测试；文档或纯视觉调整使用链接、截图和交互检查验证。
 3. 本次产品与检查平台统一为 **macOS arm64 宿主机**。使用固定 Flutter 3.47.6（`5fc346839b5d0eef006ed8404392afb4dfae428d`）、Dart 3.13.5、现有 lockfile 和联网依赖解析；格式、静态分析、完整业务/widget 测试及真实 Mac 构建均在该宿主机执行。Linux、Windows、macOS Intel/x64 不属于本次适配或验收范围，运行时只准备 macOS arm64 版本。

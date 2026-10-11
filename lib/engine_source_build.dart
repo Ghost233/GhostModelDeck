@@ -26,6 +26,7 @@ class EngineSourceBuildRequest {
     required this.name,
     this.ref,
     this.cmakePath,
+    this.supportsSystemone = true,
   }) {
     if (name.trim().isEmpty ||
         source.trim().isEmpty ||
@@ -65,6 +66,7 @@ class EngineSourceBuildRequest {
   final String name;
   final String? ref;
   final String? cmakePath;
+  final bool supportsSystemone;
 }
 
 class EngineSourceToolchain {
@@ -499,10 +501,12 @@ class EngineSourceBuilder {
     this.managedRoot, {
     this.cmakePath,
     EngineSourceProcessIO? io,
-  }) : io = io ?? NativeEngineSourceProcessIO();
+  }) : io = io ?? NativeEngineSourceProcessIO(),
+       _ownsIO = io == null;
   final Directory managedRoot;
   final String? cmakePath;
   final EngineSourceProcessIO io;
+  final bool _ownsIO;
   final _changes = StreamController<EngineSourceBuildProgress>.broadcast();
   Stream<EngineSourceBuildProgress> get changes => _changes.stream;
   final _tokens = <DecisionCancellation>{};
@@ -751,6 +755,7 @@ class EngineSourceBuilder {
       final provenance = <String, Object?>{
         'source': request.source,
         'requested_ref': request.ref,
+        'supports_systemone': request.supportsSystemone,
         'object_cache': objectCache,
         'commit': commit,
         'platform': 'macOS arm64',
@@ -1029,6 +1034,9 @@ class EngineSourceBuilder {
     for (final child in _children.toList()) {
       await _stop(child);
       if (!child.groupAlive) _children.remove(child);
+    }
+    if (_ownsIO) {
+      await (io as NativeEngineSourceProcessIO).close();
     }
     await _changes.close();
   }

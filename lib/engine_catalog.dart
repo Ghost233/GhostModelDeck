@@ -540,7 +540,9 @@ class EngineCatalog {
               data['source'] is! String ||
               data['commit'] is! String ||
               !RegExp(r'^[a-f0-9]{40}$').hasMatch(data['commit'] as String) ||
-              data['executable'] != row['path']) {
+              data['executable'] != row['path'] ||
+              (data.containsKey('supports_systemone') &&
+                  data['supports_systemone'] is! bool)) {
             throw const LlamaEngineException('源码构建登记来源无效');
           }
           sourceRows[row['id'] as String] = Map.unmodifiable(data);
@@ -586,7 +588,12 @@ class EngineCatalog {
         }
       }
       for (final row in cppRows.entries) {
-        _register(row.key, row.value.$1, row.value.$2);
+        _register(
+          row.key,
+          row.value.$1,
+          row.value.$2,
+          sourceBuild: sourceRows[row.key],
+        );
       }
       _linkedOmlx.addAll(nativeRows);
       _sourceBuilds.addAll(sourceRows);
@@ -598,7 +605,12 @@ class EngineCatalog {
     _loaded = true;
   }
 
-  void _register(String id, String name, LinkedLlamaInstallation location) {
+  void _register(
+    String id,
+    String name,
+    LinkedLlamaInstallation location, {
+    Map<String, Object?>? sourceBuild,
+  }) {
     final provider = LlamaEngine(
       startStartluxReadout: startStartluxReadout,
       library: library,
@@ -607,6 +619,7 @@ class EngineCatalog {
       useRegistry: useRegistry,
       linkedInstallation: location,
       installationId: id,
+      sourceBuild: sourceBuild,
     );
     provider.readLaunchConfigurationFrom(
       (artifactId) => launchConfigurationFor(id, artifactId),
@@ -879,7 +892,12 @@ class EngineCatalog {
     }
     final id =
         'source-${List.generate(20, (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0')).join()}';
-    _register(id, request.name, result.installation);
+    _register(
+      id,
+      request.name,
+      result.installation,
+      sourceBuild: result.provenance,
+    );
     _sourceBuilds[id] = result.provenance;
     var saved = false;
     try {

@@ -47,7 +47,7 @@ import hashlib, json, pathlib, sys
 run = pathlib.Path(sys.argv[1])
 before = json.loads((run / 'input.json').read_text())['source_files']
 after = {name: hashlib.sha256(pathlib.Path(name).read_bytes()).hexdigest() if pathlib.Path(name).is_file() else None for name in before}
-for directory in ('lib', 'test', 'benchmarks'):
+for directory in ('lib', 'test', 'benchmarks', 'assets'):
     for path in pathlib.Path(directory).rglob('*'):
         if path.is_file() and '.git' not in path.parts and '__pycache__' not in path.parts and str(path) not in after:
             after[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -114,7 +114,7 @@ else:
     assert all(saved.get(key) == value for key, value in identity.items()), 'The prepared SDK/font/Python/dependency inputs changed; run prepare again online'
     identity = saved
 source = {}
-for directory in ('lib', 'test', 'benchmarks'):
+for directory in ('lib', 'test', 'benchmarks', 'assets'):
     for path in sorted((root / directory).rglob('*')):
         if path.is_file() and '.git' not in path.parts and '__pycache__' not in path.parts:
             source[str(path.relative_to(root))] = digest(path)
