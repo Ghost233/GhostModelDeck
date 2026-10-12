@@ -6,6 +6,8 @@ import 'decision_protocol.dart';
 import 'engine_catalog.dart';
 import 'engine_runtime.dart';
 import 'jev_models.dart';
+import 'public_model_names.dart';
+import 'launch_instances.dart';
 import 'jev_debug.dart';
 import 'llama_engine.dart';
 
@@ -249,16 +251,22 @@ class CouncilController {
     required this.catalog,
     this.modelRegistryFile,
     this.modelRegistryIO,
+    this.publicNames,
+    this.launchInstances,
   }) {
     _subscription = catalog.changes.listen((_) => _publish());
   }
   final EngineCatalog catalog;
   final File? modelRegistryFile;
   final JevRegistryIO? modelRegistryIO;
+  final PublicModelNames? publicNames;
+  final LaunchInstances? launchInstances;
   late final JevModels models = JevModels(
     controller: this,
     registryFile: modelRegistryFile,
     registryIO: modelRegistryIO,
+    publicNames: publicNames,
+    instances: launchInstances,
   );
   final _changes = StreamController<CouncilState>.broadcast();
   late final StreamSubscription<EngineCatalogState> _subscription;

@@ -137,13 +137,7 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
   }
 
   LibraryArtifact? get _configurationAsset => _variant.artifacts
-      .where(
-        (asset) => [
-          AssetKind.decision,
-          AssetKind.chat,
-          AssetKind.embedding,
-        ].contains(asset.kind),
-      )
+      .where((asset) => ['GGUF', 'Safetensors'].contains(asset.format))
       .singleOrNull;
   @override
   void initState() {
@@ -154,7 +148,7 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
 
   Future<void> _refresh() async {
     try {
-      await widget.catalog.refresh();
+      if (widget.onSaveInstance == null) await widget.catalog.refresh();
       if (!mounted) return;
       final installed = widget.catalog.state.entries
           .where((value) => value.status == LlamaInstallationStatus.installed)
@@ -193,13 +187,7 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
       (entry) => entry.id == engineId,
     );
     final assets = _variant.artifacts
-        .where(
-          (asset) => [
-            AssetKind.decision,
-            AssetKind.chat,
-            AssetKind.embedding,
-          ].contains(asset.kind),
-        )
+        .where((asset) => ['GGUF', 'Safetensors'].contains(asset.format))
         .toList();
     if (assets.length != 1) return null;
     if (entry.family == EngineFamily.splash) {

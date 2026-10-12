@@ -6,6 +6,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/council.dart';
 import 'package:ghost_model_deck/council_mcp.dart';
 import 'package:ghost_model_deck/jev_models.dart';
+import 'package:ghost_model_deck/launch_instances.dart';
+import 'package:ghost_model_deck/public_gateway.dart';
+import 'package:ghost_model_deck/engine_catalog.dart';
+import 'package:ghost_model_deck/engine_launch_configuration.dart';
 import 'package:mcp_dart/mcp_dart.dart';
 
 import 'fixtures/council_runtime.dart';
@@ -56,6 +60,100 @@ Future<(int, dynamic)> _http(
 }
 
 void main() {
+  test('MCP discovers and calls the saved instance, not an unbound peer of the same model', () async {
+    final runtime = await CouncilRuntime.create(
+      modelCount: 1,
+      sourceSystemone: true,
+    );
+    addTearDown(runtime.close);
+    final instances = LaunchInstances(
+      catalog: runtime.catalog,
+      file: File('${runtime.root.path}/instances.json'),
+    );
+    addTearDown(instances.close);
+    final definition = await instances.save(
+      name: 'My instance',
+      artifactId: runtime.library.state.artifacts.single.id,
+      engineId: EngineCatalog.officialId,
+      configuration: EngineLaunchConfiguration(),
+    );
+    final controller = CouncilController(
+      catalog: runtime.catalog,
+      launchInstances: instances,
+    );
+    addTearDown(controller.close);
+    final server = CouncilMcpServer(controller: controller, port: 0);
+    addTearDown(server.close);
+    await server.start();
+    final client = await _connect(server.endpoint!);
+    addTearDown(client.close);
+    Future<CallToolResult> call(String model) => client.callTool(
+      CallToolRequest(
+        name: CouncilMcpServer.batchToolName,
+        arguments: {
+          'model': model,
+          'state': 'A choice',
+          'questions': {
+            'pick': {
+              'type': 'choice',
+              'instructions': 'Choose an action.',
+              'criteria': {'accept': 'Accept', 'reject': 'Reject'},
+            },
+          },
+        },
+      ),
+    );
+    final cold = await call(definition.publicName);
+    expect(cold.isError, isTrue);
+    expect(cold.structuredContent!['error']['code'], 'model_not_ready');
+    expect(instances.runsFor(definition.id), isEmpty);
+    await instances.start(definition.id);
+    final routes = PublicModelRoutes(
+      library: runtime.library,
+      runtimes: runtime.catalog.runtimes.toList(),
+      instances: instances,
+    );
+    final gateway = PublicGatewayServer(
+      routes: routes,
+      jevModels: controller.models,
+      port: 0,
+    );
+    await gateway.start();
+    addTearDown(() async {
+      await gateway.stop();
+      gateway.close();
+      routes.close();
+    });
+    final (status, listing) = await _http(
+      gateway.baseUrl!.resolve('/v1/models'),
+      null,
+      method: 'GET',
+    );
+    expect(status, 200);
+    expect(
+      (listing['data'] as List).where(
+        (row) => row['id'] == definition.publicName,
+      ),
+      hasLength(1),
+    );
+    final discovery = await client.callTool(
+      CallToolRequest(name: CouncilMcpServer.discoveryToolName, arguments: {}),
+    );
+    expect(
+      (discovery.structuredContent!['data'] as List).map((row) => row['id']),
+      contains('kev-q8-0'),
+    );
+    final response = await call(definition.publicName);
+    expect(response.isError, isNot(true));
+    expect(response.structuredContent!['model'], 'kev-q8-0');
+    expect(response.structuredContent!['answers'], contains('pick'));
+    await instances.renamePublicName(definition.id, 'fast');
+    expect(
+      (await call(definition.publicName)).structuredContent!['error']['code'],
+      'model_not_found',
+    );
+    expect((await call('fast')).structuredContent!['model'], 'fast');
+  });
   test('generated Codex budget follows the longest saved council timeout with buffer', () async {
     final runtime = await CouncilRuntime.create();
     addTearDown(runtime.close);

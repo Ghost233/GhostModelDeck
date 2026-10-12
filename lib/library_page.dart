@@ -13,7 +13,6 @@ import 'engine_launch_editor.dart';
 import 'llama_engine.dart';
 import 'model_run_dialog.dart';
 import 'public_gateway.dart';
-import 'sdk_service.dart';
 
 class LibraryPage extends StatefulWidget {
   const LibraryPage({
@@ -21,22 +20,22 @@ class LibraryPage extends StatefulWidget {
     required this.library,
     required this.libraryPath,
     this.libraryPaths,
+    this.onCreateInstance,
     this.engines,
     this.publicRoutes,
     this.publicGateway,
-    this.startupSet,
   });
 
   final ModelLibrary library;
   final String libraryPath;
   final List<String>? libraryPaths;
+  final void Function(String artifactId)? onCreateInstance;
   List<String> get roots => libraryPaths ?? [libraryPath];
   final EngineCatalog? engines;
   final PublicModelRoutes? publicRoutes;
   final PublicGatewayServer? publicGateway;
 
   /// 启动模型集合配置：用户把某个运行组合显式设为推理服务启动时加载。
-  final StartupModelSet? startupSet;
 
   @override
   State<LibraryPage> createState() => _LibraryPageState();
@@ -561,51 +560,71 @@ class _LibraryPageState extends State<LibraryPage> {
                                         ),
                                       ),
                                       SizedBox(
-                                        width: 64,
+                                        width: widget.onCreateInstance == null
+                                            ? 64
+                                            : 88,
                                         child: TextButton(
                                           onPressed:
-                                              busy ||
-                                                  widget.engines == null ||
-                                                  !variant.artifacts.any(
-                                                    (asset) =>
-                                                        [
-                                                          AssetKind.decision,
-                                                          AssetKind.chat,
-                                                          AssetKind.embedding,
-                                                        ].contains(
-                                                          asset.kind,
-                                                        ) &&
-                                                        asset.integrity ==
-                                                            AssetIntegrity
-                                                                .complete,
-                                                  )
+                                              widget.onCreateInstance != null
+                                              ? busy
+                                                    ? null
+                                                    : () =>
+                                                          widget
+                                                              .onCreateInstance!(
+                                                            variant
+                                                                .artifactIds
+                                                                .first,
+                                                          )
+                                              : busy ||
+                                                    widget.engines == null ||
+                                                    !variant.artifacts.any(
+                                                      (asset) =>
+                                                          [
+                                                            AssetKind.decision,
+                                                            AssetKind.chat,
+                                                            AssetKind.embedding,
+                                                          ].contains(
+                                                            asset.kind,
+                                                          ) &&
+                                                          asset.integrity ==
+                                                              AssetIntegrity
+                                                                  .complete,
+                                                    )
                                               ? null
                                               : _starting.contains(variant.id)
                                               ? null
                                               : () => _startModel(variant),
-                                          child: const Text('运行'),
-                                        ),
-                                      ),
-                                      SizedBox(
-                                        width: 40,
-                                        child: IconButton(
-                                          tooltip: '模型参数',
-                                          icon: const Icon(
-                                            Icons.tune,
-                                            size: 18,
+                                          child: Text(
+                                            widget.onCreateInstance == null
+                                                ? '运行'
+                                                : '创建实例',
                                           ),
-                                          onPressed:
-                                              busy || widget.engines == null
-                                              ? null
-                                              : () => showModelRunDialog(
-                                                  context,
-                                                  catalog: widget.engines!,
-                                                  library: widget.library,
-                                                  modelPackage: package,
-                                                  variant: variant,
-                                                ),
                                         ),
                                       ),
+                                      if (widget.onCreateInstance == null)
+                                        SizedBox(
+                                          width: 40,
+                                          child: IconButton(
+                                            tooltip: '模型参数',
+                                            icon: const Icon(
+                                              Icons.tune,
+                                              size: 18,
+                                            ),
+                                            onPressed:
+                                                busy ||
+                                                    widget.engines == null ||
+                                                    widget.onCreateInstance !=
+                                                        null
+                                                ? null
+                                                : () => showModelRunDialog(
+                                                    context,
+                                                    catalog: widget.engines!,
+                                                    library: widget.library,
+                                                    modelPackage: package,
+                                                    variant: variant,
+                                                  ),
+                                          ),
+                                        ),
                                       SizedBox(
                                         width: 28,
                                         child: IconButton(
@@ -632,8 +651,10 @@ class _LibraryPageState extends State<LibraryPage> {
                                           variant.artifactIds,
                                         ) ??
                                         <EngineRun>[])
-                                  _runRow(run, busy),
-                                if (widget.publicRoutes != null &&
+                                  if (widget.onCreateInstance == null)
+                                    _runRow(run, busy),
+                                if (widget.onCreateInstance == null &&
+                                    widget.publicRoutes != null &&
                                     variant.artifacts.length == 1 &&
                                     [
                                       AssetKind.chat,
@@ -772,34 +793,6 @@ class _LibraryPageState extends State<LibraryPage> {
     }
   }
 
-  /// 启动模型集合开关：把该行对应的（引擎登记 id + 模型资产 id）运行组合
-  /// 显式加入/移出集合；集合只记录用户选择，加载发生在推理服务 onStart。
-  Widget _startupSetToggle(EngineRun run, ThemeData theme) {
-    final set = widget.startupSet!;
-    final inSet = set.contains(run.engine.id, run.instance.artifactId);
-    return IconButton(
-      tooltip: inSet ? '从启动模型集合移除' : '加入启动模型集合（推理服务启动时加载）',
-      iconSize: 16,
-      padding: EdgeInsets.zero,
-      onPressed: () async {
-        try {
-          if (inSet) {
-            await set.remove(run.engine.id, run.instance.artifactId);
-          } else {
-            await set.add(run.engine.id, run.instance.artifactId);
-          }
-          if (mounted) setState(() => _operationError = null);
-        } catch (error) {
-          if (mounted) setState(() => _operationError = error.toString());
-        }
-      },
-      icon: Icon(
-        inSet ? Icons.rocket_launch : Icons.rocket_launch_outlined,
-        color: inSet ? theme.colorScheme.primary : null,
-      ),
-    );
-  }
-
   Widget _runRow(EngineRun run, bool busy) {
     final instance = run.instance;
     final legacy = run.engine.family == EngineFamily.llamaCpp
@@ -856,7 +849,7 @@ class _LibraryPageState extends State<LibraryPage> {
                   icon: const Icon(Icons.terminal, size: 18),
                   onPressed: () => _showLaunchCommand(legacy!),
                 ),
-              if (widget.startupSet != null) _startupSetToggle(run, theme),
+
               if (active)
                 TextButton(
                   onPressed: busy || stopping

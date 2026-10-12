@@ -6,10 +6,87 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/council.dart';
 import 'package:ghost_model_deck/jev_models.dart';
 import 'package:ghost_model_deck/decision_protocol.dart';
+import 'package:ghost_model_deck/launch_instances.dart';
+import 'package:ghost_model_deck/engine_catalog.dart';
+import 'package:ghost_model_deck/engine_launch_configuration.dart';
+import 'package:ghost_model_deck/public_model_names.dart';
 
 import 'fixtures/council_runtime.dart';
 
 void main() {
+  test('committee conflicts with instance name and suggests without silently renaming', () async {
+    final runtime = await CouncilRuntime.create();
+    addTearDown(runtime.close);
+    final names = PublicModelNames();
+    final instances = LaunchInstances(
+      catalog: runtime.catalog,
+      file: File('${runtime.root.path}/instances.json'),
+      names: names,
+    );
+    addTearDown(instances.close);
+    final instance = await instances.save(
+      name: 'Fast instance',
+      artifactId: runtime.library.state.artifacts.first.id,
+      engineId: EngineCatalog.officialId,
+      configuration: EngineLaunchConfiguration(),
+    );
+    await instances.renamePublicName(instance.id, 'fast');
+    final file = File('${runtime.root.path}/committees.json');
+    final council = CouncilController(
+      catalog: runtime.catalog,
+      modelRegistryFile: file,
+      publicNames: names,
+    );
+    addTearDown(council.close);
+    final binding = council.models.availableBindings.first;
+    await expectLater(
+      council.models.save(
+        JevModelDefinition.council(
+          name: 'fast',
+          seats: [binding],
+          timeout: const Duration(seconds: 2),
+        ),
+      ),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'suggestion',
+          contains('fast-2'),
+        ),
+      ),
+    );
+    expect(council.models.definitions, isEmpty);
+    expect(await file.exists(), isFalse);
+    await council.models.save(
+      JevModelDefinition.council(
+        name: 'fast-2',
+        seats: [binding],
+        timeout: const Duration(seconds: 2),
+      ),
+    );
+    expect(council.models.definitions.single.name, 'fast-2');
+    await expectLater(
+      council.models.save(
+        JevModelDefinition.council(
+          name: 'fast-2',
+          seats: [binding],
+          timeout: const Duration(seconds: 2),
+        ),
+      ),
+      throwsA(
+        isA<DecisionProtocolException>().having(
+          (error) => error.message,
+          'suggestion',
+          contains('fast-2-2'),
+        ),
+      ),
+    );
+    await expectLater(
+      instances.renamePublicName(instance.id, 'fast-2'),
+      throwsStateError,
+    );
+    expect(instances.find(instance.id)!.publicName, 'fast');
+  });
   test(
     'offline named models persist independently without loading instances',
     () async {

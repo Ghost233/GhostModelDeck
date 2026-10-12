@@ -9,6 +9,8 @@ import 'engine_runtime.dart';
 import 'llama_engine.dart';
 import 'jev_debug.dart';
 import 'model_library.dart';
+import 'public_model_names.dart';
+import 'launch_instances.dart';
 
 enum JevModelSource { council, native }
 
@@ -30,13 +32,20 @@ class JevRequestException extends DecisionProtocolException {
 
 /// Stable identity of a local model/engine combination, never a runtime alias.
 class JevModelBinding {
-  const JevModelBinding({required this.artifactId, required this.engineId});
+  const JevModelBinding({
+    required this.artifactId,
+    required this.engineId,
+    this.instanceId,
+  });
   final String artifactId;
   final String engineId;
-  String get id => '$engineId/$artifactId';
+  final String? instanceId;
+  String get id =>
+      instanceId == null ? '$engineId/$artifactId' : 'instance:$instanceId';
   Map<String, Object> toJson() => {
     'artifact_id': artifactId,
     'engine_id': engineId,
+    'instance_id': ?instanceId,
   };
 }
 
@@ -144,12 +153,16 @@ class JevModels {
   JevModels({
     required this.controller,
     this.registryFile,
+    this.publicNames,
+    this.instances,
     JevRegistryIO? registryIO,
   }) : registryIO = registryIO ?? NativeJevRegistryIO() {
     _subscription = controller.catalog.changes.listen((_) => _publish());
   }
   final CouncilController controller;
   final File? registryFile;
+  final PublicModelNames? publicNames;
+  final LaunchInstances? instances;
   final JevRegistryIO registryIO;
   final _changes = StreamController<void>.broadcast();
   late final StreamSubscription<EngineCatalogState> _subscription;
@@ -164,6 +177,28 @@ class JevModels {
   final Map<String, JevEvaluationLock> _evaluationLocks = {};
   Stream<void> get changes => _changes.stream;
   List<JevModelDefinition> get definitions => _definitions;
+  Iterable<JevModelDefinition> get _instanceModels sync* {
+    for (final definition in instances?.definitions ?? <LaunchInstance>[]) {
+      final engine = controller.catalog.state.entries
+          .where(
+            (e) =>
+                e.id == definition.engineId &&
+                e.family == EngineFamily.llamaCpp,
+          )
+          .firstOrNull;
+      if (engine != null &&
+          controller.catalog.providerFor(engine.id).supportsSystemone) {
+        yield JevModelDefinition.native(
+          name: definition.publicName,
+          binding: JevModelBinding(
+            artifactId: definition.artifactId,
+            engineId: engine.id,
+            instanceId: definition.id,
+          ),
+        );
+      }
+    }
+  }
 
   bool isEvaluationLocked(String name) => _evaluationLocks.containsKey(name);
 
@@ -312,8 +347,11 @@ class JevModels {
   List<JevModelAvailability> get configuredModels => List.unmodifiable([
     for (final definition in _definitions) _availability(definition),
   ]);
-  List<JevModelAvailability> get callableModels =>
-      List.unmodifiable(configuredModels.where((m) => m.available));
+  List<JevModelAvailability> get callableModels => List.unmodifiable([
+    ...configuredModels.where((m) => m.available),
+    for (final model in _instanceModels)
+      if (_availability(model).available) _availability(model),
+  ]);
 
   /// Current, identity-bound capacity of callable decision routes. Virtual
   /// councils share their seats' processes; their capacities are never added.
@@ -411,7 +449,16 @@ class JevModels {
         .instances
         .where(
           (instance) =>
-              instance.asset.id == binding.artifactId &&
+              (binding.instanceId == null
+                  ? instance.asset.id == binding.artifactId
+                  : controller.catalog
+                        .providerFor(engine.id)
+                        .runtimeInstances
+                        .any(
+                          (run) =>
+                              run.id == instance.id &&
+                              run.launchInstanceId == binding.instanceId,
+                        )) &&
               instance.status == LlamaInstanceStatus.ready &&
               instance.acceptingRequests &&
               instance.hasLiveProcess &&
@@ -458,6 +505,7 @@ class JevModels {
   }
 
   Future<void> _load() async {
+    await instances?.load();
     final file = registryFile;
     final contents = file == null ? null : await registryIO.read(file);
     if (contents == null) {
@@ -509,6 +557,9 @@ class JevModels {
       if (models.map((m) => m.name).toSet().length != models.length) {
         throw const FormatException('调用名重复');
       }
+      publicNames?.claimAll({
+        for (final model in models) 'jev:${model.name}': model.name,
+      });
       _definitions = List.unmodifiable(models);
       _loaded = true;
       _publish();
@@ -527,7 +578,10 @@ class JevModels {
     if (controller.isShuttingDown) {
       throw const JevRequestException(503, 'service_stopping', '应用正在退出');
     }
-    final definition = _definitions.where((m) => m.name == name).firstOrNull;
+    final definition = [
+      ..._definitions,
+      ..._instanceModels,
+    ].where((m) => m.name == name).firstOrNull;
     if (definition == null) {
       throw const JevRequestException(404, 'model_not_found', '调用模型名不存在');
     }
@@ -783,32 +837,47 @@ class JevModels {
     };
   }
 
-  Future<void> save(JevModelDefinition definition, {String? replacing}) =>
-      _serial(() async {
-        await _restore();
-        if (isEvaluationLocked(definition.name) ||
-            replacing != null && isEvaluationLocked(replacing)) {
-          throw const DecisionProtocolException('模型正在参与评测，配置与调用名已锁定');
-        }
-        if (replacing != null &&
-            !_definitions.any((m) => m.name == replacing)) {
-          throw const DecisionProtocolException('待编辑的模型配置不存在');
-        }
-        if (_definitions.any(
-          (m) => m.name == definition.name && m.name != replacing,
-        )) {
-          throw const DecisionProtocolException('调用名已存在，委员会与原生模型必须使用唯一名称');
-        }
-        final registered = availableBindings.map((b) => b.id).toSet();
-        if (definition.bindings.any((b) => !registered.contains(b.id))) {
-          throw const DecisionProtocolException('席位必须绑定已登记的本机 JEV 模型与兼容引擎');
-        }
-        await _store([
-          for (final m in _definitions)
-            if (m.name != replacing) m,
-          definition,
-        ]);
-      });
+  Future<void> save(
+    JevModelDefinition definition, {
+    String? replacing,
+  }) => _serial(() async {
+    await _restore();
+    if (isEvaluationLocked(definition.name) ||
+        replacing != null && isEvaluationLocked(replacing)) {
+      throw const DecisionProtocolException('模型正在参与评测，配置与调用名已锁定');
+    }
+    if (replacing != null && !_definitions.any((m) => m.name == replacing)) {
+      throw const DecisionProtocolException('待编辑的模型配置不存在');
+    }
+    if (_definitions.any(
+      (m) => m.name == definition.name && m.name != replacing,
+    )) {
+      throw DecisionProtocolException(
+        '调用名已存在，委员会与原生模型必须使用唯一名称${publicNames == null ? '' : '；建议 ${publicNames!.suggest(definition.name)}'}',
+      );
+    }
+    final registered = availableBindings.map((b) => b.id).toSet();
+    if (definition.bindings.any((b) => !registered.contains(b.id))) {
+      throw const DecisionProtocolException('席位必须绑定已登记的本机 JEV 模型与兼容引擎');
+    }
+    final owner = 'jev:${definition.name}';
+    publicNames?.claim(owner, definition.name);
+    try {
+      await _store([
+        for (final m in _definitions)
+          if (m.name != replacing) m,
+        definition,
+      ]);
+    } catch (_) {
+      if (replacing != definition.name) {
+        publicNames?.release(owner, definition.name);
+      }
+      rethrow;
+    }
+    if (replacing != null && replacing != definition.name) {
+      publicNames?.release('jev:$replacing', replacing);
+    }
+  });
 
   Future<void> delete(String name) => _serial(() async {
     await _restore();
@@ -822,6 +891,7 @@ class JevModels {
       for (final m in _definitions)
         if (m.name != name) m,
     ]);
+    publicNames?.release('jev:$name', name);
   });
 
   Future<void> _store(List<JevModelDefinition> models) async {
@@ -881,6 +951,9 @@ class JevModels {
     try {
       await shutdown();
     } finally {
+      for (final definition in _definitions) {
+        publicNames?.release('jev:${definition.name}', definition.name);
+      }
       await _subscription.cancel();
       await _changes.close();
     }
