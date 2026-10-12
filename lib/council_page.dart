@@ -152,7 +152,7 @@ class _CouncilPageState extends State<CouncilPage> {
                       child: Text(
                         _error!,
                         key: const Key('council-config-error'),
-                        style: TextStyle(
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: Theme.of(context).colorScheme.error,
                         ),
                       ),
@@ -308,7 +308,8 @@ class _ModelEditorState extends State<_ModelEditor> {
               if (_error != null)
                 Text(
                   _error!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                  style: Theme.of(context).textTheme.bodyMedium
+                      ?.copyWith(color: Theme.of(context).colorScheme.error),
                 ),
             ],
           ),

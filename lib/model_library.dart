@@ -70,12 +70,17 @@ class LibraryFile {
   const LibraryFile({
     required this.path,
     required this.sizeBytes,
+    this.linkTarget,
     this.sha256,
     this.modifiedAtUtc,
     this.prefixSha256,
     this.prefixBytes = 0,
   });
   final String path;
+
+  /// The scanned target of a file link; [path] remains the deletion identity.
+  final String? linkTarget;
+  String get realPath => linkTarget ?? path;
   final int sizeBytes;
   final String? sha256;
   final DateTime? modifiedAtUtc;
@@ -91,8 +96,13 @@ class LibraryState {
     this.scanning = false,
     this.error,
     List<LibraryArtifact> artifacts = const [],
-  }) : artifacts = List.unmodifiable(artifacts);
+    List<String>? rootPaths,
+  }) : artifacts = List.unmodifiable(artifacts),
+       rootPaths = List.unmodifiable(
+         rootPaths ?? (rootPath == null ? <String>[] : [rootPath]),
+       );
   final String? rootPath;
+  final List<String> rootPaths;
   final bool scanning;
   final String? error;
   final List<LibraryArtifact> artifacts;
@@ -106,9 +116,15 @@ class LibraryException implements Exception {
 }
 
 class DeletionPlan {
-  DeletionPlan._(this._owner, this.rootPath, List<LibraryFile> files)
-    : files = List.unmodifiable(files);
+  DeletionPlan._(
+    this._owner,
+    this.rootPath,
+    List<LibraryFile> files,
+    List<String> roots,
+  ) : files = List.unmodifiable(files),
+      rootPaths = List.unmodifiable(roots);
   final Object _owner;
+  final List<String> rootPaths;
   final String rootPath;
   final List<LibraryFile> files;
   int get sizeBytes => files.fold(0, (sum, file) => sum + file.sizeBytes);
@@ -131,6 +147,132 @@ class ModelLibrary {
     bool verifyFiles = false,
   }) => _scan(root, verifyFiles: verifyFiles);
 
+  Future<List<LibraryArtifact>> scanDirectories(
+    List<Directory> directories, {
+    bool verifyFiles = false,
+  }) async {
+    if (directories.length == 1) {
+      return scan(directories.single, verifyFiles: verifyFiles);
+    }
+    final generation = ++_generation;
+    final roots = <String>[];
+    _publish(
+      LibraryState(
+        rootPath: directories.firstOrNull?.absolute.path,
+        rootPaths: directories.map((d) => d.absolute.path).toList(),
+        scanning: true,
+      ),
+    );
+    final artifacts = <String, LibraryArtifact>{};
+    final errors = <String>[];
+    for (final directory in directories) {
+      final scanner = ModelLibrary();
+      try {
+        final canonical = await directory.resolveSymbolicLinks();
+        if (roots.contains(canonical)) continue;
+        roots.add(canonical);
+        final found = await scanner.scan(
+          Directory(canonical),
+          verifyFiles: verifyFiles,
+        );
+        for (final asset in found) {
+          final existing = artifacts[asset.id];
+          if (existing == null ||
+              existing.files.every((file) => file.linkTarget == null) &&
+                  asset.files.any((file) => file.linkTarget != null)) {
+            artifacts[asset.id] = asset;
+          }
+        }
+        if (scanner.state.error != null) {
+          errors.add('$canonical：${scanner.state.error}');
+        }
+      } on FileSystemException {
+        errors.add('${directory.path}：无法读取模型库目录');
+      } finally {
+        scanner.close();
+      }
+    }
+    final result = artifacts.values.toList()
+      ..sort((a, b) => a.files.first.path.compareTo(b.files.first.path));
+    if (generation == _generation) {
+      _publish(
+        LibraryState(
+          rootPath: roots.firstOrNull,
+          rootPaths: roots,
+          artifacts: result,
+          error: errors.isEmpty ? null : errors.join('；'),
+        ),
+      );
+    }
+    return List.unmodifiable(result);
+  }
+
+  String _fileRoot(String path, List<String> roots) {
+    final owners = roots.where((root) => _inside(root, path)).toList()
+      ..sort((a, b) => b.length.compareTo(a.length));
+    if (owners.isEmpty) throw LibraryException('文件超出已关联的模型库：$path');
+    return owners.first;
+  }
+
+  Future<List<LibraryArtifact>> _verifyDirectories(Set<String> ids) async {
+    final before = state;
+    final generation = ++_generation;
+    _publish(
+      LibraryState(
+        rootPath: before.rootPath,
+        rootPaths: before.rootPaths,
+        artifacts: before.artifacts,
+        scanning: true,
+      ),
+    );
+    final verified = <LibraryArtifact>[];
+    try {
+      for (final root in before.rootPaths) {
+        final members = before.artifacts
+            .where(
+              (a) =>
+                  ids.contains(a.id) &&
+                  _fileRoot(a.files.first.path, before.rootPaths) == root,
+            )
+            .toList();
+        if (members.isEmpty) continue;
+        final scanner = ModelLibrary();
+        scanner._state = LibraryState(rootPath: root, artifacts: members);
+        try {
+          verified.addAll(await scanner.verify(members.map((a) => a.id)));
+        } finally {
+          scanner.close();
+        }
+      }
+      final combined = [
+        ...before.artifacts.where((a) => !ids.contains(a.id)),
+        ...verified,
+      ]..sort((a, b) => a.files.first.path.compareTo(b.files.first.path));
+      if (generation == _generation) {
+        _publish(
+          LibraryState(
+            rootPath: before.rootPath,
+            rootPaths: before.rootPaths,
+            artifacts: combined,
+          ),
+        );
+      }
+      return List.unmodifiable(verified);
+    } catch (error) {
+      if (generation == _generation) {
+        _publish(
+          LibraryState(
+            rootPath: before.rootPath,
+            rootPaths: before.rootPaths,
+            artifacts: before.artifacts,
+            error: error.toString(),
+          ),
+        );
+      }
+      rethrow;
+    }
+  }
+
   Future<List<LibraryArtifact>> _scan(
     Directory root, {
     required bool verifyFiles,
@@ -146,21 +288,23 @@ class ModelLibrary {
       final allFiles = <String, File>{};
       final records = <String, LibraryFile>{};
       final prefixes = <String, (String, int)>{};
+      final linkTargets = <String, String>{};
       Future<LibraryFile> record(String path) async {
         if (records.containsKey(path)) return records[path]!;
         final file = allFiles[path]!;
-        await _requireRealFile(rootPath, path);
+        await _requireModelFile(rootPath, path, target: linkTargets[path]);
         final stat = await file.stat();
         final fingerprint = verifyFiles || fullPaths?.contains(path) == true
             ? (await sha256.bind(file.openRead()).first).toString()
             : null;
-        await _requireRealFile(rootPath, path);
+        await _requireModelFile(rootPath, path, target: linkTargets[path]);
         final after = await file.stat();
         if (stat.size != after.size || stat.modified != after.modified) {
           throw const LibraryException('文件在扫描期间变化，请重新扫描');
         }
         return records[path] = LibraryFile(
           path: path,
+          linkTarget: linkTargets[path],
           sizeBytes: stat.size,
           sha256: fingerprint,
           modifiedAtUtc: stat.modified.toUtc(),
@@ -172,15 +316,27 @@ class ModelLibrary {
       await for (final entity in Directory(
         rootPath,
       ).list(recursive: true, followLinks: false)) {
-        if (entity is! File ||
+        if ((entity is! File && entity is! Link) ||
             entity.path.startsWith('$rootPath/.ghostmodeldeck/')) {
           continue;
         }
-        allFiles[entity.path] = entity;
+        if (entity is Link) {
+          if (await FileSystemEntity.type(entity.path) !=
+              FileSystemEntityType.file) {
+            continue;
+          }
+          linkTargets[entity.path] = await entity.resolveSymbolicLinks();
+        }
+        final file = File(entity.path);
+        allFiles[entity.path] = file;
         if (fullPaths != null && !fullPaths.contains(entity.path)) continue;
-        await _requireRealFile(rootPath, entity.path);
-        final stat = await entity.stat();
-        final reader = await entity.open();
+        await _requireModelFile(
+          rootPath,
+          entity.path,
+          target: linkTargets[entity.path],
+        );
+        final stat = await file.stat();
+        final reader = await file.open();
         late Uint8List prefix;
         _Inspection? inspection;
         try {
@@ -215,6 +371,7 @@ class ModelLibrary {
         if (inspection == null) continue;
         discovered.add(_ScannedFile(await record(entity.path), inspection));
       }
+      discovered.sort((a, b) => a.file.path.compareTo(b.file.path));
       final groupFiles = fullPaths == null
           ? allFiles
           : {
@@ -234,7 +391,7 @@ class ModelLibrary {
         ),
         ...safetensors.artifacts,
       ]..sort((a, b) => a.files.first.path.compareTo(b.files.first.path));
-      final verified = await _applyManifests(
+      final withManifests = await _applyManifests(
         rootPath,
         artifacts,
         allFiles,
@@ -246,6 +403,16 @@ class ModelLibrary {
               file.file.path,
         },
       );
+      final unique = <String, LibraryArtifact>{};
+      for (final artifact in withManifests) {
+        final previous = unique[artifact.id];
+        if (previous == null ||
+            previous.files.every((file) => file.linkTarget == null) &&
+                artifact.files.any((file) => file.linkTarget != null)) {
+          unique[artifact.id] = artifact;
+        }
+      }
+      final verified = unique.values.toList();
       if (generation == _generation) {
         final displayed =
             selectedIds == null
@@ -290,6 +457,7 @@ class ModelLibrary {
     if (ids.isEmpty || selected.length != ids.length) {
       throw const LibraryException('所选资产已变化，请重新选择');
     }
+    if (state.rootPaths.length > 1) return _verifyDirectories(ids);
     final paths = {
       for (final artifact in selected)
         for (final file in artifact.files) file.path,
@@ -306,6 +474,7 @@ class ModelLibrary {
         )
         .toList();
     if (verified.length != selected.length ||
+        verified.any((artifact) => !ids.contains(artifact.id)) ||
         verified.any((artifact) => !artifact.fingerprintsVerified)) {
       throw const LibraryException('所选资产文件组已变化，请重新选择并核验');
     }
@@ -337,14 +506,16 @@ class ModelLibrary {
     final snapshots = <LibraryFile>[];
     try {
       for (final file in files.values) {
-        snapshots.add(await _snapshot(root, file));
+        snapshots.add(
+          await _snapshot(_fileRoot(file.path, state.rootPaths), file),
+        );
       }
     } on FileSystemException catch (error) {
       throw LibraryException('无法读取所选文件: ${error.path ?? ''}');
     }
     await _assertNotInUse(snapshots);
     snapshots.sort((a, b) => a.path.compareTo(b.path));
-    return DeletionPlan._(this, root, snapshots);
+    return DeletionPlan._(this, root, snapshots, state.rootPaths);
   }
 
   Future<DeletionResult> delete(
@@ -357,27 +528,39 @@ class ModelLibrary {
     }
     if (_deleting || plan.files.isEmpty) throw const LibraryException('当前不能删除');
     _deleting = true;
-    _deletingPaths = plan.files.map((file) => file.path).toSet();
+    _deletingPaths = {
+      for (final file in plan.files) ...[file.path, file.realPath],
+    };
     var deleted = 0;
     try {
       await _assertNotInUse(plan.files);
       // Validate every file before deleting the first one.
       final validated = <LibraryFile>[];
       for (final file in plan.files) {
-        validated.add(await _snapshot(plan.rootPath, file));
+        validated.add(
+          await _snapshot(_fileRoot(file.path, plan.rootPaths), file),
+        );
       }
       for (final file in validated) {
         await _assertNotInUse(plan.files);
-        await _requireRealFile(plan.rootPath, file.path);
+        await _requireModelFile(
+          _fileRoot(file.path, plan.rootPaths),
+          file.path,
+          target: file.linkTarget,
+        );
         final stat = await File(file.path).stat();
         if (stat.size != file.sizeBytes ||
             stat.modified.toUtc() != file.modifiedAtUtc) {
           throw LibraryException('文件已变化，请重新扫描: ${file.path}');
         }
-        if (_filesInUse.contains(file.path)) {
+        if (_filesInUse.contains(file.realPath)) {
           throw LibraryException('文件仍在使用，请先停止实例: ${file.path}');
         }
-        await File(file.path).delete();
+        if (file.linkTarget != null) {
+          await Link(file.path).delete();
+        } else {
+          await File(file.path).delete();
+        }
         deleted++;
       }
       return DeletionResult.deleted;
@@ -392,7 +575,7 @@ class ModelLibrary {
       _deleting = false;
       _deletingPaths = {};
       if (deleted > 0 && state.rootPath == plan.rootPath) {
-        await scan(Directory(plan.rootPath));
+        await scanDirectories(plan.rootPaths.map(Directory.new).toList());
       }
     }
   }
@@ -401,7 +584,7 @@ class ModelLibrary {
     if (await Directory(root).resolveSymbolicLinks() != root) {
       throw const LibraryException('模型库目录已变化');
     }
-    await _requireRealFile(root, expected.path);
+    await _requireModelFile(root, expected.path, target: expected.linkTarget);
     final file = File(expected.path);
     final before = await file.stat();
     if (before.size != expected.sizeBytes ||
@@ -411,7 +594,7 @@ class ModelLibrary {
       throw LibraryException('文件已变化，请重新扫描: ${expected.path}');
     }
     final digest = (await sha256.bind(file.openRead()).first).toString();
-    await _requireRealFile(root, expected.path);
+    await _requireModelFile(root, expected.path, target: expected.linkTarget);
     final after = await file.stat();
     if (before.size != after.size ||
         before.modified != after.modified ||
@@ -420,6 +603,7 @@ class ModelLibrary {
     }
     return LibraryFile(
       path: expected.path,
+      linkTarget: expected.linkTarget,
       sizeBytes: after.size,
       sha256: digest,
       modifiedAtUtc: after.modified.toUtc(),
@@ -429,17 +613,17 @@ class ModelLibrary {
   Future<void> _assertNotInUse(Iterable<LibraryFile> files) async {
     for (final file in files) {
       for (final active in _filesInUse.toList()) {
-        var same = active == file.path;
+        var same = active == file.realPath || active == file.path;
         if (!same) {
           try {
-            same = await FileSystemEntity.identical(active, file.path);
+            same = await FileSystemEntity.identical(active, file.realPath);
           } on FileSystemException {
             /* Unavailable active path. */
           }
         }
         if (same) throw LibraryException('文件仍在使用，请先停止实例: ${file.path}');
       }
-      if (_filesInUse.contains(file.path)) {
+      if (_filesInUse.contains(file.realPath)) {
         throw LibraryException('文件仍在使用，请先停止实例: ${file.path}');
       }
     }
@@ -482,6 +666,24 @@ Future<void> _requireRealFile(String root, String path) async {
           FileSystemEntityType.file ||
       await File(path).resolveSymbolicLinks() != path) {
     throw LibraryException('文件已变更或超出模型库: $path');
+  }
+}
+
+Future<void> _requireModelFile(
+  String root,
+  String path, {
+  String? target,
+}) async {
+  if (target == null) return _requireRealFile(root, path);
+  final parent = File(path).parent;
+  if (!_inside(root, path) ||
+      await parent.resolveSymbolicLinks() != parent.path ||
+      await FileSystemEntity.type(path, followLinks: false) !=
+          FileSystemEntityType.link ||
+      await File(path).resolveSymbolicLinks() != target ||
+      await FileSystemEntity.type(target, followLinks: false) !=
+          FileSystemEntityType.file) {
+    throw LibraryException('模型链接已变化，请重新扫描: $path');
   }
 }
 
@@ -1300,7 +1502,7 @@ Future<_SafetensorsGroups> _groupSafetensors(
     }
     if (selected.isEmpty || tensors.isEmpty) missing('缺少权重');
     consumed.addAll(files.keys);
-    final paths = files.keys.toList()..sort();
+    final paths = files.values.map((file) => file.realPath).toList()..sort();
     artifacts.add(
       LibraryArtifact(
         id: sha256.convert(utf8.encode(paths.join('\n'))).toString(),
@@ -1332,7 +1534,10 @@ Future<_SafetensorsGroups> _groupSafetensors(
     for (final value in (index['weight_map'] as Map).values) {
       final path = value is String ? _relativeFile(directory, value) : null;
       if (path != null && weights.containsKey(path)) {
-        selected[path] = weights[path]!;
+        selected.putIfAbsent(
+          weights[path]!.file.realPath,
+          () => weights[path]!,
+        );
       }
     }
     await bundle(
@@ -1342,14 +1547,29 @@ Future<_SafetensorsGroups> _groupSafetensors(
       index: index,
     );
   }
-  final remaining = <String, List<_ScannedFile>>{};
-  for (final file in weights.values.where(
-    (file) => !consumed.contains(file.file.path),
-  )) {
-    remaining.putIfAbsent(File(file.file.path).parent.path, () => []).add(file);
+  final indexedPaths = {
+    for (final artifact in artifacts)
+      for (final file in artifact.files) file.realPath,
+  };
+  final remaining = <String, Map<String, _ScannedFile>>{};
+  for (final file in weights.values) {
+    if (indexedPaths.contains(file.file.realPath)) {
+      consumed.add(file.file.path);
+      continue;
+    }
+    final group = remaining.putIfAbsent(
+      File(file.file.path).parent.path,
+      () => {},
+    );
+    final existing = group[file.file.realPath];
+    if (existing == null ||
+        existing.file.linkTarget == null && file.file.linkTarget != null) {
+      group[file.file.realPath] = file;
+    }
+    consumed.add(file.file.path);
   }
   for (final entry in remaining.entries) {
-    await bundle(entry.key, entry.value);
+    await bundle(entry.key, entry.value.values.toList());
   }
   return _SafetensorsGroups(artifacts, consumed);
 }
@@ -1656,24 +1876,32 @@ class _BinaryReader {
 
 List<LibraryArtifact> _groupGguf(List<_ScannedFile> files) {
   final groups = <String, List<_ScannedFile>>{};
+  final references = <String, _ScannedFile>{};
   for (final file in files) {
+    final existing = references[file.file.realPath];
+    if (existing == null ||
+        existing.file.linkTarget == null && file.file.linkTarget != null) {
+      references[file.file.realPath] = file;
+    }
+  }
+  for (final file in references.values) {
     final metadata = file.inspection.metadata;
-    var key = file.file.path;
+    var key = file.file.realPath;
     final count = metadata['split.count'];
     final number = metadata['split.no'];
     if (file.inspection.format == 'GGUF' &&
         count is int &&
         count > 1 &&
         number is int) {
-      final name = File(file.file.path).uri.pathSegments.last;
+      final name = File(file.file.realPath).uri.pathSegments.last;
       final match = RegExp(r'^(.*)-(\d{5})-of-(\d{5})\.gguf$').firstMatch(name);
       if (match != null &&
           int.parse(match[2]!) == number + 1 &&
           int.parse(match[3]!) == count) {
-        key = '${File(file.file.path).parent.path}/${match[1]}';
+        key = '${File(file.file.realPath).parent.path}/${match[1]}';
       } else if (metadata['general.name'] is String) {
         key =
-            '${File(file.file.path).parent.path}/${metadata['general.name']}:$count';
+            '${File(file.file.realPath).parent.path}/${metadata['general.name']}:$count';
       }
     }
     groups.putIfAbsent(key, () => []).add(file);
@@ -1895,7 +2123,7 @@ LibraryArtifact _ggufArtifact(List<_ScannedFile> files) {
       diagnostics.add('架构或决策布局尚未核验');
     }
   }
-  final paths = files.map((file) => file.file.path).toList()..sort();
+  final paths = files.map((file) => file.file.realPath).toList()..sort();
   return LibraryArtifact(
     id: sha256.convert(utf8.encode(paths.join('\n'))).toString(),
     files: files.map((file) => file.file).toList(),

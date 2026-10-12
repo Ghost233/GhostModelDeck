@@ -20,31 +20,18 @@ class _EngineSourceDialogState extends State<EngineSourceDialog> {
   final _source = TextEditingController();
   final _ref = TextEditingController();
   final _cmake = TextEditingController(text: 'cmake');
-  StreamSubscription<EngineSourceBuildProgress>? _changes;
   DecisionCancellation? _cancellation;
-  EngineSourceBuildProgress? _progress;
   EngineSourceToolchain? _tools;
-  EngineRegistration? _registered;
   String? _error;
-  bool _building = false;
   bool _checking = false;
   bool _cancelRequested = false;
   bool _supportsSystemone = true;
 
-  bool get _busy => _building || _checking;
-
-  @override
-  void initState() {
-    super.initState();
-    _changes = widget.catalog.sourceBuilder?.changes.listen((progress) {
-      if (mounted && _building) setState(() => _progress = progress);
-    });
-  }
+  bool get _busy => _checking;
 
   @override
   void dispose() {
     _cancellation?.cancel();
-    unawaited(_changes?.cancel());
     _name.dispose();
     _source.dispose();
     _ref.dispose();
@@ -95,19 +82,10 @@ class _EngineSourceDialogState extends State<EngineSourceDialog> {
     }
   }
 
-  Future<void> _build() async {
+  void _build() {
     if (_busy || _form.currentState?.validate() != true) return;
-    final cancellation = DecisionCancellation();
-    setState(() {
-      _building = true;
-      _cancelRequested = false;
-      _cancellation = cancellation;
-      _registered = null;
-      _progress = null;
-      _error = null;
-    });
     try {
-      final registered = await widget.catalog.buildFromSource(
+      final operation = widget.catalog.buildFromSource(
         EngineSourceBuildRequest(
           source: _source.text.trim(),
           name: _name.text.trim(),
@@ -115,18 +93,14 @@ class _EngineSourceDialogState extends State<EngineSourceDialog> {
           cmakePath: _cmakePath,
           supportsSystemone: _supportsSystemone,
         ),
-        cancellation: cancellation,
       );
-      if (mounted) setState(() => _registered = registered);
+      // The catalog owns the job and its error state after this form closes.
+      unawaited(
+        operation.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+      );
+      Navigator.pop(context, true);
     } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
-    } finally {
-      if (mounted) {
-        setState(() {
-          _building = false;
-          _cancellation = null;
-        });
-      }
+      setState(() => _error = error.toString());
     }
   }
 
@@ -135,26 +109,12 @@ class _EngineSourceDialogState extends State<EngineSourceDialog> {
     _cancellation?.cancel();
   }
 
-  String _phase(EngineSourceBuildPhase phase) => switch (phase) {
-    EngineSourceBuildPhase.validating => '检查仓库与编译工具',
-    EngineSourceBuildPhase.cloning => '获取源码',
-    EngineSourceBuildPhase.checkout => '选择源码版本',
-    EngineSourceBuildPhase.configuring => '准备编译',
-    EngineSourceBuildPhase.building => '编译引擎',
-    EngineSourceBuildPhase.inspecting => '核验编译结果',
-    EngineSourceBuildPhase.complete => '构建完成',
-    EngineSourceBuildPhase.failed => '构建失败',
-    EngineSourceBuildPhase.cancelled => '构建已取消',
-  };
-
   String _safe(String value) =>
       sealDebugJson({'message': value})['message'] as String;
 
   @override
   Widget build(BuildContext context) {
     final tools = _tools;
-    final registered = _registered;
-    final progress = _progress;
     return PopScope(
       canPop: !_busy,
       child: AlertDialog(
@@ -170,7 +130,7 @@ class _EngineSourceDialogState extends State<EngineSourceDialog> {
                 children: [
                   const Text('获取源码，在此 Mac 上编译并登记新的 llama.cpp 引擎。'),
                   const SizedBox(height: 6),
-                  const Text('登记后可在模型库选择新引擎；已有模型继续使用当前引擎运行。'),
+                  const Text('构建任务在下载页显示；登记后可给实例选择新引擎。'),
                   const SizedBox(height: 16),
                   TextFormField(
                     key: const Key('engine-source-name'),
@@ -258,43 +218,16 @@ class _EngineSourceDialogState extends State<EngineSourceDialog> {
                   if (_busy) const LinearProgressIndicator(),
                   if (_busy)
                     Text(
-                      _cancelRequested
-                          ? '正在取消并收尾…'
-                          : _checking
-                          ? '检查编译工具…'
-                          : progress == null
-                          ? '准备构建…'
-                          : _phase(progress.phase),
+                      _cancelRequested ? '正在取消并收尾…' : '检查编译工具…',
                       key: const Key('engine-source-phase'),
                     ),
                   if (_error != null)
                     Text(
                       _safe(_error!),
                       key: const Key('engine-source-error'),
-                      style: TextStyle(
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: Theme.of(context).colorScheme.error,
                       ),
-                    ),
-                  if (registered != null) ...[
-                    Text(
-                      '已登记引擎：${registered.name}',
-                      key: const Key('engine-source-success'),
-                    ),
-                    if (registered.path != null)
-                      SelectableText(registered.path!),
-                  ],
-                  if (progress != null && progress.logText.isNotEmpty)
-                    ExpansionTile(
-                      key: const Key('engine-source-log'),
-                      title: const Text('构建日志'),
-                      children: [
-                        SizedBox(
-                          height: 200,
-                          child: SingleChildScrollView(
-                            child: SelectableText(_safe(progress.logText)),
-                          ),
-                        ),
-                      ],
                     ),
                 ],
               ),
@@ -306,19 +239,18 @@ class _EngineSourceDialogState extends State<EngineSourceDialog> {
             TextButton(
               key: const Key('engine-source-cancel'),
               onPressed: _cancelRequested ? null : _cancel,
-              child: Text(_checking ? '取消检查' : '取消构建'),
+              child: const Text('取消检查'),
             )
           else
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: Text(registered == null ? '关闭' : '完成'),
+              child: const Text('关闭'),
             ),
-          if (registered == null)
-            FilledButton(
-              key: const Key('engine-source-build'),
-              onPressed: _busy ? null : _build,
-              child: const Text('构建并登记'),
-            ),
+          FilledButton(
+            key: const Key('engine-source-build'),
+            onPressed: _busy ? null : _build,
+            child: const Text('构建并登记'),
+          ),
         ],
       ),
     );

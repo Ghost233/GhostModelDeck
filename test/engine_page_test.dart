@@ -256,58 +256,60 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
-  testWidgets(
-    'same engine page exposes official full-app install without implying a callable oMLX pool',
-    (tester) async {
-      late Directory root;
-      late ModelLibrary library;
-      late LlamaEngine cpp;
-      late EngineCatalog catalog;
-      await tester.runAsync(() async {
-        root = await Directory.systemTemp.createTemp('gmd-omlx-page-');
-        library = ModelLibrary();
-        cpp = LlamaEngine(
-          library: library,
-          installationDirectory: Directory('${root.path}/cpp'),
-        );
-        catalog = EngineCatalog(
-          library: library,
-          officialEngine: cpp,
-          omlxEngine: OmlxEngine(
-            installationDirectory: Directory('${root.path}/omlx'),
-          ),
-          useRegistry: ModelUseRegistry(library),
-          registryFile: File('${root.path}/engines.json'),
-        );
-      });
-      addTearDown(() async {
-        catalog.close();
-        cpp.close();
-        library.close();
-        await tester.runAsync(() => root.delete(recursive: true));
-      });
-      await tester.runAsync(() async {
-        await tester.pumpWidget(
-          MaterialApp(
-            theme: buildJevTheme(Brightness.light),
-            home: Scaffold(
-              body: EnginePage(
-                catalog: catalog,
-                pickEngineDirectory: () async => null,
-              ),
+  testWidgets('default engine page shows oMLX and Splash repository sources', (
+    tester,
+  ) async {
+    late Directory root;
+    late ModelLibrary library;
+    late LlamaEngine cpp;
+    late EngineCatalog catalog;
+    await tester.runAsync(() async {
+      root = await Directory.systemTemp.createTemp('gmd-omlx-page-');
+      library = ModelLibrary();
+      cpp = LlamaEngine(
+        library: library,
+        installationDirectory: Directory('${root.path}/cpp'),
+      );
+      catalog = EngineCatalog(
+        library: library,
+        officialEngine: cpp,
+        omlxEngine: OmlxEngine(
+          installationDirectory: Directory('${root.path}/omlx'),
+        ),
+        useRegistry: ModelUseRegistry(library),
+        registryFile: File('${root.path}/engines.json'),
+      );
+    });
+    addTearDown(() async {
+      catalog.close();
+      cpp.close();
+      library.close();
+      await tester.runAsync(() => root.delete(recursive: true));
+    });
+    await tester.runAsync(() async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildJevTheme(Brightness.light),
+          home: Scaffold(
+            body: EnginePage(
+              catalog: catalog,
+              pickEngineDirectory: () async => null,
             ),
           ),
-        );
-        await catalog.refresh();
-      });
-      await tester.pumpAndSettle();
-      expect(find.text('oMLX · 官方 0.7.0'), findsOneWidget);
-      expect(find.text('完整官方 app · 生产模型运行尚未接通'), findsOneWidget);
-      expect(find.text('安装'), findsNWidgets(2));
-      expect(find.text('Ready'), findsNothing);
-      expect(tester.takeException(), isNull);
-    },
-  );
+        ),
+      );
+      await catalog.refresh();
+    });
+    await tester.pumpAndSettle();
+    expect(find.text('oMLX'), findsOneWidget);
+    expect(find.text('jundot/omlx'), findsOneWidget);
+    expect(find.text('生产模型运行尚未接通'), findsOneWidget);
+    expect(find.text('Splash'), findsOneWidget);
+    expect(find.text('incoai/splash'), findsOneWidget);
+    expect(find.text('安装'), findsNWidgets(2));
+    expect(find.text('Ready'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets(
     'engine management contains install and association but no model execution or LM Studio connection form',
     (tester) async {
@@ -458,7 +460,7 @@ void main() {
         await catalog.refresh();
       });
       await tester.pumpAndSettle();
-      expect(find.text('llama.cpp · 标准 v0.5.0'), findsOneWidget);
+      expect(find.text('llama.cpp · b11146'), findsOneWidget);
       expect(find.text('安装'), findsOneWidget);
       await tester.runAsync(
         () => HttpOverrides.runWithHttpOverrides(() async {

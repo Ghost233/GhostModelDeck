@@ -284,7 +284,8 @@ class CouncilController {
     for (final entry in catalog.state.entries)
       if (entry.family == EngineFamily.llamaCpp)
         for (final instance in catalog.providerFor(entry.id).state.instances)
-          if (instance.status == LlamaInstanceStatus.ready &&
+          if (!catalog.providerFor(entry.id).isTemporaryTest(instance.id) &&
+              instance.status == LlamaInstanceStatus.ready &&
               instance.capabilities.contains(LlamaCapability.choiceProbability))
             CouncilSeat(engine: entry, instance: instance),
   ]);

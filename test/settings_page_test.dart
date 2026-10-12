@@ -9,6 +9,52 @@ import 'package:ghost_model_deck/settings_page.dart';
 
 void main() {
   testWidgets(
+    'download directory can be unlinked without changing destination',
+    (tester) async {
+      final preferences = DownloadPreferences(
+        file: File('/unused-download-preferences.json'),
+      );
+      addTearDown(preferences.dispose);
+      List<String>? savedRoots;
+      var destinationChanged = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SettingsPage(
+              preferences: preferences,
+              libraryPath: '/tmp/downloads',
+              libraryPaths: const ['/tmp/downloads', '/tmp/other'],
+              onLibraryPathChanged: (value) async {
+                destinationChanged = true;
+                return value;
+              },
+              onLibraryPathsChanged: (value) async {
+                savedRoots = value;
+              },
+              pickLibraryDirectory: () async => null,
+            ),
+          ),
+        ),
+      );
+      final row = find.ancestor(
+        of: find.text('/tmp/downloads').last,
+        matching: find.byType(ListTile),
+      );
+      final unlink = find.descendant(
+        of: row,
+        matching: find.byTooltip('解除目录关联'),
+      );
+      await tester.ensureVisible(unlink);
+      await tester.tap(unlink);
+      await tester.pumpAndSettle();
+      expect(savedRoots, ['/tmp/other']);
+      expect(destinationChanged, isFalse);
+      expect(find.text('/tmp/downloads'), findsWidgets);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'the complete shared library path is visible on hover at minimum desktop size',
     (tester) async {
       const path =

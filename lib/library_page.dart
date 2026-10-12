@@ -20,6 +20,7 @@ class LibraryPage extends StatefulWidget {
     super.key,
     required this.library,
     required this.libraryPath,
+    this.libraryPaths,
     this.engines,
     this.publicRoutes,
     this.publicGateway,
@@ -28,6 +29,8 @@ class LibraryPage extends StatefulWidget {
 
   final ModelLibrary library;
   final String libraryPath;
+  final List<String>? libraryPaths;
+  List<String> get roots => libraryPaths ?? [libraryPath];
   final EngineCatalog? engines;
   final PublicModelRoutes? publicRoutes;
   final PublicGatewayServer? publicGateway;
@@ -44,6 +47,7 @@ class _LibraryPageState extends State<LibraryPage> {
   final _variantIds = <String, String>{};
   final _expanded = <String>{};
   final _stopping = <String>{};
+  final _starting = <String>{};
   final _filter = TextEditingController();
   LibraryState? _packageState;
   String? _packagePath;
@@ -83,7 +87,7 @@ class _LibraryPageState extends State<LibraryPage> {
         if (mounted) setState(() {});
       });
     }
-    if (oldWidget.libraryPath != widget.libraryPath ||
+    if (oldWidget.roots.join('\n') != widget.roots.join('\n') ||
         oldWidget.library != widget.library) {
       _selected.clear();
       _variantIds.clear();
@@ -100,7 +104,9 @@ class _LibraryPageState extends State<LibraryPage> {
     _selected.clear();
     _awaitingScan = path.isNotEmpty;
     if (path.isNotEmpty) {
-      library.scan(Directory(path)).then((_) {
+      library.scanDirectories(widget.roots.map(Directory.new).toList()).then((
+        _,
+      ) {
         if (mounted &&
             generation == _scanGeneration &&
             widget.library == library &&
@@ -170,6 +176,40 @@ class _LibraryPageState extends State<LibraryPage> {
     }
   }
 
+  Future<void> _startModel(LocalModelVariant variant) async {
+    final catalog = widget.engines;
+    if (catalog == null || !_starting.add(variant.id)) return;
+    setState(() => _operationError = null);
+    try {
+      await catalog.refresh();
+      await widget.library.verify(variant.artifactIds);
+      final asset = variant.artifacts
+          .where(
+            (a) => [
+              AssetKind.chat,
+              AssetKind.decision,
+              AssetKind.embedding,
+            ].contains(a.kind),
+          )
+          .single;
+      final preferred = catalog.preferredEngineFor(asset.id);
+      final entries = catalog.state.entries.where(
+        (e) => e.status == LlamaInstallationStatus.installed,
+      );
+      final entry = preferred == null
+          ? entries.firstOrNull
+          : entries.where((e) => e.id == preferred).firstOrNull;
+      if (entry == null) throw StateError('已保存的引擎不可用，请在参数中选择引擎');
+      if (entry.family == EngineFamily.omlx) throw StateError('此引擎尚未接通模型运行');
+      await catalog.runtimeFor(entry.id).startRuntime(asset.id);
+    } catch (error) {
+      if (mounted) setState(() => _operationError = error.toString());
+    } finally {
+      _starting.remove(variant.id);
+      if (mounted) setState(() {});
+    }
+  }
+
   Future<void> _verify(List<String> artifactIds) async {
     final path = widget.libraryPath;
     final library = widget.library;
@@ -206,12 +246,37 @@ class _LibraryPageState extends State<LibraryPage> {
           ? Future.value(
               LocalModelPackages(packages: [], residualArtifacts: []),
             )
-          : LocalModelPackages.discover(
-              Directory(state.rootPath ?? widget.libraryPath),
-              state.artifacts,
-            );
+          : _discoverPackages(state);
     }
     return _packageFuture!;
+  }
+
+  Future<LocalModelPackages> _discoverPackages(LibraryState state) async {
+    final packages = <LocalModelPackage>[];
+    final roots = state.rootPaths.toList()
+      ..sort((a, b) => b.length.compareTo(a.length));
+    final assigned = <String>{};
+    for (final root in roots) {
+      final assets = state.artifacts
+          .where(
+            (a) =>
+                !assigned.contains(a.id) &&
+                ['GGUF', 'Safetensors'].contains(a.format) &&
+                a.files.any((f) => f.path.startsWith('$root/')),
+          )
+          .toList();
+      assigned.addAll(assets.map((asset) => asset.id));
+      final discovered = await LocalModelPackages.discover(
+        Directory(root),
+        assets,
+      );
+      packages.addAll(discovered.packages);
+    }
+    final unique = {for (final package in packages) package.id: package};
+    return LocalModelPackages(
+      packages: unique.values.toList(),
+      residualArtifacts: [],
+    );
   }
 
   LocalModelVariant _variant(LocalModelPackage package) =>
@@ -291,14 +356,17 @@ class _LibraryPageState extends State<LibraryPage> {
                 const SizedBox(height: 24),
                 if ((!_awaitingScan && state.error != null) ||
                     _operationError != null ||
+                    widget.publicRoutes?.error != null ||
                     grouped.hasError)
                   Padding(
+                    key: const Key('library-operation-error'),
                     padding: const EdgeInsets.only(top: 10),
                     child: Text(
                       _operationError ??
                           state.error ??
+                          widget.publicRoutes?.error ??
                           grouped.error.toString(),
-                      style: TextStyle(
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: Theme.of(context).colorScheme.error,
                       ),
                     ),
@@ -347,6 +415,7 @@ class _LibraryPageState extends State<LibraryPage> {
                         ),
                       ),
                       SizedBox(width: 64),
+                      SizedBox(width: 40),
                       SizedBox(width: 28),
                     ],
                   ),
@@ -511,6 +580,23 @@ class _LibraryPageState extends State<LibraryPage> {
                                                                 .complete,
                                                   )
                                               ? null
+                                              : _starting.contains(variant.id)
+                                              ? null
+                                              : () => _startModel(variant),
+                                          child: const Text('运行'),
+                                        ),
+                                      ),
+                                      SizedBox(
+                                        width: 40,
+                                        child: IconButton(
+                                          tooltip: '模型参数',
+                                          icon: const Icon(
+                                            Icons.tune,
+                                            size: 18,
+                                          ),
+                                          onPressed:
+                                              busy || widget.engines == null
+                                              ? null
                                               : () => showModelRunDialog(
                                                   context,
                                                   catalog: widget.engines!,
@@ -518,7 +604,6 @@ class _LibraryPageState extends State<LibraryPage> {
                                                   modelPackage: package,
                                                   variant: variant,
                                                 ),
-                                          child: const Text('运行'),
                                         ),
                                       ),
                                       SizedBox(
@@ -569,7 +654,10 @@ class _LibraryPageState extends State<LibraryPage> {
                                         package.details
                                             .map(_details)
                                             .join('\n\n'),
-                                        style: const TextStyle(fontSize: 11),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium
+                                            ?.copyWith(fontSize: 11),
                                       ),
                                     ),
                                   ),
@@ -578,28 +666,6 @@ class _LibraryPageState extends State<LibraryPage> {
                           },
                         ),
                 ),
-                if (catalog != null && catalog.residualArtifacts.isNotEmpty)
-                  ExpansionTile(
-                    dense: true,
-                    tilePadding: EdgeInsets.zero,
-                    title: Text(
-                      '目录其他文件 (${catalog.residualArtifacts.length}) · 只读',
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    children: [
-                      SizedBox(
-                        height: 140,
-                        child: SingleChildScrollView(
-                          child: SelectableText(
-                            catalog.residualArtifacts
-                                .map(_details)
-                                .join('\n\n'),
-                            style: const TextStyle(fontSize: 11),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
                 Padding(
                   padding: const EdgeInsets.only(top: 10),
                   child: Text(
@@ -880,7 +946,7 @@ String _variantStatus(LocalModelVariant variant) {
   )) {
     return '完整性不符';
   }
-  return '未支持 · 包待确认';
+  return '模型文件组';
 }
 
 String _status(LibraryArtifact artifact) {
@@ -888,21 +954,14 @@ String _status(LibraryArtifact artifact) {
   if (artifact.kind == AssetKind.adapter) return 'Adapter · 不完整';
   if (artifact.kind == AssetKind.encoder) return 'Encoder · 待配套';
   if (artifact.integrity == AssetIntegrity.incomplete) return '缺文件 / Metadata';
-  if (artifact.kind == AssetKind.chat) {
-    return artifact.integrity == AssetIntegrity.complete &&
-            artifact.fingerprintsVerified
-        ? '普通聊天模型'
-        : '聊天 · 文件待核验';
-  }
-  if (artifact.kind == AssetKind.unknown) return '已发现 · 未知';
+  if (artifact.kind == AssetKind.chat) return '聊天模型';
+  if (artifact.kind == AssetKind.unknown) return '${artifact.format} 模型';
   if (artifact.kind == AssetKind.embedding) {
-    return '嵌入模型 · ${artifact.embeddingDimensions ?? "未知"} 维 · 待能力验证';
+    return artifact.embeddingDimensions == null
+        ? '嵌入模型'
+        : '嵌入模型 · ${artifact.embeddingDimensions} 维';
   }
-  return artifact.integrity == AssetIntegrity.complete
-      ? artifact.fingerprintsVerified
-            ? '完整 · 待能力验证'
-            : '文件齐全 · 待核验'
-      : '已发现 · 文件待核验';
+  return '决策模型';
 }
 
 String _details(LibraryArtifact artifact) => [

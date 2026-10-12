@@ -1132,6 +1132,42 @@ void main() {
     expect(await File('${root.path}/verified/weights.bin').exists(), isTrue);
   });
 
+  test('GGUF shard aliases retain one complete model', () async {
+    final root = await Directory.systemTemp.createTemp('gmd-shard-alias-');
+    addTearDown(() => root.delete(recursive: true));
+    final tensors = _kevTensors();
+    final entries = tensors.entries.toList();
+    final first = await _writeGguf(
+      root,
+      'model-00001-of-00002.gguf',
+      metadata: {
+        ..._kevMetadata(),
+        'split.no': 0,
+        'split.count': 2,
+        'split.tensors.count': tensors.length,
+      },
+      tensors: Map.fromEntries(entries.take(entries.length ~/ 2)),
+    );
+    await _writeGguf(
+      root,
+      'model-00002-of-00002.gguf',
+      metadata: {
+        ..._kevMetadata(),
+        'split.no': 1,
+        'split.count': 2,
+        'split.tensors.count': tensors.length,
+      },
+      tensors: Map.fromEntries(entries.skip(entries.length ~/ 2)),
+    );
+    await Link('${root.path}/alias.gguf').create(first.path);
+    final library = ModelLibrary();
+    addTearDown(library.close);
+    final assets = await library.scan(root);
+    expect(assets, hasLength(1));
+    expect(assets.single.files, hasLength(2));
+    expect(assets.single.integrity, AssetIntegrity.complete);
+  });
+
   test('manual deletion requires confirmation, unchanged real files and stopped usage, while preserving the library and other paths', () async {
     final root = await Directory.systemTemp.createTemp('jev-library-');
     final outside = await Directory.systemTemp.createTemp('jev-outside-');
@@ -1165,7 +1201,26 @@ void main() {
     addTearDown(library.close);
     addTearDown(otherLibrary.close);
     final assets = await library.scan(root, verifyFiles: true);
-    expect(assets, hasLength(2));
+    expect(assets, hasLength(3));
+    expect(
+      assets
+          .singleWhere(
+            (asset) =>
+                asset.files.single.path == '${root.path}/file-alias.gguf',
+          )
+          .files
+          .single
+          .realPath,
+      foreign.path,
+    );
+    expect(
+      assets.any(
+        (asset) => asset.files.any(
+          (file) => file.path.contains('/foreign-directory/'),
+        ),
+      ),
+      isFalse,
+    );
     final asset = assets.singleWhere(
       (asset) => asset.files.single.path == selected.path,
     );
@@ -1222,7 +1277,7 @@ void main() {
     expect(await retained.exists(), isTrue);
     expect(await foreign.readAsBytes(), original);
     expect(await Link('${root.path}/file-alias.gguf').exists(), isTrue);
-    expect(library.state.artifacts, hasLength(1));
+    expect(library.state.artifacts, hasLength(2));
   });
 
   test('default inventory keeps full fingerprints unknown until the selected asset is explicitly verified', () async {

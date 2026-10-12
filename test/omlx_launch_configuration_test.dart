@@ -604,22 +604,12 @@ void main() {
       expect(find.textContaining('生产模型运行尚未接通'), findsWidgets);
       expect(
         tester
-            .widget<FilledButton>(find.widgetWithText(FilledButton, '运行'))
+            .widget<OutlinedButton>(find.widgetWithText(OutlinedButton, '测试运行'))
             .onPressed,
         isNull,
       );
-      expect(find.text('模型独立'), findsOneWidget);
-      await tester.runAsync(() async {
-        final saved = fixture.catalog.changes.firstWhere(
-          (state) => !state.busy,
-        );
-        await tester.tap(find.text('模型独立'));
-        await saved.timeout(const Duration(seconds: 5));
-        await tester.pump();
-      });
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('编辑模型参数'));
-      await tester.pumpAndSettle();
+      expect(find.text('模型独立'), findsNothing);
+      expect(find.text('引擎默认'), findsNothing);
       final requests = find.widgetWithText(TextField, '最大并发请求数');
       // Desktop pointer input keeps focus without touch selection handles.
       await tester.tap(requests, kind: PointerDeviceKind.mouse);
@@ -627,7 +617,10 @@ void main() {
       tester.testTextInput.enterText('3');
       await tester.pump();
       final text = find.widgetWithText(TextField, '启动参数文本');
-      await tester.ensureVisible(text);
+      await tester.ensureVisible(
+        find.descendant(of: text, matching: find.byType(EditableText)),
+      );
+      await tester.pumpAndSettle();
       const raw = ' --max-concurrent-requests "unfinished';
       await tester.tap(text, kind: PointerDeviceKind.mouse);
       await tester.pump();
@@ -681,8 +674,6 @@ void main() {
       await tester.pumpAndSettle();
       await tester.runAsync(fixture.reopen);
       await openDialog();
-      await tester.tap(find.text('编辑模型参数'));
-      await tester.pumpAndSettle();
       expect(tester.widget<TextField>(text).controller!.text, raw);
       expect(tester.widget<TextField>(requests).controller!.text, '3');
       expect(

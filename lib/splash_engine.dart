@@ -8,6 +8,7 @@ import 'package:crypto/crypto.dart';
 import 'engine_parameter_recognition.dart';
 import 'engine_runtime.dart';
 import 'engine_launch_configuration.dart';
+import 'launch_argument_text.dart';
 import 'llama_engine.dart';
 import 'model_library.dart';
 import 'model_use_registry.dart';
@@ -311,6 +312,9 @@ class _SplashRun {
     this.generation,
     this.endpoint,
   );
+  bool temporaryTest = false;
+  String? launchInstanceId;
+  int? launchRevision;
   final String id;
   final SplashModelBinding binding;
   final EngineLaunchCommand command;
@@ -336,6 +340,9 @@ class _SplashRun {
     acceptingRequests:
         status == RuntimeInstanceStatus.ready && !cancellation.isCancelled,
     hasLiveProcess: groupLive,
+    temporaryTest: temporaryTest,
+    launchInstanceId: launchInstanceId,
+    launchRevision: launchRevision,
     capabilities: status == RuntimeInstanceStatus.ready
         ? {RuntimeCapability.textGeneration}
         : {},
@@ -461,6 +468,8 @@ class SplashEngine implements EngineRuntime {
   }
 
   SplashModelBinding? bindingFor(String artifactId) => _bindings[artifactId];
+  Iterable<SplashModelBinding> get bindings =>
+      List.unmodifiable(_bindings.values);
   EngineLaunchCommand composeLaunch(
     EngineLaunchConfiguration configuration, {
     SplashModelBinding? binding,
@@ -471,6 +480,11 @@ class SplashEngine implements EngineRuntime {
       throw const SplashEngineException('Splash配置family不符');
     }
     final assembly = binding?.assembly.path ?? '<绑定的本地 assembly 目录>';
+    final persistentCache = parseLaunchArgumentText(configuration.argumentText)
+        .any(
+          (token) =>
+              !token.hasLiteralPrefix && token.value == '--persistent-cache',
+        );
     final bootstrap =
         '# Ghost Model Deck Splash owned group\n'
         'import os,fcntl,runpy,sys; os.setsid(); '
@@ -496,29 +510,44 @@ class SplashEngine implements EngineRuntime {
         '--model': binding?.nativeModel ?? '<绑定的 Splash 模型身份>',
         '--tokenizer': binding?.tokenizer.path ?? '<绑定的本地 tokenizer 目录>',
         '--binary': _installation.nativeBinary.path,
-        '--cache-dir': '${runtimeDirectory.path}/cache',
+        if (persistentCache) '--cache-dir': '${runtimeDirectory.path}/cache',
       },
     );
   }
 
-  Future<EngineLaunchCommand> previewLaunch(String artifactId) async {
+  Future<EngineLaunchCommand> previewLaunch(
+    String artifactId, {
+    EngineLaunchConfiguration? configuration,
+  }) async {
     await _assertInstallation();
     return composeLaunch(
-      configurationFor(artifactId),
+      configuration ?? configurationFor(artifactId),
       binding: _bindings[artifactId],
     );
   }
 
   @override
-  Future<RuntimeInstance> startRuntime(String artifactId) {
+  Future<RuntimeInstance> startRuntime(String artifactId) =>
+      startWithConfiguration(artifactId, configurationFor(artifactId));
+
+  Future<RuntimeInstance> startWithConfiguration(
+    String artifactId,
+    EngineLaunchConfiguration configuration, {
+    DecisionCancellation? cancellation,
+    bool temporaryTest = false,
+    String? launchInstanceId,
+    int? launchRevision,
+    Directory? assembly,
+  }) {
     if (_shuttingDown || _admissionHolds > 0) {
       return Future.error(const SplashEngineException('Splash启动准入已关闭'));
     }
-    final configuration = configurationFor(artifactId);
     final epoch = _startEpoch;
     return _serial(() async {
       if (_shuttingDown) throw const SplashEngineException('Splash正在退出');
-      final binding = _bindings[artifactId];
+      final binding = assembly == null
+          ? _bindings[artifactId]
+          : await _readBinding(artifactId, assembly);
       if (binding == null) {
         throw const SplashEngineException('请先绑定所选模型的完整Splash assembly');
       }
@@ -527,7 +556,9 @@ class SplashEngine implements EngineRuntime {
         await _syncUses();
         await _verifyBinding(binding);
         await _checkModel(binding);
-        if (_shuttingDown || epoch != _startEpoch) {
+        if (_shuttingDown ||
+            epoch != _startEpoch ||
+            (cancellation?.isCancelled ?? false)) {
           throw const SplashEngineException('Splash启动已取消');
         }
         final reservation = await ServerSocket.bind(
@@ -545,6 +576,9 @@ class SplashEngine implements EngineRuntime {
           ++_generation,
           Uri.parse('http://127.0.0.1:$port'),
         );
+        run.temporaryTest = temporaryTest;
+        run.launchInstanceId = launchInstanceId;
+        run.launchRevision = launchRevision;
         _runs[id] = run;
         await _syncUses();
         _publish();
@@ -585,6 +619,7 @@ class SplashEngine implements EngineRuntime {
           for (;;) {
             if (run.exit != null ||
                 _shuttingDown ||
+                (cancellation?.isCancelled ?? false) ||
                 run.cancellation.isCancelled) {
               throw SplashEngineException('Splash启动终止：${run.stderr}');
             }
@@ -597,6 +632,11 @@ class SplashEngine implements EngineRuntime {
               if (DateTime.now().isAfter(deadline)) {
                 throw const SplashEngineException('Splash启动超时');
               }
+            } on SplashRequestException catch (error) {
+              if (error.kind != DecisionFailureKind.timedOut ||
+                  DateTime.now().isAfter(deadline)) {
+                rethrow;
+              }
             }
             await Future<void>.delayed(const Duration(milliseconds: 50));
           }
@@ -604,7 +644,7 @@ class SplashEngine implements EngineRuntime {
             run,
             TextRequest(prompt: 'Reply with OK.'),
             const Duration(seconds: 30),
-            null,
+            cancellation,
           );
           if (probe.text.trim().isEmpty) {
             throw const SplashEngineException('Splash没有实际文本生成');
@@ -612,6 +652,7 @@ class SplashEngine implements EngineRuntime {
           if (run.exit != null ||
               run.cancellation.isCancelled ||
               _shuttingDown ||
+              (cancellation?.isCancelled ?? false) ||
               epoch != _startEpoch) {
             throw const SplashEngineException('Splash启动已取消或进程退出');
           }
@@ -620,11 +661,14 @@ class SplashEngine implements EngineRuntime {
           return run.snapshot();
         } catch (error) {
           run.status = RuntimeInstanceStatus.failed;
-          run.error = '$error';
+          final details = run.stderr.toString();
+          run.error = details.isEmpty
+              ? '$error'
+              : '$error\n启动日志：${details.length > 4000 ? details.substring(details.length - 4000) : details}';
           try {
             await _stopRun(run);
           } catch (cleanup) {
-            run.error = '$error；收尾：$cleanup';
+            run.error = '${run.error}；收尾：$cleanup';
           }
           _publish();
           throw SplashEngineException(run.error!);
@@ -797,7 +841,11 @@ class SplashEngine implements EngineRuntime {
         () => client.postUrl(run.endpoint.resolve('/v1/chat/completions')),
       );
       http.headers.contentType = ContentType.json;
-      http.write(jsonEncode(request.toChat(model: run.id, stream: true)));
+      final body = utf8.encode(
+        jsonEncode(request.toChat(model: run.id, stream: true)),
+      );
+      http.contentLength = body.length;
+      http.add(body);
       final response = await budget.wait(http.close);
       if (response.statusCode != 200) {
         throw SplashEngineException('Splash文本流失败：${response.statusCode}');
@@ -1014,6 +1062,11 @@ class SplashEngine implements EngineRuntime {
         );
       }
       return _object(jsonDecode(raw), 'Splash $path');
+    } on SplashRequestException catch (error) {
+      if (error.kind == DecisionFailureKind.timedOut) {
+        throw SplashRequestException('Splash $path 请求超时', kind: error.kind);
+      }
+      rethrow;
     } finally {
       remove();
       removeRequest();
@@ -1094,7 +1147,9 @@ class SplashEngine implements EngineRuntime {
         () => client.postUrl(run.endpoint.resolve('/v1/chat/completions')),
       );
       http.headers.contentType = ContentType.json;
-      http.write(jsonEncode(request.toChat(model: run.id)));
+      final body = utf8.encode(jsonEncode(request.toChat(model: run.id)));
+      http.contentLength = body.length;
+      http.add(body);
       final response = await clock.wait(http.close);
       final raw = await clock.wait(
         () => response.cast<List<int>>().transform(utf8.decoder).join(),

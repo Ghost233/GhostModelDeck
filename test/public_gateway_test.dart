@@ -187,11 +187,31 @@ void main() {
   });
 
   group('PublicModelRoutes 公开路由身份', () {
-    test('public IDs derive from the stable artifact identity with a gmd- prefix', () async {
+    test('old route configuration is rejected without migration', () async {
+      final fixture = await _GatewayFixture.create(withRegistry: true);
+      addTearDown(fixture.close);
+      final file = fixture.registryFile!;
+      final original = jsonEncode({
+        'schema': 1,
+        'enabled': [fixture.asset.id],
+      });
+      await file.parent.create(recursive: true);
+      await file.writeAsString(original);
+      final routes = PublicModelRoutes(
+        library: fixture.library,
+        runtimes: [],
+        registryFile: file,
+      );
+      addTearDown(routes.close);
+      await expectLater(routes.load(), throwsStateError);
+      expect(await file.readAsString(), original);
+    });
+
+    test('public names derive from model names and survive route-layer restart', () async {
       final fixture = await _GatewayFixture.create();
       addTearDown(fixture.close);
       final routes = fixture.routes;
-      expect(routes.publicIdFor(fixture.asset.id), 'gmd-${fixture.asset.id}');
+      expect(routes.publicIdFor(fixture.asset.id), 'kev-q8-0');
       // Same artifact, rebuilt routes: identity survives restart of the layer.
       final rebuilt = PublicModelRoutes(
         library: fixture.library,
@@ -199,8 +219,132 @@ void main() {
       );
       addTearDown(rebuilt.close);
       await rebuilt.load();
-      expect(rebuilt.publicIdFor(fixture.asset.id), 'gmd-${fixture.asset.id}');
+      expect(
+        rebuilt.publicIdFor(fixture.asset.id),
+        fixture.routes.publicIdFor(fixture.asset.id),
+      );
     });
+
+    test(
+      'name collisions get stable numeric suffixes across restarts',
+      () async {
+        final fixture = await _GatewayFixture.create(withRegistry: true);
+        addTearDown(fixture.close);
+        final file = fixture.registryFile!;
+        await file.parent.create(recursive: true);
+        await file.writeAsString(
+          jsonEncode({
+            'schema': 2,
+            'publicIds': <String, String>{},
+            'enabled': [fixture.asset.id],
+          }),
+        );
+        final routes = PublicModelRoutes(
+          library: fixture.library,
+          runtimes: [fixture.engine],
+          registryFile: file,
+        );
+        addTearDown(routes.close);
+        await routes.load();
+        expect(routes.publicIdFor(fixture.asset.id), 'kev-q8-0');
+        expect((jsonDecode(await file.readAsString()) as Map)['schema'], 2);
+        expect(
+          () => routes.resolve('gmd-${fixture.asset.id}'),
+          throwsA(
+            isA<PublicRequestException>().having(
+              (e) => e.statusCode,
+              'status',
+              404,
+            ),
+          ),
+        );
+        final models = Directory('${fixture.root.path}/models');
+        for (final folder in ['a', 'b']) {
+          final target = File('${models.path}/$folder/My.Model @ Test.gguf');
+          await target.parent.create(recursive: true);
+          await File(fixture.asset.files.single.path).copy(target.path);
+        }
+        var assets = await fixture.library.scan(models, verifyFiles: true);
+        final duplicates = assets
+            .where((a) => a.name == 'My.Model @ Test.gguf')
+            .toList();
+        expect(duplicates, hasLength(2));
+        await routes.enable(duplicates[0].id);
+        await routes.enable(duplicates[1].id);
+        expect(routes.publicIdFor(duplicates[0].id), 'my-model-test');
+        expect(routes.publicIdFor(duplicates[1].id), 'my-model-test-2');
+        final reopened = PublicModelRoutes(
+          library: fixture.library,
+          runtimes: [],
+          registryFile: file,
+        );
+        addTearDown(reopened.close);
+        await Future.wait([reopened.load(), reopened.load()]);
+        final third = File('${models.path}/c/My.Model @ Test.gguf');
+        await third.parent.create(recursive: true);
+        await File(fixture.asset.files.single.path).copy(third.path);
+        assets = await fixture.library.scan(models, verifyFiles: true);
+        final added = assets.singleWhere(
+          (a) => a.files.single.path.endsWith('/c/My.Model @ Test.gguf'),
+        );
+        await reopened.enable(added.id);
+        expect(reopened.publicIdFor(added.id), 'my-model-test-3');
+        await reopened.disable(duplicates[0].id);
+        await reopened.enable(duplicates[0].id);
+        expect(reopened.publicIdFor(duplicates[0].id), 'my-model-test');
+        expect(reopened.publicIdFor(duplicates[1].id), 'my-model-test-2');
+      },
+    );
+
+    test(
+      'restored names persist when the library is scanned after route loading',
+      () async {
+        final fixture = await _GatewayFixture.create(withRegistry: true);
+        addTearDown(fixture.close);
+        final emptyLibrary = ModelLibrary();
+        addTearDown(emptyLibrary.close);
+        final file = fixture.registryFile!;
+        await file.parent.create(recursive: true);
+        await file.writeAsString(
+          jsonEncode({
+            'schema': 2,
+            'publicIds': <String, String>{},
+            'enabled': [fixture.asset.id],
+          }),
+        );
+        final routes = PublicModelRoutes(
+          library: emptyLibrary,
+          runtimes: [],
+          registryFile: file,
+        );
+        addTearDown(routes.close);
+        await routes.load();
+        expect(
+          (jsonDecode(await file.readAsString()) as Map)['publicIds'],
+          isEmpty,
+        );
+        final persisted = routes.changes.first;
+        await emptyLibrary.scan(
+          Directory('${fixture.root.path}/models'),
+          verifyFiles: true,
+        );
+        await persisted.timeout(const Duration(seconds: 5));
+        expect(routes.error, isNull);
+        expect(
+          (jsonDecode(await file.readAsString())
+              as Map)['publicIds'][fixture.asset.id],
+          'kev-q8-0',
+        );
+        final reopened = PublicModelRoutes(
+          library: emptyLibrary,
+          runtimes: [],
+          registryFile: file,
+        );
+        addTearDown(reopened.close);
+        await reopened.load();
+        expect(reopened.publicIdFor(fixture.asset.id), 'kev-q8-0');
+      },
+    );
 
     test('enable persists across route-layer restarts', () async {
       final fixture = await _GatewayFixture.create(withRegistry: true);
@@ -274,7 +418,10 @@ void main() {
         final instance = await fixture.engine.start(fixture.asset.id);
         fixture.io.textRequests = 0;
         final models = fixture.routes.listModels();
-        expect(models.single.publicId, 'gmd-${fixture.asset.id}');
+        expect(
+          models.single.publicId,
+          fixture.routes.publicIdFor(fixture.asset.id),
+        );
         expect(models.single.artifactId, fixture.asset.id);
         expect(fixture.io.textRequests, 0);
         await fixture.engine.stop(instance.id);
@@ -309,7 +456,9 @@ void main() {
       );
       // Disabled artifact: explicit refusal even while a ready instance exists.
       expect(
-        () => fixture.routes.resolve('gmd-${fixture.asset.id}'),
+        () => fixture.routes.resolve(
+          fixture.routes.publicIdFor(fixture.asset.id),
+        ),
         throwsA(
           isA<PublicRequestException>().having(
             (e) => e.statusCode,
@@ -321,7 +470,9 @@ void main() {
       await fixture.routes.enable(fixture.asset.id);
       await fixture.engine.stop(instance.id);
       expect(
-        () => fixture.routes.resolve('gmd-${fixture.asset.id}'),
+        () => fixture.routes.resolve(
+          fixture.routes.publicIdFor(fixture.asset.id),
+        ),
         throwsA(
           isA<PublicRequestException>().having(
             (e) => e.statusCode,
@@ -342,7 +493,9 @@ void main() {
         await fixture.engine.start(fixture.asset.id);
         await fixture.engine.start(fixture.asset.id);
         expect(
-          () => fixture.routes.resolve('gmd-${fixture.asset.id}'),
+          () => fixture.routes.resolve(
+            fixture.routes.publicIdFor(fixture.asset.id),
+          ),
           throwsA(
             isA<PublicRequestException>()
                 .having((e) => e.statusCode, 'statusCode', 409)
@@ -359,7 +512,9 @@ void main() {
         addTearDown(fixture.close);
         await fixture.routes.enable(fixture.asset.id);
         final first = await fixture.engine.start(fixture.asset.id);
-        final target = fixture.routes.resolve('gmd-${fixture.asset.id}');
+        final target = fixture.routes.resolve(
+          fixture.routes.publicIdFor(fixture.asset.id),
+        );
         expect(target.instance.id, first.id);
         await fixture.engine.stop(first.id);
         await expectLater(
@@ -368,8 +523,10 @@ void main() {
         );
         final second = await fixture.engine.start(fixture.asset.id);
         expect(second.id, isNot(first.id));
-        final rerouted = fixture.routes.resolve('gmd-${fixture.asset.id}');
-        expect(rerouted.publicId, 'gmd-${fixture.asset.id}');
+        final rerouted = fixture.routes.resolve(
+          fixture.routes.publicIdFor(fixture.asset.id),
+        );
+        expect(rerouted.publicId, fixture.routes.publicIdFor(fixture.asset.id));
         expect(rerouted.instance.id, second.id);
         expect(
           (await fixture.engine.generateText(
@@ -473,7 +630,7 @@ void main() {
       listed = await _get('${fixture.gateway.baseUrl}/v1/models');
       final data = jsonDecode(listed.body)['data'] as List;
       expect(data, hasLength(1));
-      expect(data.single['id'], 'gmd-${fixture.asset.id}');
+      expect(data.single['id'], fixture.routes.publicIdFor(fixture.asset.id));
       expect(data.single['object'], 'model');
       expect(listed.body, isNot(contains(fixture.instanceId)));
     });
@@ -492,7 +649,7 @@ void main() {
       final response = await _post(
         '${fixture.gateway.baseUrl}/v1/chat/completions',
         {
-          'model': 'gmd-${fixture.asset.id}',
+          'model': fixture.routes.publicIdFor(fixture.asset.id),
           'messages': [
             {'role': 'user', 'content': 'Say hello'},
           ],
@@ -519,7 +676,7 @@ void main() {
       final response = await _post(
         '${fixture.gateway.baseUrl}/v1/chat/completions',
         {
-          'model': 'gmd-${fixture.asset.id}',
+          'model': fixture.routes.publicIdFor(fixture.asset.id),
           'messages': [
             {'role': 'system', 'content': 'Be brief.'},
             {'role': 'user', 'content': 'Say hello'},
@@ -531,7 +688,7 @@ void main() {
       );
       expect(response.status, 200);
       final body = jsonDecode(response.body) as Map;
-      expect(body['model'], 'gmd-${fixture.asset.id}');
+      expect(body['model'], fixture.routes.publicIdFor(fixture.asset.id));
       expect(body['object'], 'chat.completion');
       expect(body['choices'], hasLength(1));
       final choice = body['choices'].single as Map;
@@ -608,7 +765,7 @@ void main() {
       addTearDown(client.destroy);
       expect(
         await client.open('${fixture.gateway.baseUrl}/v1/chat/completions', {
-          'model': 'gmd-${fixture.asset.id}',
+          'model': fixture.routes.publicIdFor(fixture.asset.id),
           'messages': [
             {'role': 'user', 'content': 'Say hello'},
           ],
@@ -643,7 +800,7 @@ void main() {
       final status = await client.open(
         '${fixture.gateway.baseUrl}/v1/chat/completions',
         {
-          'model': 'gmd-${fixture.asset.id}',
+          'model': fixture.routes.publicIdFor(fixture.asset.id),
           'messages': [
             {'role': 'user', 'content': 'Stream please'},
           ],
@@ -664,7 +821,7 @@ void main() {
           .toList();
       expect(chunks.length, 3);
       for (final chunk in chunks) {
-        expect(chunk['model'], 'gmd-${fixture.asset.id}');
+        expect(chunk['model'], fixture.routes.publicIdFor(fixture.asset.id));
         expect(chunk['object'], 'chat.completion.chunk');
       }
       expect(chunks[0]['choices'].single['delta'], {
@@ -701,7 +858,7 @@ void main() {
         final response = await _post(
           '${fixture.gateway.baseUrl}/v1/chat/completions',
           {
-            'model': 'gmd-${fixture.asset.id}',
+            'model': fixture.routes.publicIdFor(fixture.asset.id),
             'messages': [
               {'role': 'user', 'content': 'Say hello'},
             ],
@@ -759,7 +916,7 @@ void main() {
       final status = await client.open(
         '${fixture.gateway.baseUrl}/v1/chat/completions',
         {
-          'model': 'gmd-${fixture.asset.id}',
+          'model': fixture.routes.publicIdFor(fixture.asset.id),
           'messages': [
             {'role': 'user', 'content': 'Stream please'},
           ],
@@ -793,7 +950,7 @@ void main() {
       await fixture.enableReady();
       fixture.io.textRequests = 0;
       final valid = {
-        'model': 'gmd-${fixture.asset.id}',
+        'model': fixture.routes.publicIdFor(fixture.asset.id),
         'messages': [
           {'role': 'user', 'content': 'Hi'},
         ],
@@ -886,7 +1043,7 @@ void main() {
       await fixture.routes.enable(fixture.asset.id);
       final cold = await _post(
         '${fixture.gateway.baseUrl}/v1/chat/completions',
-        chat('gmd-${fixture.asset.id}'),
+        chat(fixture.routes.publicIdFor(fixture.asset.id)),
       );
       expect(cold.status, 503);
       expect(jsonDecode(cold.body)['error']['type'], 'model_not_ready');
@@ -896,7 +1053,7 @@ void main() {
       await fixture.routes.disable(fixture.asset.id);
       final disabled = await _post(
         '${fixture.gateway.baseUrl}/v1/chat/completions',
-        chat('gmd-${fixture.asset.id}'),
+        chat(fixture.routes.publicIdFor(fixture.asset.id)),
       );
       expect(disabled.status, 404);
       expect(fixture.io.textRequests, 1); // only the start readiness proof
@@ -911,7 +1068,7 @@ void main() {
       final response = await _post(
         '${fixture.gateway.baseUrl}/v1/chat/completions',
         {
-          'model': 'gmd-${fixture.asset.id}',
+          'model': fixture.routes.publicIdFor(fixture.asset.id),
           'messages': [
             {'role': 'user', 'content': 'Hi'},
           ],
@@ -936,7 +1093,7 @@ void main() {
       final status = await client.open(
         '${fixture.gateway.baseUrl}/v1/chat/completions',
         {
-          'model': 'gmd-${fixture.asset.id}',
+          'model': fixture.routes.publicIdFor(fixture.asset.id),
           'messages': [
             {'role': 'user', 'content': 'Hi'},
           ],
@@ -975,7 +1132,7 @@ void main() {
       final status = await client.open(
         '${fixture.gateway.baseUrl}/v1/chat/completions',
         {
-          'model': 'gmd-${fixture.asset.id}',
+          'model': fixture.routes.publicIdFor(fixture.asset.id),
           'messages': [
             {'role': 'user', 'content': 'Hi'},
           ],
@@ -1039,7 +1196,7 @@ void main() {
       final status = await client.open(
         '${fixture.gateway.baseUrl}/v1/chat/completions',
         {
-          'model': 'gmd-${fixture.asset.id}',
+          'model': fixture.routes.publicIdFor(fixture.asset.id),
           'messages': [
             {'role': 'user', 'content': 'Hi'},
           ],
@@ -1060,7 +1217,7 @@ void main() {
       final again = await _post(
         '${fixture.gateway.baseUrl}/v1/chat/completions',
         {
-          'model': 'gmd-${fixture.asset.id}',
+          'model': fixture.routes.publicIdFor(fixture.asset.id),
           'messages': [
             {'role': 'user', 'content': 'again'},
           ],
@@ -1220,7 +1377,7 @@ void main() {
       final client = _SseClient();
       addTearDown(client.destroy);
       await client.open('${fixture.gateway.baseUrl}/v1/chat/completions', {
-        'model': 'gmd-${fixture.asset.id}',
+        'model': fixture.routes.publicIdFor(fixture.asset.id),
         'messages': [
           {'role': 'user', 'content': 'Hi'},
         ],

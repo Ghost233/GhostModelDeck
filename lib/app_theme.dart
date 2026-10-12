@@ -37,49 +37,57 @@ ThemeData buildJevTheme(Brightness brightness) {
     brightness: brightness,
   );
   final text = base.textTheme.copyWith(
-    headlineSmall: TextStyle(
+    headlineSmall: base.textTheme.headlineSmall!.copyWith(
       fontSize: 24,
       height: 1.25,
       fontWeight: FontWeight.w600,
       color: scheme.onSurface,
     ),
-    titleLarge: TextStyle(
+    titleLarge: base.textTheme.titleLarge!.copyWith(
       fontSize: 22,
       height: 1.25,
       fontWeight: FontWeight.w600,
       color: scheme.onSurface,
     ),
-    titleMedium: TextStyle(
+    titleMedium: base.textTheme.titleMedium!.copyWith(
       fontSize: 15,
       height: 1.4,
       fontWeight: FontWeight.w600,
       color: scheme.onSurface,
     ),
-    titleSmall: TextStyle(
+    titleSmall: base.textTheme.titleSmall!.copyWith(
       fontSize: 13,
       height: 1.4,
       fontWeight: FontWeight.w600,
       color: scheme.onSurface,
     ),
-    bodyLarge: TextStyle(fontSize: 14, height: 1.5, color: scheme.onSurface),
-    bodyMedium: TextStyle(fontSize: 13, height: 1.5, color: scheme.onSurface),
-    bodySmall: TextStyle(
+    bodyLarge: base.textTheme.bodyLarge!.copyWith(
+      fontSize: 14,
+      height: 1.5,
+      color: scheme.onSurface,
+    ),
+    bodyMedium: base.textTheme.bodyMedium!.copyWith(
+      fontSize: 13,
+      height: 1.5,
+      color: scheme.onSurface,
+    ),
+    bodySmall: base.textTheme.bodySmall!.copyWith(
       fontSize: 12,
       height: 1.45,
       color: scheme.onSurfaceVariant,
     ),
-    labelLarge: const TextStyle(
+    labelLarge: base.textTheme.labelLarge!.copyWith(
       fontSize: 13,
       height: 1.25,
       fontWeight: FontWeight.w600,
     ),
-    labelMedium: TextStyle(
+    labelMedium: base.textTheme.labelMedium!.copyWith(
       fontSize: 12,
       height: 1.3,
       fontWeight: FontWeight.w500,
       color: scheme.onSurfaceVariant,
     ),
-    labelSmall: TextStyle(
+    labelSmall: base.textTheme.labelSmall!.copyWith(
       fontSize: 11,
       height: 1.3,
       fontWeight: FontWeight.w600,
@@ -95,7 +103,7 @@ ThemeData buildJevTheme(Brightness brightness) {
       isDense: true,
       filled: true,
       fillColor: scheme.surface,
-      hintStyle: TextStyle(
+      hintStyle: text.bodyMedium!.copyWith(
         fontSize: 13,
         color: dark ? const Color(0xFF8A8E96) : const Color(0xFF9499A2),
       ),

@@ -640,7 +640,8 @@ class _JevPlaygroundPageState extends State<JevPlaygroundPage> {
               child: Text(
                 validation,
                 key: const Key('playground-validation'),
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+                style: Theme.of(context).textTheme.bodyMedium
+                    ?.copyWith(color: Theme.of(context).colorScheme.error),
               ),
             ),
           if (preview != null)
