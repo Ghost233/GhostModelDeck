@@ -480,7 +480,8 @@ class LauncherInferenceService {
       return null;
     }
     for (final instance in runtime.runtimeInstances) {
-      if (instance.artifactId == entry.artifactId &&
+      if (!instance.temporaryTest &&
+          instance.artifactId == entry.artifactId &&
           instance.hasLiveProcess &&
           (instance.status == RuntimeInstanceStatus.starting ||
               instance.status == RuntimeInstanceStatus.ready)) {

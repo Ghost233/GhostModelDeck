@@ -10,6 +10,7 @@ import 'engine_runtime.dart';
 import 'engine_parameter_recognition.dart';
 import 'model_library.dart';
 import 'model_use_registry.dart';
+import 'engine_install_progress.dart';
 
 class OmlxException implements Exception {
   const OmlxException(this.message);
@@ -124,7 +125,16 @@ abstract interface class OmlxProcessIO {
   Future<void> download(Uri url, File destination);
 }
 
-class NativeOmlxProcessIO implements OmlxProcessIO {
+abstract interface class OmlxProgressiveDownload {
+  Future<void> downloadWithProgress(
+    Uri url,
+    File destination, {
+    required DecisionCancellation cancellation,
+    required void Function(int bytes) onProgress,
+  });
+}
+
+class NativeOmlxProcessIO implements OmlxProcessIO, OmlxProgressiveDownload {
   @override
   Future<ProcessResult> run(
     String executable,
@@ -168,23 +178,55 @@ class NativeOmlxProcessIO implements OmlxProcessIO {
   }
 
   @override
-  Future<void> download(Uri url, File destination) async {
+  Future<void> download(Uri url, File destination) => downloadWithProgress(
+    url,
+    destination,
+    cancellation: DecisionCancellation(),
+    onProgress: (_) {},
+  );
+
+  @override
+  Future<void> downloadWithProgress(
+    Uri url,
+    File destination, {
+    required DecisionCancellation cancellation,
+    required void Function(int bytes) onProgress,
+  }) async {
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 60);
+    final remove = cancellation.listen(() => client.close(force: true));
     try {
+      if (cancellation.isCancelled) throw const OmlxException('oMLX 下载已取消');
       final request = await client.getUrl(url);
-      final response = await request.close();
+      final response = await request.close().timeout(
+        const Duration(seconds: 60),
+      );
       if (response.statusCode != HttpStatus.ok) {
         await response.drain<void>();
         throw const OmlxException('oMLX 官方分发下载失败');
       }
       final sink = destination.openWrite();
       try {
-        await response.pipe(sink);
+        var received = 0;
+        final clock = Stopwatch()..start();
+        await for (final bytes in response.timeout(
+          const Duration(seconds: 60),
+        )) {
+          if (cancellation.isCancelled) throw const OmlxException('oMLX 下载已取消');
+          received += bytes.length;
+          sink.add(bytes);
+          if (received == bytes.length || clock.elapsedMilliseconds >= 100) {
+            onProgress(received);
+            clock.reset();
+          }
+        }
+        await sink.flush();
+        onProgress(received);
       } finally {
         await sink.close();
       }
     } finally {
+      remove();
       client.close(force: true);
     }
   }
@@ -305,6 +347,24 @@ class OmlxEngine implements EngineRuntime {
   final _inspectionResiduals = <String>{};
   OmlxState get state => _state;
   Stream<OmlxState> get changes => _changes.stream;
+  EngineInstallProgress? installationProgress;
+  DecisionCancellation? _downloadCancellation;
+  void cancelInstallation() {
+    if (_state.status != OmlxInstallationStatus.installing) return;
+    _downloadCancellation?.cancel();
+    _epoch++;
+  }
+
+  void _installProgress(EngineInstallPhase phase, int bytes, {String? error}) {
+    installationProgress = EngineInstallProgress(
+      phase,
+      received: bytes,
+      total: 830879938,
+      error: error,
+    );
+    if (!_changes.isClosed) _changes.add(_state);
+  }
+
   Future<void> _operations = Future.value();
   int _epoch = 0;
   bool _closed = false;
@@ -322,6 +382,7 @@ class OmlxEngine implements EngineRuntime {
   int _poolGeneration = 0;
   int _startHolds = 0;
   void Function() holdInstallationAdmission() {
+    cancelInstallation();
     _admissionHolds++;
     _epoch++;
     var released = false;
@@ -932,6 +993,8 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
   });
 
   Future<void> install({File? verifiedArtifact}) => _serial((epoch) async {
+    final cancellation = DecisionCancellation();
+    _downloadCancellation = cancellation;
     Directory? work;
     String? ownedDevice;
     bool detached = false;
@@ -943,6 +1006,7 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
       throw const OmlxException('oMLX 清理残留尚未解决，禁止新安装');
     }
     _set(const OmlxState(status: OmlxInstallationStatus.installing));
+    _installProgress(EngineInstallPhase.downloading, 0);
     try {
       // Existence is lexical, including dangling symlinks; never overwrite.
       if (await FileSystemEntity.type(
@@ -956,12 +1020,27 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
       work = await _privateDirectory('.install-');
       final artifact = verifiedArtifact ?? File('${work.path}/official.dmg');
       if (verifiedArtifact == null) {
-        await io.download(Uri.parse(artifactUrl), artifact);
+        if (io case OmlxProgressiveDownload downloader) {
+          await downloader.downloadWithProgress(
+            Uri.parse(artifactUrl),
+            artifact,
+            cancellation: cancellation,
+            onProgress: (bytes) =>
+                _installProgress(EngineInstallPhase.downloading, bytes),
+          );
+        } else {
+          await io.download(Uri.parse(artifactUrl), artifact);
+        }
       }
+      _installProgress(EngineInstallPhase.verifying, await artifact.length());
       await _verifyArtifact(
         artifact,
       ); // Even a preverified artifact is rehashed here.
       _check(epoch);
+      _installProgress(
+        EngineInstallPhase.unpacking,
+        installationProgress!.received,
+      );
       final mount = await Directory('${work.path}/readonly-mount').create();
       attachAttempted = true;
       final attach = await _run('/usr/bin/hdiutil', [
@@ -1154,6 +1233,16 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
           }
         }
       }
+      _downloadCancellation = null;
+      _installProgress(
+        _state.status == OmlxInstallationStatus.installed
+            ? EngineInstallPhase.complete
+            : cancellation.isCancelled
+            ? EngineInstallPhase.cancelled
+            : EngineInstallPhase.failed,
+        installationProgress?.received ?? 0,
+        error: _state.error,
+      );
     }
   });
   Future<void> _verifyArtifact(File artifact) async {
@@ -2266,6 +2355,7 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
   }
 
   void beginShutdown() {
+    cancelInstallation();
     _closed = true;
     _epoch++;
   }

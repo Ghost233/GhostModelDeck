@@ -2,15 +2,209 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ghost_model_deck/download_panel.dart';
+import 'package:ghost_model_deck/download_preferences.dart';
+import 'package:ghost_model_deck/download_tasks_page.dart';
+import 'package:ghost_model_deck/engine_page.dart';
+import 'package:ghost_model_deck/model_downloader.dart';
 import 'package:ghost_model_deck/engine_labels.dart';
 import 'package:ghost_model_deck/engine_source_build.dart';
 import 'package:ghost_model_deck/engine_catalog.dart';
+import 'package:ghost_model_deck/engine_launch_configuration.dart';
 import 'package:ghost_model_deck/llama_engine.dart';
 import 'package:ghost_model_deck/model_library.dart';
 import 'package:ghost_model_deck/model_use_registry.dart';
 
 void main() {
+  testWidgets(
+    'source form closes and Downloads owns progress and cancellation',
+    (tester) async {
+      await tester.runAsync(() async {
+        final root = await _temp('gmd-source-task-ui-');
+        final library = ModelLibrary();
+        final processes = _FixtureIO(holdBuild: true);
+        final builder = EngineSourceBuilder(
+          Directory('${root.path}/sources'),
+          io: processes,
+          cmakePath: '/fixture/cmake',
+        );
+        final inspect = _CatalogInspectIO(processes);
+        final owner = EngineCatalog(
+          library: library,
+          officialEngine: LlamaEngine(
+            library: library,
+            installationDirectory: Directory('${root.path}/legacy'),
+            io: inspect,
+          ),
+          useRegistry: ModelUseRegistry(library),
+          registryFile: File('${root.path}/engines.json'),
+          sourceBuilder: builder,
+          io: inspect,
+        );
+        final downloader = ModelDownloader();
+        final preferences = DownloadPreferences(
+          file: File('${root.path}/download-preferences.json'),
+        );
+        var downloadsShown = false;
+        try {
+          await owner.refresh().timeout(const Duration(seconds: 5));
+          await tester.pumpWidget(
+            MaterialApp(
+              home: Scaffold(
+                body: StatefulBuilder(
+                  builder: (context, change) {
+                    return downloadsShown
+                        ? DownloadTasksPage(
+                            engines: owner,
+                            downloads: DownloadTaskController(
+                              downloader: downloader,
+                              preferences: preferences,
+                            ),
+                          )
+                        : EnginePage(
+                            catalog: owner,
+                            pickEngineDirectory: () async => null,
+                            onDownloadStarted: () =>
+                                change(() => downloadsShown = true),
+                          );
+                  },
+                ),
+              ),
+            ),
+          );
+          for (var frame = 0; frame < 10; frame++) {
+            await tester.pump(const Duration(milliseconds: 16));
+            await Future<void>.delayed(const Duration(milliseconds: 5));
+          }
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const Key('engine-source-open')));
+          await tester.pumpAndSettle();
+          await tester.enterText(
+            find.byKey(const Key('engine-source-name')),
+            'background engine',
+          );
+          await tester.enterText(
+            find.byKey(const Key('engine-source-address')),
+            '/fixture/source',
+          );
+          await tester.enterText(
+            find.byKey(const Key('engine-source-cmake')),
+            '/fixture/cmake',
+          );
+          await tester.tap(find.byKey(const Key('engine-source-build')));
+          await processes.buildStarted.future.timeout(
+            const Duration(seconds: 5),
+          );
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 300));
+          expect(find.byType(AlertDialog), findsNothing);
+          expect(find.text('下载'), findsOneWidget);
+          expect(find.text('编译中'), findsOneWidget);
+          expect(find.text('/fixture/source'), findsOneWidget);
+          {
+            final cancelled = owner.changes.firstWhere(
+              (_) =>
+                  !owner.sourceBuildActive &&
+                  owner.sourceBuildProgress?.phase ==
+                      EngineSourceBuildPhase.cancelled,
+            );
+            await tester.tap(find.text('取消构建'));
+            await cancelled.timeout(const Duration(seconds: 5));
+          }
+          await tester.pumpAndSettle();
+          expect(find.text('已取消'), findsOneWidget);
+          expect(find.text('重试构建'), findsOneWidget);
+        } finally {
+          await tester.pumpWidget(const SizedBox.shrink());
+          await owner.shutdown();
+          await downloader.close();
+          owner.close();
+          preferences.dispose();
+          library.close();
+          await root.delete(recursive: true);
+        }
+      });
+    },
+    timeout: const Timeout(Duration(seconds: 30)),
+  );
+  test('source compilation leaves other engine settings available', () async {
+    final root = await _temp('gmd-source-task-settings-');
+    final library = ModelLibrary();
+    final processes = _FixtureIO(holdBuild: true);
+    final builder = EngineSourceBuilder(
+      Directory('${root.path}/sources'),
+      io: processes,
+      cmakePath: '/fixture/cmake',
+    );
+    final inspect = _CatalogInspectIO(processes);
+    final owner = EngineCatalog(
+      library: library,
+      officialEngine: LlamaEngine(
+        library: library,
+        installationDirectory: Directory('${root.path}/legacy'),
+        io: inspect,
+      ),
+      useRegistry: ModelUseRegistry(library),
+      registryFile: File('${root.path}/engines.json'),
+      sourceBuilder: builder,
+      io: inspect,
+    );
+    final operation = owner.buildFromSource(
+      EngineSourceBuildRequest(
+        source: '/fixture/source',
+        name: 'background engine',
+      ),
+    );
+    final result = operation.then<Object?>(
+      (value) => value,
+      onError: (Object error) => error,
+    );
+    try {
+      await processes.buildStarted.future.timeout(const Duration(seconds: 5));
+      expect(owner.state.busy, isFalse);
+      expect(owner.sourceBuildProgress!.phase, EngineSourceBuildPhase.building);
+      expect(
+        identical(
+          operation,
+          owner.buildFromSource(
+            EngineSourceBuildRequest(
+              source: '/fixture/source',
+              name: 'background engine',
+            ),
+          ),
+        ),
+        isTrue,
+      );
+      await expectLater(
+        owner.buildFromSource(
+          EngineSourceBuildRequest(
+            source: '/fixture/another',
+            name: 'different engine',
+          ),
+        ),
+        throwsA(isA<EngineSourceBuildException>()),
+      );
+      await owner
+          .saveLaunchDefaults(
+            EngineCatalog.officialId,
+            EngineLaunchConfiguration(argumentText: '--ctx-size 65536'),
+          )
+          .timeout(const Duration(seconds: 1));
+      expect(
+        owner.launchDefaultsFor(EngineCatalog.officialId).argumentText,
+        '--ctx-size 65536',
+      );
+    } finally {
+      builder.cancelBuild();
+      await result;
+      await owner.shutdown();
+      owner.close();
+      library.close();
+      await root.delete(recursive: true);
+    }
+  });
   for (final injected in [false, true]) {
     test(
       injected
@@ -298,8 +492,8 @@ void main() {
     );
     expect(entry.name, 'dynamic fork');
     expect(entry.status, LlamaInstallationStatus.installed);
-    expect(engineDisplayName(entry), 'dynamic fork');
-    expect(engineSourceLabel(entry), 'Git 源码构建');
+    expect(engineDisplayName(entry), 'llama.cpp');
+    expect(engineSourceLabel(entry), '/fixture/source');
     expect(
       entry.sourceBuild!['commit'],
       '0123456789abcdef0123456789abcdef01234567',

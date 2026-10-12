@@ -3,24 +3,28 @@ Ghost Model Deck
 
 只编译和提供 **macOS arm64（Apple Silicon）** 版本，应用及配套引擎、运行时均遵守这一限制。不提供 macOS Intel/x64、Linux 或 Windows 版本，也不提供通用双架构安装包。构建和检查要求见 [工程规范](docs/engineering.md)。
 
-## 文档先行迁移
+## 功能
 
-Ghost Model Deck 将从 JevManager 扩展为通用模型及多类引擎的统一管理入口。规范和来源资料已先行迁入，首期规格已汇总；应用源码迁入与新能力实现由后续工单交付。
+Ghost Model Deck 管理本机模型、引擎和启动配置。当前产品职责为：
 
-- [迁移说明与后续范围](docs/migration/README.md)
-- [工程规范](docs/engineering.md)与 [项目界面记录](docs/design.md)
+下列职责已确认；实例管理和委员会实例引用仍在实施。完成状态以[当前验收记录](docs/verification/engine-sources-and-installation-2026-10-12.md)为准。
+
+1. 关联和设置已有引擎。
+2. 下载引擎，或从用户指定的 Git 来源构建引擎。
+3. 关联本地模型；模型库可添加多个目录。
+4. 下载模型；新文件只写入一个选定的保存目录。
+5. 管理实例配置：保存模型、引擎和启动参数的组合。同一组合可保存多份参数配置。
+6. 提供聊天测试和题集测试。用户选择是否测试，模型库不显示“待验证”标签。
+7. 配置委员会，成员引用已有实例。引用的实例、模型或引擎缺失时保留配置并标红。
+
+模型库只显示识别出的模型，忽略其他文件和目录。实例配置与实际运行进程分开管理；保存配置不启动模型。文件损坏、缺失和真实运行错误仍如实提示。
+
+公开 HTTP、MCP 和 SDK 继续使用同一业务入口。评测集属于可选功能，不要求每个模型运行全部题集。原生题目、固定 submodule、完整基准规模、摘要分页和 Finder 文件入口保持。
+
+## 文档
+
+- [当前规格](docs/spec.md)
 - [领域词汇](CONTEXT.md)
-- [GhostModelDeck：从 JevManager 扩展为多引擎模型管理器的首期决策地图](https://github.com/Ghost233/GhostModelDeck/issues/1)
-- [GhostModelDeck 首期规格](docs/spec.md)
-- [首期实施交接与工单索引](docs/implementation-plan.md)
-- [旧 JEV 规格来源](docs/migration/jevmanager-source/docs/spec.md)
-- [GitHub 跟踪器](docs/agents/issue-tracker.md)
-- [JevManager 原 README](docs/migration/jevmanager-source/README.md)
-
-首期范围为标准 LLM 模型管理与统一本机 API、原 JEV 委员会及 MCP、HF 下载和 MacLauncher SDK；引擎先覆盖 llama.cpp 与 oMLX。目标是本机 Release 与真实联调，采用全新设置和独立模型库复用；OCR、生图、生视频、其他引擎及公开分发后续处理。当前尚未迁移应用代码或实现新增能力，旧测试不计作新项目验收。
-
-规范规格与七张实现工单已发布到 [GhostModelDeck 首期规格](https://github.com/Ghost233/GhostModelDeck/issues/12)，使用原生子项和阻塞关系；当前起点为 [迁入 JevManager 源码并完成 GhostModelDeck 身份替换](https://github.com/Ghost233/GhostModelDeck/issues/13)。
-
-规范与历史证据保留来源和日期。旧模型、决策委员会的分数与验收结果只证明旧阶段的相应行为，不能作为图像、视频、OCR 或其他引擎的能力证明。
-
-通用 macOS UI 规范继续使用个人 `$macos-ui-standards` skill，仅在用户明确调用时应用。代码、测试、运行脚本、模型文件、引擎安装和应用构建产物尚未迁入；复制的检查命令需要完整源码迁移后才可在本项目执行。
+- [工程规范](docs/engineering.md)
+- [当前修改与验收记录](docs/verification/engine-sources-and-installation-2026-10-12.md)
+- [旧项目迁移记录](docs/migration/README.md)

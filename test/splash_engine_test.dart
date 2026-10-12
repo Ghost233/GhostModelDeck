@@ -15,6 +15,84 @@ import 'package:ghost_model_deck/chat_protocol.dart';
 import 'fixtures/decision_gguf.dart';
 
 void main() {
+  test('Splash sends sized JSON for startup text and streaming to an upstream that refuses transfer encoding', () async {
+    final fixture = await SplashRuntimeFixture.create();
+    addTearDown(fixture.close);
+    fixture.io.rejectTransferEncoding = true;
+    final engine = fixture.engine();
+    addTearDown(engine.close);
+    await engine.bindModel(fixture.asset.id, fixture.assembly);
+    try {
+      final run = await engine.startRuntime(fixture.asset.id);
+      final reply = await engine.generateText(
+        run.id,
+        TextRequest(prompt: 'Reply OK.'),
+        timeout: const Duration(seconds: 2),
+      );
+      expect(reply.text, 'OK');
+      final events = await engine
+          .streamText(
+            run.id,
+            TextRequest(prompt: 'Reply OK.'),
+            timeout: const Duration(seconds: 2),
+          )
+          .toList();
+      expect(events.any((event) => event.result != null), isTrue);
+      expect(fixture.io.sizedPosts, 3);
+    } finally {
+      await engine.shutdown();
+    }
+  });
+  test('cold readiness probe timeout stays within the existing startup deadline and still requires valid identity and text', () async {
+    final fixture = await SplashRuntimeFixture.create();
+    addTearDown(fixture.close);
+    fixture.io.identityDelay = const Duration(seconds: 6);
+    final engine = fixture.engine();
+    addTearDown(engine.close);
+    await engine.bindModel(fixture.asset.id, fixture.assembly);
+    try {
+      final run = await engine.startRuntime(fixture.asset.id);
+      expect(run.status, RuntimeInstanceStatus.ready);
+      expect(fixture.io.starts, 1);
+      expect(
+        fixture.io.httpPaths.where((path) => path == '/ready').length,
+        greaterThan(1),
+      );
+      expect(fixture.io.httpPaths, contains('/v1/chat/completions'));
+    } finally {
+      await engine.shutdown();
+    }
+  });
+  test('Splash only supplies its private cache directory with an explicit persistent-cache option', () async {
+    final fixture = await SplashRuntimeFixture.create();
+    addTearDown(fixture.close);
+    final engine = fixture.engine();
+    addTearDown(engine.close);
+    for (final text in ['', '--future-option "--persistent-cache"']) {
+      final command = engine.composeLaunch(
+        EngineLaunchConfiguration(
+          family: EngineFamily.splash,
+          argumentText: text,
+        ),
+      );
+      expect(command.arguments, isNot(contains('--cache-dir')));
+    }
+    final persistent = engine.composeLaunch(
+      EngineLaunchConfiguration(
+        family: EngineFamily.splash,
+        argumentText: '--persistent-cache --cache-dir /external',
+      ),
+    );
+    expect(persistent.arguments, contains('--persistent-cache'));
+    expect(
+      persistent.arguments,
+      containsAllInOrder([
+        '--cache-dir',
+        '${engine.runtimeDirectory.path}/cache',
+      ]),
+    );
+    expect(persistent.arguments, isNot(contains('/external')));
+  });
   test(
     'linked Splash refuses content changed during actual help observation',
     () async {
@@ -1113,6 +1191,9 @@ class SplashTestProcessIO implements SplashProcessIO {
   final bool mutate;
   final bool wrongPrefix;
   final calls = <List<String>>[];
+  final httpPaths = <String>[];
+  bool rejectTransferEncoding = false;
+  int sizedPosts = 0;
   int starts = 0;
   Duration identityDelay = Duration.zero;
   Completer<void>? identityEntered;
@@ -1203,6 +1284,7 @@ class SplashTestProcessIO implements SplashProcessIO {
       try {
         request.response.headers.contentType = ContentType.json;
         Object response;
+        httpPaths.add(request.uri.path);
         switch (request.uri.path) {
           case '/ready':
             if (identityDelay > Duration.zero || identityRelease != null) {
@@ -1277,6 +1359,18 @@ class SplashTestProcessIO implements SplashProcessIO {
               ],
             };
           case '/v1/chat/completions':
+            if (rejectTransferEncoding &&
+                (request.headers.value(HttpHeaders.transferEncodingHeader) !=
+                        null ||
+                    request.contentLength < 0)) {
+              request.response.statusCode = 400;
+              request.response.write(
+                '{"error":{"message":"transfer encoding is not supported"}}',
+              );
+              await request.response.close();
+              return;
+            }
+            if (request.contentLength >= 0) sizedPosts++;
             final body = jsonDecode(
               await request.cast<List<int>>().transform(utf8.decoder).join(),
             ) as Map;

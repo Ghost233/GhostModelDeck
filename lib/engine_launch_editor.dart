@@ -233,7 +233,7 @@ class _EngineLaunchEditorState extends State<EngineLaunchEditor> {
                   if (_error != null)
                     Text(
                       _error!,
-                      style: TextStyle(
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: Theme.of(context).colorScheme.error,
                       ),
                     ),

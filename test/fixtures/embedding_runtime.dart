@@ -32,7 +32,7 @@ class EmbeddingTestRuntime {
   final EngineCatalog catalog;
   final PublicModelRoutes routes;
   final PublicGatewayServer gateway;
-  String get publicId => 'gmd-${asset.id}';
+  String get publicId => routes.publicIdFor(asset.id);
 
   static Future<EmbeddingTestRuntime> create({
     EmbeddingTestIO? processIO,

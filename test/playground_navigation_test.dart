@@ -32,7 +32,7 @@ void main() {
         tester.getBottomLeft(tabs).dy,
         lessThanOrEqualTo(tester.getTopLeft(_navigation('发现模型')).dy),
       );
-      for (final label in ['发现模型', '模型库', '下载任务', '引擎管理', '委员会配置', 'MCP']) {
+      for (final label in ['发现模型', '模型库', '下载', '引擎管理', '委员会配置', 'MCP']) {
         await tester.scrollUntilVisible(
           _navigation(label),
           100,

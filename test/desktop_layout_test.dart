@@ -16,6 +16,7 @@ import 'package:ghost_model_deck/download_panel.dart';
 import 'package:ghost_model_deck/download_preferences.dart';
 import 'package:ghost_model_deck/download_tasks_page.dart';
 import 'package:ghost_model_deck/engine_page.dart';
+import 'package:ghost_model_deck/engine_labels.dart';
 import 'package:ghost_model_deck/hf_model_browser.dart';
 import 'package:ghost_model_deck/library_page.dart';
 import 'package:ghost_model_deck/llama_engine.dart';
@@ -278,19 +279,24 @@ void main() {
               tester.widget<DropdownButton<String>>(field).items,
               hasLength(2),
             );
-            _expectVisible(tester, find.widgetWithText(FilledButton, '运行'));
+            _expectVisible(tester, find.widgetWithText(OutlinedButton, '测试运行'));
             _expectVisible(tester, find.widgetWithText(TextButton, '取消'));
             await _capture(tester, '$page-$mode');
             await tester.tap(field);
             await tester.pumpAndSettle();
-            // Both real catalog registrations must remain readable in the menu.
+            final localSource = engineSourceLabel(
+              fixture.runtime.catalog.state.entries.last,
+            );
+            final managedName = engineDisplayName(
+              fixture.runtime.catalog.state.entries.first,
+            );
+            expect(find.text(managedName).hitTestable(), findsOneWidget);
             expect(
-              find.textContaining('Ghost Model Deck').hitTestable(),
+              find.textContaining(localSource).hitTestable(),
               findsOneWidget,
             );
-            expect(find.textContaining('本地关联').hitTestable(), findsOneWidget);
             await _capture(tester, '$page-menu-$mode');
-            await tester.tap(find.textContaining('本地关联').last);
+            await tester.tap(find.textContaining(localSource).last);
             await tester.pumpAndSettle();
             expect(
               tester.widget<DropdownButton<String>>(field).value,
@@ -300,7 +306,10 @@ void main() {
             await tester.pumpAndSettle();
             await tester.sendKeyEvent(LogicalKeyboardKey.escape);
             await tester.pumpAndSettle();
-            expect(find.textContaining('本地关联').hitTestable(), findsNothing);
+            expect(
+              find.textContaining(localSource).hitTestable(),
+              findsNothing,
+            );
             expect(find.text('运行模型'), findsOneWidget);
             await tester.tap(find.widgetWithText(TextButton, '取消'));
             await tester.pumpAndSettle();
@@ -308,14 +317,14 @@ void main() {
             await _openRunDialog(tester, fixture, packages);
             await tester.tap(field);
             await tester.pumpAndSettle();
-            await tester.tap(find.textContaining('本地关联').last);
+            await tester.tap(find.textContaining(localSource).last);
             await tester.pumpAndSettle();
             final processIO = fixture.runtime.io as _LayoutProcessIO;
             processIO.startRequested = Completer<void>();
             processIO.resumeStart = Completer<void>();
             await tester.runAsync(
               () => HttpOverrides.runWithHttpOverrides(() async {
-                await tester.tap(find.widgetWithText(FilledButton, '运行'));
+                await tester.tap(find.widgetWithText(OutlinedButton, '测试运行'));
                 for (
                   var frame = 0;
                   frame < 100 && !processIO.startRequested!.isCompleted;
@@ -338,11 +347,17 @@ void main() {
               expect(find.text('运行模型'), findsOneWidget);
               expect(
                 tester
-                    .widget<TextButton>(find.widgetWithText(TextButton, '取消'))
+                    .widget<TextButton>(find.widgetWithText(TextButton, '取消测试'))
                     .onPressed,
-                isNull,
+                isNotNull,
               );
-              _expectVisible(tester, find.widgetWithText(FilledButton, '启动中'));
+              _expectVisible(
+                tester,
+                find.widgetWithText(OutlinedButton, '测试运行'),
+              );
+              _expectVisible(tester, find.widgetWithText(FilledButton, '保存'));
+              await tester.tap(find.widgetWithText(TextButton, '取消测试'));
+              await tester.pump();
               await _capture(tester, '$page-starting-$mode');
             } finally {
               await tester.runAsync(
@@ -350,19 +365,24 @@ void main() {
                   final provider = fixture.runtime.catalog.providerFor(
                     fixture.runtime.catalog.state.entries.last.id,
                   );
-                  final ready = fixture.runtime.catalog.changes.firstWhere(
-                    (_) => provider.state.instances.any(
-                      (instance) =>
-                          instance.status == LlamaInstanceStatus.ready,
-                    ),
+                  final stopped = fixture.runtime.catalog.changes.firstWhere(
+                    (_) =>
+                        provider.state.instances.isNotEmpty &&
+                        provider.state.instances.every(
+                          (i) =>
+                              !i.hasLiveProcess &&
+                              i.status != LlamaInstanceStatus.starting,
+                        ),
                   );
                   processIO.resumeStart!.complete();
                   await _settleIo(tester);
-                  await ready.timeout(const Duration(seconds: 5));
+                  await stopped.timeout(const Duration(seconds: 5));
                 }, _NetworkBoundary()),
               );
             }
-            expect(find.text('运行模型'), findsNothing);
+            expect(find.text('运行模型'), findsOneWidget);
+            await tester.tap(find.widgetWithText(TextButton, '取消'));
+            await tester.pumpAndSettle();
             await _openRunDialog(tester, fixture, packages);
             await tester.sendKeyEvent(LogicalKeyboardKey.escape);
             await tester.pumpAndSettle();

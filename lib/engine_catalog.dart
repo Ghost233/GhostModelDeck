@@ -11,6 +11,7 @@ import 'engine_parameter_recognition.dart';
 import 'model_library.dart';
 import 'omlx_engine.dart';
 import 'model_use_registry.dart';
+import 'splash_engine.dart';
 
 enum EngineSource { managed, linked }
 
@@ -40,7 +41,7 @@ class UnlinkedLaunchConfiguration {
         value is! Map ||
         value['name'] is! String ||
         value['path'] is! String ||
-        !['llamaCpp', 'omlx'].contains(value['family']) ||
+        !['llamaCpp', 'omlx', 'splash'].contains(value['family']) ||
         value['version'] != null && value['version'] is! String ||
         value['fingerprint'] != null && value['fingerprint'] is! String ||
         !value.containsKey('defaults') ||
@@ -54,9 +55,7 @@ class UnlinkedLaunchConfiguration {
       }
       models[model.key as String] = ModelLaunchOverrides.fromJson(model.value);
     }
-    final family = value['family'] == 'omlx'
-        ? EngineFamily.omlx
-        : EngineFamily.llamaCpp;
+    final family = EngineFamily.values.byName(value['family'] as String);
     final defaults = value['defaults'] == null
         ? null
         : EngineLaunchConfiguration.fromJson(value['defaults']);
@@ -138,6 +137,7 @@ class EngineRegistration {
     this.binaryVersion,
     this.omlxReceipt,
     this.sourceBuild,
+    this.splashInstallation,
     this.error,
   });
   final String id;
@@ -156,6 +156,7 @@ class EngineRegistration {
   final LlamaBinaryVersion? binaryVersion;
   final OmlxReceipt? omlxReceipt;
   final Map<String, Object?>? sourceBuild;
+  final SplashInstallation? splashInstallation;
   String get installationId => id;
   final String? error;
 }
@@ -212,6 +213,7 @@ class EngineCatalog {
     this.omlxEngine,
     this.startStartluxReadout,
     this.sourceBuilder,
+    this.splashIO,
     required this.useRegistry,
     required this.registryFile,
     EngineProcessIO? io,
@@ -223,6 +225,16 @@ class EngineCatalog {
       _subscriptions.add(entry.value.changes.listen((_) => _publish()));
     }
     _omlxSubscription = omlxEngine?.changes.listen((_) => _publish());
+    _sourceSubscription = sourceBuilder?.changes.listen((progress) {
+      if (_sourceOperation == null) return;
+      _sourceProgress = progress.phase == EngineSourceBuildPhase.complete
+          ? const EngineSourceBuildProgress(
+              EngineSourceBuildPhase.inspecting,
+              '登记编译结果…',
+            )
+          : progress;
+      _publish();
+    });
   }
   static const omlxId = 'official-omlx-v0.7.0';
   static const officialId = 'official-llama-b11381';
@@ -244,7 +256,15 @@ class EngineCatalog {
   final OmlxEngine? omlxEngine;
   final StartluxReadoutStarter? startStartluxReadout;
   final EngineSourceBuilder? sourceBuilder;
-  Iterable<EngineRuntime> get runtimes => {..._providers, ?omlxEngine};
+  Iterable<EngineRuntime> get runtimes => {
+    ..._providers,
+    ..._splash.values,
+    ?omlxEngine,
+  };
+  final SplashProcessIO? splashIO;
+  final _splash = <String, SplashEngine>{};
+  final _splashSubscriptions = <StreamSubscription<SplashEngineState>>[];
+  final _splashAdmissions = <SplashEngine, void Function()>{};
   StreamSubscription<OmlxState>? _omlxSubscription;
   final _linkedOmlx = <String, _LinkedOmlx>{};
   final ModelUseRegistry useRegistry;
@@ -254,6 +274,10 @@ class EngineCatalog {
   final _linked = <String, LlamaEngine>{};
   final _names = <String, String>{};
   final _sourceBuilds = <String, Map<String, Object?>>{};
+  final _preferredModelEngines = <String, String>{};
+  String? preferredEngineFor(String artifactId) =>
+      _preferredModelEngines[artifactId];
+
   final _launchDefaults = <String, EngineLaunchConfiguration>{};
   final _modelLaunchOverrides = <String, Map<String, ModelLaunchOverrides>>{};
   final _unlinkedConfigurations = <String, UnlinkedLaunchConfiguration>{};
@@ -270,6 +294,34 @@ class EngineCatalog {
   final _admissionReleases = <LlamaEngine, void Function()>{};
   bool _busy = false;
   String? _error;
+  final _installations = <String, Future<void>>{};
+  StreamSubscription<EngineSourceBuildProgress>? _sourceSubscription;
+  Future<EngineRegistration>? _sourceOperation;
+  EngineSourceBuildRequest? _sourceRequest;
+  EngineSourceBuildProgress? _sourceProgress;
+  DecisionCancellation? _sourceCancellation;
+  String? _sourceLogPath;
+  EngineSourceBuildRequest? get sourceBuildRequest => _sourceRequest;
+  EngineSourceBuildProgress? get sourceBuildProgress => _sourceProgress;
+  String? get sourceBuildLogPath => _sourceLogPath;
+  bool get sourceBuildActive => _sourceOperation != null;
+  void cancelSourceBuild() => _sourceCancellation?.cancel();
+
+  Map<String, EngineInstallProgress> get installationTasks => {
+    if (omlxEngine?.installationProgress != null)
+      omlxId: omlxEngine!.installationProgress!,
+    for (final entry in _managed.entries)
+      if (entry.value.installationProgress != null)
+        entry.key: entry.value.installationProgress!,
+  };
+  void cancelInstallation(String id) {
+    if (id == omlxId) {
+      omlxEngine?.cancelInstallation();
+    } else {
+      _managed[id]?.cancelInstallation();
+    }
+  }
+
   Stream<EngineCatalogState> get changes => _changes.stream;
   EngineCatalogState get state => EngineCatalogState(
     busy: _busy,
@@ -278,7 +330,7 @@ class EngineCatalog {
       if (omlxEngine != null)
         EngineRegistration(
           id: omlxId,
-          name: 'oMLX · 官方 0.7.0',
+          name: 'oMLX · 0.7.0',
           source: EngineSource.managed,
           family: EngineFamily.omlx,
           status: switch (omlxEngine!.state.status) {
@@ -321,7 +373,7 @@ class EngineCatalog {
               ? 'llama.cpp · JEV b11381'
               : entry.key == embeddingId
               ? 'llama.cpp · 嵌入 b11457'
-              : 'llama.cpp · 标准 v0.5.0',
+              : 'llama.cpp · b11146',
           source: EngineSource.managed,
           status: entry.value.state.installation,
           version: entry.value.observedVersion,
@@ -345,6 +397,18 @@ class EngineCatalog {
           binarySha256: entry.value.binarySha256,
           binaryVersion: entry.value.binaryVersion,
           sourceBuild: _sourceBuilds[entry.key],
+          error: entry.value.state.error,
+        ),
+      for (final entry in _splash.entries)
+        EngineRegistration(
+          id: entry.key,
+          name: 'Splash',
+          family: EngineFamily.splash,
+          source: EngineSource.linked,
+          status: entry.value.state.installation,
+          path: entry.value.installation.root.path,
+          version: entry.value.installation.observedVersion,
+          splashInstallation: entry.value.installation,
           error: entry.value.state.error,
         ),
     ]),
@@ -379,9 +443,16 @@ class EngineCatalog {
   Future<void> refresh() => _serial(() async {
     await _load();
     for (final provider in _providers) {
+      if (provider.state.installation != LlamaInstallationStatus.installing) {
+        await provider.refreshInstallation();
+      }
+    }
+    for (final provider in _splash.values) {
       await provider.refreshInstallation();
     }
-    await omlxEngine?.refreshInstallation();
+    if (omlxEngine?.state.status != OmlxInstallationStatus.installing) {
+      await omlxEngine?.refreshInstallation();
+    }
     for (final row in _linkedOmlx.entries.toList()) {
       try {
         final receipt = await omlxEngine!.inspectLinked(
@@ -417,10 +488,19 @@ class EngineCatalog {
           value['linked'] is! List) {
         throw const LlamaEngineException('引擎登记文件无效');
       }
+      final preferred = value['preferredModelEngines'] ?? <String, String>{};
+      if (preferred is! Map ||
+          preferred.entries.any(
+            (e) => e.key is! String || e.value is! String,
+          )) {
+        throw const LlamaEngineException('模型引擎选择登记无效');
+      }
       // Parse completely before mutating ownership; malformed mixed-family rows
       // must leave both the existing schema-1 file and catalog unchanged.
       final cppRows = <String, (String, LinkedLlamaInstallation)>{};
       final nativeRows = <String, _LinkedOmlx>{};
+      final splashRows =
+          <String, (SplashInstallation, List<SplashModelBinding>)>{};
       final sourceRows = <String, Map<String, Object?>>{};
       final launchDefaults = <String, EngineLaunchConfiguration>{};
       if ([3, 4, 5].contains(value['schema'])) {
@@ -522,6 +602,17 @@ class EngineCatalog {
           );
           continue;
         }
+        if (row['family'] == 'splash') {
+          if (row['bindings'] is! List) {
+            throw const LlamaEngineException('Splash 模型绑定登记无效');
+          }
+          final installation = SplashInstallation.fromJson(row['installation']);
+          splashRows[row['id'] as String] = (
+            installation,
+            (row['bindings'] as List).map(SplashModelBinding.fromJson).toList(),
+          );
+          continue;
+        }
         if (row['family'] != null && row['family'] != 'llamaCpp') {
           throw const LlamaEngineException('引擎家族登记无效');
         }
@@ -569,6 +660,7 @@ class EngineCatalog {
         if (omlxEngine != null) omlxId: EngineFamily.omlx,
         for (final id in cppRows.keys) id: EngineFamily.llamaCpp,
         for (final id in nativeRows.keys) id: EngineFamily.omlx,
+        for (final id in splashRows.keys) id: EngineFamily.splash,
       };
       for (final entry in launchDefaults.entries) {
         final family = families[entry.key];
@@ -596,7 +688,11 @@ class EngineCatalog {
         );
       }
       _linkedOmlx.addAll(nativeRows);
+      for (final row in splashRows.entries) {
+        _registerSplash(row.key, row.value.$1, row.value.$2);
+      }
       _sourceBuilds.addAll(sourceRows);
+      _preferredModelEngines.addAll(preferred.cast<String, String>());
       _launchDefaults.addAll(launchDefaults);
       _modelLaunchOverrides.addAll(modelOverrides);
       _unlinkedConfigurations.addAll(unlinked);
@@ -633,12 +729,37 @@ class EngineCatalog {
     _subscriptions.add(provider.changes.listen((_) => _publish()));
   }
 
+  void _registerSplash(
+    String id,
+    SplashInstallation installation,
+    List<SplashModelBinding> bindings,
+  ) {
+    final provider = SplashEngine(
+      installation: installation,
+      library: library,
+      useRegistry: useRegistry,
+      runtimeDirectory: Directory(
+        '${registryFile.parent.path}/splash-runtime/$id',
+      ),
+      io: splashIO,
+      configurationFor: (artifact) => launchConfigurationFor(id, artifact),
+      bindings: bindings,
+      saveBinding: (binding) => _save(splashBinding: (id, binding)),
+    );
+    _splash[id] = provider;
+    if (_shuttingDown) provider.beginShutdown();
+    if (_recycling) _splashAdmissions[provider] = provider.holdStartAdmission();
+    _splashSubscriptions.add(provider.changes.listen((_) => _publish()));
+  }
+
   Future<void> _save({
     String? excluding,
     Map<String, EngineLaunchConfiguration>? launchDefaults,
     Map<String, Map<String, ModelLaunchOverrides>>? modelLaunchOverrides,
     Map<String, UnlinkedLaunchConfiguration>? unlinkedConfigurations,
     Map<String, String?>? configurationVersions,
+    (String, SplashModelBinding)? splashBinding,
+    Map<String, String>? preferredModelEngines,
   }) async {
     final configurations = launchDefaults ?? _launchDefaults;
     final modelConfigurations = modelLaunchOverrides ?? _modelLaunchOverrides;
@@ -681,7 +802,25 @@ class EngineCatalog {
               history.key: history.value.toJson(),
           },
         if (versions.isNotEmpty) 'configurationVersions': versions,
+        if ((preferredModelEngines ?? _preferredModelEngines).isNotEmpty)
+          'preferredModelEngines':
+              preferredModelEngines ?? _preferredModelEngines,
         'linked': [
+          for (final entry in _splash.entries)
+            if (entry.key != excluding)
+              {
+                'id': entry.key,
+                'family': 'splash',
+                'installation': entry.value.installation.toJson(),
+                'bindings': [
+                  for (final binding in entry.value.bindings)
+                    if (splashBinding?.$1 != entry.key ||
+                        splashBinding?.$2.artifactId != binding.artifactId)
+                      binding.toJson(),
+                  if (splashBinding?.$1 == entry.key)
+                    splashBinding!.$2.toJson(),
+                ],
+              },
           for (final entry in _linked.entries)
             if (entry.key != excluding)
               {
@@ -720,6 +859,9 @@ class EngineCatalog {
     if (entry.family == EngineFamily.llamaCpp) {
       return providerFor(id).parameterRecognition;
     }
+    if (entry.family == EngineFamily.splash) {
+      return _splash[id]!.state.recognition;
+    }
     final receipt = entry.omlxReceipt;
     final current = receipt?.parameterRecognition;
     if (entry.status == LlamaInstallationStatus.installed &&
@@ -735,6 +877,9 @@ class EngineCatalog {
       notice: '当前 oMLX 帮助不可用；使用内置规则，仅保存配置，生产模型运行尚未接通。',
     );
   }
+
+  Map<String, Map<String, ModelLaunchOverrides>>
+  get configuredLaunchOverrides => Map.unmodifiable(_modelLaunchOverrides);
 
   EngineLaunchConfiguration launchDefaultsFor(String id) {
     final entry = _configurationRegistration(id);
@@ -810,6 +955,7 @@ class EngineCatalog {
     String id,
     String artifactId, {
     required bool independent,
+    bool preferEngine = false,
   }) => _serial(() async {
     await _load();
     _requireModelConfigurationTarget(id, artifactId);
@@ -823,14 +969,16 @@ class EngineCatalog {
             previous.configuration ??
             (independent ? launchDefaultsFor(id) : null),
       ),
+      preferEngine: preferEngine,
     );
   });
 
   Future<void> saveModelLaunchOverrides(
     String id,
     String artifactId,
-    EngineLaunchConfiguration configuration,
-  ) => _serial(() async {
+    EngineLaunchConfiguration configuration, {
+    bool preferEngine = false,
+  }) => _serial(() async {
     await _load();
     _requireModelConfigurationTarget(id, artifactId);
     _requireConfigurationFamily(id, configuration);
@@ -838,6 +986,7 @@ class EngineCatalog {
       id,
       artifactId,
       ModelLaunchOverrides(enabled: true, configuration: configuration),
+      preferEngine: preferEngine,
     );
   });
 
@@ -853,6 +1002,9 @@ class EngineCatalog {
                       AssetKind.chat,
                       AssetKind.embedding,
                     ].contains(asset.kind)
+              : family == EngineFamily.splash
+              ? ['GGUF', 'Safetensors'].contains(asset.format) &&
+                    asset.kind == AssetKind.chat
               : asset.format == 'Safetensors' && asset.kind == AssetKind.chat),
     )) {
       throw LlamaEngineException(
@@ -866,14 +1018,19 @@ class EngineCatalog {
   Future<void> _saveModelSelection(
     String id,
     String artifactId,
-    ModelLaunchOverrides selection,
-  ) async {
+    ModelLaunchOverrides selection, {
+    bool preferEngine = false,
+  }) async {
     final selections = {...?_modelLaunchOverrides[id], artifactId: selection};
     final versions = _versionsForSave(id);
     await _save(
       modelLaunchOverrides: {..._modelLaunchOverrides, id: selections},
+      preferredModelEngines: preferEngine
+          ? {..._preferredModelEngines, artifactId: id}
+          : null,
       configurationVersions: versions,
     );
+    if (preferEngine) _preferredModelEngines[artifactId] = id;
     _modelLaunchOverrides[id] = Map.unmodifiable(selections);
     _configurationVersions.addAll(versions);
   }
@@ -881,80 +1038,182 @@ class EngineCatalog {
   Future<EngineRegistration> buildFromSource(
     EngineSourceBuildRequest request, {
     DecisionCancellation? cancellation,
-  }) => _serial(() async {
-    await _load();
-    final builder = sourceBuilder;
-    if (builder == null) throw const LlamaEngineException('源码构建模块未配置');
+  }) {
+    final existing = _sourceOperation;
+    final current = _sourceRequest;
+    if (existing != null) {
+      if (current != null &&
+          current.source == request.source &&
+          current.ref == request.ref &&
+          current.name == request.name &&
+          current.cmakePath == request.cmakePath &&
+          current.supportsSystemone == request.supportsSystemone) {
+        return existing;
+      }
+      return Future.error(
+        const EngineSourceBuildException('已有源码构建，请在下载页等待或取消'),
+      );
+    }
     final token = cancellation ?? DecisionCancellation();
-    final result = await builder.build(request, token);
-    if (_shuttingDown || token.isCancelled) {
-      throw const EngineSourceBuildCancelled();
-    }
-    final id =
-        'source-${List.generate(20, (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0')).join()}';
-    _register(
-      id,
-      request.name,
-      result.installation,
-      sourceBuild: result.provenance,
+    _sourceRequest = request;
+    _sourceCancellation = token;
+    _sourceLogPath = null;
+    _sourceProgress = const EngineSourceBuildProgress(
+      EngineSourceBuildPhase.validating,
+      '准备源码构建…',
     );
-    _sourceBuilds[id] = result.provenance;
-    var saved = false;
-    try {
-      await _linked[id]!.refreshInstallation();
-      if (_shuttingDown || token.isCancelled) {
-        throw const EngineSourceBuildCancelled();
-      }
-      if (_linked[id]!.state.installation !=
-          LlamaInstallationStatus.installed) {
-        throw LlamaEngineException(_linked[id]!.state.error ?? '源码构建产物核验失败');
-      }
-      await _save();
-      saved = true;
-      if (_shuttingDown || token.isCancelled) {
-        throw const EngineSourceBuildCancelled();
-      }
-    } catch (error, stack) {
-      Object? rollbackError;
-      if (saved) {
-        try {
-          await _save(excluding: id);
-        } catch (failure) {
-          rollbackError = failure;
-        }
-      }
-      _linked.remove(id)?.close();
-      _names.remove(id);
-      _sourceBuilds.remove(id);
-      if (rollbackError != null) {
-        Error.throwWithStackTrace(
-          EngineSourceBuildException(
-            '$error；源码引擎登记回滚失败：$rollbackError',
-            logPath: result.logPath,
-          ),
-          stack,
-        );
-      }
-      rethrow;
-    }
-    return state.entries.singleWhere((entry) => entry.id == id);
-  });
+    final operation =
+        _serial(() async {
+          await _load();
+          final builder = sourceBuilder;
+          if (builder == null) throw const LlamaEngineException('源码构建模块未配置');
+          return builder;
+        }).then((builder) async {
+          if (token.isCancelled) throw const EngineSourceBuildCancelled();
+          final result = await builder.build(request, token);
+          _sourceLogPath = result.logPath;
+          if (_shuttingDown || token.isCancelled) {
+            throw const EngineSourceBuildCancelled();
+          }
+          return _serial(() async {
+            final id =
+                'source-${List.generate(20, (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0')).join()}';
+            _register(
+              id,
+              request.name,
+              result.installation,
+              sourceBuild: result.provenance,
+            );
+            _sourceBuilds[id] = result.provenance;
+            var saved = false;
+            try {
+              await _linked[id]!.refreshInstallation();
+              if (_shuttingDown || token.isCancelled) {
+                throw const EngineSourceBuildCancelled();
+              }
+              if (_linked[id]!.state.installation !=
+                  LlamaInstallationStatus.installed) {
+                throw LlamaEngineException(
+                  _linked[id]!.state.error ?? '源码构建产物核验失败',
+                );
+              }
+              await _save();
+              saved = true;
+              if (_shuttingDown || token.isCancelled) {
+                throw const EngineSourceBuildCancelled();
+              }
+            } catch (error, stack) {
+              Object? rollbackError;
+              if (saved) {
+                try {
+                  await _save(excluding: id);
+                } catch (failure) {
+                  rollbackError = failure;
+                }
+              }
+              _linked.remove(id)?.close();
+              _names.remove(id);
+              _sourceBuilds.remove(id);
+              if (rollbackError != null) {
+                Error.throwWithStackTrace(
+                  EngineSourceBuildException(
+                    '$error；源码引擎登记回滚失败：$rollbackError',
+                    logPath: result.logPath,
+                  ),
+                  stack,
+                );
+              }
+              rethrow;
+            }
+            return state.entries.singleWhere((entry) => entry.id == id);
+          });
+        });
+    final tracked = operation
+        .then(
+          (entry) {
+            _sourceProgress = const EngineSourceBuildProgress(
+              EngineSourceBuildPhase.complete,
+              '引擎已登记',
+            );
+            return entry;
+          },
+          onError: (Object error, StackTrace stack) {
+            if (error is EngineSourceBuildException) {
+              _sourceLogPath = error.logPath;
+            }
+            _sourceProgress = EngineSourceBuildProgress(
+              error is EngineSourceBuildCancelled
+                  ? EngineSourceBuildPhase.cancelled
+                  : EngineSourceBuildPhase.failed,
+              error.toString(),
+            );
+            Error.throwWithStackTrace(error, stack);
+          },
+        )
+        .whenComplete(() {
+          _sourceOperation = null;
+          _sourceCancellation = null;
+          _publish();
+        });
+    _sourceOperation = tracked;
+    _publish();
+    return tracked;
+  }
 
   Future<void> installOfficial({File? verifiedArchive}) =>
       installManaged(officialId, verifiedArchive: verifiedArchive);
-  Future<void> installManaged(String id, {File? verifiedArchive}) =>
-      _serial(() async {
-        await _load();
-        if (id == omlxId && omlxEngine != null) {
-          await omlxEngine!.install(verifiedArtifact: verifiedArchive);
-          return;
-        }
-        final provider = _managed[id];
-        if (provider == null) throw const LlamaEngineException('请选择受管引擎安装');
-        await provider.install(verifiedArchive: verifiedArchive);
-      });
+  Future<void> installManaged(String id, {File? verifiedArchive}) {
+    if (_installations.containsKey(id)) return _installations[id]!;
+    final operation =
+        _serial(() async {
+          await _load();
+          if (id == omlxId && omlxEngine != null) {
+            return () => omlxEngine!.install(verifiedArtifact: verifiedArchive);
+          }
+          final provider = _managed[id];
+          if (provider == null) throw const LlamaEngineException('请选择受管引擎安装');
+          return () => provider.install(verifiedArchive: verifiedArchive);
+        }).then((install) {
+          if (_shuttingDown || _recycling) {
+            if (id == omlxId) throw const OmlxException('oMLX 安装准入已关闭');
+            throw const LlamaEngineException('引擎安装准入已关闭');
+          }
+          return install();
+        });
+    final tracked = operation.whenComplete(() {
+      _installations.remove(id);
+    });
+    _installations[id] = tracked;
+    return tracked;
+  }
+
   Future<EngineRegistration> link(String path) => _serial(() async {
     await _load();
+    if (await File('$path/server/server.py').exists() &&
+        await File('$path/install/launcher.py').exists()) {
+      final installation = await SplashEngine.inspectInstallation(
+        Directory(path),
+        io: splashIO,
+      );
+      if (_shuttingDown || _recycling) {
+        throw const SplashEngineException('Splash 关联已取消');
+      }
+      if (_splash.values.any(
+        (engine) => engine.installation.root.path == installation.root.path,
+      )) {
+        throw const SplashEngineException('该 Splash 仓库已关联');
+      }
+      final id =
+          'splash-${List.generate(20, (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0')).join()}';
+      _registerSplash(id, installation, const []);
+      try {
+        await _save();
+      } catch (_) {
+        await _splash.remove(id)!.close();
+        rethrow;
+      }
+      return state.entries.singleWhere((entry) => entry.id == id);
+    }
     final type = await FileSystemEntity.type(path);
     if (path.endsWith('.app') ||
         await File('$path/Contents/Info.plist').exists()) {
@@ -1020,6 +1279,17 @@ class EngineCatalog {
   });
   Future<EngineRemovalPlan> prepareRemoval(String id) => _serial(() async {
     final entry = state.entries.singleWhere((value) => value.id == id);
+    if (entry.family == EngineFamily.splash) {
+      if (_splash[id]!.hasLiveInstances) {
+        throw const SplashEngineException('请先停止该引擎的模型实例');
+      }
+      return EngineRemovalPlan._(
+        this,
+        entry: entry,
+        paths: const [],
+        sizeBytes: 0,
+      );
+    }
     if (entry.family == EngineFamily.omlx) {
       if (entry.source == EngineSource.managed) {
         final plan = await omlxEngine!.prepareRemoval();
@@ -1065,6 +1335,32 @@ class EngineCatalog {
         if (!confirmed) return;
         if (!identical(plan._owner, this)) {
           throw const LlamaEngineException('删除计划不属于当前引擎管理器');
+        }
+        if (plan.entry.family == EngineFamily.splash) {
+          final provider = _splash[plan.entry.id];
+          if (provider == null ||
+              provider.installation.root.path != plan.entry.path) {
+            throw const SplashEngineException('Splash 解除关联计划已失效');
+          }
+          final history = _unlinkedSnapshot(plan.entry);
+          final release = provider.holdStartAdmission();
+          try {
+            await provider.detachLinked(
+              persistRemoval: () => _save(
+                excluding: plan.entry.id,
+                unlinkedConfigurations: {
+                  ..._unlinkedConfigurations,
+                  plan.entry.id: history,
+                },
+              ),
+            );
+            _unlinkedConfigurations[plan.entry.id] = history;
+            _splash.remove(plan.entry.id);
+            await provider.close();
+          } finally {
+            release();
+          }
+          return;
         }
         if (plan.entry.family == EngineFamily.omlx) {
           final current = state.entries
@@ -1161,6 +1457,12 @@ class EngineCatalog {
               LlamaInstallationStatus.installed) {
             throw const LlamaEngineException('恢复目标未通过当前安装或关联核验');
           }
+        } else if (target.family == EngineFamily.splash) {
+          await _splash[targetId]!.refreshInstallation();
+          if (_splash[targetId]!.state.installation !=
+              LlamaInstallationStatus.installed) {
+            throw const SplashEngineException('恢复目标未通过 Splash 安装核验');
+          }
         } else if (target.source == EngineSource.managed) {
           await omlxEngine!.refreshInstallation();
           if (omlxEngine!.state.status != OmlxInstallationStatus.installed) {
@@ -1213,6 +1515,7 @@ class EngineCatalog {
           ..addAll(versions);
       });
   EngineRuntime runtimeFor(String id) {
+    if (_splash.containsKey(id)) return _splash[id]!;
     if (id == omlxId || _linkedOmlx.containsKey(id)) {
       final pool = omlxEngine;
       if (pool == null) {
@@ -1222,6 +1525,16 @@ class EngineCatalog {
     }
     return providerFor(id);
   }
+
+  Future<SplashModelBinding> bindSplashModel(
+    String id,
+    String artifactId,
+    Directory assembly,
+  ) => _serial(() async {
+    final provider = _splash[id];
+    if (provider == null) throw const SplashEngineException('Splash 登记已变化');
+    return provider.bindModel(artifactId, assembly);
+  });
 
   LlamaEngine providerFor(String id) {
     final provider = _managed[id] ?? _linked[id];
@@ -1233,7 +1546,7 @@ class EngineCatalog {
     final ids = artifactIds.toSet();
     return [
       for (final entry in state.entries)
-        if (entry.family == EngineFamily.llamaCpp)
+        if (entry.family != EngineFamily.omlx)
           for (final instance in runtimeFor(entry.id).runtimeInstances)
             if (ids.contains(instance.artifactId)) EngineRun(entry, instance),
     ];
@@ -1259,6 +1572,15 @@ class EngineCatalog {
     // Cancel accepted starts immediately, but keep admission held after each
     // provider finishes. Drain preaccepted catalog work before late enrollment.
     final stops = initial.map(stop).toList();
+    final initialSplash = _splash.values.toSet();
+    for (final provider in initialSplash) {
+      _splashAdmissions[provider] = provider.holdStartAdmission();
+      stops.add(
+        provider.stopManaged().catchError((Object error) {
+          errors.add(error);
+        }),
+      );
+    }
     if (omlxEngine != null) {
       stops.add(
         omlxEngine!.stopManaged().catchError((Object error) {
@@ -1270,6 +1592,15 @@ class EngineCatalog {
     final operation = () async {
       await accepted;
       stops.addAll(_providers.where((p) => !initial.contains(p)).map(stop));
+      for (final provider in _splash.values.where(
+        (p) => !initialSplash.contains(p),
+      )) {
+        stops.add(
+          provider.stopManaged().catchError((Object error) {
+            errors.add(error);
+          }),
+        );
+      }
       await Future.wait(stops);
       if (errors.isNotEmpty) {
         throw LlamaEngineException('引擎回收未完成：${errors.join('; ')}');
@@ -1281,6 +1612,10 @@ class EngineCatalog {
         release();
       }
       _admissionReleases.clear();
+      for (final release in _splashAdmissions.values) {
+        release();
+      }
+      _splashAdmissions.clear();
       _recycling = false;
       _recycle = null;
     });
@@ -1289,8 +1624,12 @@ class EngineCatalog {
 
   void beginShutdown() {
     _shuttingDown = true;
+    cancelSourceBuild();
     sourceBuilder?.cancelBuild();
     omlxEngine?.beginShutdown();
+    for (final provider in _splash.values) {
+      provider.beginShutdown();
+    }
     for (final provider in _providers) {
       provider.beginShutdown();
     }
@@ -1320,7 +1659,18 @@ class EngineCatalog {
     } catch (error) {
       errors.add(error);
     }
+    await _sourceOperation?.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
     await _operations;
+    for (final provider in _splash.values) {
+      try {
+        await provider.shutdown();
+      } catch (error) {
+        errors.add(error);
+      }
+    }
     for (final provider in _providers) {
       try {
         await provider.shutdown();
@@ -1341,6 +1691,13 @@ class EngineCatalog {
   }
 
   void close() {
+    unawaited(_sourceSubscription?.cancel());
+    for (final subscription in _splashSubscriptions) {
+      unawaited(subscription.cancel());
+    }
+    for (final provider in _splash.values) {
+      unawaited(provider.close());
+    }
     _omlxSubscription?.cancel();
     omlxEngine?.close();
     for (final subscription in _subscriptions) {

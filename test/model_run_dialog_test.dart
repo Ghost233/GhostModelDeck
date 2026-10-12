@@ -353,18 +353,27 @@ void main() {
     }, _NetworkBoundary());
   });
   testWidgets(
-    'model run copies engine defaults into an independent full configuration',
+    'model parameter list edits drafts, restores overrides and keeps footer fixed',
     (tester) async {
       final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
       addTearDown(() => tester.runAsync(fixture.close));
-      await _openTextEditor(tester, fixture);
-      await tester.enterText(find.widgetWithText(TextField, '上下文大小'), '2048');
-      const source = ' --device=CPU\n';
-      final text = find.widgetWithText(TextField, '启动参数文本');
-      await tester.ensureVisible(text);
-      await tester.enterText(text, source);
-      await tester.pump();
-      await _saveTextEditor(tester, fixture);
+      tester.view.physicalSize = const Size(1100, 732);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      const id = EngineCatalog.officialId;
+      await tester.runAsync(
+        () => fixture.catalog.saveLaunchDefaults(
+          id,
+          EngineLaunchConfiguration(
+            formValues: {
+              ...EngineLaunchConfiguration.initialValues,
+              '--ctx-size': '2048',
+            },
+            argumentText: ' --device=CPU\n',
+          ),
+        ),
+      );
       await tester.runAsync(() async {
         await tester.pumpWidget(
           MaterialApp(
@@ -379,49 +388,86 @@ void main() {
           ),
         );
         await _settleFilesystemFrames(tester);
-        await tester.tap(find.widgetWithText(TextButton, '运行'));
+        await tester.tap(find.byTooltip('模型参数'));
         await tester.pump();
         await fixture.catalog.refresh();
         await tester.pump();
       });
       await tester.pumpAndSettle();
-      expect(find.text('模型独立'), findsOneWidget);
+      expect(find.text('模型独立'), findsNothing);
+      expect(find.text('引擎默认'), findsNothing);
+      expect(find.text('编辑模型参数'), findsNothing);
+      expect(find.byType(AlertDialog), findsOneWidget);
+      final field = find.widgetWithText(TextField, '上下文大小');
+      expect(tester.widget<TextField>(field).controller!.text, '2048');
+      expect(find.text('override ↶'), findsNothing);
+      final commandBefore = tester.getRect(find.text('完整启动命令'));
+      final saveBefore = tester.getRect(
+        find.widgetWithText(FilledButton, '保存'),
+      );
+      await tester.enterText(field, '1024');
+      await tester.pumpAndSettle();
+      expect(find.text('override ↶'), findsOneWidget);
+      expect(find.textContaining('--ctx-size 1024'), findsOneWidget);
+      await tester.tap(find.text('override ↶'));
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(field).controller!.text, '2048');
+      expect(find.text('override ↶'), findsNothing);
+      await tester.drag(find.byType(ListView).last, const Offset(0, -350));
+      await tester.pumpAndSettle();
+      expect(tester.getRect(find.text('完整启动命令')), commandBefore);
+      expect(
+        tester.getRect(find.widgetWithText(FilledButton, '保存')),
+        saveBefore,
+      );
+      final text = find.widgetWithText(TextField, '启动参数文本');
+      await tester.ensureVisible(text);
+      expect(
+        tester.widget<TextField>(text).controller!.text,
+        ' --device=CPU\n',
+      );
+      await tester.enterText(text, '--threads 9');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+      expect(
+        fixture.catalog.modelLaunchOverridesFor(id, fixture.asset.id).enabled,
+        isFalse,
+      );
       await tester.runAsync(() async {
-        final selected = fixture.catalog.changes.firstWhere(
-          (state) => !state.busy,
-        );
-        await tester.tap(find.text('模型独立'));
-        await selected.timeout(const Duration(seconds: 5));
+        await tester.tap(find.byTooltip('模型参数'));
+        await tester.pump();
+        await fixture.catalog.refresh();
         await tester.pump();
       });
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(OutlinedButton, '编辑模型参数'));
+      await tester.enterText(find.widgetWithText(TextField, '上下文大小'), '1024');
       await tester.pumpAndSettle();
-      final contextField = find.widgetWithText(TextField, '上下文大小');
-      expect(tester.widget<TextField>(contextField).controller!.text, '2048');
-      expect(tester.widget<TextField>(text).controller!.text, source);
-      expect(
-        find.descendant(
-          of: find.ancestor(
-            of: contextField,
-            matching: find.byType(AlertDialog),
-          ),
-          matching: find.textContaining(fixture.asset.files.single.path),
-        ),
-        findsOneWidget,
-      );
-      await tester.enterText(contextField, '1024');
-      await tester.pump();
       await _saveTextEditor(tester, fixture);
-      expect(find.textContaining('--ctx-size 1024'), findsOneWidget);
+      expect(fixture.catalog.preferredEngineFor(fixture.asset.id), id);
+      expect(
+        fixture.catalog
+            .launchConfigurationFor(id, fixture.asset.id)
+            .formValues['--ctx-size'],
+        '1024',
+      );
+      expect(
+        fixture.catalog.launchDefaultsFor(id).formValues['--ctx-size'],
+        '2048',
+      );
+      expect(
+        fixture.engine.state.instances,
+        isEmpty,
+        reason: 'save never starts a model',
+      );
       await tester.runAsync(
         () => HttpOverrides.runWithHttpOverrides(() async {
+          await tester.tap(find.widgetWithText(TextButton, '运行'));
           final ready = fixture.engine.changes.firstWhere(
             (state) => state.instances.any(
-              (instance) => instance.status == LlamaInstanceStatus.ready,
+              (i) => i.status == LlamaInstanceStatus.ready,
             ),
           );
-          await tester.tap(find.widgetWithText(FilledButton, '运行'));
           await ready.timeout(const Duration(seconds: 5));
           await _settleFilesystemFrames(tester);
         }, _NetworkBoundary()),
@@ -429,18 +475,6 @@ void main() {
       expect(
         fixture.io.startedArguments.single,
         containsAllInOrder(['--ctx-size', '1024', '--device=CPU']),
-      );
-      expect(
-        fixture.catalog
-            .launchDefaultsFor(EngineCatalog.officialId)
-            .formValues['--ctx-size'],
-        '2048',
-      );
-      expect(
-        fixture.catalog
-            .launchDefaultsFor(EngineCatalog.officialId)
-            .argumentText,
-        source,
       );
       expect(tester.takeException(), isNull);
     },
@@ -679,7 +713,6 @@ void main() {
           ),
         );
         await _settleFilesystemFrames(tester);
-        await tester.tap(find.widgetWithText(TextButton, '运行'));
         await tester.pump();
         await fixture.catalog.refresh();
         await tester.pump();
@@ -692,7 +725,7 @@ void main() {
               (instance) => instance.status == LlamaInstanceStatus.failed,
             ),
           );
-          await tester.tap(find.widgetWithText(FilledButton, '运行'));
+          await tester.tap(find.widgetWithText(TextButton, '运行'));
           await failed.timeout(const Duration(seconds: 5));
           await fixture.catalog.refresh();
           await tester.pump();
@@ -702,7 +735,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(
         find.descendant(
-          of: find.widgetWithText(AlertDialog, '运行模型'),
+          of: find.byKey(const Key('library-operation-error')),
           matching: find.textContaining(diagnostic),
         ),
         findsOneWidget,
@@ -1411,7 +1444,7 @@ void main() {
         await _settleFilesystemFrames(tester);
       });
       await tester.runAsync(() async {
-        await tester.tap(find.widgetWithText(TextButton, '运行'));
+        await tester.tap(find.byTooltip('模型参数'));
         // Build the real dialog in the I/O zone before queuing a refresh behind
         // its own refresh. Leaving this zone earlier strands its loading state.
         await tester.pump();
@@ -1421,7 +1454,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(
         tester
-            .widget<FilledButton>(find.widgetWithText(FilledButton, '运行'))
+            .widget<FilledButton>(find.widgetWithText(FilledButton, '保存'))
             .onPressed,
         isNotNull,
       );
@@ -1437,6 +1470,11 @@ void main() {
       expect(clipboard, contains(modelPath!));
       expect(clipboard, contains(engine.executablePath!));
       expect(clipboard, contains('启动时分配'));
+      await tester.runAsync(() async {
+        await tester.tap(find.widgetWithText(FilledButton, '保存'));
+        await catalog.refresh();
+        await _settleFilesystemFrames(tester);
+      });
       await tester.runAsync(
         () => HttpOverrides.runWithHttpOverrides(() async {
           final ready = catalog.changes.firstWhere(
@@ -1444,7 +1482,7 @@ void main() {
               (instance) => instance.status == LlamaInstanceStatus.ready,
             ),
           );
-          await tester.tap(find.widgetWithText(FilledButton, '运行'));
+          await tester.tap(find.widgetWithText(TextButton, '运行'));
           await ready.timeout(const Duration(seconds: 5));
         }, _NetworkBoundary()),
       );
@@ -1935,14 +1973,16 @@ void main() {
           );
           for (var n = 0; n < 100; n++) {
             await tester.pump();
-            final run = find.widgetWithText(TextButton, '运行');
+            final run = find.byWidgetPredicate(
+              (w) => w is IconButton && w.tooltip == '模型参数',
+            );
             if (run.evaluate().isNotEmpty &&
-                tester.widget<TextButton>(run).onPressed != null) {
+                tester.widget<IconButton>(run).onPressed != null) {
               break;
             }
             await Future<void>.delayed(const Duration(milliseconds: 10));
           }
-          await tester.tap(find.widgetWithText(TextButton, '运行'));
+          await tester.tap(find.byTooltip('模型参数'));
           for (var n = 0; n < 100; n++) {
             await tester.pump();
             final dropdown = find.byType(DropdownButton<String>);
@@ -1963,7 +2003,7 @@ void main() {
         if (standard) {
           await tester.tap(find.byType(DropdownButton<String>));
           await tester.pumpAndSettle();
-          await tester.tap(find.text('llama.cpp · 标准 v0.5.0').last);
+          await tester.tap(find.text('llama.cpp · b11146').last);
           await tester.pumpAndSettle();
         }
         expect(find.text('请先安装或关联引擎'), findsNothing);
@@ -1979,6 +2019,11 @@ void main() {
           lessThanOrEqualTo(fieldBounds.bottom),
           reason: 'The selected engine version must stay inside its input',
         );
+        await tester.runAsync(() async {
+          await tester.tap(find.widgetWithText(FilledButton, '保存'));
+          await catalog.refresh();
+          await _settleFilesystemFrames(tester);
+        });
         await tester.runAsync(
           () => HttpOverrides.runWithHttpOverrides(() async {
             final completed = catalog.changes.firstWhere(
@@ -1986,7 +2031,7 @@ void main() {
                 (instance) => instance.status == LlamaInstanceStatus.ready,
               ),
             );
-            await tester.tap(find.widgetWithText(FilledButton, '运行'));
+            await tester.tap(find.widgetWithText(TextButton, '运行'));
             await completed.timeout(const Duration(seconds: 5));
           }, _NetworkBoundary()),
         );

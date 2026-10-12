@@ -14,11 +14,15 @@ class SettingsPage extends StatefulWidget {
     required this.libraryPath,
     required this.onLibraryPathChanged,
     required this.pickLibraryDirectory,
+    this.libraryPaths,
+    this.onLibraryPathsChanged,
     this.softwareUpdate,
   });
 
   final DownloadPreferences preferences;
   final String libraryPath;
+  final List<String>? libraryPaths;
+  final Future<void> Function(List<String>)? onLibraryPathsChanged;
   final Future<String> Function(String) onLibraryPathChanged;
   final Future<String?> Function() pickLibraryDirectory;
 
@@ -45,6 +49,16 @@ class _SettingsPageState extends State<SettingsPage> {
     await _save(() async {
       await widget.onLibraryPathChanged(path);
     });
+  }
+
+  Future<void> _addLibrary() async {
+    final path = await widget.pickLibraryDirectory();
+    if (path == null || !mounted) return;
+    await _save(
+      () => widget.onLibraryPathsChanged!(
+        {...?widget.libraryPaths, path}.toList(),
+      ),
+    );
   }
 
   Future<void> _save(Future<void> Function() action) async {
@@ -213,7 +227,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('存放位置', style: theme.textTheme.bodyMedium),
+                        Text('下载保存目录', style: theme.textTheme.bodyMedium),
                         const SizedBox(height: 6),
                         Tooltip(
                           message: widget.libraryPath,
@@ -237,6 +251,43 @@ class _SettingsPageState extends State<SettingsPage> {
                 ],
               ),
             ),
+            if (widget.onLibraryPathsChanged != null) ...[
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text('已关联的模型库目录', style: theme.textTheme.titleSmall),
+                  ),
+                  TextButton.icon(
+                    onPressed: _saving ? null : _addLibrary,
+                    icon: const Icon(Icons.add),
+                    label: const Text('添加目录'),
+                  ),
+                ],
+              ),
+              for (final path in widget.libraryPaths ?? <String>[])
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: SelectableText(path, style: theme.textTheme.bodySmall),
+                  subtitle: path == widget.libraryPath
+                      ? const Text('下载保存目录')
+                      : null,
+                  trailing: IconButton(
+                    tooltip: '解除目录关联',
+                    icon: const Icon(Icons.link_off),
+                    onPressed: _saving
+                        ? null
+                        : () => _save(
+                            () => widget.onLibraryPathsChanged!(
+                              widget.libraryPaths!
+                                  .where((p) => p != path)
+                                  .toList(),
+                            ),
+                          ),
+                  ),
+                ),
+              const Text('可读取多个目录；新下载只写入上方选定的保存目录。解除关联保留模型文件。'),
+            ],
             if (_error != null)
               Padding(
                 padding: const EdgeInsets.only(top: 16),

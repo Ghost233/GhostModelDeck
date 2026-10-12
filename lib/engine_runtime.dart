@@ -47,6 +47,9 @@ class RuntimeInstance {
     required Set<RuntimeCapability> capabilities,
     this.error,
     this.capacity,
+    this.temporaryTest = false,
+    this.launchInstanceId,
+    this.launchRevision,
   }) : capabilities = Set.unmodifiable(capabilities);
   final String id;
   final String artifactId;
@@ -57,6 +60,9 @@ class RuntimeInstance {
   final bool hasLiveProcess;
   final Set<RuntimeCapability> capabilities;
   final String? error;
+  final bool temporaryTest;
+  final String? launchInstanceId;
+  final int? launchRevision;
   final RuntimeCapacity? capacity;
 }
 
