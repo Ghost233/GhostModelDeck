@@ -1192,6 +1192,7 @@ class SplashTestProcessIO implements SplashProcessIO {
   final bool wrongPrefix;
   final calls = <List<String>>[];
   final httpPaths = <String>[];
+  final chatModels = <String>[];
   bool rejectTransferEncoding = false;
   int sizedPosts = 0;
   int starts = 0;
@@ -1374,6 +1375,7 @@ class SplashTestProcessIO implements SplashProcessIO {
             final body = jsonDecode(
               await request.cast<List<int>>().transform(utf8.decoder).join(),
             ) as Map;
+            chatModels.add(body['model'] as String);
             if ((body['messages'] as List).last['content'] == 'hold') {
               if (!holdReached.isCompleted) holdReached.complete();
               await releaseHeld.future;

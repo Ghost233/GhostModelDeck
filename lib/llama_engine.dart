@@ -770,23 +770,13 @@ class LlamaEngine implements EmbeddingRuntime {
       if (assets.length != 1 ||
           assets.single.format != 'GGUF' ||
           ![
-            AssetKind.decision,
-            AssetKind.chat,
-            AssetKind.embedding,
-          ].contains(assets.single.kind) ||
-          assets.single.integrity != AssetIntegrity.complete ||
-          !assets.single.fingerprintsVerified ||
-          (assets.single.kind == AssetKind.decision &&
-              sourceBuild == null &&
-              !['kev', 'laya'].contains(assets.single.decisionType))) {
-        throw const LlamaEngineException('请选择完整且已核验的文本、嵌入或 Kev/Laya GGUF 模型变体');
+            AssetIntegrity.complete,
+            AssetIntegrity.unknown,
+          ].contains(assets.single.integrity) ||
+          !assets.single.fingerprintsVerified) {
+        throw const LlamaEngineException('请选择结构有效且已核验的 GGUF 模型变体');
       }
       final asset = assets.single;
-      if (asset.kind == AssetKind.decision && !supportsSystemone) {
-        throw const LlamaEngineException(
-          '此引擎未声明支持 /v1/systemone；请选择支持 JEV 的引擎',
-        );
-      }
       final alias =
           'jev-${List.generate(24, (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0')).join()}';
       if (temporaryTest) _temporaryTestIds.add(alias);
@@ -799,7 +789,10 @@ class LlamaEngine implements EmbeddingRuntime {
       try {
         await _protect();
         final verified = (await library.verify([asset.id])).single;
-        if (verified.integrity != AssetIntegrity.complete ||
+        if (![
+              AssetIntegrity.complete,
+              AssetIntegrity.unknown,
+            ].contains(verified.integrity) ||
             verified.kind != asset.kind ||
             verified.files.length != asset.files.length ||
             verified.files.any(
@@ -958,114 +951,15 @@ class LlamaEngine implements EmbeddingRuntime {
           cancellation: owned.startupCancellation,
         );
         owned.instance = _copy(owned.instance, properties: properties);
-        if (asset.kind == AssetKind.chat &&
-            startStartluxReadout != null &&
-            sourceBuild == null) {
-          StartluxReadout? readout;
-          try {
-            readout = await startStartluxReadout!(
-              verified,
-              endpoint,
-              alias,
-              instanceGeneration,
-              owned.startupCancellation,
-            );
-          } on StartluxReadoutStartException catch (error) {
-            // A failed readiness handshake has no endpoint yet. Take ownership
-            // of the surviving child before the outer failure path drains it.
-            _bindReadout(owned, error.readout, ready: false);
-            rethrow;
-          }
-          if (readout != null) _bindReadout(owned, readout, ready: true);
-          checkStartup();
-        }
-        DecisionResult? result;
-        TextResult? text;
-        final evidence = <DecisionPrimitive, DecisionBatchResult>{};
-        final capabilities = <LlamaCapability>{};
-        if (asset.kind == AssetKind.chat) {
-          text = await _text(
-            owned,
-            TextRequest(prompt: 'Say hello.', maxTokens: 8),
-            const Duration(seconds: 10),
-            cancellation: owned.startupCancellation,
-          );
-        } else if (asset.kind == AssetKind.embedding) {
-          final embedding = await _embedding(
-            owned,
-            EmbeddingRequest.fromJson({
-              'model': alias,
-              'input': ['Embedding readiness probe.'],
-              'encoding_format': 'float',
-            }),
-            const Duration(seconds: 30),
-            cancellation: owned.startupCancellation,
-          );
-          if (asset.embeddingDimensions != null &&
-              embedding.dimensions != asset.embeddingDimensions) {
-            throw const LlamaEngineException('实际嵌入向量维度与已核验模型资产不一致');
-          }
-          capabilities.add(LlamaCapability.embeddings);
-        }
-        if (!declaresSystemone &&
-            (asset.kind == AssetKind.decision || owned.readout != null)) {
-          result = await _decision(
-            owned,
-            DecisionRequest(
-              state: 'A change has been requested.',
-              instructions: 'Choose an action.',
-              options: {
-                'keep': 'Keep the current state.',
-                'change': 'Apply the requested change.',
-              },
-            ),
-            const Duration(seconds: 10),
-            cancellation: owned.startupCancellation,
-          );
-        }
-        if (text != null) capabilities.add(LlamaCapability.textGeneration);
-        if (result != null) {
-          capabilities.add(LlamaCapability.choiceProbability);
-          // Independent real owned calls: metadata or choice never earns these.
-          for (final question in <DecisionQuestion>[
-            ScoreQuestion(
-              instructions: 'Rate the requested change.',
-              levels: ['Not applicable', 'Applicable'],
-            ),
-            NoulQuestion(
-              instructions: 'Is a change requested?',
-              falseText: 'No change requested.',
-              trueText: 'A change requested.',
-            ),
-          ]) {
-            checkStartup();
-            try {
-              await _identity(
-                owned,
-                const Duration(seconds: 5),
-                cancellation: owned.startupCancellation,
-              );
-              final proof = await _batchDecision(
-                owned,
-                DecisionBatchRequest(
-                  state: 'A change has been requested.',
-                  questions: {'capability_probe': question},
-                ),
-                const Duration(seconds: 10),
-                cancellation: owned.startupCancellation,
-              );
-              evidence[question.type] = proof;
-              capabilities.add(capabilityForPrimitive(question.type));
-            } on _InstanceIdentityException {
-              rethrow;
-            } on LlamaRequestException catch (error) {
-              if (error.kind == DecisionFailureKind.cancelled) rethrow;
-              // Failed probe does not imply support or revoke proven choice.
-            }
-          }
-        }
-        checkStartup();
-        if (declaresSystemone && asset.kind != AssetKind.embedding) {
+        // Startup advertises selected engine interfaces, never model scores.
+        // Model support and inference results come from explicit user requests.
+        final capabilities = <LlamaCapability>{
+          if (asset.kind == AssetKind.embedding)
+            LlamaCapability.embeddings
+          else
+            LlamaCapability.textGeneration,
+        };
+        if (supportsSystemone && asset.kind != AssetKind.embedding) {
           capabilities.addAll({
             LlamaCapability.choiceProbability,
             LlamaCapability.scoreProbability,
@@ -1077,10 +971,12 @@ class LlamaEngine implements EmbeddingRuntime {
             decisionPid: owned.child.pid,
             decisionSourceIdentity: {
               'kind': 'engine_declared_systemone',
-              'capability_origin': 'source_declaration',
-              'source': sourceBuild!['source'],
-              'requested_ref': sourceBuild!['requested_ref'],
-              'commit': sourceBuild!['commit'],
+              'capability_origin': sourceBuild == null
+                  ? 'engine_release'
+                  : 'source_declaration',
+              'source': sourceBuild?['source'] ?? release.url.toString(),
+              'requested_ref': sourceBuild?['requested_ref'],
+              'commit': sourceBuild?['commit'] ?? release.commit,
               'binary_sha256': owned.instance.binarySha256,
               'native_endpoint': endpoint.toString(),
               'generation': instanceGeneration,
@@ -1088,21 +984,14 @@ class LlamaEngine implements EmbeddingRuntime {
             },
           );
         }
-        if (owned.readout != null &&
-            ![
-              LlamaCapability.choiceProbability,
-              LlamaCapability.scoreProbability,
-              LlamaCapability.noulScalar,
-            ].every(capabilities.contains)) {
-          throw const LlamaEngineException('StartLux 未完成全部三项真实 typed 能力验证');
-        }
+        checkStartup();
         owned.instance = _copy(
           owned.instance,
           status: LlamaInstanceStatus.ready,
           acceptingRequests: true,
-          lastResult: result,
-          lastTextResult: text,
-          typedEvidence: Map.unmodifiable(evidence),
+          lastResult: null,
+          lastTextResult: null,
+          typedEvidence: const {},
           capabilities: Set.unmodifiable(capabilities),
         );
         _instances[alias] = owned.instance;
@@ -1142,35 +1031,6 @@ class LlamaEngine implements EmbeddingRuntime {
         throw LlamaEngineException(reason);
       } finally {
         _pendingStarts.remove(alias);
-      }
-    });
-  }
-
-  void _bindReadout(
-    _Running owned,
-    StartluxReadout readout, {
-    required bool ready,
-  }) {
-    owned.readout = readout;
-    owned.instance = _copy(
-      owned.instance,
-      decisionEndpoint: ready ? readout.endpoint : null,
-      decisionSourceIdentity: readout.sourceIdentity,
-      decisionPid: readout.pid,
-    );
-    readout.exited.then((code) async {
-      owned.readoutExitCode = code;
-      if (owned.stopping || !_isCurrent(owned)) return;
-      try {
-        await _fail(owned, 'StartLux 受管概率读出已退出 ($code)');
-      } catch (error) {
-        owned.instance = _copy(
-          owned.instance,
-          status: LlamaInstanceStatus.failed,
-          capabilities: const {},
-          error: 'StartLux 退出收尾未完成：$error',
-        );
-        _publishRun(owned);
       }
     });
   }

@@ -1056,7 +1056,7 @@ void main() {
         chat(fixture.routes.publicIdFor(fixture.asset.id)),
       );
       expect(disabled.status, 404);
-      expect(fixture.io.textRequests, 1); // only the start readiness proof
+      expect(fixture.io.textRequests, 0); // startup and refusal never generate
       expect(fixture.io.children, hasLength(1));
     });
 

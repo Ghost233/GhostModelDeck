@@ -136,7 +136,7 @@ void main() {
       expect(wire.$2, isNot(contains('answers')));
     }
   });
-  test('real HTTP and MCP enforce batch capabilities while a valid council peer remains available', () async {
+  test('real HTTP and MCP retain explicit typed failures while a valid council peer remains available', () async {
     final io = CouncilRuntimeIO()..failScoreForOther = true;
     final runtime = await CouncilRuntime.create(processIO: io);
     addTearDown(runtime.close);
@@ -208,12 +208,16 @@ void main() {
     final rpcFailure = await client.callTool(
       CallToolRequest(name: 'decide_jev_batch', arguments: nativeArgs),
     );
-    expect(failure.$1, 409);
-    expect(failure.$2['error']['code'], 'capability_mismatch');
+    expect(failure.$1, 502);
+    expect(failure.$2['error']['code'], 'invalid_response');
     expect(rpcFailure.isError, true);
     expect(rpcFailure.structuredContent, failure.$2);
     expect((failure.$2 as Map).containsKey('answers'), false);
-    expect(io.requests, isEmpty);
+    expect(io.requests, hasLength(2));
+    expect(
+      io.requests.every((request) => request['model'] == other.id),
+      isTrue,
+    );
     final councilArgs = {
       'model': 'hard',
       'state': 'mixed',
@@ -230,7 +234,14 @@ void main() {
     expect(rpcPartial.isError, isNot(true));
     expect(rpcPartial.structuredContent, partial.$2);
     expect(partial.$2['usage'], {'input_tokens': 10, 'output_tokens': 0});
-    expect(io.requests.map((r) => r['model']), isNot(contains(other.id)));
+    expect(io.requests.map((r) => r['model']), contains(other.id));
+    expect(council.state.lastBatchResult!.status, CouncilStatus.partial);
+    expect(
+      council.state.lastBatchResult!.seats
+          .singleWhere((seat) => seat.seat.instance.id == other.id)
+          .status,
+      CouncilSeatStatus.invalidResponse,
+    );
     final discovery = await client.callTool(
       CallToolRequest(name: 'list_jev_models', arguments: {}),
     );

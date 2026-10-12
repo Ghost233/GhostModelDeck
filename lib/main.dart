@@ -22,12 +22,15 @@ import 'application_configuration.dart';
 import 'download_preferences.dart';
 import 'download_tasks_page.dart';
 import 'engine_catalog.dart';
+import 'launch_instances.dart';
+import 'instances_page.dart';
 import 'engine_page.dart';
 import 'engine_source_build.dart';
 import 'embedding_page.dart';
 import 'omlx_engine.dart';
 import 'hf_model_browser.dart';
 import 'public_gateway.dart';
+import 'public_model_names.dart';
 import 'library_directory_settings.dart';
 import 'library_page.dart';
 import 'llama_engine.dart';
@@ -84,6 +87,9 @@ class _ManagerShellState extends State<_ManagerShell>
   Future<void> _startluxPreparation = Future.value();
   late final OmlxEngine _omlxEngine;
   late final EngineCatalog _engines;
+  late final LaunchInstances _instances;
+  final _publicNames = PublicModelNames();
+  String? _instanceArtifact;
   late final CouncilController _council;
   late final CouncilMcpServer _mcp;
   late final PublicModelRoutes _publicRoutes;
@@ -166,13 +172,21 @@ class _ManagerShellState extends State<_ManagerShell>
         Directory('${_settings.file.parent.path}/engines/source'),
       ),
     );
+    _instances = LaunchInstances(
+      catalog: _engines,
+      file: File('${_settings.file.parent.path}/launch-instances.json'),
+      names: _publicNames,
+    );
     _council = CouncilController(
       catalog: _engines,
       modelRegistryFile: File('${_settings.file.parent.path}/jev_models.json'),
+      publicNames: _publicNames,
+      launchInstances: _instances,
     );
     _mcp = CouncilMcpServer(controller: _council);
     _publicRoutes = PublicModelRoutes(
       library: _library,
+      instances: _instances,
       runtimes: [
         _officialEngine,
         _standardEngine,
@@ -212,6 +226,7 @@ class _ManagerShellState extends State<_ManagerShell>
       gateway: _publicGateway,
       mcp: _mcp,
       startupSet: _startupSet,
+      instances: _instances,
       // 窗口激活最小原生 seam；原生窗口行为验证属 #19 范围。原生未实现时
       // MissingPluginException 真实上抛，不假装窗口已激活。
       onOpenWindow: () => _native.invokeMethod<void>('activateMainWindow'),
@@ -220,6 +235,7 @@ class _ManagerShellState extends State<_ManagerShell>
       onVersionStatus: _versionStatusBridge.query,
     );
     _lifecycle = ManagerLifecycle(
+      instances: _instances,
       council: _council,
       mcp: _mcp,
       engines: _engines,
@@ -336,6 +352,7 @@ class _ManagerShellState extends State<_ManagerShell>
       final path = directories.downloadPath;
       await _preferences.load();
       await _startupSet.load();
+      await _instances.load();
       if (!mounted) return;
       unawaited(_mcp.start().catchError((Object _) {}));
       // Public and SDK discovery must not read the previous configuration.
@@ -384,7 +401,7 @@ class _ManagerShellState extends State<_ManagerShell>
   void _navigate(int page) => setState(() {
     _page = page;
     _openedPages.add(page);
-    if (page <= 6 && page != 4) {
+    if ((page <= 6 || page == 11) && page != 4) {
       _enginePage = page;
       _workspaceTabs.index = 0;
     } else if (page >= 7) {
@@ -441,6 +458,7 @@ class _ManagerShellState extends State<_ManagerShell>
     _mcp.close();
     _publicGateway.close();
     _publicRoutes.close();
+    unawaited(_instances.close().catchError((Object _) {}));
     unawaited(_council.close().catchError((Object _) {}));
     _engines.close();
     _officialEngine.close();
@@ -594,6 +612,7 @@ class _ManagerShellState extends State<_ManagerShell>
                                 _navigation('下载', Icons.download_outlined, 1),
                                 _groupLabel('服务'),
                                 _navigation('引擎管理', Icons.memory_outlined, 3),
+                                _navigation('实例', Icons.layers_outlined, 11),
                                 _navigation('委员会配置', Icons.groups_outlined, 5),
                                 _navigation('MCP', Icons.cable_outlined, 6),
                               ] else ...[
@@ -657,7 +676,10 @@ class _ManagerShellState extends State<_ManagerShell>
                               engines: _engines,
                               publicRoutes: _publicRoutes,
                               publicGateway: _publicGateway,
-                              startupSet: _startupSet,
+                              onCreateInstance: (artifact) {
+                                _instanceArtifact = artifact;
+                                _navigate(11);
+                              },
                             )
                           else
                             const SizedBox.shrink(),
@@ -719,6 +741,26 @@ class _ManagerShellState extends State<_ManagerShell>
                             EmbeddingPage(
                               gateway: _publicGateway,
                               active: _workspaceTabs.index == 1 && _page == 10,
+                            )
+                          else
+                            const SizedBox.shrink(),
+                          if (_openedPages.contains(11))
+                            InstancesPage(
+                              instances: _instances,
+                              startupSet: _startupSet,
+                              initialArtifactId: _instanceArtifact,
+                              onInitialArtifactHandled: () {
+                                setState(() => _instanceArtifact = null);
+                              },
+                              prepare: () async {
+                                await _engines.refresh();
+                                if (!_library.state.scanning &&
+                                    _library.state.rootPaths.isEmpty) {
+                                  await _library.scanDirectories(
+                                    _libraryPaths.map(Directory.new).toList(),
+                                  );
+                                }
+                              },
                             )
                           else
                             const SizedBox.shrink(),

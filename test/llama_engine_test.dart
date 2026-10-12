@@ -17,6 +17,24 @@ import 'fixtures/engine_archive.dart';
 import 'fixtures/typed_answers.dart';
 
 void main() {
+  test(
+    'normal startup verifies health and identity without inference probes',
+    () async {
+      for (final chat in [true, false]) {
+        final fixture = await _Fixture.create(ordinaryChat: chat);
+        addTearDown(fixture.close);
+        final instance = await fixture.engine.start(fixture.asset.id);
+        expect(instance.status, LlamaInstanceStatus.ready);
+        expect(fixture.io.textRequests, 0);
+        expect(fixture.io.decisionRequests, 0);
+        expect(fixture.io.typedRequests, isEmpty);
+        expect(instance.lastTextResult, isNull);
+        expect(instance.lastResult, isNull);
+        expect(instance.typedEvidence, isEmpty);
+        expect(instance.properties['model_alias'], instance.nativeAlias);
+      }
+    },
+  );
   test('installation version budget rejects nonpositive explicit durations before native version execution', () async {
     for (final timeout in [Duration.zero, const Duration(microseconds: -1)]) {
       final root = await Directory.systemTemp.createTemp('gmd-invalid-budget-');
@@ -194,46 +212,37 @@ void main() {
     }
   });
 
-  test(
-    'choice readiness never implies a failed score or noul capability',
-    () async {
-      final fixture = await _Fixture.create();
-      addTearDown(fixture.close);
-      fixture.io.failScore = true;
-      final instance = await fixture.engine.start(fixture.asset.id);
-      expect(instance.status, LlamaInstanceStatus.ready);
-      expect(
-        instance.capabilities,
-        contains(LlamaCapability.choiceProbability),
-      );
-      expect(
-        instance.capabilities,
-        isNot(contains(LlamaCapability.scoreProbability)),
-      );
-      expect(instance.capabilities, contains(LlamaCapability.noulScalar));
-      expect(instance.typedEvidence.keys, [DecisionPrimitive.noul]);
-      final before = fixture.io.typedRequests.length;
-      await expectLater(
-        fixture.engine.decideBatch(
-          instance.id,
-          DecisionBatchRequest(
-            state: '',
-            questions: {
-              'q': ScoreQuestion(instructions: 'Rank', levels: ['Low', 'High']),
-            },
-          ),
+  test('interface declaration does not fabricate typed evidence and explicit score errors remain real', () async {
+    final fixture = await _Fixture.create();
+    addTearDown(fixture.close);
+    fixture.io.failScore = true;
+    final instance = await fixture.engine.start(fixture.asset.id);
+    expect(instance.status, LlamaInstanceStatus.ready);
+    expect(instance.capabilities, contains(LlamaCapability.choiceProbability));
+    expect(instance.capabilities, contains(LlamaCapability.scoreProbability));
+    expect(instance.capabilities, contains(LlamaCapability.noulScalar));
+    expect(instance.typedEvidence, isEmpty);
+    final before = fixture.io.typedRequests.length;
+    await expectLater(
+      fixture.engine.decideBatch(
+        instance.id,
+        DecisionBatchRequest(
+          state: '',
+          questions: {
+            'q': ScoreQuestion(instructions: 'Rank', levels: ['Low', 'High']),
+          },
         ),
-        throwsA(
-          isA<LlamaRequestException>().having(
-            (e) => e.kind,
-            'kind',
-            DecisionFailureKind.notReady,
-          ),
+      ),
+      throwsA(
+        isA<LlamaRequestException>().having(
+          (e) => e.kind,
+          'kind',
+          DecisionFailureKind.invalidResponse,
         ),
-      );
-      expect(fixture.io.typedRequests.length, before);
-    },
-  );
+      ),
+    );
+    expect(fixture.io.typedRequests.length, before + 1);
+  });
 
   test(
     'typed cancellation drains owned permit and a late response cannot publish',
@@ -907,7 +916,7 @@ void main() {
     );
     expect(await stopping, 'stopped');
     expect(fixture.io.children.last.exited.isCompleted, isTrue);
-    expect(fixture.io.textRequests, 1);
+    expect(fixture.io.textRequests, 0);
     final stopped = fixture.engine.state.instances.firstWhere(
       (i) => i.id == pending.id,
     );
@@ -940,7 +949,7 @@ void main() {
     expect(restarted.status, LlamaInstanceStatus.ready);
   });
 
-  test('stopManaged cancels an active readiness probe without waiting for its response', () async {
+  test('stopManaged cancels active startup identity verification without waiting for its response', () async {
     final fixture = await _Fixture.create(ordinaryChat: true);
     addTearDown(fixture.close);
     final arrived = Completer<void>();
@@ -948,7 +957,7 @@ void main() {
     addTearDown(() {
       if (!release.isCompleted) release.complete();
     });
-    fixture.io.holdText = (_) async {
+    fixture.io.holdIdentity = () async {
       arrived.complete();
       await release.future;
     };
@@ -1129,13 +1138,13 @@ void main() {
       LlamaInstanceStatus.ready,
     );
     expect(fixture.io.children.last.exited.isCompleted, isFalse);
-    expect(fixture.io.textRequests, 4);
+    expect(fixture.io.textRequests, 2);
     await expectLater(
       fixture.library.prepareDeletion([fixture.asset.id]),
       throwsA(isA<LibraryException>()),
     );
   });
-  test('a healthy text endpoint with an unbound or non-generation response never earns readiness', () async {
+  test('healthy identity permits startup while explicit invalid text remains rejected', () async {
     for (final raw in [
       '{"model":"foreign","choices":[{"index":0,"message":{"role":"assistant","content":"Hello."},"finish_reason":"stop"}],"usage":{"completion_tokens":2}}',
       '{"model":"ALIAS","choices":[{"index":0,"message":{"role":"assistant","content":"Hello."},"finish_reason":"stop"}],"usage":{"completion_tokens":0}}',
@@ -1144,14 +1153,21 @@ void main() {
       final fixture = await _Fixture.create(ordinaryChat: true);
       addTearDown(fixture.close);
       fixture.io.textResponseOverride = raw;
+      final started = await fixture.engine.start(fixture.asset.id);
+      expect(fixture.io.textRequests, 0);
       await expectLater(
-        fixture.engine.start(fixture.asset.id),
-        throwsA(isA<LlamaEngineException>()),
+        fixture.engine.generateText(started.id, TextRequest(prompt: 'Hello')),
+        throwsA(isA<LlamaRequestException>()),
       );
       final instance = fixture.engine.state.instances.single;
-      expect(instance.status, LlamaInstanceStatus.failed);
-      expect(instance.capabilities, isEmpty);
+      expect(instance.status, LlamaInstanceStatus.ready);
+      expect(instance.capabilities, contains(LlamaCapability.textGeneration));
       expect(instance.lastTextResult, isNull);
+      await expectLater(
+        fixture.library.prepareDeletion([fixture.asset.id]),
+        throwsA(isA<LibraryException>()),
+      );
+      await fixture.engine.stop(instance.id);
       expect(await fixture.io.child!.exitCode, 0);
       expect(
         (await fixture.library.prepareDeletion([fixture.asset.id]))
@@ -1189,23 +1205,23 @@ void main() {
     expect(text.outputTokens, 2);
     expect(text.model, instance.id);
     expect(text.rawResponse, contains('completion_tokens'));
-    expect(fixture.io.textRequests, 2);
+    expect(fixture.io.textRequests, 1);
     expect(fixture.io.decisionRequests, 0);
     await fixture.engine.stop(instance.id);
     await expectLater(
       fixture.engine.generateText(instance.id, TextRequest(prompt: 'Hello')),
       throwsA(isA<LlamaRequestException>()),
     );
-    expect(fixture.io.textRequests, 2);
+    expect(fixture.io.textRequests, 1);
   });
-  test('ordinary GGUF becomes ready through actual bound text generation but cannot answer probability decisions', () async {
+  test('ordinary GGUF starts through health and identity and an undeclared JEV interface stays rejected', () async {
     final fixture = await _Fixture.create(ordinaryChat: true);
     addTearDown(fixture.close);
     expect(fixture.asset.kind, AssetKind.chat);
     final instance = await fixture.engine.start(fixture.asset.id);
     expect(instance.status, LlamaInstanceStatus.ready);
     expect(instance.lastResult, isNull);
-    expect(fixture.io.textRequests, 1);
+    expect(fixture.io.textRequests, 0);
     expect(fixture.io.decisionRequests, 0);
     await expectLater(
       fixture.engine.decide(
@@ -1291,7 +1307,16 @@ void main() {
     expect(instance.status, LlamaInstanceStatus.ready);
     expect(instance.pid, 12345);
     expect(instance.properties['model_path'], asset.files.single.path);
-    expect(instance.lastResult!.probabilities, {'keep': 0.25, 'change': 0.75});
+    expect(instance.lastResult, isNull);
+    final explicit = await engine.decide(
+      instance.id,
+      DecisionRequest(
+        state: 'A change has been requested.',
+        instructions: 'Choose an action.',
+        options: {'keep': 'Keep', 'change': 'Change'},
+      ),
+    );
+    expect(explicit.probabilities, {'keep': 0.25, 'change': 0.75});
     await expectLater(
       library.prepareDeletion([asset.id]),
       throwsA(isA<LibraryException>()),
@@ -1799,6 +1824,7 @@ class _Fixture {
         url: Uri.parse('https://github.com/fixture'),
         sha256: sha256.convert(await archive.readAsBytes()).toString(),
         sizeBytes: await archive.length(),
+        supportsSystemone: !ordinaryChat,
       ),
     );
     await engine.install(verifiedArchive: archive);
@@ -1830,6 +1856,7 @@ class _InstallIO implements EngineProcessIO {
   Future<void> Function(Map body)? holdDecision;
   _Child? child;
   final children = <_Child>[];
+  Future<void> Function()? holdIdentity;
   Future<void> Function(Map body)? holdText;
   Future<void> Function(HttpResponse response, String alias, Map body)?
   streamResponse;
@@ -1858,6 +1885,7 @@ class _InstallIO implements EngineProcessIO {
       if (request.uri.path == '/health') {
         request.response.write('{"status":"ok"}');
       } else if (request.uri.path == '/props') {
+        await holdIdentity?.call();
         request.response.write(
           jsonEncode({
             'model_alias': foreignEndpoint ? 'foreign-alias' : arg('--alias'),

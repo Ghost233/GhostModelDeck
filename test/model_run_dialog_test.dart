@@ -16,11 +16,162 @@ import 'package:ghost_model_deck/local_model_package.dart';
 import 'package:ghost_model_deck/llama_engine.dart';
 import 'package:ghost_model_deck/model_library.dart';
 import 'package:ghost_model_deck/model_use_registry.dart';
+import 'package:ghost_model_deck/launch_instances.dart';
+import 'package:ghost_model_deck/instances_page.dart';
+import 'package:ghost_model_deck/public_gateway.dart';
+import 'package:ghost_model_deck/chat_protocol.dart';
+import 'package:ghost_model_deck/decision_protocol.dart';
 
 import 'fixtures/decision_gguf.dart';
 import 'fixtures/engine_archive.dart';
 
 void main() {
+  testWidgets(
+    'saved instance editor reopens the same model without rescanning engines',
+    (tester) async {
+      final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
+      addTearDown(() => tester.runAsync(fixture.close));
+      await tester.runAsync(() async {
+        final store = LaunchInstances(
+          catalog: fixture.catalog,
+          file: File('${fixture.root.path}/instances.json'),
+        );
+        try {
+          await store.load();
+          final checks = fixture.io.versionChecks;
+          await tester.pumpWidget(
+            MaterialApp(
+              home: Scaffold(
+                body: InstancesPage(
+                  instances: store,
+                  initialArtifactId: fixture.asset.id,
+                ),
+              ),
+            ),
+          );
+          await _settleFilesystemFrames(tester, dialogRemainsOpen: true);
+          expect(find.text('实例配置'), findsOneWidget);
+          expect(fixture.io.versionChecks, checks);
+          await tester.tap(find.widgetWithText(TextButton, '取消'));
+          await tester.pump(const Duration(milliseconds: 300));
+          await tester.pumpWidget(
+            MaterialApp(
+              home: Scaffold(body: InstancesPage(instances: store)),
+            ),
+          );
+          await tester.pump();
+          await tester.pumpWidget(
+            MaterialApp(
+              home: Scaffold(
+                body: InstancesPage(
+                  instances: store,
+                  initialArtifactId: fixture.asset.id,
+                ),
+              ),
+            ),
+          );
+          await _settleFilesystemFrames(tester, dialogRemainsOpen: true);
+          expect(find.text('实例配置'), findsOneWidget);
+          expect(fixture.io.versionChecks, checks);
+          expect(fixture.engine.runtimeInstances, isEmpty);
+        } finally {
+          await tester.pumpWidget(const SizedBox.shrink());
+          await store.close();
+        }
+      });
+    },
+  );
+  testWidgets(
+    'recognized new architecture can save an instance without starting',
+    (tester) async {
+      final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
+      addTearDown(() => tester.runAsync(fixture.close));
+      await tester.runAsync(() async {
+        final file = File(fixture.asset.files.single.path);
+        final bytes = await file.readAsBytes();
+        final marker = ascii.encode('qwen35');
+        for (var offset = 0; offset <= bytes.length - marker.length; offset++) {
+          if (List.generate(
+                marker.length,
+                (index) => bytes[offset + index],
+              ).join(',') ==
+              marker.join(',')) {
+            bytes.setRange(
+              offset,
+              offset + marker.length,
+              ascii.encode('novel0'),
+            );
+            break;
+          }
+        }
+        await file.writeAsBytes(bytes);
+        final asset = (await fixture.library.scan(
+          Directory('${fixture.root.path}/models'),
+          verifyFiles: true,
+        )).single;
+        expect(asset.architecture, 'novel0');
+        expect(asset.kind, AssetKind.unknown);
+        final store = LaunchInstances(
+          catalog: fixture.catalog,
+          file: File('${fixture.root.path}/instances.json'),
+        );
+        final routes = PublicModelRoutes(
+          library: fixture.library,
+          runtimes: [fixture.engine],
+        );
+        try {
+          await store.load();
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: buildJevTheme(Brightness.light),
+              home: Scaffold(body: InstancesPage(instances: store)),
+            ),
+          );
+          await _settleFilesystemFrames(tester);
+          await tester.tap(find.text('创建实例'));
+          await _settleFilesystemFrames(tester);
+          expect(find.byType(AlertDialog), findsOneWidget);
+          await tester.tap(find.widgetWithText(FilledButton, '保存'));
+          await _settleFilesystemFrames(tester);
+          await tester.pump(const Duration(milliseconds: 300));
+          expect(store.definitions, hasLength(1));
+          expect(store.definitions.single.artifactId, asset.id);
+          expect(fixture.engine.runtimeInstances, isEmpty);
+          final displayName = store.definitions.single.name;
+          await tester.tap(find.text('修改调用名'));
+          await _settleFilesystemFrames(tester);
+          await tester.enterText(
+            find.widgetWithText(TextField, '公开调用名'),
+            'FAST Model',
+          );
+          final renameDialog = find.ancestor(
+            of: find.widgetWithText(TextField, '公开调用名'),
+            matching: find.byType(AlertDialog),
+          );
+          final renamed = store.changes.firstWhere(
+            (_) => store.definitions.single.publicName == 'fast-model',
+          );
+          await tester.tap(
+            find.descendant(
+              of: renameDialog,
+              matching: find.widgetWithText(FilledButton, '保存'),
+            ),
+          );
+          await renamed.timeout(const Duration(seconds: 5));
+          await _settleFilesystemFrames(tester);
+          await tester.pump(const Duration(milliseconds: 300));
+          expect(store.definitions.single.publicName, 'fast-model');
+          expect(store.definitions.single.name, displayName);
+          expect(find.textContaining('公开模型 ID  fast-model'), findsOneWidget);
+          expect(tester.takeException(), isNull);
+        } finally {
+          await tester.pumpWidget(const SizedBox.shrink());
+          routes.close();
+          await store.close();
+        }
+      });
+    },
+  );
   test('model configuration JSON rejects partial mutation and retains orphan registrations', () async {
     final fixture = await _LaunchTextFixture.create();
     addTearDown(fixture.close);
@@ -1603,10 +1754,9 @@ void main() {
           final a = await runtimeA.startRuntime(asset.id);
           expect(a.status, RuntimeInstanceStatus.ready);
           expect(a.capabilities, contains(RuntimeCapability.textGeneration));
-          expect(
-            a.capabilities,
-            isNot(contains(RuntimeCapability.choiceProbability)),
-          );
+          expect(a.capabilities, contains(RuntimeCapability.choiceProbability));
+          expect(capturedA.state.instances.single.typedEvidence, isEmpty);
+          expect(capturedA.state.instances.single.lastResult, isNull);
           expect(catalog.runsFor([asset.id]).single.instance.id, a.id);
           await providers[1].start(asset.id);
           Future<EngineRegistration>? linking;
@@ -2040,16 +2190,38 @@ void main() {
         expect(find.text('运行模型'), findsNothing);
         expect(find.widgetWithText(TextButton, '停止'), findsOneWidget);
         if (ordinaryChat) {
-          expect(fresh.state.instances.single.lastTextResult!.text, 'Hello.');
-          expect(fresh.state.instances.single.capabilities, {
-            LlamaCapability.textGeneration,
-          });
+          expect(fresh.state.instances.single.lastTextResult, isNull);
+          final explicit = await tester.runAsync(
+            () => HttpOverrides.runWithHttpOverrides(
+              () => fresh.generateText(
+                fresh.state.instances.single.id,
+                TextRequest(prompt: 'Hello'),
+              ),
+              _NetworkBoundary(),
+            ),
+          );
+          expect(explicit!.text, 'Hello.');
+          expect(
+            fresh.state.instances.single.capabilities,
+            contains(LlamaCapability.textGeneration),
+          );
           expect(fresh.state.instances.single.lastResult, isNull);
         } else {
-          expect(fresh.state.instances.single.lastResult!.probabilities, {
-            'keep': 0.25,
-            'change': 0.75,
-          });
+          expect(fresh.state.instances.single.lastResult, isNull);
+          final explicit = await tester.runAsync(
+            () => HttpOverrides.runWithHttpOverrides(
+              () => fresh.decide(
+                fresh.state.instances.single.id,
+                DecisionRequest(
+                  state: 'A change',
+                  instructions: 'Choose an action',
+                  options: {'keep': 'Keep', 'change': 'Change'},
+                ),
+              ),
+              _NetworkBoundary(),
+            ),
+          );
+          expect(explicit!.probabilities, {'keep': 0.25, 'change': 0.75});
         }
         final instance = fresh.state.instances.single;
         expect(
@@ -2291,6 +2463,7 @@ class _RuntimeIO implements EngineProcessIO {
   Completer<void>? startupExitGate;
   bool stopFailure = false;
   int stopAttempts = 0;
+  int versionChecks = 0;
   Completer<void>? stopRelease;
   Completer<void>? stopRequested;
   Completer<void>? inspectionRequested;
@@ -2312,6 +2485,7 @@ class _RuntimeIO implements EngineProcessIO {
       );
     }
     if (arguments.singleOrNull == '--version') {
+      versionChecks++;
       if (inspectionRequested != null && !inspectionRequested!.isCompleted) {
         inspectionRequested!.complete();
         await inspectionRelease!.future;
