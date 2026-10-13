@@ -6,18 +6,18 @@
 
 | 项目 | 当前状态 |
 | --- | --- |
-| 候选 | 集成 dev `2be287dba92b49c67f487a3870746aa8ed8fcf1f`；阶段D代码 `10199a624a068576c089d8e9bd8e481175501e06`、阶段头 `661aa55c2e6485947ea347e552b5a2e0a9953b2f` |
+| 候选 | 当前分支dev；集成代码 `2be287dba92b49c67f487a3870746aa8ed8fcf1f`，后续仅交付文档；阶段D代码 `10199a624a068576c089d8e9bd8e481175501e06`、阶段头 `661aa55c2e6485947ea347e552b5a2e0a9953b2f` |
 | 有效作业 | 无；最终 `run-uCS7B1` 已结束，960 项、格式与分析全部通过，退出 0、完成标记有效、716 份输入前后及当前一致 |
-| 未关闭问题 | 无已知产品 P0/P1/P2；阶段及总范围两轴复审通过；剩余总 PR ready和最终同步核对 |
-| 下一动作 | 创建dev→main总PR ready，核对本地/远端同步，等待用户合并 |
+| 未关闭问题 | 无已知产品 P0/P1/P2；无；阶段及总范围两轴复审通过，总PR #101已ready，等待用户合并 |
+| 下一动作 | 用户审阅并合并 [总PR #101](https://github.com/Ghost233/GhostModelDeck/pull/101)；没有自动合并或正式发布 |
 | 原生产物 | `stage-d-root-final-macos-build.log` 退出 0；应用、FlutterMacOS、App.framework 实际均 arm64；后续仅根路由 lint 原因注释和测试/文档变更，运行行为未变，原生产物复用 |
 | 服务 | Kev 唯一运行，保存预算 60 秒、原模型/引擎/CLI；恢复身份 app26711/engine42511/native56352/public54841 已通知 Wiki 继续开发 |
 
 ## 当前工作分类
 
 - **未实现：** 无本次规格的剩余产品功能。
-- **未验证：** 仅最终PR状态及本地/远端同步待核对；固定提交及总范围/跨阶段审查已通过。
-- **已验证待提交：** 所有产品变更已验证、提交和集成；仅最后交付文档待提交；A/B/C 已提交并集成，不列为待办。
+- **未验证：** 无；固定提交及总范围/跨阶段审查已通过，总PR非草稿、可合并，本地dev/main及四个阶段分支同步。
+- **已验证待提交：** 无；所有产品变更与交付记录已提交，未提交状态在结束前再次核对；A/B/C 已提交并集成，不列为待办。
 - **历史问题：** 字形损坏尚无本轮复现或根因结论；此次黑屏已精确复现为重复下拉激活弹出桌面根路由并释放服务，定点和原生修复通过，不扩展为所有旧图形事件已修复。
 
 ## 已完成阶段
@@ -53,4 +53,6 @@ GUI 已保存 `jev_request_timeout_seconds=60` / revision2，唯一最小公开 
 
 阶段 D 过程历史见 [快照](archive/product-scope-stage-d-progress-history.md)，此前过程见 [历史记录](archive/engine-sources-and-installation-2026-10-12-progress-history.md)，不将历史旧状态当作当前待办。
 
-总审查从0eda06296aa4fdff65b9ee83f90564ff7a76ebde到集成2be287dba92b49c67f487a3870746aa8ed8fcf1f，两轴没有未关闭P0/P1/P2；见[总报告](product-scope-total-review.md)。集成后的716份输入与最终门禁一致。#95已关闭，#96待最后PR/sync结项。
+总审查从0eda06296aa4fdff65b9ee83f90564ff7a76ebde到集成2be287dba92b49c67f487a3870746aa8ed8fcf1f，两轴没有未关闭P0/P1/P2；见[总报告](product-scope-total-review.md)。集成后的716份输入与最终门禁一致。#95/#96已完成验收；#95已关闭，#96按ready总PR及最终同步核对结项。
+
+总PR [#101](https://github.com/Ghost233/GhostModelDeck/pull/101) 回读OPEN/isDraft=false/MERGEABLE，目标main，来源dev；没有普通CI门禁workflow/check，依据完整宿主记录验收，不冒称远端检查通过。main保持0eda06296aa4fdff65b9ee83f90564ff7a76ebde等待用户合并，阶段四本地/远端661aa55c2e6485947ea347e552b5a2e0a9953b2f。dev后续仅文档提交，完整hash以最终同步收据为准。没有自动stash/移动/删除/覆盖其他会话文件或创建备份。
