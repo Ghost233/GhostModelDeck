@@ -23,6 +23,7 @@ import 'download_preferences.dart';
 import 'download_tasks_page.dart';
 import 'engine_catalog.dart';
 import 'launch_instances.dart';
+import 'desktop_home_route.dart';
 import 'instances_page.dart';
 import 'engine_page.dart';
 import 'engine_source_build.dart';
@@ -59,7 +60,10 @@ class GhostModelDeckApp extends StatelessWidget {
     debugShowCheckedModeBanner: false,
     theme: buildJevTheme(Brightness.light),
     darkTheme: buildJevTheme(Brightness.dark),
-    home: const _ManagerShell(),
+    onGenerateRoute: (settings) => DesktopHomeRoute(
+      settings: settings,
+      builder: (_) => const _ManagerShell(),
+    ),
   );
 }
 

@@ -27,6 +27,62 @@ import 'fixtures/engine_archive.dart';
 
 void main() {
   testWidgets(
+    'instance JEV budget saves without changing launch arguments or starting a model',
+    (tester) async {
+      final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
+      addTearDown(() => tester.runAsync(fixture.close));
+      final store = LaunchInstances(
+        catalog: fixture.catalog,
+        file: File('${fixture.root.path}/instances.json'),
+      );
+      addTearDown(() => tester.runAsync(store.close));
+      final definition = (await tester.runAsync(
+        () => store.save(
+          name: 'Saved',
+          artifactId: fixture.asset.id,
+          engineId: EngineCatalog.officialId,
+          configuration: EngineLaunchConfiguration(),
+        ),
+      ))!;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: InstancesPage(instances: store)),
+        ),
+      );
+      await _settleFilesystemFrames(tester);
+      final budget = find.text('JEV 预算 60 秒');
+      await tester.ensureVisible(budget);
+      await tester.runAsync(() => tester.tap(budget));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('instance-jev-budget')), '0');
+      await tester.tap(find.widgetWithText(FilledButton, '保存'));
+      await tester.pump();
+      expect(find.text('请输入正整数秒'), findsOneWidget);
+      await tester.enterText(
+        find.byKey(const Key('instance-jev-budget')),
+        '17',
+      );
+      await tester.runAsync(() async {
+        final saved = store.changes.firstWhere(
+          (_) => store.find(definition.id)!.jevRequestTimeoutSeconds == 17,
+        );
+        await tester.tap(find.widgetWithText(FilledButton, '保存'));
+        await tester.pumpAndSettle();
+        await saved.timeout(const Duration(seconds: 5));
+      });
+      await _settleFilesystemFrames(tester);
+      expect(find.text('JEV 预算 17 秒'), findsOneWidget);
+      expect(
+        store.find(definition.id)!.configuration.toJson(),
+        definition.configuration.toJson(),
+      );
+      expect(store.runsFor(definition.id), isEmpty);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
     'instance resource preparation is pending rather than a missing resource and blocks configuration edits',
     (tester) async {
       final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;

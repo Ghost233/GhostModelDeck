@@ -123,7 +123,7 @@ void main() {
       expect(result.request, jsonDecode(document));
       expect(result.httpStatus, 200);
       expect(result.mode, JevPlaygroundMode.http);
-      expect(result.timeout, const Duration(seconds: 30));
+      expect(result.timeout, const Duration(seconds: 60));
       expect(result.elapsed, greaterThan(Duration.zero));
       expect(result.output, jsonDecode(independentRaw));
       final file = File('${fixture.runtime.root.path}/export.json');

@@ -2584,7 +2584,7 @@ void main() {
             .widget<TextField>(find.byKey(const Key('benchmark-timeout')))
             .controller!
             .text,
-        '30',
+        '60',
       );
       await tester.ensureVisible(find.byKey(const Key('benchmark-target')));
       await tester.tap(find.byKey(const Key('benchmark-target')));

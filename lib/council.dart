@@ -321,7 +321,7 @@ class CouncilController {
     required String state,
     required Map<String, String> options,
     String instructions = '根据上下文，从候选项中选择最合适的一项。',
-    Duration timeout = const Duration(seconds: 10),
+    Duration timeout = const Duration(seconds: 60),
     DecisionCancellation? cancellation,
   }) async {
     if (_shuttingDown) throw StateError('委员会正在退出');
@@ -419,7 +419,7 @@ class CouncilController {
 
   Future<CouncilBatchConsultation> consultBatch(
     DecisionBatchRequest request, {
-    Duration timeout = const Duration(seconds: 10),
+    Duration timeout = const Duration(seconds: 60),
     DecisionCancellation? cancellation,
     List<CouncilSeat>? seats,
     Map<String, DecisionIOTrace>? ioTraces,

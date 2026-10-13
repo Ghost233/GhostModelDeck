@@ -48,7 +48,7 @@ class BenchmarkRunner {
     String? model,
     List<String>? modelNames,
     List<JevPlaygroundMode> channels = const [JevPlaygroundMode.http],
-    Duration timeout = const Duration(seconds: 30),
+    Duration timeout = const Duration(seconds: 60),
   }) => _start(
     suites: [suite],
     model: model,
@@ -62,7 +62,7 @@ class BenchmarkRunner {
     String? model,
     List<String>? modelNames,
     List<JevPlaygroundMode> channels = const [JevPlaygroundMode.http],
-    Duration timeout = const Duration(seconds: 30),
+    Duration timeout = const Duration(seconds: 60),
   }) => _start(
     suites: [suite],
     model: model,
@@ -88,7 +88,7 @@ class BenchmarkRunner {
     required List<Object> suites,
     required List<String> modelNames,
     List<JevPlaygroundMode> channels = const [JevPlaygroundMode.http],
-    Duration timeout = const Duration(seconds: 30),
+    Duration timeout = const Duration(seconds: 60),
   }) => _start(
     suites: suites,
     modelNames: modelNames,
@@ -102,7 +102,7 @@ class BenchmarkRunner {
     BenchmarkGameWork? gameWork,
     required List<String> modelNames,
     List<JevPlaygroundMode> channels = const [JevPlaygroundMode.http],
-    Duration timeout = const Duration(seconds: 30),
+    Duration timeout = const Duration(seconds: 60),
   }) {
     final ids = List<String>.unmodifiable(suiteIds);
     if (ids.isEmpty ||
@@ -264,9 +264,7 @@ class BenchmarkRunner {
     try {
       await models.load();
       for (final name in names) {
-        final definition = models.definitions
-            .where((entry) => entry.name == name)
-            .firstOrNull;
+        final definition = models.definitionFor(name);
         if (definition == null) throw StateError('$name 未在模型注册配置中');
         for (final suite in suites) {
           for (final channel in channels) {

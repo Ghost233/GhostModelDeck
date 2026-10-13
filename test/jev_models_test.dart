@@ -14,6 +14,69 @@ import 'package:ghost_model_deck/public_model_names.dart';
 import 'fixtures/council_runtime.dart';
 
 void main() {
+  test('saved native playground target locks the actual run without starting a cold object or changing the full suite', () async {
+    final runtime = await CouncilRuntime.create(
+      modelCount: 2,
+      sourceSystemone: true,
+    );
+    addTearDown(runtime.close);
+    final store = LaunchInstances(
+      catalog: runtime.catalog,
+      file: File('${runtime.root.path}/instances.json'),
+    );
+    addTearDown(store.close);
+    final controller = CouncilController(
+      catalog: runtime.catalog,
+      launchInstances: store,
+    );
+    addTearDown(controller.close);
+    final definition = await store.save(
+      name: 'Saved',
+      artifactId: runtime.library.state.artifacts.first.id,
+      engineId: EngineCatalog.officialId,
+      configuration: EngineLaunchConfiguration(),
+    );
+    await expectLater(
+      controller.models.lockForEvaluation(definition.publicName),
+      throwsA(isA<DecisionProtocolException>()),
+    );
+    expect(store.runsFor(definition.id), isEmpty);
+    final run = await store.start(definition.id);
+    final selection = await controller.models.lockForEvaluation(
+      definition.publicName,
+    );
+    addTearDown(selection.release);
+    expect(selection.isCurrent, isTrue);
+    final binding = (selection.identity['bindings'] as List).single as Map;
+    expect((binding['binding'] as Map)['instance_id'], definition.id);
+    expect((binding['instance'] as Map)['id'], run.id);
+    expect((binding['instance'] as Map)['launch_instance_id'], definition.id);
+    expect(
+      (binding['instance'] as Map)['launch_revision'],
+      definition.revision,
+    );
+    await store.save(
+      id: definition.id,
+      name: 'Future parameters',
+      artifactId: runtime.library.state.artifacts.last.id,
+      engineId: definition.engineId,
+      configuration: EngineLaunchConfiguration(
+        formValues: {
+          ...EngineLaunchConfiguration.initialValues,
+          '--ctx-size': '2048',
+        },
+      ),
+    );
+    expect(selection.isCurrent, isTrue);
+    await store.stop(definition.id);
+    expect(selection.isCurrent, isFalse);
+    selection.release();
+    expect(
+      controller.models.isEvaluationLocked(definition.publicName),
+      isFalse,
+    );
+  });
+
   test('rebinding keeps the admitted committee run and public identity until stop and restart', () async {
     final runtime = await CouncilRuntime.create(
       modelCount: 2,

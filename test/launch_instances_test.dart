@@ -15,6 +15,55 @@ import 'splash_engine_test.dart' show SplashRuntimeFixture;
 import 'fixtures/council_runtime.dart';
 
 void main() {
+  test(
+    'per-instance JEV budget persists independently and rejects invalid values',
+    () async {
+      final runtime = await CouncilRuntime.create(modelCount: 1);
+      addTearDown(runtime.close);
+      final file = File('${runtime.root.path}/instances.json');
+      final store = LaunchInstances(catalog: runtime.catalog, file: file);
+      addTearDown(store.close);
+      final definition = await store.save(
+        name: 'Saved',
+        artifactId: runtime.library.state.artifacts.single.id,
+        engineId: EngineCatalog.officialId,
+        configuration: EngineLaunchConfiguration(),
+        jevRequestTimeoutSeconds: 60,
+      );
+      final copied = await store.copy(definition.id);
+      final renamed = await store.renamePublicName(definition.id, 'renamed');
+      expect(copied.jevRequestTimeoutSeconds, 60);
+      expect(renamed.jevRequestTimeoutSeconds, 60);
+      final reopened = LaunchInstances(catalog: runtime.catalog, file: file);
+      addTearDown(reopened.close);
+      await reopened.load();
+      expect(reopened.find(definition.id)!.jevRequestTimeoutSeconds, 60);
+      final json = definition.toJson()..remove('jev_request_timeout_seconds');
+      expect(LaunchInstance.fromJson(json).jevRequestTimeoutSeconds, 60);
+      for (final value in [0, -1, 1.5, '60']) {
+        expect(
+          () => LaunchInstance.fromJson({
+            ...json,
+            'jev_request_timeout_seconds': value,
+          }),
+          throwsFormatException,
+        );
+      }
+      await expectLater(
+        store.save(
+          id: definition.id,
+          name: definition.name,
+          artifactId: definition.artifactId,
+          engineId: definition.engineId,
+          configuration: definition.configuration,
+          jevRequestTimeoutSeconds: 0,
+        ),
+        throwsArgumentError,
+      );
+      expect(store.find(definition.id)!.jevRequestTimeoutSeconds, 60);
+    },
+  );
+
   test('engine resource failure preserves the already loaded run and actual command until explicit stop', () async {
     final runtime = await CouncilRuntime.create(
       modelCount: 1,
