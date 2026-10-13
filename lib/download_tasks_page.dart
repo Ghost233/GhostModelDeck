@@ -61,26 +61,55 @@ class DownloadTasksPage extends StatelessWidget {
                     ),
                   );
                 }
-                return ListView(
+                final entries = tasks.entries.toList();
+                final sourceTask = engines?.sourceBuildProgress != null;
+                final modelTask = state.status != DownloadStatus.idle;
+                final activeEngines = tasks.values
+                    .where((task) => task.active)
+                    .length;
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (engines?.sourceBuildProgress != null)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 16),
-                        child: _sourceTask(context, engines!),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: Text(
+                        '进行中：引擎 $activeEngines · 模型 ${state.isActive ? 1 : 0}'
+                        '${engines?.sourceBuildActive == true ? ' · 源码构建 1' : ''}',
+                        key: const Key('download-active-count'),
+                        style: Theme.of(context).textTheme.bodyMedium,
                       ),
-                    for (final task in tasks.entries)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 16),
-                        child: _engineTask(
-                          context,
-                          engineSnapshot.data!.entries.singleWhere(
-                            (entry) => entry.id == task.key,
-                          ),
-                          task.value,
-                        ),
+                    ),
+                    Expanded(
+                      child: ListView.builder(
+                        itemCount:
+                            entries.length +
+                            (sourceTask ? 1 : 0) +
+                            (modelTask ? 1 : 0),
+                        itemBuilder: (context, index) {
+                          if (sourceTask && index == 0) {
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 16),
+                              child: _sourceTask(context, engines!),
+                            );
+                          }
+                          final engineIndex = index - (sourceTask ? 1 : 0);
+                          if (engineIndex == entries.length) {
+                            return _task(context, state);
+                          }
+                          final task = entries[engineIndex];
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child: _engineTask(
+                              context,
+                              engineSnapshot.data!.entries.singleWhere(
+                                (entry) => entry.id == task.key,
+                              ),
+                              task.value,
+                            ),
+                          );
+                        },
                       ),
-                    if (state.status != DownloadStatus.idle)
-                      _task(context, state),
+                    ),
                   ],
                 );
               },
@@ -200,6 +229,7 @@ class DownloadTasksPage extends StatelessWidget {
       EngineInstallPhase.failed => '失败',
     };
     return JevSurface(
+      key: ValueKey('engine-download-${entry.id}'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -233,7 +263,20 @@ class DownloadTasksPage extends StatelessWidget {
                   : null,
             ),
           const SizedBox(height: 8),
-          Text('${_size(progress.received)} / ${_size(progress.total)}'),
+          Wrap(
+            spacing: 24,
+            runSpacing: 8,
+            children: [
+              Text('${_size(progress.received)} / ${_size(progress.total)}'),
+              if (progress.phase == EngineInstallPhase.downloading) ...[
+                if (progress.total > 0)
+                  Text(
+                    '${(100 * progress.received / progress.total).clamp(0, 100).toStringAsFixed(1)}%',
+                  ),
+                Text('平均速度：${_size(progress.bytesPerSecond.round())}/s'),
+              ],
+            ],
+          ),
           if (progress.error != null)
             Text(
               progress.error!,

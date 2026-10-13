@@ -590,12 +590,14 @@ class LlamaEngine implements EmbeddingRuntime {
   void _installProgress(
     EngineInstallPhase phase,
     int received, {
+    double bytesPerSecond = 0,
     String? error,
   }) {
     installationProgress = EngineInstallProgress(
       phase,
       received: received,
       total: release.sizeBytes,
+      bytesPerSecond: bytesPerSecond,
       error: error,
     );
     if (!_changes.isClosed) _changes.add(_state);
@@ -2119,6 +2121,7 @@ class LlamaEngine implements EmbeddingRuntime {
 
     var received = 0;
     final progressClock = Stopwatch()..start();
+    final downloadClock = Stopwatch();
     _installProgress(EngineInstallPhase.downloading, received);
     try {
       await installationDirectory.create(recursive: true);
@@ -2137,6 +2140,7 @@ class LlamaEngine implements EmbeddingRuntime {
         _installClient = client;
         try {
           checkCancelled();
+          downloadClock.start();
           final response = await (await client.getUrl(release.url))
               .close()
               .timeout(const Duration(seconds: 30));
@@ -2156,7 +2160,14 @@ class LlamaEngine implements EmbeddingRuntime {
               sink.add(bytes);
               if (received == bytes.length ||
                   progressClock.elapsedMilliseconds >= 100) {
-                _installProgress(EngineInstallPhase.downloading, received);
+                _installProgress(
+                  EngineInstallPhase.downloading,
+                  received,
+                  bytesPerSecond:
+                      received *
+                      Duration.microsecondsPerSecond /
+                      max(1, downloadClock.elapsedMicroseconds),
+                );
                 progressClock.reset();
               }
             }

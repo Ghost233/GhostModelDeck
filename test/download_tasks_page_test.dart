@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -76,6 +77,8 @@ void main() {
       );
       await tester.pump();
       expect(find.text('下载'), findsOneWidget);
+      expect(find.text('进行中：引擎 1 · 模型 0'), findsOneWidget);
+      expect(find.text('平均速度：0 B/s'), findsOneWidget);
       expect(find.text('ggml-org/llama.cpp'), findsOneWidget);
       expect(find.text('1.0 KiB / 2.0 KiB'), findsOneWidget);
       expect(
@@ -88,6 +91,55 @@ void main() {
       );
       await tester.tap(find.widgetWithText(OutlinedButton, '取消'));
       expect(catalog.cancelledId, EngineCatalog.officialId);
+      await tester.pump();
+      expect(find.text('进行中：引擎 0 · 模型 0'), findsOneWidget);
+      expect(find.text('已取消'), findsOneWidget);
+      expect(find.textContaining('平均速度'), findsNothing);
+
+      catalog.setTasks({
+        EngineCatalog.officialId: const EngineInstallProgress(
+          EngineInstallPhase.downloading,
+          received: 1024,
+          total: 2048,
+          bytesPerSecond: 4096,
+        ),
+        EngineCatalog.standardId: const EngineInstallProgress(
+          EngineInstallPhase.downloading,
+          received: 2048,
+          total: 8192,
+          bytesPerSecond: 2048,
+        ),
+      });
+      await tester.pump();
+      expect(find.text('进行中：引擎 2 · 模型 0'), findsOneWidget);
+      expect(find.text('平均速度：4.0 KiB/s'), findsOneWidget);
+      expect(find.text('平均速度：2.0 KiB/s'), findsOneWidget);
+      expect(find.text('50.0%'), findsOneWidget);
+      expect(find.text('25.0%'), findsOneWidget);
+      expect(
+        tester
+            .widgetList<LinearProgressIndicator>(
+              find.byType(LinearProgressIndicator),
+            )
+            .map((widget) => widget.value),
+        [0.5, 0.25],
+      );
+
+      var openedDownloads = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: EnginePage(
+              catalog: catalog,
+              pickEngineDirectory: () async => null,
+              onDownloadStarted: () => openedDownloads++,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.widgetWithText(OutlinedButton, '查看下载'));
+      expect(openedDownloads, 1);
       expect(tester.takeException(), isNull);
     },
   );
@@ -103,15 +155,38 @@ class _DownloadViewCatalog extends EngineCatalog {
     required super.registryFile,
   });
   String? cancelledId;
+  final _updates = StreamController<EngineCatalogState>.broadcast();
+  @override
+  Stream<EngineCatalogState> get changes => _updates.stream;
+  @override
+  void close() {
+    unawaited(_updates.close());
+    super.close();
+  }
+
+  void setTasks(Map<String, EngineInstallProgress> tasks) {
+    _tasks = tasks;
+    _updates.add(state);
+  }
+
   @override
   Future<void> refresh() async {}
   @override
   void cancelInstallation(String id) {
     cancelledId = id;
+    setTasks({
+      ..._tasks,
+      id: EngineInstallProgress(
+        EngineInstallPhase.cancelled,
+        received: _tasks[id]!.received,
+        total: _tasks[id]!.total,
+      ),
+    });
   }
 
   @override
-  Map<String, EngineInstallProgress> get installationTasks => {
+  Map<String, EngineInstallProgress> get installationTasks => _tasks;
+  Map<String, EngineInstallProgress> _tasks = {
     EngineCatalog.officialId: const EngineInstallProgress(
       EngineInstallPhase.downloading,
       received: 1024,

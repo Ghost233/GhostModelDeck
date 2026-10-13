@@ -45,7 +45,13 @@ void main() {
     final peer = LlamaEngine(
       library: library,
       installationDirectory: Directory('${root.path}/owned'),
-      release: standardLlamaRelease,
+      release: LlamaRelease(
+        tag: 'b11146',
+        commit: '7fe450e19',
+        url: Uri.parse('http://127.0.0.1:${server.port}/peer.tar.gz'),
+        sha256: sha256.convert(data).toString(),
+        sizeBytes: data.length,
+      ),
     );
     final catalog = EngineCatalog(
       library: library,
@@ -62,6 +68,7 @@ void main() {
       (_) => null,
       onError: (Object error) => error,
     );
+    Future<Object?>? peerResult;
     try {
       expect(
         identical(
@@ -73,6 +80,10 @@ void main() {
       await received.timeout(const Duration(seconds: 5));
       expect(catalog.state.busy, isFalse);
       expect(catalog.installationTasks[EngineCatalog.officialId]!.received, 32);
+      expect(
+        catalog.installationTasks[EngineCatalog.officialId]!.bytesPerSecond,
+        greaterThan(0),
+      );
       await catalog
           .saveLaunchDefaults(
             EngineCatalog.standardId,
@@ -82,6 +93,22 @@ void main() {
       expect(
         catalog.launchDefaultsFor(EngineCatalog.standardId).argumentText,
         '--ctx-size 65536',
+      );
+      final peerReceived = catalog.changes.firstWhere(
+        (_) => (peer.installationProgress?.received ?? 0) > 0,
+      );
+      peerResult = catalog
+          .installManaged(EngineCatalog.standardId)
+          .then<Object?>((_) => null, onError: (Object error) => error);
+      await peerReceived.timeout(const Duration(seconds: 5));
+      expect(
+        catalog.installationTasks.values.where((task) => task.active),
+        hasLength(2),
+      );
+      expect(catalog.installationTasks[EngineCatalog.standardId]!.received, 32);
+      expect(
+        catalog.installationTasks[EngineCatalog.standardId]!.bytesPerSecond,
+        greaterThan(0),
       );
       catalog.cancelInstallation(EngineCatalog.officialId);
       expect(
@@ -93,12 +120,21 @@ void main() {
         EngineInstallPhase.cancelled,
       );
       expect(downloading.installationProgress!.received, 32);
+      expect(downloading.installationProgress!.bytesPerSecond, 0);
+      expect(peer.installationProgress!.active, isTrue);
+      catalog.cancelInstallation(EngineCatalog.standardId);
+      expect(
+        await peerResult.timeout(const Duration(seconds: 5)),
+        isA<LlamaEngineException>(),
+      );
       expect(await Directory('${root.path}/owned/b11381').exists(), isFalse);
       expect(await Directory('${root.path}/owned').list().toList(), isEmpty);
     } finally {
       catalog.cancelInstallation(EngineCatalog.officialId);
+      catalog.cancelInstallation(EngineCatalog.standardId);
       releaseBody.complete();
       await result;
+      if (peerResult != null) await peerResult;
       await catalog.shutdown();
       catalog.close();
       downloading.close();

@@ -543,7 +543,14 @@ class _EnginePageState extends State<EnginePage> {
                                     : () => _configure(entry),
                                 icon: const Icon(Icons.tune, size: 18),
                               ),
-                              if (!linked && !installed)
+                              if (entry.status ==
+                                      LlamaInstallationStatus.installing &&
+                                  widget.onDownloadStarted != null)
+                                OutlinedButton(
+                                  onPressed: widget.onDownloadStarted,
+                                  child: const Text('查看下载'),
+                                )
+                              else if (!linked && !installed)
                                 FilledButton(
                                   onPressed:
                                       busy ||

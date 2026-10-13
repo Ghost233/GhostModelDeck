@@ -365,11 +365,17 @@ class OmlxEngine implements EngineRuntime {
     _epoch++;
   }
 
-  void _installProgress(EngineInstallPhase phase, int bytes, {String? error}) {
+  void _installProgress(
+    EngineInstallPhase phase,
+    int bytes, {
+    double bytesPerSecond = 0,
+    String? error,
+  }) {
     installationProgress = EngineInstallProgress(
       phase,
       received: bytes,
       total: 830879938,
+      bytesPerSecond: bytesPerSecond,
       error: error,
     );
     if (!_changes.isClosed) _changes.add(_state);
@@ -1058,12 +1064,19 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
       final artifact = verifiedArtifact ?? File('${work.path}/official.dmg');
       if (verifiedArtifact == null) {
         if (io case OmlxProgressiveDownload downloader) {
+          final clock = Stopwatch()..start();
           await downloader.downloadWithProgress(
             Uri.parse(artifactUrl),
             artifact,
             cancellation: cancellation,
-            onProgress: (bytes) =>
-                _installProgress(EngineInstallPhase.downloading, bytes),
+            onProgress: (bytes) => _installProgress(
+              EngineInstallPhase.downloading,
+              bytes,
+              bytesPerSecond:
+                  bytes *
+                  Duration.microsecondsPerSecond /
+                  max(1, clock.elapsedMicroseconds),
+            ),
           );
         } else {
           await io.download(Uri.parse(artifactUrl), artifact);
