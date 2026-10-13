@@ -2,7 +2,9 @@
 
 ## 当前状态
 
-用户已授权提交并正式发布，手动确定版本为 0.1.8。功能验收、版本检查和本地包预检已通过；下一步提交、同步 main/dev，并发布及核验正式资产。
+**0.1.8 已正式发布，管线与正式资产核验均通过。** 用户明确授权提交及发布，并手动确定版本。发布提交为 `d5a59642e3a11e27c72dac678681c2f19a049a90`，tag 为 `v0.1.8`。
+
+正式发布时间为 2026-10-13 20:22:21（UTC+8）。[Release](https://github.com/Ghost233/GhostModelDeck/releases/tag/v0.1.8) 为非草稿、非预发布版本。[管线 38396191336](https://github.com/Ghost233/GhostModelDeck/actions/runs/38396191336) 的 HEAD 与发布提交一致，最终状态为 `completed / success`。
 
 ## 发布内容与已验证证据
 
@@ -30,4 +32,24 @@
 
 ## 提交与发布
 
-提交已审查内容，同步本地 main/dev 并推送。再通过 `scripts/release.sh` 发布，核对对应管线、正式 Release、DMG、manifest.json 和 SHA256SUMS。完成前核对本地分支及 tag 与实际远端一致。
+20 份已审查文件提交到 main。本地 dev 通过祖先关系检查后完成 fast-forward；main/dev 从本地原子推送，实际远端及 origin refs 均与发布提交一致，工作区干净。GitHub 业务身份及实际 Git 凭据均为 Ghost233。
+
+唯一入口 `scripts/release.sh --dry-run` 和 `scripts/release.sh` 均退出 0。正式 tag 的提交与根 pubspec 版本一致；只触发一份管线，没有重推 tag 或覆盖同版本资产。
+
+## 正式资产核验
+
+三件套下载到 `.tooling/release-verify-0.1.8/`。`shasum -a 256 -c SHA256SUMS` 退出 0。独立计算的文件大小与 SHA-256 均匹配 GitHub 资产元数据；manifest 的版本、tag、DMG 大小和摘要也匹配。
+
+| 资产 | 大小（字节） | SHA-256 |
+| --- | --- | --- |
+| `GhostModelDeck-0.1.8.dmg` | 23,205,710 | `1a32171899708331ef488925767517f3573d5f7fd7f0226386c1a3279ae0e907` |
+| `manifest.json` | 174 | `f6fe134f14177eaee9623a4f32dac0d5fef0215e16fa54ed218b25296d0c815b` |
+| `SHA256SUMS` | 171 | `4491bc0253394477bf33783c24068571da6855d9ad6e9ba9fd175ebcea18e60c` |
+
+只读挂载正式 DMG 后，应用版本为 0.1.8、构建号为 13，bundle id 为 `com.ghost233.ghostmodeldeck`。主程序、App.framework 和 FlutterMacOS.framework 均为 arm64。挂载已正常卸载，没有安装或启动下载的应用。
+
+## 记录与最终同步
+
+`.scratch/release-0.1.8/` 保存 `preflight.json`、`initial-sync.json`、`source-pushed.json`、`dry-run.log`、`publish.log`、`pipeline.json`、`release.json`、`asset-check.json` 和 `app-check.json`。最终同步与完成结果记录在 `final-sync.json` 和 `complete.json`。
+
+发布后仅补充本记录和功能交付状态，不改变应用、版本、lockfile 或正式 tag。本地 main/dev 与实际远端保持同一完整提交，工作区无遗留修改。功能验收的原始失败和成功证据继续保留，没有新建备份或 worktree。
