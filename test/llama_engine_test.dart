@@ -70,7 +70,7 @@ void main() {
     }
   });
 
-  test('installation version budget is standard60 JEV10 and legacy10 on install and refresh', () async {
+  test('installation metadata uses its version budget once and refresh performs no native probe', () async {
     for (final candidate in [
       standardLlamaRelease,
       officialLlamaRelease,
@@ -142,7 +142,7 @@ void main() {
         io.commandTimeouts
             .where((c) => c.arguments.singleOrNull == '--version')
             .map((c) => c.timeout),
-        [expected, expected],
+        [expected],
         reason: candidate?.tag ?? 'legacy custom release',
       );
       expect(
@@ -152,7 +152,7 @@ void main() {
         [const Duration(seconds: 30), const Duration(seconds: 30)],
       );
       expect(reopened.state.instances, isEmpty);
-      // A larger command budget never relaxes identity or exit validation.
+      // Refresh ignores optional metadata commands; launching is the runtime check.
       final validResponse = io.versionResponse;
       for (final invalid in [
         const EngineCommandResult(1, '', 'native version failed'),
@@ -180,8 +180,8 @@ void main() {
         if (candidate != standardLlamaRelease) break;
         io.versionResponse = invalid;
         await reopened.refreshInstallation();
-        expect(reopened.state.installation, LlamaInstallationStatus.failed);
-        expect(reopened.executablePath, isNull);
+        expect(reopened.state.installation, LlamaInstallationStatus.installed);
+        expect(reopened.executablePath, isNotNull);
       }
       io.versionResponse = validResponse;
       io.versionFailure = TimeoutException(
@@ -189,8 +189,8 @@ void main() {
         expected,
       );
       await reopened.refreshInstallation();
-      expect(reopened.state.installation, LlamaInstallationStatus.failed);
-      expect(reopened.executablePath, isNull);
+      expect(reopened.state.installation, LlamaInstallationStatus.installed);
+      expect(reopened.executablePath, isNotNull);
       final failedInstall = LlamaEngine(
         library: library,
         installationDirectory: Directory('${root.path}/failed-engines'),
@@ -198,15 +198,16 @@ void main() {
         io: io,
       );
       addTearDown(failedInstall.close);
-      await expectLater(
-        failedInstall.install(verifiedArchive: archive),
-        throwsA(isA<LlamaEngineException>()),
+      await failedInstall.install(verifiedArchive: archive);
+      expect(failedInstall.observedVersion, '未知版本');
+      expect(
+        failedInstall.state.installation,
+        LlamaInstallationStatus.installed,
       );
-      expect(failedInstall.state.installation, LlamaInstallationStatus.failed);
-      expect(failedInstall.executablePath, isNull);
+      expect(failedInstall.executablePath, isNotNull);
       expect(
         await Directory('${root.path}/failed-engines/${release.tag}').exists(),
-        isFalse,
+        isTrue,
       );
       expect(failedInstall.state.instances, isEmpty);
     }
@@ -1738,7 +1739,7 @@ void main() {
     );
   });
 
-  test('reopening verifies installed bytes instead of trusting a directory or a forged version string', () async {
+  test('reopening discovers an executable without hashing and leaves failures to actual startup', () async {
     final fixture = await _Fixture.create();
     addTearDown(fixture.close);
     final reopened = LlamaEngine(
@@ -1752,8 +1753,9 @@ void main() {
     expect(reopened.state.installation, LlamaInstallationStatus.installed);
     await File(fixture.engine.executablePath!).writeAsString('modified engine');
     await reopened.refreshInstallation();
-    expect(reopened.state.installation, LlamaInstallationStatus.failed);
-    expect(reopened.executablePath, isNull);
+    expect(reopened.state.installation, LlamaInstallationStatus.installed);
+    expect(reopened.executablePath, fixture.engine.executablePath);
+    expect(reopened.binarySha256, isNull);
     expect(
       await File(fixture.engine.executablePath!).readAsString(),
       'modified engine',

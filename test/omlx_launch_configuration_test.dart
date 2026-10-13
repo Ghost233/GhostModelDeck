@@ -28,7 +28,7 @@ void main() {
     fixture.io.plistVersion = '0.7.1';
     await File('${fixture.app.path}/Contents/MacOS/omlx-cli')
         .writeAsString('new linked executable');
-    await fixture.catalog.refresh();
+    await fixture.catalog.readParameters(fixture.id);
     final updated = fixture.catalog.state.entries.singleWhere(
       (entry) => entry.id == fixture.id,
     );
@@ -62,7 +62,7 @@ void main() {
         argumentText: raw,
       ),
     );
-    await fixture.catalog.refresh();
+    await fixture.catalog.readParameters(fixture.id);
     final rules = fixture.catalog.parameterRecognitionFor(fixture.id);
     expect(rules.recognizes('--requests'), isTrue);
     expect(rules.version, '0.7.0');
@@ -115,11 +115,11 @@ void main() {
     expect(fixture.pool.starts, 0);
   });
 
-  test('optional oMLX help failure keeps saved text but required identity still rejects', () async {
+  test('optional oMLX help failure keeps saved text but metadata differences do not reject startup', () async {
     final fixture = await _OmlxConfigurationFixture.create();
     addTearDown(fixture.close);
     fixture.io.help += '  --requests, --max-concurrent-requests COUNT  current request description\n';
-    await fixture.catalog.refresh();
+    await fixture.catalog.readParameters(fixture.id);
     const raw = ' --requests 9\n';
     await fixture.catalog.saveLaunchDefaults(
       fixture.id,
@@ -136,7 +136,7 @@ void main() {
       isTrue,
     );
     fixture.io.helpFailure = TimeoutException('controlled process timeout');
-    await fixture.catalog.refresh();
+    await fixture.catalog.readParameters(fixture.id);
     final failedHelp = fixture.catalog.parameterRecognitionFor(fixture.id);
     expect(
       fixture.catalog.state.entries
@@ -150,7 +150,7 @@ void main() {
     expect(fixture.catalog.launchDefaultsFor(fixture.id).argumentText, raw);
     fixture.io.helpFailure = null;
     fixture.io.helpExit = 17;
-    await fixture.catalog.refresh();
+    await fixture.catalog.readParameters(fixture.id);
     expect(
       fixture.catalog.parameterRecognitionFor(fixture.id).status,
       EngineHelpStatus.unavailable,
@@ -158,13 +158,13 @@ void main() {
     expect(fixture.catalog.launchDefaultsFor(fixture.id).argumentText, raw);
     fixture.io.helpExit = 0;
     fixture.io.help = 'x' * (512 * 1024 + 1);
-    await fixture.catalog.refresh();
+    await fixture.catalog.readParameters(fixture.id);
     expect(
       fixture.catalog.parameterRecognitionFor(fixture.id).status,
       EngineHelpStatus.unavailable,
     );
     fixture.io.help = 'unparseable current output';
-    await fixture.catalog.refresh();
+    await fixture.catalog.readParameters(fixture.id);
     expect(
       fixture.catalog
           .parameterRecognitionFor(fixture.id)
@@ -172,24 +172,24 @@ void main() {
       '--max-concurrent-requests',
     );
     fixture.io.version = '0.7.1';
-    await fixture.catalog.refresh();
+    await fixture.catalog.readParameters(fixture.id);
     expect(
       fixture.catalog.state.entries
           .singleWhere((entry) => entry.id == fixture.id)
           .status,
-      LlamaInstallationStatus.failed,
+      LlamaInstallationStatus.installed,
     );
     expect(
       fixture.catalog
           .parameterRecognitionFor(fixture.id)
           .recognizes('--requests'),
-      isFalse,
+      isTrue,
     );
     expect(fixture.catalog.launchDefaultsFor(fixture.id).argumentText, raw);
     expect(fixture.pool.starts, 0);
   });
 
-  test('oMLX verified versions survive saved history and restore while unverified versions stay unknown', () async {
+  test('oMLX cached version metadata and configuration provenance survive history without admission matching', () async {
     final fixture = await _OmlxConfigurationFixture.create();
     addTearDown(fixture.close);
     final managed = fixture.engine.bundle;
@@ -210,6 +210,7 @@ void main() {
       }),
     );
     await fixture.catalog.refresh();
+    await fixture.catalog.readParameters(fixture.id);
     EngineRegistration registration(String id) =>
         fixture.catalog.state.entries.singleWhere((entry) => entry.id == id);
     final sourceId = fixture.id;
@@ -298,31 +299,31 @@ void main() {
     await fixture.catalog.saveLaunchDefaults(fixture.id, targetConfiguration);
     await fixture.reopen(refresh: false);
     final callsBeforeLoad = fixture.io.calls.length;
-    // Saving can lazily load expected receipts, but must not call them a current
-    // CLI observation before the original inspection has run again.
+    // Saving reuses recorded metadata without running the CLI.
     await fixture.catalog.saveLaunchDefaults(fixture.id, targetConfiguration);
     expect(fixture.io.calls.length, callsBeforeLoad);
-    expect(registration(fixture.id).version, isNull);
+    expect(registration(fixture.id).version, '0.7.0');
     expect(registration(EngineCatalog.omlxId).version, isNull);
-    fixture.io.version = '0.7.1';
-    final beforeFailure = await fixture.catalog.registryFile.readAsString();
-    await fixture.catalog.refresh();
-    for (final id in [fixture.id, EngineCatalog.omlxId]) {
-      expect(registration(id).status, LlamaInstallationStatus.failed);
-      expect(registration(id).version, isNull);
-      expect(fixture.catalog.parameterRecognitionFor(id).version, isNull);
-    }
-    await expectLater(
-      fixture.catalog.restoreUnlinkedConfiguration(sourceId, fixture.id),
-      throwsA(isA<OmlxException>()),
+    fixture.io.plistVersion = '0.7.1';
+    await fixture.catalog.readParameters(fixture.id);
+    expect(registration(fixture.id).status, LlamaInstallationStatus.installed);
+    expect(registration(fixture.id).version, '0.7.1');
+    expect(
+      fixture.catalog.parameterRecognitionFor(fixture.id).version,
+      '0.7.1',
     );
     expect(
       fixture.catalog.launchDefaultsFor(fixture.id).argumentText,
       targetText,
     );
-    expect(await fixture.catalog.registryFile.readAsString(), beforeFailure);
+    await fixture.catalog.restoreUnlinkedConfiguration(sourceId, fixture.id);
+    expect(
+      fixture.catalog.launchDefaultsFor(fixture.id).argumentText,
+      sourceText,
+    );
     expect(fixture.pool.starts, 0);
-    final invalidShape = jsonDecode(beforeFailure) as Map;
+    final invalidShape =
+        jsonDecode(await fixture.catalog.registryFile.readAsString()) as Map;
     (invalidShape['configurationVersions'] as Map)[fixture.id] = 7;
     final invalidText = jsonEncode(invalidShape);
     await fixture.catalog.registryFile.writeAsString(invalidText);
@@ -341,7 +342,7 @@ void main() {
     addTearDown(fixture.close);
     fixture.io.help +=
         '  --source-requests, --max-concurrent-requests COUNT  source help\n';
-    await fixture.catalog.refresh();
+    await fixture.catalog.readParameters(fixture.id);
     final sourceId = fixture.id;
     const sourceText = ' --source-requests 8\n';
     await fixture.catalog.saveLaunchDefaults(
@@ -381,25 +382,22 @@ void main() {
       ),
     );
     fixture.io.version = '0.7.1';
-    await expectLater(
-      fixture.catalog.restoreUnlinkedConfiguration(sourceId, fixture.id),
-      throwsA(isA<OmlxException>()),
-    );
+    await fixture.catalog.restoreUnlinkedConfiguration(sourceId, fixture.id);
     expect(
       fixture.catalog.state.entries
           .singleWhere((entry) => entry.id == fixture.id)
           .status,
-      LlamaInstallationStatus.failed,
+      LlamaInstallationStatus.installed,
     );
     expect(
       fixture.catalog
           .parameterRecognitionFor(fixture.id)
           .recognizes('--fresh-requests'),
-      isFalse,
+      isTrue,
     );
     expect(
       fixture.catalog.launchDefaultsFor(fixture.id).argumentText,
-      targetText,
+      sourceText,
     );
     expect(fixture.pool.starts, 0);
   });
@@ -413,17 +411,17 @@ void main() {
           '  --late-requests, --max-concurrent-requests COUNT  late help\n';
       fixture.io.helpStarted = Completer<void>();
       fixture.io.releaseHelp = Completer<void>();
-      final refreshing = fixture.catalog.refresh();
+      final refreshing = fixture.catalog.readParameters(fixture.id);
       await fixture.io.helpStarted!.future;
       final release = fixture.engine.holdInstallationAdmission();
       fixture.io.releaseHelp!.complete();
-      await refreshing;
+      await expectLater(refreshing, throwsA(isA<OmlxException>()));
       release();
       expect(
         fixture.catalog.state.entries
             .singleWhere((entry) => entry.id == fixture.id)
             .status,
-        LlamaInstallationStatus.failed,
+        LlamaInstallationStatus.installed,
       );
       expect(
         fixture.catalog
@@ -441,13 +439,13 @@ void main() {
 
   for (final changed in ['content', 'builder', 'signature']) {
     test(
-      'oMLX $changed guards remain mandatory around optional help',
+      'oMLX optional help avoids content and signer admission and has no GPU probe for $changed',
       () async {
         final fixture = await _OmlxConfigurationFixture.create();
         addTearDown(fixture.close);
         fixture.io.help +=
             '  --requests, --max-concurrent-requests COUNT  current help\n';
-        await fixture.catalog.refresh();
+        await fixture.catalog.readParameters(fixture.id);
         const raw = '--requests 7';
         await fixture.catalog.saveLaunchDefaults(
           fixture.id,
@@ -474,18 +472,18 @@ void main() {
             }
           };
         }
-        await fixture.catalog.refresh();
+        await fixture.catalog.readParameters(fixture.id);
         expect(
           fixture.catalog.state.entries
               .singleWhere((entry) => entry.id == fixture.id)
               .status,
-          LlamaInstallationStatus.failed,
+          LlamaInstallationStatus.installed,
         );
         expect(
           fixture.catalog
               .parameterRecognitionFor(fixture.id)
               .recognizes('--requests'),
-          isFalse,
+          isTrue,
         );
         expect(fixture.catalog.launchDefaultsFor(fixture.id).argumentText, raw);
         expect(fixture.pool.starts, 0);
@@ -517,6 +515,8 @@ void main() {
     fixture.io.helpByApp[fixture.app.path] =
         '${fixture.io.help}  --linked-requests, --max-concurrent-requests COUNT  linked help\n';
     await fixture.catalog.refresh();
+    await fixture.catalog.readParameters(EngineCatalog.omlxId);
+    await fixture.catalog.readParameters(fixture.id);
     final managedRules = fixture.catalog.parameterRecognitionFor(
       EngineCatalog.omlxId,
     );
@@ -545,7 +545,7 @@ void main() {
     fixture.io.helpFailure = TimeoutException(
       'controlled optional I/O failure',
     );
-    await fixture.catalog.refresh();
+    await fixture.catalog.readParameters(fixture.id);
     expect(
       fixture.catalog
           .parameterRecognitionFor(EngineCatalog.omlxId)
@@ -619,7 +619,7 @@ void main() {
           );
           await tester.tap(find.text('configure model'));
           await tester.pump();
-          await fixture.catalog.refresh();
+          await fixture.catalog.readParameters(fixture.id);
         });
         await tester.pumpAndSettle();
       }
@@ -729,11 +729,16 @@ void main() {
             ),
           ),
         );
-        await fixture.catalog.refresh();
+        await fixture.catalog.readParameters(fixture.id);
       });
       await tester.pumpAndSettle();
       expect(find.byTooltip('启动参数'), findsNWidgets(3));
-      await tester.tap(find.byTooltip('启动参数').at(1));
+      await tester.runAsync(() async {
+        await tester.tap(find.byTooltip('启动参数').at(1));
+        await fixture.catalog
+            .readParameters(fixture.id)
+            .timeout(const Duration(seconds: 5));
+      });
       await tester.pumpAndSettle();
       expect(find.widgetWithText(TextField, '上下文大小'), findsNothing);
       final requests = find.widgetWithText(TextField, '最大并发请求数');
@@ -768,7 +773,10 @@ void main() {
             .formValues['--max-concurrent-requests'],
         '4',
       );
-      await tester.tap(find.byTooltip('启动参数').at(1));
+      await tester.runAsync(() async {
+        await tester.tap(find.byTooltip('启动参数').at(1));
+        await fixture.catalog.readParameters(fixture.id);
+      });
       await tester.pumpAndSettle();
       expect(tester.widget<TextField>(input).controller!.text, raw);
       expect(tester.widget<TextField>(requests).controller!.text, '4');
@@ -786,10 +794,13 @@ void main() {
             ),
           ),
         );
-        await fixture.catalog.refresh();
+        await fixture.catalog.readParameters(fixture.id);
       });
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('启动参数').at(1));
+      await tester.runAsync(() async {
+        await tester.tap(find.byTooltip('启动参数').at(1));
+        await fixture.catalog.readParameters(fixture.id);
+      });
       await tester.pumpAndSettle();
       expect(tester.widget<TextField>(input).controller!.text, raw);
       expect(tester.widget<TextField>(requests).controller!.text, '4');

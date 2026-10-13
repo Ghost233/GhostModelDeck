@@ -344,7 +344,7 @@ class EngineCatalog {
           },
           path: omlxEngine!.bundle.path,
           version: omlxEngine!.state.status == OmlxInstallationStatus.installed
-              ? omlxEngine!.state.receipt?.parameterRecognition?.version
+              ? omlxEngine!.state.receipt?.releaseLabel
               : null,
           omlxReceipt: omlxEngine!.state.receipt,
           archiveSha256: omlxEngine!.state.receipt?.dmgSha256,
@@ -361,7 +361,7 @@ class EngineCatalog {
               : LlamaInstallationStatus.failed,
           path: row.value.path,
           version: row.value.error == null
-              ? row.value.receipt.parameterRecognition?.version
+              ? row.value.receipt.releaseLabel
               : null,
           omlxReceipt: row.value.receipt,
           error: row.value.error,
@@ -655,9 +655,6 @@ class EngineCatalog {
         final fingerprints = Map<String, String>.from(
           row['fingerprints'] as Map,
         );
-        if (!fingerprints.containsKey(row['path'])) {
-          throw const LlamaEngineException('关联引擎内容指纹缺失');
-        }
         cppRows[row['id'] as String] = (
           row['name'] as String,
           LinkedLlamaInstallation(
@@ -866,6 +863,43 @@ class EngineCatalog {
     final entry = state.entries.where((entry) => entry.id == id).singleOrNull;
     if (entry == null) throw const LlamaEngineException('引擎登记已变化');
     return entry;
+  }
+
+  final _parameterReads = <String, Future<void>>{};
+  Future<void> readParameters(String id) {
+    final pending = _parameterReads[id];
+    if (pending != null) return pending;
+    final operation = _readParameters(id);
+    final tracked = operation.whenComplete(() {
+      _parameterReads.remove(id);
+    });
+    _parameterReads[id] = tracked;
+    return tracked;
+  }
+
+  Future<void> _readParameters(String id) async {
+    final entry = await _serial(() async {
+      await _load();
+      return _configurationRegistration(id);
+    });
+    if (entry.family == EngineFamily.llamaCpp) {
+      await providerFor(id).readParameters();
+    } else if (entry.family == EngineFamily.splash) {
+      await _splash[id]!.readParameters();
+    } else if (entry.family == EngineFamily.omlx) {
+      final receipt = await omlxEngine!.readParameters(
+        Directory(entry.path!),
+        previousReceipt: entry.omlxReceipt,
+      );
+      await _serial(() async {
+        if (entry.source == EngineSource.linked &&
+            _linkedOmlx[id]?.path == entry.path) {
+          _linkedOmlx[id] = _LinkedOmlx(entry.path!, receipt);
+          await _save();
+        }
+      });
+    }
+    _publish();
   }
 
   EngineParameterRecognition parameterRecognitionFor(String id) {
@@ -1176,17 +1210,40 @@ class EngineCatalog {
 
   Future<void> installOfficial({File? verifiedArchive}) =>
       installManaged(officialId, verifiedArchive: verifiedArchive);
-  Future<void> installManaged(String id, {File? verifiedArchive}) {
+  Future<void> redownloadManaged(String id, {File? verifiedArchive}) =>
+      installManaged(id, verifiedArchive: verifiedArchive, redownload: true);
+
+  void assertRedownloadable(String id) {
+    if (id == omlxId && omlxEngine != null) {
+      omlxEngine!.assertRemovable();
+      return;
+    }
+    final provider = _managed[id];
+    if (provider == null) throw const LlamaEngineException('关联引擎由外部维护');
+    if (provider.hasLiveInstances) {
+      throw const LlamaEngineException('请先停止该引擎的模型实例');
+    }
+  }
+
+  Future<void> installManaged(
+    String id, {
+    File? verifiedArchive,
+    bool redownload = false,
+  }) {
     if (_installations.containsKey(id)) return _installations[id]!;
     final operation =
         _serial(() async {
           await _load();
           if (id == omlxId && omlxEngine != null) {
-            return () => omlxEngine!.install(verifiedArtifact: verifiedArchive);
+            return () => redownload
+                ? omlxEngine!.redownload(verifiedArtifact: verifiedArchive)
+                : omlxEngine!.install(verifiedArtifact: verifiedArchive);
           }
           final provider = _managed[id];
           if (provider == null) throw const LlamaEngineException('请选择受管引擎安装');
-          return () => provider.install(verifiedArchive: verifiedArchive);
+          return () => redownload
+              ? provider.redownload(verifiedArchive: verifiedArchive)
+              : provider.install(verifiedArchive: verifiedArchive);
         }).then((install) {
           if (_shuttingDown || _recycling) {
             if (id == omlxId) throw const OmlxException('oMLX 安装准入已关闭');
@@ -1477,6 +1534,7 @@ class EngineCatalog {
         if (target.family == EngineFamily.llamaCpp) {
           final provider = providerFor(targetId);
           await provider.refreshInstallation();
+          await provider.readParameters();
           if (provider.state.installation !=
               LlamaInstallationStatus.installed) {
             throw const LlamaEngineException('恢复目标未通过当前安装或关联核验');
@@ -1495,14 +1553,10 @@ class EngineCatalog {
         } else {
           final previous = _linkedOmlx[targetId]!;
           try {
-            final receipt = await omlxEngine!.inspectLinked(
+            final receipt = await omlxEngine!.readParameters(
               Directory(previous.path),
               previousReceipt: previous.receipt,
             );
-            if (receipt.bundleManifestSha256 !=
-                previous.receipt.bundleManifestSha256) {
-              throw const OmlxException('恢复目标 oMLX 内容变化');
-            }
             _linkedOmlx[targetId] = _LinkedOmlx(previous.path, receipt);
           } catch (_) {
             _linkedOmlx[targetId] = _LinkedOmlx(

@@ -149,10 +149,11 @@ class EngineParameterRecognition {
     final retained =
         previous != null &&
             previous.hasObservedHelp &&
-            contentFingerprint != null &&
+            executablePath != null &&
             previous.family == family &&
             previous.executablePath == executablePath &&
-            previous.contentFingerprint == contentFingerprint
+            previous.contentFingerprint == contentFingerprint &&
+            (contentFingerprint != null || previous.version == version)
         ? previous
         : null;
     final parameters = {...builtIn.parameters, ...?retained?.parameters};
@@ -268,7 +269,7 @@ class EngineParameterRecognition {
       notices.add('当前帮助未列出 ${missing.join('、')}；保留内置规则与原配置，请核对版本差异。');
     }
     if (retained != null && status != EngineHelpStatus.available) {
-      notices.add('沿用同一引擎内容上次读取的可用帮助规则，不自动改写配置。');
+      notices.add('沿用同一路径与版本上次读取的可用帮助规则，不自动改写配置。');
     }
     return EngineParameterRecognition._(
       family: family,

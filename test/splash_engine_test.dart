@@ -15,6 +15,65 @@ import 'package:ghost_model_deck/chat_protocol.dart';
 import 'fixtures/decision_gguf.dart';
 
 void main() {
+  test('Splash starts two instances concurrently and cancels only the selected startup', () async {
+    final fixture = await SplashRuntimeFixture.create();
+    final engine = fixture.engine();
+    fixture.io.expectedStarts = 2;
+    fixture.io.startsEntered = Completer<void>();
+    fixture.io.releaseStart = Completer<void>();
+    Future<Object?>? first;
+    Future<RuntimeInstance>? second;
+    try {
+      await engine.bindModel(fixture.asset.id, fixture.assembly);
+      final cancel = DecisionCancellation();
+      first = engine
+          .startWithConfiguration(
+            fixture.asset.id,
+            EngineLaunchConfiguration(family: EngineFamily.splash),
+            cancellation: cancel,
+            launchInstanceId: 'first',
+          )
+          .then<Object?>((value) => value, onError: (Object error) => error);
+      second = engine.startWithConfiguration(
+        fixture.asset.id,
+        EngineLaunchConfiguration(family: EngineFamily.splash),
+        launchInstanceId: 'second',
+      );
+      await fixture.io.startsEntered!.future.timeout(
+        const Duration(seconds: 2),
+      );
+      expect(
+        engine.runtimeInstances.where(
+          (run) => run.status == RuntimeInstanceStatus.starting,
+        ),
+        hasLength(2),
+      );
+      cancel.cancel();
+      fixture.io.releaseStart!.complete();
+      expect(await first, isA<SplashEngineException>());
+      final ready = await second;
+      expect(ready.status, RuntimeInstanceStatus.ready);
+      expect(ready.launchInstanceId, 'second');
+      expect(ready.hasLiveProcess, isTrue);
+      expect(
+        fixture.io.children.where((child) => !child.closing),
+        hasLength(1),
+      );
+      await engine.stop(ready.id);
+      expect(engine.hasLiveInstances, isFalse);
+    } finally {
+      if (!fixture.io.releaseStart!.isCompleted) {
+        fixture.io.releaseStart!.complete();
+      }
+      if (first != null) await first;
+      if (second != null) {
+        await second.then<void>((_) {}, onError: (Object _) {});
+      }
+      await engine.shutdown();
+      await engine.close();
+      await fixture.close();
+    }
+  });
   test('decision GGUF binding uses the same assembly and native validation as chat', () async {
     final fixture = await SplashRuntimeFixture.create(ordinaryChat: false);
     addTearDown(fixture.close);
@@ -181,7 +240,7 @@ void main() {
     expect(persistent.arguments, isNot(contains('/external')));
   });
   test(
-    'linked Splash refuses content changed during actual help observation',
+    'linked Splash discovers paths without executing help or hashing content',
     () async {
       final root = await Directory.systemTemp.createTemp('splash-observe-');
       addTearDown(() => root.delete(recursive: true));
@@ -197,38 +256,33 @@ void main() {
         await file.writeAsString('original $path');
       }
       final io = SplashTestProcessIO(root);
-      await expectLater(
-        SplashEngine.inspectInstallation(root, io: io),
-        throwsA(isA<SplashEngineException>()),
-      );
+      final observed = await SplashEngine.inspectInstallation(root, io: io);
+      expect(observed.python.path, '${root.path}/.venv/bin/python');
+      expect(io.calls, isEmpty);
       expect(io.starts, 0);
       expect(io.calls.any((args) => args.contains('make')), isFalse);
     },
   );
-  test(
-    'source registration rejects Python outside its declared venv prefix',
-    () async {
-      final root = await Directory.systemTemp.createTemp('splash-prefix-');
-      addTearDown(() => root.delete(recursive: true));
-      for (final path in [
-        '.venv/bin/python',
-        'build/splash',
-        'server/server.py',
-        'install/launcher.py',
-        'install/gguf.py',
-      ]) {
-        final file = File('${root.path}/$path');
-        await file.parent.create(recursive: true);
-        await file.writeAsString('original $path');
-      }
-      final io = SplashTestProcessIO(root, mutate: false, wrongPrefix: true);
-      await expectLater(
-        SplashEngine.inspectInstallation(root, io: io),
-        throwsA(isA<SplashEngineException>()),
-      );
-      expect(io.starts, 0);
-    },
-  );
+  test('source registration does not execute Python prefix probes', () async {
+    final root = await Directory.systemTemp.createTemp('splash-prefix-');
+    addTearDown(() => root.delete(recursive: true));
+    for (final path in [
+      '.venv/bin/python',
+      'build/splash',
+      'server/server.py',
+      'install/launcher.py',
+      'install/gguf.py',
+    ]) {
+      final file = File('${root.path}/$path');
+      await file.parent.create(recursive: true);
+      await file.writeAsString('original $path');
+    }
+    final io = SplashTestProcessIO(root, mutate: false, wrongPrefix: true);
+    final observed = await SplashEngine.inspectInstallation(root, io: io);
+    expect(observed.python.path, '${root.path}/.venv/bin/python');
+    expect(io.calls, isEmpty);
+    expect(io.starts, 0);
+  });
   test('binding rejects a different canonical target even with complete recorded SHA', () async {
     final fixture = await SplashRuntimeFixture.create();
     addTearDown(fixture.close);
@@ -258,31 +312,40 @@ void main() {
     expect(engine.bindingFor(fixture.asset.id), isNull);
     expect(fixture.io.starts, 0);
   });
-  test('binding does not save a locally complete model rejected by native model-check', () async {
-    final fixture = await SplashRuntimeFixture.create();
-    addTearDown(fixture.close);
-    fixture.io.modelCheckFailure = true;
-    var saved = 0;
-    final engine = SplashEngine(
-      installation: fixture.installation,
-      library: fixture.library,
-      useRegistry: ModelUseRegistry(fixture.library),
-      runtimeDirectory: Directory('${fixture.root.path}/runtime'),
-      io: fixture.io,
-      configurationFor: (_) =>
-          EngineLaunchConfiguration(family: EngineFamily.splash),
-      saveBinding: (_) async {
-        saved++;
-      },
-    );
-    await expectLater(
-      engine.bindModel(fixture.asset.id, fixture.assembly),
-      throwsA(isA<SplashEngineException>()),
-    );
-    expect(saved, 0);
-    expect(engine.bindingFor(fixture.asset.id), isNull);
-    expect(fixture.io.starts, 0);
-  });
+  test(
+    'binding saves a selected model without a native compatibility probe',
+    () async {
+      final fixture = await SplashRuntimeFixture.create();
+      addTearDown(fixture.close);
+      fixture.io.modelCheckFailure = true;
+      var saved = 0;
+      final engine = SplashEngine(
+        installation: fixture.installation,
+        library: fixture.library,
+        useRegistry: ModelUseRegistry(fixture.library),
+        runtimeDirectory: Directory('${fixture.root.path}/runtime'),
+        io: fixture.io,
+        configurationFor: (_) =>
+            EngineLaunchConfiguration(family: EngineFamily.splash),
+        saveBinding: (_) async {
+          saved++;
+        },
+      );
+      final binding = await engine.bindModel(
+        fixture.asset.id,
+        fixture.assembly,
+      );
+      expect(saved, 1);
+      expect(engine.bindingFor(fixture.asset.id), same(binding));
+      expect(
+        fixture.io.calls.where((args) => args.first == 'model-check'),
+        isEmpty,
+      );
+      await engine.shutdown();
+      await engine.close();
+      expect(fixture.io.starts, 0);
+    },
+  );
   test('public start earns text Ready from owned status and native response identity', () async {
     final fixture = await SplashRuntimeFixture.create();
     addTearDown(fixture.close);
@@ -418,29 +481,37 @@ void main() {
       }
     },
   );
-  test('restored installation is an unverified receipt until current identity is checked', () async {
-    final fixture = await SplashRuntimeFixture.create();
-    addTearDown(fixture.close);
-    final recorded = SplashInstallation.fromJson(fixture.installation.toJson());
-    final engine = fixture.engine(installation: recorded);
-    expect(engine.state.installation, isNot(LlamaInstallationStatus.installed));
-    await engine.refreshInstallation();
-    expect(engine.state.installation, LlamaInstallationStatus.installed);
-    await File('${fixture.source.path}/build/splash')
-        .writeAsString('updated binary');
-    await engine.refreshInstallation();
-    expect(engine.state.installation, LlamaInstallationStatus.installed);
-    expect(engine.installation.fingerprints, isNot(recorded.fingerprints));
-    await fixture.installation.nativeBinary.delete();
-    await engine.refreshInstallation();
-    expect(engine.state.installation, LlamaInstallationStatus.failed);
-    await expectLater(
-      engine.previewLaunch(fixture.asset.id),
-      throwsA(isA<SplashEngineException>()),
-    );
-    expect(fixture.io.starts, 0);
-    await engine.close();
-  });
+  test(
+    'restored installation checks required paths without rehashing content',
+    () async {
+      final fixture = await SplashRuntimeFixture.create();
+      addTearDown(fixture.close);
+      final recorded = SplashInstallation.fromJson(
+        fixture.installation.toJson(),
+      );
+      final engine = fixture.engine(installation: recorded);
+      expect(
+        engine.state.installation,
+        isNot(LlamaInstallationStatus.installed),
+      );
+      await engine.refreshInstallation();
+      expect(engine.state.installation, LlamaInstallationStatus.installed);
+      await File('${fixture.source.path}/build/splash')
+          .writeAsString('updated binary');
+      await engine.refreshInstallation();
+      expect(engine.state.installation, LlamaInstallationStatus.installed);
+      expect(engine.installation.fingerprints, recorded.fingerprints);
+      await fixture.installation.nativeBinary.delete();
+      await engine.refreshInstallation();
+      expect(engine.state.installation, LlamaInstallationStatus.failed);
+      await expectLater(
+        engine.previewLaunch(fixture.asset.id),
+        throwsA(isA<SplashEngineException>()),
+      );
+      expect(fixture.io.starts, 0);
+      await engine.close();
+    },
+  );
   test('actual help failure retains linked identity and built-in raw launch support', () async {
     final fixture = await SplashRuntimeFixture.create();
     addTearDown(fixture.close);
@@ -448,6 +519,7 @@ void main() {
     final installation = await SplashEngine.inspectInstallation(
       fixture.source,
       io: fixture.io,
+      readParameters: true,
     );
     final engine = fixture.engine(installation: installation);
     final command = engine.composeLaunch(
@@ -546,20 +618,19 @@ void main() {
     await engine.shutdown();
     await engine.close();
   });
-  test('accepted start fixes all model use during precheck and shutdown prevents late spawn', () async {
+  test('accepted spawn protects all model files and shutdown cleans the late child', () async {
     final fixture = await SplashRuntimeFixture.create();
     addTearDown(fixture.close);
     final engine = fixture.engine();
     await engine.bindModel(fixture.asset.id, fixture.assembly);
     final deletion = await fixture.library.prepareDeletion([fixture.asset.id]);
-    fixture.io.modelCheckEntered = Completer<void>();
-    fixture.io.releaseCheck = Completer<void>();
+    fixture.io.releaseStart = Completer<void>();
     final pending = engine.startRuntime(fixture.asset.id);
     final rejected = expectLater(
       pending,
       throwsA(isA<SplashEngineException>()),
     );
-    await fixture.io.modelCheckEntered!.future;
+    await fixture.io.startEntered.future;
     try {
       await expectLater(
         fixture.library.delete(deletion, confirmed: true),
@@ -567,12 +638,13 @@ void main() {
       );
     } finally {
       engine.beginShutdown();
-      fixture.io.releaseCheck!.complete();
+      fixture.io.releaseStart!.complete();
       await rejected;
       await engine.shutdown();
       await engine.close();
     }
-    expect(fixture.io.starts, 0);
+    expect(fixture.io.starts, 1);
+    expect(engine.hasLiveInstances, isFalse);
     expect(await File(fixture.asset.files.single.path).exists(), isTrue);
     expect(
       await fixture.library.prepareDeletion([fixture.asset.id]),
@@ -603,10 +675,7 @@ void main() {
       isTrue,
     );
     expect(engine.actualVersionFor(first.id), oldVersion);
-    expect(
-      engine.installation.fingerprints,
-      isNot(fixture.installation.fingerprints),
-    );
+    expect(engine.installation.fingerprints, fixture.installation.fingerprints);
     expect(fixture.io.starts, 2);
     await engine.shutdown();
     await engine.close();
@@ -789,10 +858,20 @@ void main() {
       }),
       throwsFormatException,
     );
-    final hashes = Map<String, Object?>.from(row['fingerprints'] as Map)
-      ..remove(fixture.installation.python.path);
+    final restored = SplashInstallation.fromJson({
+      ...row,
+      'fingerprints': <String, Object?>{},
+    });
+    expect(restored.python.path, fixture.installation.python.path);
     expect(
-      () => SplashInstallation.fromJson({...row, 'fingerprints': hashes}),
+      () => SplashInstallation.fromJson({...row, 'python': '/outside/python'}),
+      throwsFormatException,
+    );
+    expect(
+      () => SplashInstallation.fromJson({
+        ...row,
+        'native_binary': '/outside/engine',
+      }),
       throwsFormatException,
     );
     expect(fixture.io.starts, 0);
@@ -848,13 +927,12 @@ void main() {
     expect(engine.bindingFor(fixture.asset.id), same(binding));
     expect(fixture.io.starts, 0);
   });
-  test('binding verifies Git blob OIDs and SHA256 while persisting full SHA256 only', () async {
+  test('binding records author blob declarations without reading whole model files', () async {
     final fixture = await SplashRuntimeFixture.create();
     addTearDown(fixture.close);
     final role = File('${fixture.assembly.path}/draft/config.json');
     await role.writeAsString('{"name":"草稿配置"}');
     final bytes = await role.readAsBytes();
-    final fullHash = sha256.convert(bytes).toString();
     final blobHash = sha1.convert([
       ...utf8.encode('blob ${bytes.length} '),
       ...bytes,
@@ -876,10 +954,10 @@ void main() {
       await engine.close();
     });
     final binding = await engine.bindModel(fixture.asset.id, fixture.assembly);
-    expect(binding.sourceHashes[await role.resolveSymbolicLinks()], fullHash);
+    expect(binding.sourceHashes[await role.resolveSymbolicLinks()], blobHash);
     expect(
       binding.sourceHashes.values.every(
-        (value) => RegExp(r'^[a-f0-9]{64}$').hasMatch(value),
+        (value) => RegExp(r'^(?:[a-f0-9]{40}|[a-f0-9]{64})$').hasMatch(value),
       ),
       isTrue,
     );
@@ -896,24 +974,39 @@ void main() {
     ]) {
       entry['digest'] = wrong;
       await manifest.writeAsString(jsonEncode(row));
-      await expectLater(
-        engine.bindModel(fixture.asset.id, fixture.assembly),
-        throwsA(isA<SplashEngineException>()),
-      );
-      expect(saved, 1);
-      expect(engine.bindingFor(fixture.asset.id), same(binding));
+      if (wrong == 'unsupported') {
+        await expectLater(
+          engine.bindModel(fixture.asset.id, fixture.assembly),
+          throwsA(isA<SplashEngineException>()),
+        );
+      } else {
+        final changed = await engine.bindModel(
+          fixture.asset.id,
+          fixture.assembly,
+        );
+        expect(changed.sourceHashes[await role.resolveSymbolicLinks()], wrong);
+      }
     }
+    expect(saved, 4);
+
     expect(fixture.io.starts, 0);
   });
-  for (final failNative in [false, true]) {
+  for (final failSave in [false, true]) {
     test(
-      'bind precheck keeps fixed use and releases after ${failNative ? 'failure' : 'success'}',
+      'binding persistence protects file use and releases after ${failSave ? 'failure' : 'success'}',
       () async {
         final fixture = await SplashRuntimeFixture.create();
         addTearDown(fixture.close);
+        final entered = Completer<void>();
+        final release = Completer<void>();
         var saved = 0;
         final engine = fixture.engine(
           saveBinding: (_) async {
+            entered.complete();
+            await release.future;
+            if (failSave) {
+              throw const FileSystemException('binding write failed');
+            }
             saved++;
           },
         );
@@ -922,25 +1015,22 @@ void main() {
           await engine.close();
         });
         final plan = await fixture.library.prepareDeletion([fixture.asset.id]);
-        fixture.io.modelCheckFailure = failNative;
-        fixture.io.modelCheckEntered = Completer<void>();
-        fixture.io.releaseCheck = Completer<void>();
         final pending = engine.bindModel(fixture.asset.id, fixture.assembly);
-        final completed = failNative
-            ? expectLater(pending, throwsA(isA<SplashEngineException>()))
+        final completed = failSave
+            ? expectLater(pending, throwsA(isA<FileSystemException>()))
             : pending.then<void>((_) {});
-        await fixture.io.modelCheckEntered!.future;
+        await entered.future;
         try {
           await expectLater(
             fixture.library.delete(plan, confirmed: true),
             throwsA(isA<LibraryException>()),
           );
         } finally {
-          fixture.io.releaseCheck!.complete();
+          release.complete();
           await completed;
         }
         expect(await File(fixture.asset.files.single.path).exists(), isTrue);
-        expect(saved, failNative ? 0 : 1);
+        expect(saved, failSave ? 0 : 1);
         expect(
           await fixture.library.prepareDeletion([fixture.asset.id]),
           isA<DeletionPlan>(),
@@ -951,29 +1041,30 @@ void main() {
   }
   for (final mutateManifest in [false, true]) {
     test(
-      'bind rechecks ${mutateManifest ? 'manifest' : 'source content'} after native check before replacing saved binding',
+      'binding persistence captures selected ${mutateManifest ? 'manifest' : 'source paths'} while file content is left to loading',
       () async {
         final fixture = await SplashRuntimeFixture.create();
         addTearDown(fixture.close);
+        final entered = Completer<void>();
+        final release = Completer<void>();
         var saved = 0;
         final engine = fixture.engine(
           saveBinding: (_) async {
             saved++;
+            if (saved == 2) {
+              entered.complete();
+              await release.future;
+            }
           },
         );
         addTearDown(() async {
+          if (!release.isCompleted) release.complete();
           await engine.shutdown();
           await engine.close();
         });
         final old = await engine.bindModel(fixture.asset.id, fixture.assembly);
-        fixture.io.modelCheckEntered = Completer<void>();
-        fixture.io.releaseCheck = Completer<void>();
         final pending = engine.bindModel(fixture.asset.id, fixture.assembly);
-        final rejected = expectLater(
-          pending,
-          throwsA(isA<SplashEngineException>()),
-        );
-        await fixture.io.modelCheckEntered!.future;
+        await entered.future;
         if (mutateManifest) {
           final file = File('${fixture.assembly.path}/model.json');
           final row = jsonDecode(await file.readAsString()) as Map;
@@ -981,17 +1072,30 @@ void main() {
           await file.writeAsString(jsonEncode(row));
         } else {
           await File('${fixture.assembly.path}/draft/config.json')
-              .writeAsString('{"fixture":"changed after check began"}');
+              .writeAsString('{"fixture":"changed after save began"}');
         }
-        fixture.io.releaseCheck!.complete();
-        await rejected;
-        expect(saved, 1);
-        expect(engine.bindingFor(fixture.asset.id), same(old));
+        release.complete();
+        final captured = await pending;
+        expect(captured.nativeModel, old.nativeModel);
+        expect(captured.roles, old.roles);
+        expect(saved, 2);
+        expect(engine.bindingFor(fixture.asset.id), same(captured));
         expect(
           await fixture.library.prepareDeletion([fixture.asset.id]),
           isA<DeletionPlan>(),
         );
         expect(fixture.io.starts, 0);
+        if (mutateManifest) {
+          await expectLater(
+            engine.startRuntime(fixture.asset.id),
+            throwsA(isA<SplashEngineException>()),
+          );
+        } else {
+          expect(
+            (await engine.startRuntime(fixture.asset.id)).status,
+            RuntimeInstanceStatus.ready,
+          );
+        }
       },
     );
   }
@@ -1215,7 +1319,11 @@ class SplashRuntimeFixture {
         '"/v1/systemone": PostRoute("_post_systemone", SYSTEMONE_ERRORS)',
       );
     }
-    final installation = await SplashEngine.inspectInstallation(source, io: io);
+    final installation = await SplashEngine.inspectInstallation(
+      source,
+      io: io,
+      readParameters: true,
+    );
     final library = ModelLibrary();
     final model = await writeDecisionKev(
       Directory('${root.path}/models'),
@@ -1319,6 +1427,8 @@ class SplashTestProcessIO implements SplashProcessIO {
   bool rejectTransferEncoding = false;
   int sizedPosts = 0;
   int starts = 0;
+  int? expectedStarts;
+  Completer<void>? startsEntered;
   Duration identityDelay = Duration.zero;
   Completer<void>? identityEntered;
   Completer<void>? identityClosed;
@@ -1392,6 +1502,9 @@ class SplashTestProcessIO implements SplashProcessIO {
   @override
   Future<EngineChild> start(String executable, List<String> arguments) async {
     starts++;
+    if (starts == expectedStarts && startsEntered?.isCompleted == false) {
+      startsEntered!.complete();
+    }
     if (!startEntered.isCompleted) startEntered.complete();
     await releaseStart?.future;
     String value(String option) => arguments[arguments.lastIndexOf(option) + 1];

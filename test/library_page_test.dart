@@ -82,6 +82,7 @@ void main() {
         }
         expect(find.byType(DropdownButton<String>), findsNothing);
         expect(find.textContaining('待验证'), findsNothing);
+        expect(find.text('核验'), findsNothing);
         expect(find.textContaining('其他文件'), findsNothing);
         expect(find.text('没有匹配的模型包'), findsNothing);
       } finally {

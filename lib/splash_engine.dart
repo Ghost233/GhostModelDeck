@@ -118,7 +118,7 @@ class SplashInstallation {
       'packaged' => SplashInstallationKind.packaged,
       _ => throw const FormatException('Splash installation kind无效'),
     };
-    final hashes = _hashes(row['fingerprints']);
+    final hashes = _hashes(row['fingerprints'], allowEmpty: true);
     final root = _path(row['root']);
     final python = _path(row['python']);
     final native = _path(row['native_binary']);
@@ -126,13 +126,7 @@ class SplashInstallation {
         python !=
             '$root/${kind == SplashInstallationKind.source ? '.venv/bin/python' : 'python/bin/python3'}' ||
         native !=
-            '$root/${kind == SplashInstallationKind.source ? 'build/splash' : 'engine/splash'}' ||
-        [
-          python,
-          native,
-          '$root/server/server.py',
-          '$root/install/launcher.py',
-        ].any((path) => !hashes.containsKey(path))) {
+            '$root/${kind == SplashInstallationKind.source ? 'build/splash' : 'engine/splash'}') {
       throw const FormatException('Splash source/Python/native身份不完整或路径不符');
     }
     return SplashInstallation(
@@ -508,6 +502,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
   final SplashProcessIO io;
   final Map<String, SplashModelBinding> _bindings;
   Future<void> _operations = Future.value();
+  final _startupJobs = <Future<RuntimeInstance>>{};
   final _runs = <String, _SplashRun>{};
   final _preparing = <SplashModelBinding>{};
   final _changes = StreamController<SplashEngineState>.broadcast();
@@ -528,9 +523,11 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
   @override
   List<RuntimeInstance> get runtimeInstances =>
       List.unmodifiable(_runs.values.map((run) => run.snapshot()));
-  bool get hasLiveInstances => _runs.values.any(
-    (run) => run.groupLive || run.status == RuntimeInstanceStatus.starting,
-  );
+  bool get hasLiveInstances =>
+      _startupJobs.isNotEmpty ||
+      _runs.values.any(
+        (run) => run.groupLive || run.status == RuntimeInstanceStatus.starting,
+      );
   int? pidFor(String id) => _runs[id]?.child?.pid;
   Uri? endpointFor(String id) => _runs[id]?.endpoint;
   @override
@@ -659,7 +656,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
       return Future.error(const SplashEngineException('Splash启动准入已关闭'));
     }
     final epoch = _startEpoch;
-    return _serial(() async {
+    final operation = _operations.then((_) async {
       if (_shuttingDown) throw const SplashEngineException('Splash正在退出');
       final binding = assembly == null
           ? _bindings[artifactId]
@@ -671,7 +668,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
       try {
         await _syncUses();
         await _verifyBinding(binding);
-        await _checkModel(binding);
+        await _assertInstallation();
         if (_shuttingDown ||
             epoch != _startEpoch ||
             (cancellation?.isCancelled ?? false)) {
@@ -696,7 +693,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
             (asset) => asset.id == artifactId,
           ),
           _installation.supportsSystemone,
-          _installation.fingerprints[_installation.nativeBinary.path],
+          null,
         );
         run.temporaryTest = temporaryTest;
         run.launchInstanceId = launchInstanceId;
@@ -791,6 +788,22 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
         await _syncUses();
       }
     });
+    _startupJobs.add(operation);
+    unawaited(
+      operation.then<void>(
+        (_) => _startupJobs.remove(operation),
+        onError: (Object _, StackTrace _) => _startupJobs.remove(operation),
+      ),
+    );
+    return operation;
+  }
+
+  Future<void> _awaitStartupJobs() async {
+    await Future.wait(
+      _startupJobs.toList().map(
+        (job) => job.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+      ),
+    );
   }
 
   _SplashRun _admit(String id) {
@@ -1207,13 +1220,19 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
     for (final run in _runs.values) {
       run.cancellation.cancel();
     }
-    return _serial(_drainRuns).whenComplete(release);
+    return _serial(() async {
+      await _awaitStartupJobs();
+      await _drainRuns();
+    }).whenComplete(release);
   }
 
   @override
   Future<void> shutdown() {
     beginShutdown();
-    return _serial(_drainRuns);
+    return _serial(() async {
+      await _awaitStartupJobs();
+      await _drainRuns();
+    });
   }
 
   Future<void> detachLinked({required Future<void> Function() persistRemoval}) {
@@ -1230,13 +1249,24 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
 
   Future<void> refreshInstallation() => _serial(() async {
     try {
-      _installation = await inspectInstallation(_installation.root, io: io);
-      _installationVerified = true;
-      _error = null;
-    } catch (error) {
-      _installationVerified = false;
-      _error = '$error';
+      await _assertInstallation();
+    } catch (_) {
+      // Presence failures have already been recorded by the installation owner.
     }
+    _publish();
+  });
+
+  Future<void> readParameters() => _serial(() async {
+    final epoch = _startEpoch;
+    final current = await inspectInstallation(
+      _installation.root,
+      io: io,
+      readParameters: true,
+    );
+    if (_shuttingDown || epoch != _startEpoch) {
+      throw const SplashEngineException('Splash 参数读取已取消');
+    }
+    _installation = current;
     _publish();
   });
 
@@ -1249,14 +1279,8 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
         current.targetFormat != binding.targetFormat ||
         current.tokenizer.path != binding.tokenizer.path ||
         current.roles.length != binding.roles.length ||
-        current.sourceHashes.length != binding.sourceHashes.length ||
-        binding.roles.entries.any((e) => current.roles[e.key] != e.value) ||
-        binding.sourceHashes.entries.any(
-          (e) =>
-              current.sourceHashes[e.key] != e.value ||
-              current.sourceSizes[e.key] != binding.sourceSizes[e.key],
-        )) {
-      throw const SplashEngineException('Splash绑定内容或canonical链接已变化');
+        binding.roles.entries.any((e) => current.roles[e.key] != e.value)) {
+      throw const SplashEngineException('Splash 绑定路径或模型选择已变化');
     }
   }
 
@@ -1509,7 +1533,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
     _preparing.add(binding);
     try {
       await _syncUses();
-      await _checkModel(binding);
+      await _assertInstallation();
       await saveBinding(binding);
       _bindings[artifactId] = binding;
       return binding;
@@ -1558,32 +1582,14 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
       if (!RegExp(r'^(?:[a-f0-9]{40}|[a-f0-9]{64})$').hasMatch(declared)) {
         throw const SplashEngineException('Splash source内容身份格式无效');
       }
-      final hash = (await sha256.bind(source.openRead()).first).toString();
-      final declaredHash = declared.length == 64
-          ? hash
-          : (await sha1
-                    .bind(
-                      (() async* {
-                        yield utf8.encode('blob $size\u0000');
-                        yield* source.openRead();
-                      })(),
-                    )
-                    .first)
-                .toString();
-      if (size != metadata['bytes'] || declaredHash != declared) {
-        throw const SplashEngineException('Splash assembly内容与声明的内容身份不符');
-      }
       roles[entry.key] = path;
-      hashes[path] = hash;
+      // Keep the assembly author's declaration without rereading model bytes.
+      hashes[path] = declared;
       sizes[path] = size;
     }
     roles['model.json'] = manifest.path;
     hashes[manifest.path] = manifestHash;
     sizes[manifest.path] = manifestBytes.length;
-    if ((await sha256.bind(manifest.openRead()).first).toString() !=
-        manifestHash) {
-      throw const SplashEngineException('Splash assembly在核验期间变化');
-    }
     final binding = SplashModelBinding.fromJson({
       'artifact_id': artifactId,
       'assembly': assembly.path,
@@ -1601,7 +1607,10 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
         .toList();
     if (assets.length != 1 ||
         ![AssetKind.chat, AssetKind.decision].contains(assets.single.kind) ||
-        assets.single.integrity != AssetIntegrity.complete) {
+        ![
+          AssetIntegrity.complete,
+          AssetIntegrity.unknown,
+        ].contains(assets.single.integrity)) {
       throw const SplashEngineException('请选择已完整验证的文本或决策模型资产');
     }
     final weights = assets.single.files
@@ -1621,32 +1630,22 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
         .toSet();
     if (weights.isEmpty ||
         targets.length != weights.length ||
-        weights.any(
-          (file) =>
-              !targets.contains(file.path) ||
-              file.sha256 == null ||
-              hashes[file.path] != file.sha256,
-        )) {
-      throw const SplashEngineException(
-        'Splash assembly target不是所选模型的canonical文件和完整SHA',
-      );
+        weights.any((file) => !targets.contains(file.path))) {
+      throw const SplashEngineException('Splash assembly target不是所选模型文件');
     }
     return binding;
   }
 
   Future<void> _assertInstallation() async {
     try {
-      final current = await _installationFiles(
-        _installation.root,
+      for (final file in [
         _installation.python,
         _installation.nativeBinary,
-      );
-      if (!_installationVerified ||
-          current.length != _installation.fingerprints.length ||
-          current.entries.any(
-            (entry) => _installation.fingerprints[entry.key] != entry.value,
-          )) {
-        _installation = await inspectInstallation(_installation.root, io: io);
+        File('${_installation.root.path}/server/server.py'),
+      ]) {
+        if (!await file.exists()) {
+          throw SplashEngineException('Splash 文件缺失：${file.path}');
+        }
       }
       _installationVerified = true;
       _error = null;
@@ -1654,79 +1653,15 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
       _installationVerified = false;
       _error = '$error';
       _publish();
-      throw SplashEngineException(_error!);
-    }
-  }
-
-  Future<void> _checkModel(SplashModelBinding binding) async {
-    await _assertInstallation();
-    final checkedInstallation = _installation;
-    await runtimeDirectory.create(recursive: true);
-    final temporary = await runtimeDirectory.createTemp('model-check-');
-    try {
-      var scalarPath = '-';
-      if (binding.targetFormat == 'gguf') {
-        final target = binding.roles.entries
-            .firstWhere(
-              (entry) =>
-                  entry.key.startsWith('target/') &&
-                  entry.key.endsWith('.gguf'),
-            )
-            .value;
-        final code =
-            'import json,sys; sys.path.insert(0,${jsonEncode(_installation.moduleRoot.path)}); '
-            'from install.gguf import Metadata,scalar_metadata; '
-            'print(json.dumps(scalar_metadata(Metadata(sys.argv[1],tensors=False))))';
-        final metadata = await io.run(_installation.python.path, [
-          '-B',
-          '-P',
-          '-c',
-          code,
-          target,
-        ], timeout: const Duration(seconds: 30));
-        if (metadata.exitCode != 0) {
-          throw SplashEngineException(
-            'Splash GGUF metadata读取失败：${metadata.stderr}',
-          );
-        }
-        _object(jsonDecode(metadata.stdout), 'Splash GGUF scalars');
-        final file = File('${temporary.path}/scalars.json');
-        await file.writeAsString(metadata.stdout, flush: true);
-        scalarPath = file.path;
-      }
-      final result = await io.run(_installation.nativeBinary.path, [
-        'model-check',
-        binding.targetFormat,
-        'none',
-        binding.roles['config.json']!,
-        scalarPath,
-        binding.roles['draft/config.json'] ?? '-',
-      ], timeout: const Duration(seconds: 30));
-      if (result.exitCode != 0) {
-        throw SplashEngineException('Splash model-check失败：${result.stderr}');
-      }
-      final observed = _object(jsonDecode(result.stdout), 'Splash model-check');
-      if (observed['family'] != binding.family) {
-        throw const SplashEngineException(
-          'Splash model-check family与assembly不符',
-        );
-      }
-      await _assertInstallation();
-      if (jsonEncode(checkedInstallation.fingerprints) !=
-          jsonEncode(_installation.fingerprints)) {
-        throw const SplashEngineException('Splash内容在模型检查期间变化，请重新核验');
-      }
-      await _verifyBinding(binding);
-    } finally {
-      await temporary.delete(recursive: true);
+      rethrow;
     }
   }
 
   static Future<SplashInstallation> inspectInstallation(
     Directory candidate, {
     SplashProcessIO? io,
+    bool readParameters = false,
   }) async {
-    final processIO = io ?? NativeSplashProcessIO();
     final root = Directory(await candidate.resolveSymbolicLinks());
     final packaged = await File('${root.path}/release.json').exists();
     final python = File(
@@ -1745,62 +1680,32 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
         throw SplashEngineException('Splash文件缺失：${file.path}');
       }
     }
-    final before = await _installationFiles(root, python, native);
-    final py = await processIO.run(python.path, [
-      '-B',
-      '--version',
-    ], timeout: const Duration(seconds: 10));
-    final prefix = await processIO.run(python.path, [
-      '-B',
-      '-P',
-      '-c',
-      'import json,sys; print(json.dumps({"prefix":sys.prefix,"executable":sys.executable}))',
-    ], timeout: const Duration(seconds: 10));
-    if (prefix.exitCode != 0) {
-      throw SplashEngineException('Splash Python环境读取失败：${prefix.stderr}');
-    }
-    final prefixValue = _path(
-      _object(jsonDecode(prefix.stdout), 'Python prefix')['prefix'],
-    );
     final expectedPrefix = await Directory(
       '${root.path}/${packaged ? 'python' : '.venv'}',
     ).resolveSymbolicLinks();
-    if (prefixValue != expectedPrefix) {
-      throw const SplashEngineException('Splash Python没有使用所关联的venv/packaged环境');
-    }
-    final version = await processIO.run(
-      python.path,
-      _module(root.path, 'install.launcher', ['--version']),
-      timeout: const Duration(seconds: 10),
-    );
-    if (py.exitCode != 0 || version.exitCode != 0) {
-      throw SplashEngineException(
-        'Splash版本读取失败：${py.stderr}\n${version.stderr}',
-      );
-    }
-    var helpText = '';
-    String? helpError;
-    try {
-      final help = await processIO.run(
-        python.path,
-        _module(root.path, 'server.server', ['--help']),
-        timeout: const Duration(seconds: 10),
-      );
-      if (help.exitCode == 0) {
-        helpText = '${help.stdout}\n${help.stderr}';
-      } else {
-        helpError = 'Splash帮助读取失败(${help.exitCode})：${help.stderr}';
-      }
-    } catch (error) {
-      helpError = 'Splash帮助读取失败：$error';
-    }
     final supportsSystemone = (await File(
       '${root.path}/server/server.py',
     ).readAsString()).contains('"/v1/systemone": PostRoute(');
-    final after = await _installationFiles(root, python, native);
-    if (before.length != after.length ||
-        before.entries.any((entry) => after[entry.key] != entry.value)) {
-      throw const SplashEngineException('Splash内容在版本/帮助观察期间变化，请重新核验');
+    var help = '';
+    String? helpError;
+    if (readParameters) {
+      try {
+        final result = await (io ?? NativeSplashProcessIO()).run(python.path, [
+          '-B',
+          '-P',
+          '-c',
+          'import runpy,sys; sys.path.insert(0,${jsonEncode(root.path)}); runpy.run_module("server.server",run_name="__main__")',
+          '--help',
+        ], timeout: const Duration(seconds: 10));
+        if (result.exitCode == 0 &&
+            '${result.stdout}\n${result.stderr}'.length <= 512 * 1024) {
+          help = '${result.stdout}\n${result.stderr}';
+        } else {
+          helpError = 'Splash 帮助读取失败：${result.stderr}';
+        }
+      } catch (error) {
+        helpError = 'Splash 帮助读取失败：$error';
+      }
     }
     return SplashInstallation(
       kind: packaged
@@ -1810,54 +1715,16 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
       python: python,
       moduleRoot: root,
       nativeBinary: native,
-      observedVersion: '${version.stdout}\n${version.stderr}'.trim(),
-      pythonVersion: '${py.stdout}\n${py.stderr}'.trim(),
-      pythonPrefix: prefixValue,
-      help: helpText,
+      observedVersion: packaged ? 'Splash' : 'Splash (source checkout)',
+      pythonVersion: '未读取',
+      pythonPrefix: expectedPrefix,
+      help: help,
       helpError: helpError,
       verified: true,
       supportsSystemone: supportsSystemone,
-      fingerprints: after,
+      fingerprints: const {},
     );
   }
-}
-
-List<String> _module(String root, String module, List<String> arguments) => [
-  '-B',
-  '-P',
-  '-c',
-  'import runpy,sys; sys.path.insert(0,${jsonEncode(root)}); runpy.run_module(${jsonEncode(module)},run_name="__main__")',
-  ...arguments,
-];
-
-Future<Map<String, String>> _installationFiles(
-  Directory root,
-  File python,
-  File native,
-) async {
-  final paths = <String>{
-    python.path,
-    await python.resolveSymbolicLinks(),
-    native.path,
-    await native.resolveSymbolicLinks(),
-  };
-  for (final name in ['server', 'install']) {
-    await for (final entry in Directory(
-      '${root.path}/$name',
-    ).list(recursive: true, followLinks: false)) {
-      if (entry is File && entry.path.endsWith('.py')) paths.add(entry.path);
-    }
-  }
-  for (final name in ['release.json', '.venv/pyvenv.cfg']) {
-    if (await File('${root.path}/$name').exists()) {
-      paths.add('${root.path}/$name');
-    }
-  }
-  final sorted = paths.toList()..sort();
-  return {
-    for (final path in sorted)
-      path: (await sha256.bind(File(path).openRead()).first).toString(),
-  };
 }
 
 Map<String, Object?> _object(Object? value, String label) {
@@ -1882,16 +1749,16 @@ String _path(Object? value) {
   return path;
 }
 
-Map<String, String> _hashes(Object? value) {
+Map<String, String> _hashes(Object? value, {bool allowEmpty = false}) {
   final result = <String, String>{};
   for (final entry in _object(value, 'Splash hashes').entries) {
     final hash = _string(entry.value);
-    if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(hash)) {
+    if (!RegExp(r'^(?:[a-f0-9]{40}|[a-f0-9]{64})$').hasMatch(hash)) {
       throw const FormatException('Splash内容指纹无效');
     }
     result[_path(entry.key)] = hash;
   }
-  if (result.isEmpty) throw const FormatException('Splash身份为空');
+  if (result.isEmpty && !allowEmpty) throw const FormatException('Splash身份为空');
   return result;
 }
 

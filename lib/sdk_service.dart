@@ -435,22 +435,24 @@ class LauncherInferenceService {
   /// 报告未就绪。
   Future<void> _loadStartupSet() async {
     await instances.load();
-    for (final entry in startupSet.entries) {
-      try {
-        if (instances.find(entry.instanceId) == null) {
-          _log('启动集合模型缺失：${entry.instanceId}');
-          continue;
+    await Future.wait(
+      startupSet.entries.map((entry) async {
+        try {
+          if (instances.find(entry.instanceId) == null) {
+            _log('启动集合模型缺失：${entry.instanceId}');
+            return;
+          }
+          if (_matchingInstance(entry) != null) {
+            _log('启动集合复用运行实例：${entry.instanceId}');
+            return;
+          }
+          final started = await instances.start(entry.instanceId);
+          _log('启动集合加载模型：${entry.instanceId}（实例 ${started.id}）');
+        } catch (error) {
+          _log('启动集合加载失败：${entry.instanceId}：$error');
         }
-        if (_matchingInstance(entry) != null) {
-          _log('启动集合复用运行实例：${entry.instanceId}');
-          continue;
-        }
-        final started = await instances.start(entry.instanceId);
-        _log('启动集合加载模型：${entry.instanceId}（实例 ${started.id}）');
-      } catch (error) {
-        _log('启动集合加载失败：${entry.instanceId}：$error');
-      }
-    }
+      }),
+    );
   }
 
   RuntimeInstance? _matchingInstance(StartupModelEntry entry) => instances

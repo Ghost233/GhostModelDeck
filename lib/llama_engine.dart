@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'engine_redownload.dart';
+
 import 'package:crypto/crypto.dart';
 
 import 'chat_protocol.dart';
@@ -81,7 +83,7 @@ class LinkedLlamaInstallation {
   final String version;
   final Map<String, String> fingerprints;
   final String? helpOutput;
-  String get sha256 => fingerprints[path]!;
+  String? get sha256 => fingerprints[path];
 }
 
 class LlamaRemovalPlan {
@@ -112,38 +114,18 @@ Future<LinkedLlamaInstallation> inspectLinkedLlama(
       (await file.stat()).mode & 0x49 == 0) {
     throw const LlamaEngineException('请选择可执行的本机 llama-server');
   }
-  Future<Map<String, String>> fingerprint() async {
-    final parent = file.parent.path;
-    final files = <String>{path};
-    final values = <String, String>{};
-    await for (final entity in file.parent.list(followLinks: false)) {
-      if (!entity.path.endsWith('.dylib') &&
-          !entity.path.endsWith('.metallib')) {
-        continue;
-      }
-      final canonical = await entity.resolveSymbolicLinks();
-      if (!canonical.startsWith('$parent/') ||
-          await FileSystemEntity.type(canonical, followLinks: false) !=
-              FileSystemEntityType.file) {
-        throw const LlamaEngineException('关联引擎依赖超出所在目录');
-      }
-      files.add(canonical);
-      if (entity is Link) {
-        values[entity.path] = sha256
-            .convert(utf8.encode('link:${await entity.target()}'))
-            .toString();
-      }
+  await for (final dependency in file.parent.list(followLinks: false)) {
+    if (!dependency.path.endsWith('.dylib') &&
+        !dependency.path.endsWith('.metallib')) {
+      continue;
     }
-    final paths = files.toList()..sort();
-    for (final path in paths) {
-      values[path] = (await sha256.bind(File(path).openRead()).first)
-          .toString();
+    final canonical = await dependency.resolveSymbolicLinks();
+    if (!canonical.startsWith('${file.parent.path}/') ||
+        !await File(canonical).exists()) {
+      throw const LlamaEngineException('关联引擎依赖路径越界或失效');
     }
-    final keys = values.keys.toList()..sort();
-    return {for (final key in keys) key: values[key]!};
   }
 
-  final before = await fingerprint();
   final architecture = await io.run('/usr/bin/file', [
     '-b',
     path,
@@ -153,42 +135,26 @@ Future<LinkedLlamaInstallation> inspectLinkedLlama(
       !architecture.stdout.contains('arm64')) {
     throw const LlamaEngineException('关联引擎需要 macOS arm64 executable');
   }
-  final version = await io.run(path, [
-    '--version',
-  ], timeout: const Duration(seconds: 10));
-  final observed = '${version.stdout}\n${version.stderr}'.trim();
-  if (version.exitCode != 0 ||
-      !observed.contains('version:') ||
-      !observed.contains('Darwin arm64')) {
-    throw const LlamaEngineException('无法核验关联引擎实际版本');
-  }
-  final help = await io.run(path, [
-    '--help',
-  ], timeout: const Duration(seconds: 10));
-  final flags = '${help.stdout}\n${help.stderr}';
-  if (help.exitCode != 0 ||
-      [
-        '--model',
-        '--alias',
-        '--host',
-        '--port',
-        '--ctx-size',
-        '--batch-size',
-        '--ubatch-size',
-        '--parallel',
-        '--n-gpu-layers',
-        '--device',
-      ].any((flag) => !flags.contains(flag))) {
-    throw const LlamaEngineException('此关联引擎缺少标准启动参数');
-  }
-  final after = await fingerprint();
-  if (jsonEncode(before) != jsonEncode(after)) {
-    throw const LlamaEngineException('关联引擎在检查时变化');
+  var observed = '未知版本';
+  var flags = '';
+  try {
+    final version = await io.run(path, [
+      '--version',
+    ], timeout: const Duration(seconds: 10));
+    if (version.exitCode == 0) {
+      observed = '${version.stdout}\n${version.stderr}'.trim();
+    }
+    final help = await io.run(path, [
+      '--help',
+    ], timeout: const Duration(seconds: 10));
+    if (help.exitCode == 0) flags = '${help.stdout}\n${help.stderr}';
+  } catch (_) {
+    // Version/help are optional metadata; the real launch reports failures.
   }
   return LinkedLlamaInstallation(
     path: path,
     version: observed,
-    fingerprints: after,
+    fingerprints: const {},
     helpOutput: flags,
   );
 }
@@ -743,7 +709,10 @@ class LlamaEngine
   int _generation = 0;
   int _nextInstanceGeneration = 0;
   final _pendingStarts = <String, DecisionCancellation>{};
+  final _startupJobs = <Future<LlamaInstance>>{};
+  final _startupByAlias = <String, Future<LlamaInstance>>{};
   bool _recycling = false;
+  bool _redownloading = false;
   Future<void>? _recycle;
 
   int _startAdmissionHolds = 0;
@@ -801,7 +770,8 @@ class LlamaEngine
     String? launchInstanceId,
     int? launchRevision,
   }) {
-    if (_recycling || _startAdmissionHolds > 0) {
+    if (_shuttingDown) return Future.error(StateError('引擎正在退出'));
+    if (_recycling || _redownloading || _startAdmissionHolds > 0) {
       return Future.error(const LlamaEngineException('受管引擎正在回收'));
     }
     final generation = _generation;
@@ -817,7 +787,8 @@ class LlamaEngine
       }
     }
 
-    return _serial(() async {
+    late final Future<LlamaInstance> operation;
+    operation = _operations.then((_) async {
       // Freeze at operation admission, before any installation/model I/O.
       final selectedConfiguration =
           configuration ??
@@ -831,11 +802,8 @@ class LlamaEngine
       }
       selectedConfiguration.validateArgumentText();
       if (state.installation != LlamaInstallationStatus.installed ||
-          executablePath == null ||
-          !(linkedInstallation != null
-              ? await _checkLinked()
-              : await _checkInstallation(File(executablePath!).parent))) {
-        throw const LlamaEngineException('请先安装或关联并核验引擎');
+          executablePath == null) {
+        throw const LlamaEngineException('请先安装或关联引擎');
       }
       checkStartup();
       final assets = library.state.artifacts
@@ -846,9 +814,8 @@ class LlamaEngine
           ![
             AssetIntegrity.complete,
             AssetIntegrity.unknown,
-          ].contains(assets.single.integrity) ||
-          !assets.single.fingerprintsVerified) {
-        throw const LlamaEngineException('请选择结构有效且已核验的 GGUF 模型变体');
+          ].contains(assets.single.integrity)) {
+        throw const LlamaEngineException('请选择 GGUF 模型变体');
       }
       final asset = assets.single;
       final alias =
@@ -862,24 +829,6 @@ class LlamaEngine
       var unexpectedStartupExit = false;
       try {
         await _protect();
-        final verified = (await library.verify([asset.id])).single;
-        if (![
-              AssetIntegrity.complete,
-              AssetIntegrity.unknown,
-            ].contains(verified.integrity) ||
-            verified.kind != asset.kind ||
-            verified.files.length != asset.files.length ||
-            verified.files.any(
-              (file) => !asset.files.any(
-                (old) =>
-                    old.path == file.path &&
-                    old.sha256 == file.sha256 &&
-                    old.sizeBytes == file.sizeBytes,
-              ),
-            ) ||
-            asset.sourceVerified && !verified.sourceVerified) {
-          throw const LlamaEngineException('模型在启动前变化，请重新核验');
-        }
         checkStartup();
         final files = asset.files.toList()
           ..sort((a, b) => a.path.compareTo(b.path));
@@ -909,6 +858,7 @@ class LlamaEngine
           status: LlamaInstanceStatus.starting,
         );
         _pendingStarts[alias] = startupCancellation;
+        _startupByAlias[alias] = operation;
         _instances[alias] = instance;
         _publishInstances();
         checkStartup();
@@ -1072,6 +1022,8 @@ class LlamaEngine
         _publishInstances();
         return owned.instance;
       } catch (error) {
+        final cancelled =
+            startupCancellation.isCancelled && !unexpectedStartupExit;
         final reason =
             unexpectedStartupExit &&
                 running != null &&
@@ -1086,9 +1038,9 @@ class LlamaEngine
             ? error.message
             : error is DecisionProtocolException
             ? error.message
-            : '引擎启动失败：${error.runtimeType}';
+            : '引擎启动失败：$error';
         if (running != null) {
-          await _fail(running, reason);
+          await _fail(running, reason, cancelled: cancelled);
         } else {
           _reserved.remove(alias);
           await _protect();
@@ -1096,7 +1048,9 @@ class LlamaEngine
           if (instance != null) {
             _instances[alias] = _copy(
               instance,
-              status: LlamaInstanceStatus.failed,
+              status: cancelled
+                  ? LlamaInstanceStatus.stopped
+                  : LlamaInstanceStatus.failed,
               error: reason,
             );
             _publishInstances();
@@ -1105,9 +1059,24 @@ class LlamaEngine
         throw LlamaEngineException(reason);
       } finally {
         _pendingStarts.remove(alias);
+        _startupByAlias.remove(alias);
       }
     });
+    _startupJobs.add(operation);
+    unawaited(
+      operation.then<void>(
+        (_) => _startupJobs.remove(operation),
+        onError: (Object _, StackTrace _) => _startupJobs.remove(operation),
+      ),
+    );
+    return operation;
   }
+
+  Future<void> _awaitStartupJobs() => Future.wait(
+    _startupJobs.toList().map(
+      (job) => job.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+    ),
+  );
 
   void _checkStartup() {
     if (_shuttingDown) throw const LlamaEngineException('应用退出，已取消引擎启动');
@@ -1959,7 +1928,11 @@ class LlamaEngine
     }
   }
 
-  Future<void> _fail(_Running running, String reason) async {
+  Future<void> _fail(
+    _Running running,
+    String reason, {
+    bool cancelled = false,
+  }) async {
     try {
       await _stopChild(running);
     } catch (cleanupError, stack) {
@@ -1975,7 +1948,9 @@ class LlamaEngine
     }
     running.instance = _copy(
       running.instance,
-      status: LlamaInstanceStatus.failed,
+      status: cancelled
+          ? LlamaInstanceStatus.stopped
+          : LlamaInstanceStatus.failed,
       error: reason,
     );
     _publishRun(running);
@@ -1997,7 +1972,9 @@ class LlamaEngine
         acceptingRequests: false,
       );
       _publishInstances();
+      final startup = _startupByAlias[instanceId];
       return _serial(() async {
+        await startup?.then<void>((_) {}, onError: (Object _, StackTrace _) {});
         final late = _running[instanceId];
         if (late != null) {
           await _stopChild(late);
@@ -2019,7 +1996,9 @@ class LlamaEngine
       return Future.value();
     }
     _seal(running);
+    final startup = _startupByAlias[instanceId];
     return _serial(() async {
+      await startup?.then<void>((_) {}, onError: (Object _, StackTrace _) {});
       await _stopChild(running);
       running.instance = _copy(
         running.instance,
@@ -2050,6 +2029,7 @@ class LlamaEngine
       _seal(running);
     }
     final operation = _serial(() async {
+      await _awaitStartupJobs();
       final failures = <Object>[];
       for (final running in _running.values.toList()) {
         try {
@@ -2160,6 +2140,7 @@ class LlamaEngine
 
   Future<void> _drainAndStop() async {
     await _operations;
+    await _awaitStartupJobs();
     final errors = <Object>[];
     for (final running in _running.values.toList()) {
       if (!running.hasLiveOwnedProcess) continue;
@@ -2171,6 +2152,32 @@ class LlamaEngine
     }
     if (errors.isNotEmpty || hasLiveInstances) {
       throw StateError('引擎退出未完成：${errors.join('; ')}');
+    }
+  }
+
+  Future<void> redownload({File? verifiedArchive}) async {
+    if (linkedInstallation != null) {
+      throw const LlamaEngineException('关联引擎由外部维护');
+    }
+    if (hasLiveInstances || _redownloading) {
+      throw const LlamaEngineException('请先停止该引擎的模型实例');
+    }
+    _redownloading = true;
+    try {
+      await installationDirectory.create(recursive: true);
+      final root = await installationDirectory.resolveSymbolicLinks();
+      if (await Directory('$root/${release.tag}').exists()) {
+        await prepareRemoval();
+      }
+      await redownloadEngine(
+        Directory('$root/${release.tag}'),
+        () => install(verifiedArchive: verifiedArchive),
+      );
+    } catch (_) {
+      await refreshInstallation();
+      rethrow;
+    } finally {
+      _redownloading = false;
     }
   }
 
@@ -2328,7 +2335,7 @@ class LlamaEngine
       );
       checkCancelled();
       await extracted.rename(target.path);
-      _binarySha256 = (inventory['llama-server'] as Map)['sha256'] as String;
+      _binarySha256 = null;
       executablePath = '${target.path}/llama-server';
       observedVersion = version;
       await _refreshParameterRecognition();
@@ -2377,10 +2384,34 @@ class LlamaEngine
     }
   });
 
+  Future<void> readParameters() => _serial(() async {
+    final generation = _generation;
+    if (executablePath == null) return;
+    if (linkedInstallation != null) {
+      final current = await inspectLinkedLlama(
+        File(linkedInstallation!.path),
+        io,
+      );
+      if (_shuttingDown || _detached || generation != _generation) return;
+      linkedInstallation = current;
+      executablePath = current.path;
+      observedVersion = current.version;
+      _parameterRecognition = EngineParameterRecognition.fromHelp(
+        current.helpOutput ?? '',
+        version: current.version,
+        executablePath: current.path,
+        previous: _parameterRecognition,
+      );
+    } else {
+      await _refreshParameterRecognition();
+    }
+  });
+
   Future<void> _refreshParameterRecognition() async {
     final executable = executablePath!;
-    final version = observedVersion!;
-    final fingerprint = _binarySha256!;
+    final observed = observedVersion;
+    final version = observed ?? '未知版本';
+    final fingerprint = _binarySha256;
     final generation = _generation;
     final previous = _parameterRecognition;
     bool current() =>
@@ -2390,7 +2421,7 @@ class LlamaEngine
         !_changes.isClosed &&
         generation == _generation &&
         executablePath == executable &&
-        observedVersion == version &&
+        observedVersion == observed &&
         _binarySha256 == fingerprint;
     EngineCommandResult? result;
     try {
@@ -2401,15 +2432,6 @@ class LlamaEngine
       // The command I/O owns timeout/kill/drain; optional help is not an install gate.
     }
     if (!current()) return;
-    final actual = (await sha256.bind(File(executable).openRead()).first)
-        .toString();
-    if (!current()) return;
-    if (actual != fingerprint) {
-      _parameterRecognition = EngineParameterRecognition.builtIn(
-        notice: '帮助读取期间引擎内容变化，当前帮助规则不可用；保留内置规则与原配置。',
-      );
-      throw const LlamaEngineException('帮助读取期间引擎内容变化');
-    }
     if (result != null && result.exitCode == 0) {
       _parameterRecognition = EngineParameterRecognition.fromHelp(
         '${result.stdout}\n${result.stderr}',
@@ -2423,7 +2445,7 @@ class LlamaEngine
         previous.contentFingerprint == fingerprint) {
       _parameterRecognition = previous.withReadFailure(
         version: version,
-        notice: '本次帮助读取失败，沿用同一引擎内容上次读取的识别规则；参数仍交由引擎判断。',
+        notice: '本次帮助读取失败，沿用同一路径上次读取的识别规则；参数仍交由引擎判断。',
       );
     } else {
       _parameterRecognition = EngineParameterRecognition.builtIn(
@@ -2465,7 +2487,6 @@ class LlamaEngine
       if (!await _checkInstallation(target)) {
         throw const LlamaEngineException('引擎安装内容校验失败');
       }
-      await _refreshParameterRecognition();
       _publish(
         LlamaEngineState(
           installation: LlamaInstallationStatus.installed,
@@ -2503,87 +2524,48 @@ class LlamaEngine
   }
 
   Future<bool> _checkInstallation(Directory target) async {
+    final executable = File('${target.path}/llama-server');
+    if (!await executable.exists()) return _discardUnverifiedParameters();
+    executablePath = executable.path;
+    observedVersion = '未知版本';
+    _binarySha256 = null;
     try {
-      final marker = File('${target.path}/installation.json');
-      if (await FileSystemEntity.type(marker.path, followLinks: false) !=
-          FileSystemEntityType.file) {
-        return _discardUnverifiedParameters();
+      final metadata = jsonDecode(
+        await File('${target.path}/installation.json').readAsString(),
+      );
+      if (metadata is Map && metadata['version'] is String) {
+        observedVersion = metadata['version'];
       }
-      final value = jsonDecode(await marker.readAsString());
-      if (value is! Map ||
-          value['tag'] != release.tag ||
-          (value['artifactRoot'] != null &&
-              value['artifactRoot'] != release.archiveRoot) ||
-          (value['expectedBuild'] != null &&
-              value['expectedBuild'] != release.buildNumber) ||
-          (release.tag.startsWith('v') &&
-              (value['artifactRoot'] != release.archiveRoot ||
-                  value['expectedBuild'] != release.buildNumber)) ||
-          value['commit'] != release.commit ||
-          value['source'] != release.url.toString() ||
-          value['archiveSha256'] != release.sha256 ||
-          value['platform'] != release.targetPlatform ||
-          value['files'] is! Map) {
-        return _discardUnverifiedParameters();
-      }
-      final actual = await _inventory(target);
-      if (jsonEncode(actual) != jsonEncode(value['files'])) {
-        return _discardUnverifiedParameters();
-      }
-      final version = await _version(File('${target.path}/llama-server'));
-      if (value['version'] is! String) return _discardUnverifiedParameters();
-      final recorded = LlamaBinaryVersion.parse(value['version'] as String);
-      final observed = LlamaBinaryVersion.parse(version);
-      if (recorded == null ||
-          observed == null ||
-          recorded.semanticVersion != observed.semanticVersion ||
-          recorded.build != observed.build ||
-          recorded.commit != observed.commit ||
-          recorded.platform != observed.platform) {
-        return _discardUnverifiedParameters();
-      }
-      _binarySha256 = (actual['llama-server'] as Map)['sha256'] as String;
-      executablePath = '${target.path}/llama-server';
-      observedVersion = version;
-      return true;
     } catch (_) {
-      return _discardUnverifiedParameters();
+      // A missing/stale receipt does not decide whether the executable can run.
     }
+    return true;
   }
 
   Future<bool> _checkLinked() async {
-    final generation = _generation;
-    try {
-      final expected = linkedInstallation!;
-      final actual = await inspectLinkedLlama(File(expected.path), io);
-      if (actual.path != expected.path) return _discardUnverifiedParameters();
-      if (jsonEncode(actual.fingerprints) !=
-              jsonEncode(expected.fingerprints) ||
-          actual.version != expected.version) {
-        linkedInstallation = actual;
-      }
-      executablePath = actual.path;
-      _binarySha256 = actual.sha256;
-      observedVersion = actual.version;
-      if (!_shuttingDown &&
-          !_detached &&
-          generation == _generation &&
-          !_changes.isClosed) {
-        _parameterRecognition = EngineParameterRecognition.fromHelp(
-          actual.helpOutput!,
-          version: actual.version,
-          executablePath: actual.path,
-          contentFingerprint: actual.sha256,
-          previous: _parameterRecognition,
-        );
-      }
-      return true;
-    } catch (_) {
+    final current = linkedInstallation!;
+    if (!await File(current.path).exists()) {
       return _discardUnverifiedParameters();
     }
+    final parent = File(current.path).parent;
+    await for (final dependency in parent.list(followLinks: false)) {
+      if (!dependency.path.endsWith('.dylib') &&
+          !dependency.path.endsWith('.metallib')) {
+        continue;
+      }
+      final path = await dependency.resolveSymbolicLinks();
+      if (!path.startsWith('${parent.path}/') || !await File(path).exists()) {
+        return _discardUnverifiedParameters();
+      }
+    }
+    executablePath = current.path;
+    observedVersion = current.version;
+    _binarySha256 = null;
+    return true;
   }
 
   bool get hasLiveInstances =>
+      _startupJobs.isNotEmpty ||
       _reserved.isNotEmpty ||
       _running.values.any((running) => running.hasLiveOwnedProcess);
   Future<void> detachLinked({Future<void> Function()? persistRemoval}) =>
@@ -2612,6 +2594,16 @@ class LlamaEngine
       throw const LlamaEngineException('受管安装内容无法确认，未删除任何文件');
     }
     final inventory = jsonEncode(await _inventory(target));
+    final marker = jsonDecode(
+      await File('${target.path}/installation.json').readAsString(),
+    );
+    if (marker is! Map ||
+        marker['files'] is! Map ||
+        (jsonDecode(inventory) as Map).keys.any(
+          (name) => !(marker['files'] as Map).containsKey(name),
+        )) {
+      throw const LlamaEngineException('受管目录包含未登记文件，保留原目录');
+    }
     final markerSha256 =
         (await sha256
                 .bind(File('${target.path}/installation.json').openRead())
@@ -2725,7 +2717,8 @@ class LlamaEngine
         result[name] = {'link': await entity.target()};
       } else if (entity is File) {
         result[name] = {
-          'sha256': (await sha256.bind(entity.openRead()).first).toString(),
+          'size': (await entity.stat()).size,
+          'modified': (await entity.stat()).modified.microsecondsSinceEpoch,
         };
       } else if (entity is! Directory) {
         throw const LlamaEngineException('引擎包含不支持的文件类型');
@@ -2745,21 +2738,16 @@ class LlamaEngine
         FileSystemEntityType.file) {
       throw const LlamaEngineException('引擎 executable 类型不符');
     }
-    final result = await io.run(binary.path, [
-      '--version',
-    ], timeout: release.installationVersionTimeout);
-    final version = '${result.stdout}\n${result.stderr}'.trim();
-    final commit = release.commit.substring(0, min(9, release.commit.length));
-    final observed = LlamaBinaryVersion.parse(version);
-    if (result.exitCode != 0 ||
-        observed == null ||
-        observed.build != release.buildNumber ||
-        observed.commit != commit ||
-        observed.platform != release.expectedPlatform ||
-        (release.expectedBinaryVersion != null &&
-            observed.semanticVersion != release.expectedBinaryVersion)) {
-      throw const LlamaEngineException('引擎实际版本或架构不匹配');
+    EngineCommandResult result;
+    try {
+      result = await io.run(binary.path, [
+        '--version',
+      ], timeout: release.installationVersionTimeout);
+    } catch (_) {
+      return '未知版本';
     }
+    final version = '${result.stdout}\n${result.stderr}'.trim();
+    if (result.exitCode != 0 || version.isEmpty) return '未知版本';
     return version;
   }
 

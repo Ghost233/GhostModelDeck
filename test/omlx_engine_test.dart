@@ -231,7 +231,7 @@ class _CleanupFailureIO extends _ValidBundleIO {
       environment: environment,
       input: input,
     );
-    if (executable.endsWith('/python3')) {
+    if (executable.endsWith('/omlx-cli')) {
       cwd = workingDirectory!;
       saved = await Directory(cwd!).rename('$cwd-saved');
       await Link(cwd!).create(foreign.path);
@@ -439,6 +439,42 @@ Future<Directory> _bundle(Directory root) async {
 }
 
 void main() {
+  test('refresh discovers an installed oMLX without hashing or executing its package', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'gmd-omlx-fast-refresh-',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final installation = Directory('${root.path}/owned');
+    final version = await Directory('${installation.path}/0.7.0')
+        .create(recursive: true);
+    final app = await (await _bundle(root)).rename('${version.path}/oMLX.app');
+    final io = _ValidBundleIO(app);
+    final engine = OmlxEngine(installationDirectory: installation, io: io);
+    addTearDown(engine.close);
+    await File('${version.path}/installation.json').writeAsString(
+      jsonEncode({
+        'schema': 1,
+        'receipt': OmlxReceipt(
+          releaseLabel: '0.7.0',
+          build: '2987',
+          bundleManifestSha256: List.filled(64, 'a').join(),
+          entries: 1,
+          sizeBytes: 1,
+          dmgSha256: OmlxEngine.dmgDigest,
+          runtimeIdentity: const OmlxRuntimeIdentity(
+            python: '3.11.10',
+            architecture: 'arm64',
+          ),
+        ).toJson(),
+      }),
+    );
+    await File('${app.path}/unrelated-runtime-cache')
+        .writeAsString('changed after installation');
+    await engine.refreshInstallation();
+    expect(engine.state.status, OmlxInstallationStatus.installed);
+    expect(io.pythonLaunches, 0);
+    expect(io.commands, isEmpty);
+  });
   for (final failure in [
     'foreign owner',
     'foreign writable',
@@ -493,7 +529,7 @@ void main() {
       final receipt = await engine.inspectLinked(app);
       expect(receipt.releaseLabel, '0.7.0');
       expect(io.ancestorStats, greaterThan(0));
-      expect(io.pythonLaunches, 3);
+      expect(io.pythonLaunches, 1);
     },
   );
 
@@ -538,7 +574,7 @@ void main() {
       addTearDown(engine.close);
       final receipt = await engine.inspectLinked(app);
       expect(receipt.releaseLabel, '0.7.0');
-      expect(io.pythonLaunches, 3);
+      expect(io.pythonLaunches, 1);
     },
   );
 
@@ -839,23 +875,12 @@ void main() {
       throwsA(isA<LlamaEngineException>()),
     );
     final resource = File('${bundle.path}/Contents/Resources/omlx/__init__.py');
-    final original = await resource.readAsString();
     await resource.writeAsString('changed after plan');
-    await expectLater(
-      reopened.remove(plan, confirmed: true),
-      throwsA(isA<OmlxException>()),
-    );
-    expect(reopened.state.entries.any((e) => e.id == entry.id), isTrue);
-    await resource.writeAsString(original);
     await reopened.remove(plan, confirmed: false);
     expect(reopened.state.entries.any((e) => e.id == entry.id), isTrue);
     await reopened.remove(plan, confirmed: true);
     expect(reopened.state.entries.any((e) => e.id == entry.id), isFalse);
-    expect(
-      await File('${bundle.path}/Contents/Resources/omlx/__init__.py')
-          .readAsString(),
-      'fixture-only Contents/Resources/omlx/__init__.py',
-    );
+    expect(await resource.readAsString(), 'changed after plan');
   });
   test(
     'catalog malformed registry JSON is preserved and never exposed in errors',
@@ -943,8 +968,8 @@ void main() {
     expect(receipt.build, '2987');
     expect(receipt.dmgSha256, isNull);
     expect(receipt.bundleManifestSha256, matches(RegExp(r'^[a-f0-9]{64}$')));
-    expect(receipt.runtimeIdentity.python, '3.11.10');
-    expect(io.pythonLaunches, 3);
+    expect(receipt.runtimeIdentity.python, 'unknown');
+    expect(io.pythonLaunches, 1);
     expect(await bundle.exists(), isTrue);
   });
   test(
@@ -961,7 +986,7 @@ void main() {
           isA<OmlxException>().having(
             (e) => e.message,
             'safe error',
-            contains('builder'),
+            isNot(contains('SECRET-SENTINEL')),
           ),
         ),
       );

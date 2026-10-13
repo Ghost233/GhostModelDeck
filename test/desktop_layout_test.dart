@@ -751,7 +751,7 @@ class _LayoutFixture {
 
   List<Finder> operations(String page) => switch (page) {
     'search' => [_action('搜索'), _action('下载')],
-    'library' => [_action('核验'), _action('删除模型'), _action('运行')],
+    'library' => [find.byTooltip('扫描'), _action('删除模型'), _action('运行')],
     'downloads' => [_action('重试')],
     'engines' => [_action('关联引擎'), _action('解除关联')],
     'settings' => [

@@ -14,8 +14,45 @@ import 'package:ghost_model_deck/model_library.dart';
 import 'package:ghost_model_deck/model_use_registry.dart';
 
 import 'fixtures/engine_archive.dart';
+import 'fixtures/council_runtime.dart';
 
 void main() {
+  testWidgets(
+    'redownload refuses a running managed engine before leaving its settings',
+    (tester) async {
+      final fixture = (await tester.runAsync(
+        () => HttpOverrides.runWithHttpOverrides(
+          () => CouncilRuntime.create(modelCount: 1),
+          _NetworkBoundary(),
+        ),
+      ))!;
+      addTearDown(() => tester.runAsync(fixture.close));
+      var navigations = 0;
+      await tester.runAsync(() async {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildJevTheme(Brightness.light),
+            home: Scaffold(
+              body: EnginePage(
+                catalog: fixture.catalog,
+                pickEngineDirectory: () async => null,
+                onDownloadStarted: () => navigations++,
+              ),
+            ),
+          ),
+        );
+        await fixture.catalog.refresh();
+      });
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(TextButton, '重新下载'), findsOneWidget);
+      await tester.tap(find.widgetWithText(TextButton, '重新下载'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('请先停止该引擎'), findsOneWidget);
+      expect(navigations, 0);
+      expect(fixture.engine.runtimeInstances.single.hasLiveProcess, isTrue);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
   testWidgets(
     'linked CPP version label uses its actual version row after initialization logs',
     (tester) async {
@@ -155,7 +192,10 @@ void main() {
         await catalog.refresh();
       });
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('启动参数'));
+      await tester.runAsync(() async {
+        await tester.tap(find.byTooltip('启动参数'));
+        await catalog.readParameters(catalog.state.entries.single.id);
+      });
       await tester.pumpAndSettle();
       expect(find.text('完整启动命令'), findsOneWidget);
       await tester.enterText(find.widgetWithText(TextField, '上下文大小'), '2048');
@@ -229,7 +269,10 @@ void main() {
       });
       await showEnginePage();
       expect(find.byTooltip('启动参数'), findsOneWidget);
-      await tester.tap(find.byTooltip('启动参数'));
+      await tester.runAsync(() async {
+        await tester.tap(find.byTooltip('启动参数'));
+        await catalog.readParameters(catalog.state.entries.single.id);
+      });
       await tester.pumpAndSettle();
       await tester.enterText(find.widgetWithText(TextField, '上下文大小'), '2048');
       await tester.runAsync(() async {
@@ -247,7 +290,10 @@ void main() {
         createCatalog();
       });
       await showEnginePage();
-      await tester.tap(find.byTooltip('启动参数'));
+      await tester.runAsync(() async {
+        await tester.tap(find.byTooltip('启动参数'));
+        await catalog.readParameters(catalog.state.entries.single.id);
+      });
       await tester.pumpAndSettle();
       final field = tester.widget<TextField>(
         find.widgetWithText(TextField, '上下文大小'),

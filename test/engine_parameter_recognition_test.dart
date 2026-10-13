@@ -421,7 +421,7 @@ print(json.dumps(vars(p.parse_args())))
         );
         fixture.io.help =
             '$_requiredFlatHelp\n--context-tokens${newAlias ? ', --current-ctx' : ''} N      partial context description\n';
-        await fixture.catalog.refresh();
+        await fixture.catalog.readParameters(fixture.id);
         final preview = await fixture.engine.previewLaunch(fixture.asset.id);
         expect(preview.overriddenForm, contains('--ctx-size'));
         expect(preview.arguments, isNot(contains('--ctx-size')));
@@ -459,7 +459,7 @@ print(json.dumps(vars(p.parse_args())))
         fixture.id,
         EngineLaunchConfiguration(argumentText: text),
       );
-      await fixture.catalog.refresh();
+      await fixture.catalog.readParameters(fixture.id);
       final preview = await fixture.engine.previewLaunch(fixture.asset.id);
       expect(preview.overriddenForm, overridden);
       expect(preview.arguments, containsAllInOrder(['--parallel', '1']));
@@ -511,7 +511,7 @@ print(json.dumps(vars(p.parse_args())))
     final fingerprint = fixture.engine.binarySha256;
     fixture.io.versionOutput =
         '0.00.000.090 I srv llama_server: initializing ...\n$_standardVersion';
-    await fixture.catalog.refresh();
+    await fixture.catalog.readParameters(fixture.id);
     expect(
       fixture.engine.state.installation,
       LlamaInstallationStatus.installed,
@@ -536,7 +536,7 @@ print(json.dumps(vars(p.parse_args())))
     'fingerprint',
   ]) {
     test(
-      'linked refresh verifies current $change identity without discarding saved parameters',
+      'explicit parameter observation records $change metadata without rejecting saved parameters',
       () async {
         final fixture = await _RecognitionFixture.create(
           linkedVersion: _standardVersion,
@@ -557,50 +557,35 @@ print(json.dumps(vars(p.parse_args())))
             _ => _standardVersion.replaceFirst('Darwin arm64', 'Darwin x86_64'),
           };
         }
-        await fixture.catalog.refresh();
+        await fixture.catalog.readParameters(fixture.id);
         expect(
           fixture.catalog.launchDefaultsFor(fixture.id).argumentText,
           '--context-tokens 1024',
         );
         expect(fixture.io.started, isEmpty);
-        if (change == 'platform') {
+
+        expect(
+          fixture.engine.state.installation,
+          LlamaInstallationStatus.installed,
+        );
+        expect(
+          fixture.engine.parameterRecognition.recognizes('--context-tokens'),
+          isTrue,
+        );
+        expect(
+          fixture.engine.linkedInstallation!.version,
+          fixture.io.versionOutput.trim(),
+        );
+        await HttpOverrides.runWithHttpOverrides(() async {
+          final run = await fixture.engine.start(fixture.asset.id);
+          expect(run.status, LlamaInstanceStatus.ready);
           expect(
-            fixture.engine.state.installation,
-            LlamaInstallationStatus.failed,
+            run.launchCommand!.arguments,
+            containsAllInOrder(['--context-tokens', '1024']),
           );
-          expect(
-            fixture.engine.parameterRecognition.recognizes('--context-tokens'),
-            isFalse,
-          );
-          await expectLater(
-            fixture.engine.start(fixture.asset.id),
-            throwsA(isA<LlamaEngineException>()),
-          );
-          expect(fixture.io.started, isEmpty);
-        } else {
-          expect(
-            fixture.engine.state.installation,
-            LlamaInstallationStatus.installed,
-          );
-          expect(
-            fixture.engine.parameterRecognition.recognizes('--context-tokens'),
-            isTrue,
-          );
-          expect(
-            fixture.engine.linkedInstallation!.version,
-            fixture.io.versionOutput.trim(),
-          );
-          await HttpOverrides.runWithHttpOverrides(() async {
-            final run = await fixture.engine.start(fixture.asset.id);
-            expect(run.status, LlamaInstanceStatus.ready);
-            expect(
-              run.launchCommand!.arguments,
-              containsAllInOrder(['--context-tokens', '1024']),
-            );
-            expect(run.launchCommand!.arguments, isNot(contains('--ctx-size')));
-            await fixture.engine.stop(run.id);
-          }, _NetworkBoundary());
-        }
+          expect(run.launchCommand!.arguments, isNot(contains('--ctx-size')));
+          await fixture.engine.stop(run.id);
+        }, _NetworkBoundary());
       },
     );
   }
@@ -610,13 +595,13 @@ print(json.dumps(vars(p.parse_args())))
       const opaque = 'version: vendor opaque\nbuilt for Darwin arm64';
       final fixture = await _RecognitionFixture.create(linkedVersion: opaque);
       addTearDown(fixture.close);
-      await fixture.catalog.refresh();
+      await fixture.catalog.readParameters(fixture.id);
       expect(
         fixture.engine.state.installation,
         LlamaInstallationStatus.installed,
       );
       fixture.io.versionOutput = 'diagnostic changed\n$opaque';
-      await fixture.catalog.refresh();
+      await fixture.catalog.readParameters(fixture.id);
       expect(
         fixture.engine.state.installation,
         LlamaInstallationStatus.installed,
@@ -629,7 +614,7 @@ print(json.dumps(vars(p.parse_args())))
     },
   );
   testWidgets(
-    'unverified executable keeps help limits visible and permits configuration save',
+    'changed executable can read help and save configuration without content verification',
     (tester) async {
       final fixture = (await tester.runAsync(
         () => _RecognitionFixture.create(managed: true),
@@ -638,7 +623,7 @@ print(json.dumps(vars(p.parse_args())))
       await tester.runAsync(() async {
         await File(fixture.engine.executablePath!)
             .writeAsString('unverified content');
-        await fixture.catalog.refresh();
+        await fixture.catalog.readParameters(fixture.id);
         await tester.pumpWidget(
           MaterialApp(
             home: Scaffold(
@@ -649,13 +634,20 @@ print(json.dumps(vars(p.parse_args())))
             ),
           ),
         );
-        await fixture.catalog.refresh();
+        await fixture.catalog.readParameters(fixture.id);
       });
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('启动参数').last);
+      await tester.runAsync(() async {
+        await tester.tap(find.byTooltip('启动参数').last);
+        await fixture.catalog.readParameters(fixture.id);
+      });
       await tester.pumpAndSettle();
-      expect(find.textContaining('当前帮助规则不可用'), findsOneWidget);
-      expect(find.byTooltip('复制命令'), findsNothing);
+      expect(find.textContaining('当前帮助规则不可用'), findsNothing);
+      expect(
+        fixture.engine.parameterRecognition.recognizes('--context-tokens'),
+        isTrue,
+      );
+      expect(find.byTooltip('复制命令'), findsOneWidget);
       final input = find.widgetWithText(TextField, '启动参数文本');
       await tester.ensureVisible(input);
       await tester.enterText(input, '--future new');
@@ -699,7 +691,7 @@ print(json.dumps(vars(p.parse_args())))
         final release = fixture.io.helpRelease!;
         if (!release.isCompleted) release.complete();
       });
-      final refresh = fixture.catalog.refresh();
+      final refresh = fixture.catalog.readParameters(fixture.id);
       await fixture.io.helpRequested!.future.timeout(
         const Duration(seconds: 5),
       );
@@ -750,7 +742,7 @@ print(json.dumps(vars(p.parse_args())))
           _requiredFlatHelp,
         ]) {
           fixture.io.help = help;
-          await fixture.catalog.refresh();
+          await fixture.catalog.readParameters(fixture.id);
           expect(
             fixture.engine.state.installation,
             LlamaInstallationStatus.installed,
@@ -785,7 +777,7 @@ print(json.dumps(vars(p.parse_args())))
   }
   for (final managed in [false, true]) {
     test(
-      '${managed ? 'managed content' : 'required linked help'} failure discards old rules without discarding configuration',
+      '${managed ? 'managed content change' : 'linked optional help failure'} permits actual startup and preserves configuration',
       () async {
         final fixture = await _RecognitionFixture.create(managed: managed);
         addTearDown(fixture.close);
@@ -804,27 +796,30 @@ print(json.dumps(vars(p.parse_args())))
         } else {
           fixture.io.helpExit = 1;
         }
-        await fixture.catalog.refresh();
+        await fixture.catalog.readParameters(fixture.id);
         expect(
           fixture.engine.state.installation,
-          LlamaInstallationStatus.failed,
+          LlamaInstallationStatus.installed,
         );
         expect(
           fixture.engine.parameterRecognition.recognizes('--context-tokens'),
-          isFalse,
+          isTrue,
         );
         expect(fixture.engine.parameterRecognition.contentFingerprint, isNull);
-        expect(fixture.engine.parameterRecognition.version, isNull);
-        expect(fixture.engine.parameterRecognition.notices, isNotEmpty);
+        expect(fixture.engine.parameterRecognition.version, isNotNull);
+        if (!managed) {
+          expect(fixture.engine.parameterRecognition.notices, isNotEmpty);
+        }
         expect(
           fixture.catalog.launchDefaultsFor(fixture.id).argumentText,
           text,
         );
-        await expectLater(
-          fixture.engine.start(fixture.asset.id),
-          throwsA(isA<LlamaEngineException>()),
-        );
-        expect(fixture.io.started, isEmpty);
+        await HttpOverrides.runWithHttpOverrides(() async {
+          final instance = await fixture.engine.start(fixture.asset.id);
+          expect(instance.status, LlamaInstanceStatus.ready);
+          expect(fixture.io.started.single, contains('--context-tokens'));
+          await fixture.engine.stop(instance.id);
+        }, _NetworkBoundary());
       },
     );
   }
@@ -842,7 +837,7 @@ print(json.dumps(vars(p.parse_args())))
       expect(before.overriddenForm, contains('--ctx-size'));
       fixture.io.helpFailure = TimeoutException('controlled help deadline');
       fixture.io.versionDiagnostic = 'same content, changed diagnostic text\n';
-      await fixture.catalog.refresh();
+      await fixture.catalog.readParameters(fixture.id);
       expect(
         fixture.engine.state.installation,
         LlamaInstallationStatus.installed,
@@ -889,7 +884,7 @@ print(json.dumps(vars(p.parse_args())))
     () async {
       final fixture = await _RecognitionFixture.create();
       addTearDown(fixture.close);
-      await fixture.catalog.refresh();
+      await fixture.catalog.readParameters(fixture.id);
       const text =
           '--extra-path "--model" --extra-path "--ctx-size" '
           '--control-vector-layer-range "--alias" "--port"';
@@ -949,10 +944,13 @@ print(json.dumps(vars(p.parse_args())))
             ),
           ),
         );
-        await fixture.catalog.refresh();
+        await fixture.catalog.readParameters(fixture.id);
       });
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('启动参数').last);
+      await tester.runAsync(() async {
+        await tester.tap(find.byTooltip('启动参数').last);
+        await fixture.catalog.readParameters(fixture.id);
+      });
       await tester.pumpAndSettle();
       final input = find.widgetWithText(TextField, '启动参数文本');
       await tester.ensureVisible(input);

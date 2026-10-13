@@ -13,7 +13,7 @@ import 'fixtures/engine_archive.dart';
 void main() {
   for (final standard in [false, true]) {
     test(
-      '${standard ? 'standard' : 'JEV'} managed marker and complete inventory survive reopen but reject false version and corruption',
+      '${standard ? 'standard' : 'JEV'} managed discovery preserves cached metadata and leaves content changes to actual startup',
       () async {
         final root = await Directory.systemTemp.createTemp(
           'gmd-managed-integrity-',
@@ -72,28 +72,30 @@ void main() {
         value['version'] = 'version: 0.5.0 release (fabricated)';
         await marker.writeAsString(jsonEncode(value));
         await reopened.refreshInstallation();
-        expect(reopened.state.installation, LlamaInstallationStatus.failed);
-        expect(reopened.executablePath, isNull);
-        expect(reopened.binarySha256, isNull);
-        expect(reopened.observedVersion, isNull);
-        await marker.writeAsString(text);
-        await reopened.refreshInstallation();
         expect(reopened.state.installation, LlamaInstallationStatus.installed);
+        expect(reopened.executablePath, isNotNull);
+        expect(reopened.binarySha256, isNull);
+        await marker.writeAsString(text);
         final extra = await File(
           '${directory.path}/${release.tag}/foreign.dylib',
         ).writeAsString('unexpected dependency');
         await reopened.refreshInstallation();
-        expect(reopened.state.installation, LlamaInstallationStatus.failed);
+        expect(reopened.state.installation, LlamaInstallationStatus.installed);
+        await expectLater(
+          reopened.prepareRemoval(),
+          throwsA(isA<LlamaEngineException>()),
+        );
+        expect(await extra.readAsString(), 'unexpected dependency');
         await extra.delete();
         final binary = File('${directory.path}/${release.tag}/llama-server');
         await binary.writeAsString('changed binary');
         await reopened.refreshInstallation();
-        expect(reopened.state.installation, LlamaInstallationStatus.failed);
-        await expectLater(
-          reopened.install(verifiedArchive: archive),
-          throwsA(isA<LlamaEngineException>()),
-        );
+        expect(reopened.state.installation, LlamaInstallationStatus.installed);
+        await reopened.install(verifiedArchive: archive);
         expect(await binary.readAsString(), 'changed binary');
+        await binary.delete();
+        await reopened.refreshInstallation();
+        expect(reopened.state.installation, LlamaInstallationStatus.failed);
       },
     );
   }
@@ -104,7 +106,7 @@ void main() {
     'version: 0.5.0-dev (build 11146, commit 7fe450e19)\nbuilt for Darwin x86_64',
   ]) {
     test(
-      'fixed standard installation rejects inaccurate observed identity: $output',
+      'managed installation records version output without compatibility admission: $output',
       () async {
         final root = await Directory.systemTemp.createTemp(
           'gmd-standard-invalid-',
@@ -132,14 +134,12 @@ void main() {
           ),
         );
         addTearDown(engine.close);
-        await expectLater(
-          engine.install(verifiedArchive: archive),
-          throwsA(isA<LlamaEngineException>()),
-        );
-        expect(engine.state.installation, LlamaInstallationStatus.failed);
-        expect(engine.executablePath, isNull);
+        await engine.install(verifiedArchive: archive);
+        expect(engine.state.installation, LlamaInstallationStatus.installed);
+        expect(engine.observedVersion, contains(output));
+        expect(engine.executablePath, isNotNull);
         expect(engine.state.instances, isEmpty);
-        expect(await Directory('${root.path}/owned/v0.5.0').exists(), isFalse);
+        expect(await Directory('${root.path}/owned/v0.5.0').exists(), isTrue);
       },
     );
   }
@@ -241,10 +241,7 @@ void main() {
     expect(standard.release!.archiveRoot, 'llama-b11146');
     expect(standard.binaryVersion!.semanticVersion, '0.5.0-dev');
     expect(standard.binaryVersion!.build, 11146);
-    expect(
-      standard.binarySha256,
-      '1e4556a3af5b64777d8d102f3404c84d4a28d50ebc931e0098e27916acdb92eb',
-    );
+    expect(standard.binarySha256, isNull);
     expect(standard.archiveSha256, isNot(standard.binarySha256));
     expect(standard.installationId, EngineCatalog.standardId);
     final plan = await catalog.prepareRemoval(EngineCatalog.standardId);
@@ -288,10 +285,7 @@ void main() {
     expect(entry.status, LlamaInstallationStatus.installed);
     expect(entry.version, contains('build 12000, commit abcdef123'));
     expect(entry.path, await binary.resolveSymbolicLinks());
-    expect(
-      entry.sha256,
-      '791fc5ec9286fdc6c4a53a6b43f0d11f43792f632436a8c225db3ff88a851536',
-    );
+    expect(entry.sha256, isNull);
     expect((await binary.stat()).modified, before.modified);
     expect(await Directory('${root.path}/owned').exists(), isFalse);
     expect(catalog.providerFor(entry.id).executablePath, entry.path);
@@ -406,10 +400,8 @@ void main() {
     );
     expect(catalog.providerFor(entry.id).executablePath, binary.path);
     final saved = jsonDecode(await catalog.registryFile.readAsString()) as Map;
-    expect(
-      (saved['linked'] as List).single['fingerprints'][link.path],
-      sha256.convert(utf8.encode('link:two.dylib')).toString(),
-    );
+    expect((saved['linked'] as List).single['fingerprints'], isEmpty);
+    expect(await link.target(), 'two.dylib');
     final outside = await File('${root.path}/outside.dylib')
         .writeAsString('external dependency');
     await link.update(outside.path);

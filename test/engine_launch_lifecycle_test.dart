@@ -57,7 +57,7 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
-  test('unlink preserves its registration on write failure and waits for accepted startup', () async {
+  test('unlink preserves its registration on write failure and refuses an accepted startup', () async {
     final fixture = await _LifecycleFixture.create();
     addTearDown(fixture.close);
     final entry = await fixture.catalog.link(fixture.binary.path);
@@ -83,16 +83,15 @@ void main() {
     await obstruction.delete();
     await HttpOverrides.runWithHttpOverrides(() async {
       final provider = fixture.catalog.providerFor(entry.id);
-      fixture.io.versionStarted = Completer<void>();
-      fixture.io.releaseVersion = Completer<void>();
+      fixture.io.startEntered = Completer<void>();
+      fixture.io.releaseStart = Completer<void>();
       final startup = provider.start(fixture.asset.id);
-      await fixture.io.versionStarted!.future.timeout(
-        const Duration(seconds: 5),
-      );
+      await fixture.io.startEntered!.future.timeout(const Duration(seconds: 5));
       expect(
         provider.hasLiveInstances,
-        isFalse,
-        reason: 'accepted startup is still checking identity before reserving its model',
+        isTrue,
+        reason:
+            'accepted startup owns a pending process before it becomes ready',
       );
       final removalAdmitted = fixture.catalog.changes.firstWhere(
         (state) => state.busy,
@@ -102,7 +101,7 @@ void main() {
         throwsA(isA<LlamaEngineException>()),
       );
       await removalAdmitted.timeout(const Duration(seconds: 5));
-      fixture.io.releaseVersion!.complete();
+      fixture.io.releaseStart!.complete();
       final running = await startup;
       await rejectedRemoval;
       expect(
@@ -121,8 +120,8 @@ void main() {
         containsAllInOrder(['--ctx-size', '2048']),
       );
       await provider.stop(running.id);
-      fixture.io.versionStarted = null;
-      fixture.io.releaseVersion = null;
+      fixture.io.startEntered = null;
+      fixture.io.releaseStart = null;
       await fixture.catalog.remove(
         await fixture.catalog.prepareRemoval(entry.id),
         confirmed: true,
@@ -397,7 +396,9 @@ void main() {
         await fixture.binary.writeAsString('upgraded linked engine');
         fixture.io.version = 'version: 0.5.0-dev (build 12001, commit abcdef124)\nbuilt for Darwin arm64';
         fixture.io.help += '\n--new-option VALUE current option';
-        await fixture.catalog.refresh();
+        await fixture.catalog.readParameters(
+          fixture.catalog.state.entries.last.id,
+        );
         expect(
           fixture.catalog.state.entries
               .singleWhere((entry) => entry.id == source.id)
@@ -494,7 +495,9 @@ void main() {
         );
         await tester.tap(find.widgetWithText(OutlinedButton, '关联引擎'));
         await linked.timeout(const Duration(seconds: 5));
-        await fixture.catalog.refresh();
+        await fixture.catalog.readParameters(
+          fixture.catalog.state.entries.last.id,
+        );
         await tester.pump();
       });
       await tester.pumpAndSettle();
@@ -593,7 +596,10 @@ void main() {
         () => fixture.catalog.link(fixture.binary.path),
       ))!;
       await _showPage(tester, fixture);
-      await tester.tap(find.byTooltip('启动参数').last);
+      await tester.runAsync(() async {
+        await tester.tap(find.byTooltip('启动参数').last);
+        await fixture.catalog.readParameters(entry.id);
+      });
       await tester.pumpAndSettle();
       await tester.enterText(find.widgetWithText(TextField, '上下文大小'), '2048');
       final text = find.widgetWithText(TextField, '启动参数文本');
@@ -663,7 +669,7 @@ Future<void> _showPage(WidgetTester tester, _LifecycleFixture fixture) async {
         ),
       ),
     );
-    await fixture.catalog.refresh();
+    await fixture.catalog.readParameters(fixture.catalog.state.entries.last.id);
   });
   await tester.pumpAndSettle();
 }
@@ -737,6 +743,8 @@ class _LifecycleFixture {
 }
 
 class _LifecycleIO implements EngineProcessIO {
+  Completer<void>? startEntered;
+  Completer<void>? releaseStart;
   Completer<void>? versionStarted;
   Completer<void>? releaseVersion;
   String version =
@@ -774,6 +782,10 @@ class _LifecycleIO implements EngineProcessIO {
   @override
   Future<EngineChild> start(String executable, List<String> arguments) async {
     startedArguments.add(List.of(arguments));
+    if (startEntered != null && !startEntered!.isCompleted) {
+      startEntered!.complete();
+    }
+    await releaseStart?.future;
     String value(String flag) => arguments[arguments.indexOf(flag) + 1];
     final server = await HttpServer.bind(
       InternetAddress.loopbackIPv4,

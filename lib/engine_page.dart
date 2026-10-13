@@ -78,6 +78,21 @@ class _EnginePageState extends State<EnginePage> {
     widget.onDownloadStarted?.call();
   }
 
+  void _redownload(EngineRegistration entry) {
+    try {
+      widget.catalog.assertRedownloadable(entry.id);
+    } catch (error) {
+      setState(() => _error = '$error');
+      return;
+    }
+    unawaited(
+      widget.catalog.redownloadManaged(entry.id).catchError((Object error) {
+        if (mounted) setState(() => _error = error.toString());
+      }),
+    );
+    widget.onDownloadStarted?.call();
+  }
+
   Future<void> _showUnlinkedConfigurations() => showDialog<void>(
     context: context,
     builder: (context) => AlertDialog(
@@ -241,17 +256,25 @@ class _EnginePageState extends State<EnginePage> {
     );
   }
 
-  Future<void> _configure(EngineRegistration entry) => showDialog<void>(
-    context: context,
-    builder: (_) => EngineLaunchEditor(
-      title: '${engineDisplayName(entry)} · 启动参数',
-      initialConfiguration: widget.catalog.launchDefaultsFor(entry.id),
-      executable: entry.splashInstallation?.python.path ?? entry.path,
-      recognition: widget.catalog.parameterRecognitionFor(entry.id),
-      onSave: (configuration) =>
-          widget.catalog.saveLaunchDefaults(entry.id, configuration),
-    ),
-  );
+  Future<void> _configure(EngineRegistration entry) async {
+    try {
+      await widget.catalog.readParameters(entry.id);
+    } catch (error) {
+      if (mounted) setState(() => _error = '$error');
+    }
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (_) => EngineLaunchEditor(
+        title: '${engineDisplayName(entry)} · 启动参数',
+        initialConfiguration: widget.catalog.launchDefaultsFor(entry.id),
+        executable: entry.splashInstallation?.python.path ?? entry.path,
+        recognition: widget.catalog.parameterRecognitionFor(entry.id),
+        onSave: (configuration) =>
+            widget.catalog.saveLaunchDefaults(entry.id, configuration),
+      ),
+    );
+  }
 
   Future<void> _remove(EngineRegistration entry) async {
     await _run(() async {
@@ -564,6 +587,19 @@ class _EnginePageState extends State<EnginePage> {
                                         ? '安装中'
                                         : '安装',
                                   ),
+                                ),
+                              if (!linked &&
+                                  (installed ||
+                                      entry.status ==
+                                          LlamaInstallationStatus.failed))
+                                TextButton(
+                                  onPressed:
+                                      busy ||
+                                          entry.status ==
+                                              LlamaInstallationStatus.installing
+                                      ? null
+                                      : () => _redownload(entry),
+                                  child: const Text('重新下载'),
                                 ),
                               if (linked || installed)
                                 TextButton(

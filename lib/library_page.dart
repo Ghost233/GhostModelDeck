@@ -53,7 +53,6 @@ class _LibraryPageState extends State<LibraryPage> {
   Future<LocalModelPackages>? _packageFuture;
   String? _operationError;
   bool _deleting = false;
-  bool _verifying = false;
   bool _awaitingScan = false;
   int _scanGeneration = 0;
   StreamSubscription<EngineCatalogState>? _engineChanges;
@@ -181,7 +180,6 @@ class _LibraryPageState extends State<LibraryPage> {
     setState(() => _operationError = null);
     try {
       await catalog.refresh();
-      await widget.library.verify(variant.artifactIds);
       final asset = variant.artifacts
           .where(
             (a) => [
@@ -206,24 +204,6 @@ class _LibraryPageState extends State<LibraryPage> {
     } finally {
       _starting.remove(variant.id);
       if (mounted) setState(() {});
-    }
-  }
-
-  Future<void> _verify(List<String> artifactIds) async {
-    final path = widget.libraryPath;
-    final library = widget.library;
-    setState(() {
-      _verifying = true;
-      _operationError = null;
-    });
-    try {
-      await library.verify(artifactIds);
-    } on LibraryException catch (error) {
-      if (mounted && widget.libraryPath == path && widget.library == library) {
-        _operationError = error.message;
-      }
-    } finally {
-      if (mounted) setState(() => _verifying = false);
     }
   }
 
@@ -294,7 +274,7 @@ class _LibraryPageState extends State<LibraryPage> {
         return FutureBuilder<LocalModelPackages>(
           future: _packagesFor(state),
           builder: (context, grouped) {
-            final busy = _deleting || _verifying;
+            final busy = _deleting;
             final scanning =
                 widget.libraryPath.isNotEmpty &&
                 (_awaitingScan ||
@@ -308,10 +288,6 @@ class _LibraryPageState extends State<LibraryPage> {
                 .toList();
             final chosen = all
                 .where((package) => _selected.contains(package.id))
-                .toList();
-            final verifyIds = chosen
-                .expand((package) => _variant(package).artifactIds)
-                .toSet()
                 .toList();
             final deleteIds = chosen
                 .expand((package) => package.artifactIds)
@@ -333,14 +309,6 @@ class _LibraryPageState extends State<LibraryPage> {
                           ? null
                           : () => setState(_scan),
                       icon: const Icon(Icons.refresh, size: 20),
-                    ),
-                    const SizedBox(width: 6),
-                    OutlinedButton.icon(
-                      onPressed: verifyIds.isEmpty || scanning || busy
-                          ? null
-                          : () => _verify(verifyIds),
-                      icon: const Icon(Icons.fact_check_outlined, size: 18),
-                      label: const Text('核验'),
                     ),
                     const SizedBox(width: 6),
                     OutlinedButton.icon(

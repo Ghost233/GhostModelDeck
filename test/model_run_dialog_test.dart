@@ -133,7 +133,7 @@ void main() {
     },
   );
 
-  test('linked engine original path refresh accepts verified updates and retains the running binary snapshot', () async {
+  test('linked engine refresh accepts changed bytes without hashing and retains the running instance', () async {
     await HttpOverrides.runWithHttpOverrides(() async {
       final fixture = await _LaunchTextFixture.create();
       addTearDown(fixture.close);
@@ -170,14 +170,16 @@ void main() {
       );
       await provider.stop(first.id);
       final second = await provider.start(fixture.asset.id);
-      expect(second.binarySha256, isNot(oldFingerprint));
+      expect(oldFingerprint, isNull);
+      expect(second.binarySha256, isNull);
+      expect(second.generation, isNot(first.generation));
       expect(second.launchCommand!.executable, binary.path);
       final saved =
           jsonDecode(await fixture.catalog.registryFile.readAsString()) as Map;
       final row = (saved['linked'] as List).singleWhere(
         (row) => row['id'] == registration.id,
       );
-      expect(row['fingerprints'][binary.path], second.binarySha256);
+      expect(row['fingerprints'], isEmpty);
       await provider.stop(second.id);
     }, _NetworkBoundary());
   });
@@ -1084,7 +1086,10 @@ void main() {
         () => HttpOverrides.runWithHttpOverrides(() async {
           final failed = fixture.engine.changes.firstWhere(
             (state) => state.instances.any(
-              (instance) => instance.status == LlamaInstanceStatus.failed,
+              (instance) =>
+                  instance.status == LlamaInstanceStatus.failed &&
+                  !instance.hasLiveProcess &&
+                  (instance.error?.contains(diagnostic) ?? false),
             ),
           );
           await tester.tap(find.widgetWithText(TextButton, '运行'));
@@ -1652,7 +1657,10 @@ void main() {
         await catalog.refresh();
       });
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('启动参数'));
+      await tester.runAsync(() async {
+        await tester.tap(find.byTooltip('启动参数'));
+        await catalog.readParameters(EngineCatalog.officialId);
+      });
       await tester.pumpAndSettle();
       await tester.enterText(find.widgetWithText(TextField, '上下文大小'), '2048');
       final device = find.widgetWithText(TextField, '设备');
@@ -1777,7 +1785,10 @@ void main() {
         await catalog.refresh();
       });
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('启动参数'));
+      await tester.runAsync(() async {
+        await tester.tap(find.byTooltip('启动参数'));
+        await catalog.readParameters(EngineCatalog.officialId);
+      });
       await tester.pumpAndSettle();
       await tester.enterText(find.widgetWithText(TextField, '上下文大小'), '2048');
       await tester.runAsync(() async {
@@ -2122,7 +2133,7 @@ void main() {
     final linked = await catalog.link(external.parent.path);
     expect(linked.archiveSha256, isNull);
     expect(linked.release, isNull);
-    expect(linked.binarySha256, isNotNull);
+    expect(linked.binarySha256, isNull);
     final all = [...providers, catalog.providerFor(linked.id)];
     await HttpOverrides.runWithHttpOverrides(() async {
       final first = <LlamaInstance>[];
@@ -2188,7 +2199,7 @@ void main() {
         );
       }
       final standardBinary = File(all[1].executablePath!);
-      await standardBinary.writeAsString('foreign replacement');
+      await standardBinary.delete();
       await catalog.refresh();
       expect(all[1].state.installation, LlamaInstallationStatus.failed);
       expect(all[1].state.instances.last.capabilities, {
@@ -2462,7 +2473,7 @@ void main() {
           endsWith('/${standard ? 'v0.5.0' : 'b11381'}/llama-server'),
         );
         if (standard) expect(peer!.state.instances, isEmpty);
-        expect(library.state.artifacts.single.fingerprintsVerified, isTrue);
+        expect(library.state.artifacts.single.fingerprintsVerified, isFalse);
         await expectLater(
           library.prepareDeletion([library.state.artifacts.single.id]),
           throwsA(isA<LibraryException>()),
@@ -2635,7 +2646,10 @@ Future<void> _openTextEditor(
     await fixture.catalog.refresh();
   });
   await tester.pumpAndSettle();
-  await tester.tap(find.byTooltip('启动参数'));
+  await tester.runAsync(() async {
+    await tester.tap(find.byTooltip('启动参数'));
+    await fixture.catalog.readParameters(EngineCatalog.officialId);
+  });
   await tester.pumpAndSettle();
 }
 

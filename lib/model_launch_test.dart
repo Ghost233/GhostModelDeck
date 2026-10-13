@@ -31,13 +31,6 @@ Future<String> testModelLaunch({
   Object? failure;
   try {
     if (cancellation.isCancelled) throw StateError('测试已取消');
-    final verified = (await catalog.library.verify([artifact.id])).single;
-    if (verified.integrity == AssetIntegrity.corrupt ||
-        verified.integrity == AssetIntegrity.incomplete ||
-        verified.kind != artifact.kind) {
-      throw StateError('测试模型文件不完整或已变化');
-    }
-    if (cancellation.isCancelled) throw StateError('测试已取消');
     String model;
     final Uri endpoint;
     Map<String, Object?> body;

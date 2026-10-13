@@ -85,8 +85,7 @@ void main() {
     final actual = runtime.engine.state.instances
         .singleWhere((instance) => instance.id == run.id)
         .launchCommand;
-    await File(runtime.engine.executablePath!)
-        .writeAsString('changed engine at original path');
+    await File(runtime.engine.executablePath!).delete();
     await runtime.catalog.refresh();
     expect(store.missingReason(definition), contains('引擎缺失'));
     final retained = store.runsFor(definition.id).single;

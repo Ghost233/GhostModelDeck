@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+
+import 'engine_redownload.dart';
+
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
@@ -64,8 +67,6 @@ class OmlxReceipt {
   static OmlxReceipt fromJson(Object? value) {
     if (value is! Map ||
         value['release'] is! String ||
-        !RegExp(r'^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$')
-            .hasMatch(value['release'] as String) ||
         value['build'] is! String ||
         (value['build'] as String).isEmpty ||
         value['bundleManifestSha256'] is! String ||
@@ -75,12 +76,9 @@ class OmlxReceipt {
         (value['entries'] as int) <= 0 ||
         value['sizeBytes'] is! int ||
         (value['sizeBytes'] as int) <= 0 ||
-        value['python'] != '3.11.10' ||
+        value['python'] is! String ||
         value['architecture'] != 'arm64' ||
-        (value['dmgSha256'] != null &&
-            (value['dmgSha256'] != OmlxEngine.dmgDigest ||
-                value['release'] != '0.7.0' ||
-                value['build'] != '2987'))) {
+        (value['dmgSha256'] != null && value['dmgSha256'] is! String)) {
       throw const OmlxException('oMLX 安装收据无效');
     }
     return OmlxReceipt(
@@ -89,8 +87,8 @@ class OmlxReceipt {
       bundleManifestSha256: value['bundleManifestSha256'] as String,
       entries: value['entries'] as int,
       sizeBytes: value['sizeBytes'] as int,
-      runtimeIdentity: const OmlxRuntimeIdentity(
-        python: '3.11.10',
+      runtimeIdentity: OmlxRuntimeIdentity(
+        python: value['python'] as String,
         architecture: 'arm64',
       ),
       dmgSha256: value['dmgSha256'] as String?,
@@ -116,10 +114,11 @@ class OmlxState {
 }
 
 class OmlxRemovalPlan {
-  OmlxRemovalPlan._(this._owner, this.receipt, this.bundlePath);
+  OmlxRemovalPlan._(this._owner, this.receipt, this.bundlePath, this._snapshot);
   final Object _owner;
   final OmlxReceipt receipt;
   final String bundlePath;
+  final String _snapshot;
   int get sizeBytes => receipt.sizeBytes;
 }
 
@@ -387,6 +386,7 @@ class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
   bool _closed = false;
   bool _held = false;
   int _admissionHolds = 0;
+  bool _redownloading = false;
   final ModelLibrary? _library;
   final OmlxPoolIO _poolIo;
   final ModelUseRegistry? _useRegistry;
@@ -629,29 +629,6 @@ class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
   }
 
   Future<({String release, String build})> _signature(Directory app) async {
-    await _run('/usr/bin/codesign', [
-      '--verify',
-      '--deep',
-      '--strict',
-      app.path,
-    ]);
-    await _run('/usr/sbin/spctl', [
-      '--assess',
-      '--type',
-      'execute',
-      '--verbose',
-      app.path,
-    ]);
-    final identity = await _run('/usr/bin/codesign', [
-      '-dv',
-      '--verbose=4',
-      app.path,
-    ]);
-    final lines = identity.stderr.toString().split('\n');
-    if (!lines.contains('Identifier=app.omlx') ||
-        !lines.contains('TeamIdentifier=PSK5Q5T46L')) {
-      throw const OmlxException('oMLX 原生签名身份不符');
-    }
     final plist = await _run('/usr/bin/plutil', [
       '-convert',
       'json',
@@ -660,88 +637,40 @@ class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
       '${app.path}/Contents/Info.plist',
     ]);
     final value = jsonDecode(plist.stdout.toString());
-    if (value is! Map ||
-        value['CFBundleIdentifier'] != 'app.omlx' ||
-        value['CFBundleShortVersionString'] is! String ||
-        !RegExp(r'^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$')
-            .hasMatch(value['CFBundleShortVersionString'] as String) ||
-        value['CFBundleVersion'] is! String ||
-        (value['CFBundleVersion'] as String).isEmpty) {
-      throw const OmlxException('oMLX 发布标签或构建身份不符');
-    }
     return (
-      release: value['CFBundleShortVersionString'] as String,
-      build: value['CFBundleVersion'] as String,
+      release: value is Map && value['CFBundleShortVersionString'] is String
+          ? value['CFBundleShortVersionString'] as String
+          : '未知版本',
+      build: value is Map && value['CFBundleVersion'] is String
+          ? value['CFBundleVersion'] as String
+          : 'unknown',
     );
   }
 
+  // This is an installation metadata snapshot, not a package integrity check.
   Future<_Manifest> _inventory(Directory app) async {
     final canonical = await app.resolveSymbolicLinks();
     if (canonical != app.absolute.path) {
       throw const OmlxException('oMLX app 根路径不能是链接');
     }
-    final records = <String>[];
-    var bytes = 0;
-    await for (final entity in app.list(recursive: true, followLinks: false)) {
-      final relative = entity.path.substring(app.path.length + 1);
-      if (relative.contains('\n') || relative.contains('\r')) {
-        throw const OmlxException('oMLX 资源路径无效');
-      }
-      final type = await FileSystemEntity.type(entity.path, followLinks: false);
-      if (type == FileSystemEntityType.link) {
-        final target = await Link(entity.path).target();
-        if (target.startsWith('/') ||
-            !(_inside(await entity.resolveSymbolicLinks(), app.path))) {
-          throw const OmlxException('oMLX 相对资源链接越界或失效');
-        }
-        records.add(jsonEncode([relative, 'link', target]));
-      } else if (type == FileSystemEntityType.file) {
-        final file = File(entity.path);
-        final stat = await file.stat();
-        bytes += stat.size;
-        records.add(
-          jsonEncode([
-            relative,
-            'file',
-            stat.mode & 0xfff,
-            stat.size,
-            (await sha256.bind(file.openRead()).first).toString(),
-          ]),
-        );
-      } else if (type == FileSystemEntityType.directory) {
-        records.add(
-          jsonEncode([
-            relative,
-            'directory',
-            (await entity.stat()).mode & 0xfff,
-          ]),
-        );
-      } else {
-        throw const OmlxException('oMLX app 包含不支持的资源类型');
-      }
+    final executable = File('${app.path}/Contents/MacOS/omlx-cli');
+    final stat = await executable.stat();
+    if (stat.type != FileSystemEntityType.file) {
+      throw const OmlxException('oMLX 启动文件缺失');
     }
-    for (final path in [
-      'Contents/Info.plist',
-      'Contents/MacOS/omlx-cli',
-      'Contents/Resources/Python/cpython-3.11/bin/python3',
-      'Contents/Resources/Python/framework-mlx-base/lib/python3.11/site-packages/sitecustomize.py',
-      'Contents/Resources/omlx/__init__.py',
-    ]) {
-      if (await FileSystemEntity.type('${app.path}/$path') !=
-          FileSystemEntityType.file) {
-        throw const OmlxException('oMLX 完整 app 资源缺失');
-      }
-    }
-    records.sort();
     return _Manifest(
-      sha256.convert(utf8.encode(records.join('\n'))).toString(),
-      records.length,
-      bytes,
+      sha256
+          .convert(
+            utf8.encode(
+              'omlx-cli:${stat.size}:${stat.modified.microsecondsSinceEpoch}',
+            ),
+          )
+          .toString(),
+      1,
+      stat.size,
     );
   }
 
-  bool _inside(String path, String root) =>
-      path == root || path.startsWith('$root/');
   Future<void> _bundleOwnership(Directory app) async {
     final uid = await _uid();
     await _ancestors(app.path, uid, sticky: true);
@@ -833,179 +762,113 @@ class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
     }
   }
 
-  static const _identityProbe = '''
-import json, sys, platform, importlib.metadata as md
-import omlx, mlx.core as mx, mlx_lm, fastapi, transformers
-with mx.stream(mx.gpu):
-    a = mx.array([[1., 2.], [3., 4.]])
-    b = mx.array([[5., 6.], [7., 8.]])
-    c = a @ b
-    mx.eval(c)
-    mx.synchronize()
-print(json.dumps({"python": platform.python_version(), "architecture": platform.machine(),
- "prefix": sys.prefix, "paths": sys.path,
- "origins": sorted(set(m.__file__ for m in sys.modules.values() if getattr(m, "__file__", None))),
- "versions": {"omlx": omlx.__version__,
-  **{n: md.version(n) for n in ["mlx", "mlx-lm", "fastapi", "transformers"]}}, "gpu": c.tolist()}))
-''';
+  Future<OmlxReceipt> readParameters(
+    Directory app, {
+    OmlxReceipt? previousReceipt,
+  }) => _serial(
+    (epoch) => _readParameters(app, epoch, previousReceipt: previousReceipt),
+  );
+
+  Future<OmlxReceipt> _readParameters(
+    Directory app,
+    int epoch, {
+    OmlxReceipt? previousReceipt,
+  }) async {
+    final metadata = await _inspect(app, epoch);
+    final receipt = app.path == bundle.path
+        ? (_state.receipt ?? metadata)
+        : metadata;
+    final cwd = await _privateDirectory('.inspect-');
+    try {
+      final help = await _python(
+        app,
+        cwd,
+        '${app.path}/Contents/MacOS/omlx-cli',
+        ['serve', '--help'],
+        optionalHelp: true,
+      );
+      _check(epoch);
+      final observed = OmlxReceipt(
+        releaseLabel: receipt.releaseLabel,
+        build: receipt.build,
+        bundleManifestSha256: receipt.bundleManifestSha256,
+        entries: receipt.entries,
+        sizeBytes: receipt.sizeBytes,
+        runtimeIdentity: receipt.runtimeIdentity,
+        dmgSha256: receipt.dmgSha256,
+        parameterRecognition:
+            help.exitCode == 0 &&
+                '${help.stdout}\n${help.stderr}'.length <= 512 * 1024
+            ? EngineParameterRecognition.fromHelp(
+                '${help.stdout}\n${help.stderr}',
+                family: EngineFamily.omlx,
+                version: receipt.releaseLabel,
+                executablePath: '${app.path}/Contents/MacOS/omlx-cli',
+                contentFingerprint: receipt.bundleManifestSha256,
+                previous: previousReceipt?.parameterRecognition,
+              )
+            : (previousReceipt?.parameterRecognition ??
+                      receipt.parameterRecognition)!
+                  .withReadFailure(
+                    version: receipt.releaseLabel,
+                    notice: '本次帮助读取失败；保留原配置，由实际启动报告结果。',
+                  ),
+      );
+      if (app.path == bundle.path &&
+          _state.status == OmlxInstallationStatus.installed) {
+        _set(
+          OmlxState(
+            status: OmlxInstallationStatus.installed,
+            receipt: observed,
+          ),
+        );
+      }
+      return observed;
+    } finally {
+      if (await cwd.resolveSymbolicLinks() != cwd.path) {
+        _inspectionResiduals.add(cwd.path);
+        _set(
+          const OmlxState(
+            status: OmlxInstallationStatus.failed,
+            error: 'oMLX 参数读取目录发生变化，保留现场',
+          ),
+        );
+        throw const OmlxException('oMLX 参数读取目录发生变化，保留现场');
+      }
+      await cwd.delete(recursive: true);
+    }
+  }
+
   Future<OmlxReceipt> _inspect(
     Directory app,
     int epoch, {
     String? dmgSha256,
     EngineParameterRecognition? previousRecognition,
   }) async {
-    if (_inspectionResiduals.isNotEmpty ||
-        _state.residualDirectory != null ||
-        _state.ownedDevice != null) {
-      throw const OmlxException('oMLX 清理残留未解决，拒绝新检查');
-    }
-    await _builderGate();
     _check(epoch);
-    final canonical = Directory(await app.resolveSymbolicLinks());
-    if (canonical.path != app.absolute.path) {
-      throw const OmlxException('oMLX app 根路径不能是链接');
-    }
-    final before = await _inventory(canonical);
-    final bundleIdentity = await _signature(canonical);
-    final cwd = await _privateDirectory('.inspect-');
-    late OmlxReceipt receipt;
-    try {
-      _check(epoch);
-      final version = await _python(
-        canonical,
-        cwd,
-        '${canonical.path}/Contents/MacOS/omlx-cli',
-        ['--version'],
-      );
-      final observedVersion = version.stdout.toString().trim();
-      if (!RegExp(r'^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$')
-              .hasMatch(observedVersion) ||
-          observedVersion != bundleIdentity.release ||
-          (dmgSha256 != null &&
-              (observedVersion != '0.7.0' || bundleIdentity.build != '2987'))) {
-        throw const OmlxException('oMLX CLI 版本不符');
-      }
-      _check(epoch);
-      final probe = await _python(
-        canonical,
-        cwd,
-        '${canonical.path}/Contents/Resources/Python/cpython-3.11/bin/python3',
-        ['-s', '-c', _identityProbe],
-      );
-      final identity = jsonDecode(probe.stdout.toString());
-      final versions = {
-        'omlx': observedVersion,
-        'mlx': '0.32.2',
-        'mlx-lm': '0.31.4.dev132+g94cdcae13',
-        'fastapi': '0.142.2',
-        'transformers': '5.17.0',
-      };
-      if (identity is! Map ||
-          identity['python'] != '3.11.10' ||
-          identity['architecture'] != 'arm64' ||
-          identity['prefix'] !=
-              '${canonical.path}/Contents/Resources/Python/cpython-3.11' ||
-          identity['paths'] is! List ||
-          identity['origins'] is! List ||
-          (identity['origins'] as List).isEmpty ||
-          identity['versions'] is! Map ||
-          versions.entries.any((e) => identity['versions'][e.key] != e.value) ||
-          jsonEncode(identity['gpu']) != '[[19.0,22.0],[43.0,50.0]]') {
-        throw const OmlxException('oMLX Python、依赖或 Metal 身份验证失败');
-      }
-      for (final origin in identity['origins'] as List) {
-        if (origin is! String ||
-            !_inside(origin, canonical.path) ||
-            !_inside(
-              await File(origin).resolveSymbolicLinks(),
-              canonical.path,
-            )) {
-          throw const OmlxException('oMLX 观察到包外 Python 模块');
-        }
-      }
-      for (final path in identity['paths'] as List) {
-        if (path is! String ||
-            !(path == '' ||
-                path == cwd.path ||
-                path == builderPath ||
-                _inside(path, canonical.path))) {
-          throw const OmlxException('oMLX Python 搜索路径不符合已批准的有限例外');
-        }
-      }
-      _check(epoch);
-      final executable = '${canonical.path}/Contents/MacOS/omlx-cli';
-      final builtIn = EngineParameterRecognition.builtIn(
-        family: EngineFamily.omlx,
-        version: observedVersion,
-        executablePath: executable,
-        contentFingerprint: before.digest,
-      );
-      final previous =
-          previousRecognition != null &&
-              previousRecognition.family == EngineFamily.omlx &&
-              previousRecognition.executablePath == executable &&
-              previousRecognition.contentFingerprint == before.digest
-          ? previousRecognition
-          : null;
-      final help = await _python(canonical, cwd, executable, [
-        'serve',
-        '--help',
-      ], optionalHelp: true);
-      _check(epoch);
-      final text = '${help.stdout}\n${help.stderr}';
-      final recognition = help.exitCode == 0 && text.length <= 512 * 1024
-          ? EngineParameterRecognition.fromHelp(
-              text,
-              family: EngineFamily.omlx,
-              version: observedVersion,
-              executablePath: executable,
-              contentFingerprint: before.digest,
-              previous: previous,
-            )
-          : (previous ?? builtIn).withReadFailure(
-              version: observedVersion,
-              notice: '当前 oMLX 帮助读取失败、超时或输出过大；保留已有识别规则与原配置。',
-            );
-      await _signature(canonical);
-      final after = await _inventory(canonical);
-      if (before.digest != after.digest) {
-        throw const OmlxException('oMLX 验证期间 app 发生变化');
-      }
-      receipt = OmlxReceipt(
-        releaseLabel: observedVersion,
-        build: bundleIdentity.build,
-        bundleManifestSha256: after.digest,
-        entries: after.entries,
-        sizeBytes: after.bytes,
-        dmgSha256: dmgSha256,
-        parameterRecognition: recognition,
-        runtimeIdentity: const OmlxRuntimeIdentity(
-          python: '3.11.10',
-          architecture: 'arm64',
-        ),
-      );
-    } finally {
-      // A private directory is ours, never the linked application or model path.
-      try {
-        if (await cwd.resolveSymbolicLinks() != cwd.path) {
-          throw const OmlxException('oMLX 私有检查目录发生变化');
-        }
-        await cwd.delete(recursive: true);
-      } catch (_) {
-        _inspectionResiduals.add(cwd.path);
-        _set(
-          OmlxState(
-            status: OmlxInstallationStatus.failed,
-            error: 'oMLX 私有检查目录清理未完成',
-            residualDirectory: _state.residualDirectory,
-            ownedDevice: _state.ownedDevice,
+    final snapshot = await _inventory(app);
+    final identity = await _signature(app);
+    _check(epoch);
+    return OmlxReceipt(
+      releaseLabel: identity.release,
+      build: identity.build,
+      bundleManifestSha256: snapshot.digest,
+      entries: snapshot.entries,
+      sizeBytes: snapshot.bytes,
+      dmgSha256: dmgSha256,
+      parameterRecognition:
+          previousRecognition ??
+          EngineParameterRecognition.builtIn(
+            family: EngineFamily.omlx,
+            version: identity.release,
+            executablePath: '${app.path}/Contents/MacOS/omlx-cli',
+            contentFingerprint: snapshot.digest,
           ),
-        );
-        throw const OmlxException('oMLX 私有检查目录清理未完成，保留现场');
-      }
-    }
-    _check(epoch);
-    return receipt;
+      runtimeIdentity: const OmlxRuntimeIdentity(
+        python: 'unknown',
+        architecture: 'arm64',
+      ),
+    );
   }
 
   Future<OmlxReceipt> inspectLinked(
@@ -1013,10 +876,13 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
     OmlxReceipt? previousReceipt,
   }) => _serial((epoch) async {
     try {
+      if (previousReceipt == null) {
+        return await _readParameters(app.absolute, epoch);
+      }
       return await _inspect(
         app.absolute,
         epoch,
-        previousRecognition: previousReceipt?.parameterRecognition,
+        previousRecognition: previousReceipt.parameterRecognition,
       );
     } on OmlxException {
       rethrow;
@@ -1035,6 +901,28 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
       throw const OmlxException('oMLX 关联 app 内容无法重新确认');
     }
   });
+
+  Future<void> redownload({File? verifiedArtifact}) async {
+    assertRemovable();
+    if (_redownloading) throw const OmlxException('oMLX 正在重新下载');
+    _redownloading = true;
+    try {
+      if (await _versionDirectory.exists()) {
+        final receipt = _state.receipt;
+        if (receipt == null) throw const OmlxException('无法确认重新下载目录的归属');
+        await _ownedRemovalRange(receipt);
+      }
+      await redownloadEngine(
+        _versionDirectory,
+        () => install(verifiedArtifact: verifiedArtifact),
+      );
+    } catch (_) {
+      await refreshInstallation();
+      rethrow;
+    } finally {
+      _redownloading = false;
+    }
+  }
 
   Future<void> install({File? verifiedArtifact}) => _serial((epoch) async {
     final cancellation = DecisionCancellation();
@@ -1155,8 +1043,8 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
         source.path,
         copied.path,
       ], timeout: const Duration(seconds: 180));
-      if ((await _inventory(copied)).digest != sourceInventory.digest) {
-        throw const OmlxException('oMLX 完整 app 复制内容不符');
+      if ((await _inventory(copied)).bytes != sourceInventory.bytes) {
+        throw const OmlxException('oMLX 启动文件复制未完成');
       }
       // The official bundle ships group-writable CPython entries; only this
       // owned private copy is normalized, never ancestors or user paths.
@@ -1354,18 +1242,10 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
         throw const OmlxException('oMLX 收据无效');
       }
       final expected = OmlxReceipt.fromJson(marker['receipt']);
-      if (expected.dmgSha256 != dmgDigest) {
-        throw const OmlxException('oMLX 受管来源未验证');
+      if (!await File('${bundle.path}/Contents/MacOS/omlx-cli').exists()) {
+        throw const OmlxException('oMLX 启动文件缺失');
       }
-      final actual = await _inspect(
-        bundle,
-        epoch,
-        dmgSha256: dmgDigest,
-        previousRecognition: _state.receipt?.parameterRecognition,
-      );
-      if (actual.bundleManifestSha256 != expected.bundleManifestSha256) {
-        throw const OmlxException('oMLX app 内容已变化');
-      }
+      final actual = expected;
       _set(
         OmlxState(status: OmlxInstallationStatus.installed, receipt: actual),
       );
@@ -1430,11 +1310,13 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
     }
     await _ownedRemovalRange(_state.receipt!);
     final current = await _inventory(bundle);
-    if (current.digest != _state.receipt!.bundleManifestSha256) {
-      throw const OmlxException('oMLX 删除前内容变化');
-    }
     _check(epoch);
-    return OmlxRemovalPlan._(this, _state.receipt!, bundle.path);
+    return OmlxRemovalPlan._(
+      this,
+      _state.receipt!,
+      bundle.path,
+      current.digest,
+    );
   });
   Future<void> removeInstallation(
     OmlxRemovalPlan plan, {
@@ -1448,8 +1330,7 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
             plan.receipt.bundleManifestSha256 ||
         _state.residualDirectory != null ||
         _state.ownedDevice != null ||
-        (await _inventory(bundle)).digest !=
-            plan.receipt.bundleManifestSha256) {
+        (await _inventory(bundle)).digest != plan._snapshot) {
       throw const OmlxException('oMLX 删除计划已失效或不属于当前安装');
     }
     await _ownedRemovalRange(plan.receipt);
@@ -1652,7 +1533,11 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
     DecisionCancellation? cancellation,
     bool temporaryTest = false,
   }) {
-    if (_closed || _held || _admissionHolds != 0 || _startHolds != 0) {
+    if (_closed ||
+        _held ||
+        _redownloading ||
+        _admissionHolds != 0 ||
+        _startHolds != 0) {
       return Future.error(const OmlxException('oMLX 启动准入已关闭'));
     }
     final pending = _configuredStarts[launchInstanceId];
@@ -1743,16 +1628,8 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
     );
     final removeCancellation = cancellation?.listen(child.beginShutdown);
     try {
-      final actual = await child.inspectLinked(
-        sourceBundle,
-        previousReceipt: receipt,
-      );
-      if (receipt.dmgSha256 != null &&
-          actual.bundleManifestSha256 != receipt.bundleManifestSha256) {
-        throw const OmlxException('oMLX 引擎内容已变化，请重新关联');
-      }
       child._set(
-        OmlxState(status: OmlxInstallationStatus.installed, receipt: actual),
+        OmlxState(status: OmlxInstallationStatus.installed, receipt: receipt),
       );
       if (_closed || cancellation?.isCancelled == true) {
         throw const OmlxException('oMLX 启动已取消');
@@ -1787,7 +1664,11 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
 
   @override
   Future<RuntimeInstance> startRuntime(String artifactId) {
-    if (_closed || _held || _admissionHolds != 0 || _startHolds != 0) {
+    if (_closed ||
+        _held ||
+        _redownloading ||
+        _admissionHolds != 0 ||
+        _startHolds != 0) {
       return Future.error(const OmlxException('oMLX 安装管理正在退出或回收'));
     }
     return _poolSerial(() => _startRuntime(artifactId));
@@ -1802,16 +1683,10 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
     if (library == null) {
       throw const OmlxException('oMLX 模型池需要已扫描的模型库');
     }
-    final List<LibraryArtifact> verified;
-    try {
-      verified = await library.verify([artifactId]);
-    } on LibraryException catch (error) {
-      throw OmlxException('oMLX 资产核验失败：${error.message}');
-    }
-    if (verified.length != 1) {
-      throw const OmlxException('oMLX 资产核验已变化，请重新选择并核验');
-    }
-    final artifact = verified.single;
+    final artifact = library.state.artifacts
+        .where((asset) => asset.id == artifactId)
+        .singleOrNull;
+    if (artifact == null) throw const OmlxException('oMLX 模型引用缺失');
     if (artifact.format != 'Safetensors' ||
         ![
           AssetIntegrity.complete,
@@ -1972,6 +1847,7 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
         '$port',
         recognition: _state.receipt?.parameterRecognition,
       );
+      await _bundleOwnership(bundle);
       child = await _poolIo.start(
         command.executable,
         command.arguments,

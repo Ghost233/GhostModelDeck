@@ -459,7 +459,6 @@ class LaunchInstances {
       throw StateError('实例已在运行，请先停止');
     }
     definition.configuration.validateArgumentText();
-    await catalog.library.verify([definition.artifactId]);
     if (_closed || cancellation.isCancelled) throw StateError('实例启动已取消');
     final runtime = catalog.runtimeFor(definition.engineId);
     _runOrigins[id] = catalog.state.entries.singleWhere(

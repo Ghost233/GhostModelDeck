@@ -464,6 +464,38 @@ void main() {
       );
     });
 
+    _realNet('启动集合独立加载多个实例而不等待上一份就绪', () async {
+      final fixture = await _SdkFixture.create(useAssetEntry: true);
+      addTearDown(fixture.close);
+      final other = await fixture.instances.copy(fixture.definition.id);
+      await fixture.startupSet.add(other.id);
+      final gate = Completer<void>();
+      fixture.io.startGate = gate.future;
+      await fixture.connect();
+      final operation = fixture.peer.call('start');
+      try {
+        final deadline = DateTime.now().add(const Duration(seconds: 3));
+        while (fixture.io.startCount < 2 && DateTime.now().isBefore(deadline)) {
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+        expect(fixture.io.startCount, 2);
+        expect(fixture.instances.isStarting(fixture.definition.id), isTrue);
+        expect(fixture.instances.isStarting(other.id), isTrue);
+      } finally {
+        gate.complete();
+        await operation;
+      }
+      expect(fixture.liveInstances, hasLength(2));
+      expect(
+        fixture.liveInstances.every(
+          (run) => run.status == RuntimeInstanceStatus.ready,
+        ),
+        isTrue,
+      );
+      await fixture.peer.call('start');
+      expect(fixture.io.startCount, 2);
+    });
+
     _realNet('启动集合缺失条目只记日志，其余条目照常受理', () async {
       final fixture = await _SdkFixture.create(
         useAssetEntry: true,

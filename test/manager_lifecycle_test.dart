@@ -542,7 +542,7 @@ void main() {
     await expectLater(manager.shutdown(), throwsStateError);
   });
 
-  test('exit during real model verification drains the file work and never creates a new child', () async {
+  test('exit after startup admission cancels pending work without rescanning models or creating a new child', () async {
     final runtime = await CouncilRuntime.create(modelCount: 1);
     addTearDown(runtime.close);
     await runtime.catalog.stopManaged();
@@ -556,24 +556,23 @@ void main() {
       engines: runtime.catalog,
       downloader: ModelDownloader(),
     );
-    final exiting = Completer<Future<void>>();
+    final scanning = <bool>[];
     final subscription = runtime.library.changes.listen((state) {
-      if (state.scanning && !exiting.isCompleted) {
-        exiting.complete(manager.shutdown());
-      }
+      scanning.add(state.scanning);
     });
     addTearDown(subscription.cancel);
     final starting = runtime.engine
         .start(runtime.library.state.artifacts.single.id)
         .then<Object>((value) => value, onError: (Object error) => error);
 
-    final shutdown = await exiting.future.timeout(const Duration(seconds: 2));
+    final shutdown = manager.shutdown();
     await shutdown.timeout(const Duration(seconds: 2));
 
     expect(await starting, isA<LlamaEngineException>());
     expect(runtime.io.killedChildren, 1);
     expect(runtime.engine.hasLiveInstances, isFalse);
     expect(runtime.library.state.scanning, isFalse);
+    expect(scanning, isNot(contains(true)));
     expect(manager.state, ManagerLifecycleState.stopped);
   });
 }
