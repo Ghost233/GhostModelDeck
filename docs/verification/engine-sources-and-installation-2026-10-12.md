@@ -6,10 +6,10 @@
 
 | 项目 | 当前状态 |
 | --- | --- |
-| 候选 | 阶段 D 分支 `codex/product-instances-stage-4`，起点 `58f452b4546acf186a86dc4315b335bb9b1d4134`，代码已收齐、待提交 |
+| 候选 | 阶段 D 分支 `codex/product-instances-stage-4`，起点 `58f452b4546acf186a86dc4315b335bb9b1d4134`，代码候选 `10199a624a068576c089d8e9bd8e481175501e06` 已提交并固定复审通过 |
 | 有效作业 | 无；最终 `run-uCS7B1` 已结束，960 项、格式与分析全部通过，退出 0、完成标记有效、716 份输入前后及当前一致 |
-| 未关闭问题 | 无已知产品 P0/P1/P2；剩余固定提交复审、阶段 PR/dev 集成和总 PR ready |
-| 下一动作 | 提交固定候选并分别复审 Standards/Spec，阶段 PR 合入 dev，再完成总审查及 dev→main ready PR |
+| 未关闭问题 | 无已知产品 P0/P1/P2；固定提交两轴复审通过；剩余阶段 PR/dev 集成、总审查和总 PR ready |
+| 下一动作 | 阶段 PR 合入 dev，再完成总审查及 dev→main ready PR |
 | 原生产物 | `stage-d-root-final-macos-build.log` 退出 0；应用、FlutterMacOS、App.framework 实际均 arm64；后续仅根路由 lint 原因注释和测试/文档变更，运行行为未变，原生产物复用 |
 | 服务 | Kev 唯一运行，保存预算 60 秒、原模型/引擎/CLI；恢复身份 app26711/engine42511/native56352/public54841 已通知 Wiki 继续开发 |
 
@@ -17,7 +17,7 @@
 
 - **未实现：** 无本次规格的剩余产品功能。
 - **未验证：** 固定提交复审、总提交范围与跨阶段审查、最终 PR 状态及本地/远端同步。
-- **已验证待提交：** 阶段 D 新对象、预算和根路由修复，完整门禁及原生记录均已收齐；A/B/C 已提交并集成，不列为待办。
+- **已验证待提交：** 阶段 D 新对象、预算和根路由修复已提交，固定复审通过，待 PR 集成；A/B/C 已提交并集成，不列为待办。
 - **历史问题：** 字形损坏尚无本轮复现或根因结论；此次黑屏已精确复现为重复下拉激活弹出桌面根路由并释放服务，定点和原生修复通过，不扩展为所有旧图形事件已修复。
 
 ## 已完成阶段
@@ -27,7 +27,7 @@
 | A #83–#86 | `run-70BRLY` 925 项；多目录/文件链接/非阻塞安装与源码构建真实证据 | [PR #97](https://github.com/Ghost233/GhostModelDeck/pull/97) 已合入 dev；[复审](product-scope-stage-a-review.md) |
 | B #87–#89 | `run-dDSmSQ` 935 项；保存快照/公开名/实际启动停止及短 HTTP | [PR #98](https://github.com/Ghost233/GhostModelDeck/pull/98) 已合入 dev；[复审](product-scope-stage-b-review.md) |
 | C #90–#94 | `run-AGOOpq` 954 项；Splash/oMLX、失效资源、草稿隔离、委员会及文件入口真实证据 | [PR #99](https://github.com/Ghost233/GhostModelDeck/pull/99) 已合入 dev `58f452b4546acf186a86dc4315b335bb9b1d4134`；[复审](product-scope-stage-c-review.md) |
-| D #95/#96 | `run-uCS7B1` 960 项；公开新对象、完整计划/取消/历史、默认及显式预算、原生对象选择 | 待固定提交复审及阶段 PR；[审查记录](product-scope-stage-d-review.md) |
+| D #95/#96 | `run-uCS7B1` 960 项；公开新对象、完整计划/取消/历史、默认及显式预算、原生对象选择 | 固定提交复审通过，待阶段 PR；[审查记录](product-scope-stage-d-review.md) |
 
 ## 阶段 D 验证与限制
 
