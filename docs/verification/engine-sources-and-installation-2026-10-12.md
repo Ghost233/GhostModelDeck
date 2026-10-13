@@ -11,7 +11,7 @@
 | 未关闭问题 | 无已知产品 P0/P1/P2；无；阶段及总范围两轴复审通过，总PR #101已ready，等待用户合并 |
 | 下一动作 | 用户审阅并合并 [总PR #101](https://github.com/Ghost233/GhostModelDeck/pull/101)；没有自动合并或正式发布 |
 | 原生产物 | `stage-d-root-final-macos-build.log` 退出 0；应用、FlutterMacOS、App.framework 实际均 arm64；后续仅根路由 lint 原因注释和测试/文档变更，运行行为未变，原生产物复用 |
-| 服务 | Kev 唯一运行，保存预算 60 秒、原模型/引擎/CLI；恢复身份 app26711/engine42511/native56352/public54841 已通知 Wiki 继续开发 |
+| 服务 | 结束前只读核对：测试应用26711仍在，Kev为已保存/未运行，预算60秒保持；此前实际运行生效证据有效，最新停止状态已通知Wiki，未自动重新启动 |
 
 ## 当前工作分类
 
@@ -56,3 +56,5 @@ GUI 已保存 `jev_request_timeout_seconds=60` / revision2，唯一最小公开 
 总审查从0eda06296aa4fdff65b9ee83f90564ff7a76ebde到集成2be287dba92b49c67f487a3870746aa8ed8fcf1f，两轴没有未关闭P0/P1/P2；见[总报告](product-scope-total-review.md)。集成后的716份输入与最终门禁一致。#95/#96已完成验收；#95已关闭，#96按ready总PR及最终同步核对结项。
 
 总PR [#101](https://github.com/Ghost233/GhostModelDeck/pull/101) 回读OPEN/isDraft=false/MERGEABLE，目标main，来源dev；没有普通CI门禁workflow/check，依据完整宿主记录验收，不冒称远端检查通过。main保持0eda06296aa4fdff65b9ee83f90564ff7a76ebde等待用户合并，阶段四本地/远端661aa55c2e6485947ea347e552b5a2e0a9953b2f。dev后续仅文档提交，完整hash以最终同步收据为准。没有自动stash/移动/删除/覆盖其他会话文件或创建备份。
+
+最终服务状态变化单独记录：结束前无llama-server进程，公开模型列表为空，GUI为已保存且无失败摘要。停止来源未核定，保持当前状态，不把旧PID当作Ready。该变化不撤销已完成预算功能验收，也不扩展为新模型评测或自动启动。
