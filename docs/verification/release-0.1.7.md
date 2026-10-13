@@ -1,6 +1,8 @@
 # Ghost Model Deck 0.1.7 发布
 
-用户明确授权提交推送及正式发布，并手动选择 0.1.7。本地检查、0.1.7 构建与打包预检已通过；下一步提交推送并通过唯一入口 `scripts/release.sh` 发布。正式管线、资产核验和分支同步结果完成后更新本记录。
+**0.1.7 已正式发布，管线与正式资产核验均通过。** 用户明确授权提交推送及正式发布，并手动选择版本。发布提交为 `a722f78b2f096542651e4b0d3fe16b0a35dbea31`，tag 为 `v0.1.7`，唯一入口 `scripts/release.sh` 的空跑和正式执行均退出 0。
+
+正式发布时间为 2026-10-13 16:24:06（UTC+8）。[Release](https://github.com/Ghost233/GhostModelDeck/releases/tag/v0.1.7) 为非草稿、非预发布版本；[管线 38368752229](https://github.com/Ghost233/GhostModelDeck/actions/runs/38368752229) 的 HEAD 与发布提交一致，最终状态 `completed / success`。
 
 ## 范围与审查
 
@@ -26,3 +28,23 @@
 构建、空跑、发布、正式管线和资产核验的原始记录位于 `.scratch/release-0.1.7/`。版本及 tag 必须为 `0.1.7`、`v0.1.7`，正式三件套为 `GhostModelDeck-0.1.7.dmg`、`manifest.json`、`SHA256SUMS`。
 
 本地预检 DMG 为 23,010,638 字节，SHA-256 `632309155e5c160a0824aa405da5db1f5e7d5a31784cd4ed22db548efa5f03fe`。这是本地预检产物；正式 CI 产物按实际发布资产独立下载并校验。
+
+## 正式资产核验
+
+三件套下载至 `.tooling/release-verify-0.1.7/`。`shasum -a 256 -c SHA256SUMS` 通过，文件大小及独立计算的 SHA-256 与 GitHub 资产元数据一致，manifest 的版本、tag 及 DMG 大小、摘要均匹配。
+
+| 资产 | 大小（字节） | SHA-256 |
+| --- | --- | --- |
+| `GhostModelDeck-0.1.7.dmg` | 23,095,721 | `2346297eaac791517babc837b4f6573921bb8124fa07dcbcbb4d993379499618` |
+| `manifest.json` | 174 | `d6043a3cad02b6224c28627047e5f634b6fe6cab29279a1fdfaab1fd5e4e43ca` |
+| `SHA256SUMS` | 171 | `238a15b5c696fcc4a9a9473ca8a8032681a48dbb33be6c95627f16d190eaca9e` |
+
+只读挂载正式 DMG 后，核对应用版本为 0.1.7、构建号为 12、bundle id 为 `com.ghost233.ghostmodeldeck`。主程序、App.framework 和 FlutterMacOS.framework 的实际架构均为 arm64；挂载已卸载。没有安装或启动下载的正式应用。
+
+## 记录与同步
+
+`.scratch/release-0.1.7/` 保存 `preflight.json`、`source-pushed.json`、`dry-run.log`、`publish.log`、`pipeline.json`、`release.json`、`asset-check.json` 和 `app-check.json`。最终同步和完成状态分别保存在 `final-sync.json`、`complete.json`。
+
+发布后只补充本记录和修复验证文档；这份文档提交不改变应用、版本、lockfile 或正式 tag，不重建或覆盖 0.1.7 资产。本地 main/dev 与实际远端完成 fast-forward 同步，正式 tag 仍固定在上述发布源提交。
+
+提交后的推送前检查曾因凭据核验模块导入生成 `scripts/__pycache__/release.cpython-312.pyc` 而停止，原失败记录保留在 `prepush-command-failure.json`。仅清理本次新生成的缓存并改用 Python `-B` 后继续推送；没有删除、移动或暂存其他会话文件。
