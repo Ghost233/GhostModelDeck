@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'app_theme.dart';
 import 'engine_labels.dart';
@@ -31,6 +32,7 @@ class InstancesPage extends StatefulWidget {
 class _InstancesPageState extends State<InstancesPage> {
   final _working = <String>{};
   String? _error;
+  String? _errorFile;
   bool _preparing = true;
   @override
   void initState() {
@@ -48,11 +50,31 @@ class _InstancesPageState extends State<InstancesPage> {
         widget.onInitialArtifactHandled?.call();
         await _edit(artifactId: artifact);
       }
-    } catch (error) {
+    } catch (error, stack) {
+      await _showFailure(error, stack);
       if (mounted) {
         setState(() {
           _preparing = false;
-          _error = '$error';
+        });
+      }
+    }
+  }
+
+  Future<void> _showFailure(Object error, StackTrace stack) async {
+    try {
+      final failure = await widget.instances.recordFailure(error, stack);
+      if (mounted) {
+        setState(() {
+          _error = failure.summary;
+          _errorFile = failure.path;
+        });
+      }
+    } catch (loggingError) {
+      if (mounted) {
+        setState(() {
+          _error =
+              '${error.toString().split('\n').first}；完整错误保存失败：$loggingError';
+          _errorFile = null;
         });
       }
     }
@@ -84,13 +106,10 @@ class _InstancesPageState extends State<InstancesPage> {
     final asset = existing == null
         ? models.where((a) => a.id == artifactId).firstOrNull ??
               models.firstOrNull
-        : models.where((a) => a.id == existing.artifactId).firstOrNull;
+        : models.where((a) => a.id == existing.artifactId).firstOrNull ??
+              models.firstOrNull;
     if (asset == null) {
       setState(() => _error = '请先关联模型；缺失实例的配置继续保留');
-      return;
-    }
-    if (existing != null && store.missingReason(existing) != null) {
-      setState(() => _error = '${store.missingReason(existing)}，恢复资源后可编辑原配置');
       return;
     }
     final variant = LocalModelVariant(
@@ -131,11 +150,14 @@ class _InstancesPageState extends State<InstancesPage> {
 
   Future<void> _operate(String id, Future<void> Function() action) async {
     if (!_working.add(id)) return;
-    setState(() => _error = null);
+    setState(() {
+      _error = null;
+      _errorFile = null;
+    });
     try {
       await action();
-    } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
+    } catch (error, stack) {
+      await _showFailure(error, stack);
     } finally {
       _working.remove(id);
       if (mounted) setState(() {});
@@ -261,9 +283,32 @@ class _InstancesPageState extends State<InstancesPage> {
           if (_error != null)
             Text(
               _error!,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.bodyMedium
                   ?.copyWith(color: Theme.of(context).colorScheme.error),
             ),
+          if (_errorFile != null) ...[
+            const Text('完整错误文件'),
+            SelectableText(
+              _errorFile!,
+              key: const Key('instance-error-file'),
+              maxLines: 1,
+            ),
+            TextButton.icon(
+              icon: const Icon(Icons.folder_open),
+              label: const Text('在 Finder 中显示'),
+              onPressed: () async {
+                try {
+                  await const MethodChannel(
+                    'com.ghost233.ghostmodeldeck/native',
+                  ).invokeMethod<void>('revealInFinder', {'path': _errorFile});
+                } catch (error) {
+                  if (mounted) setState(() => _error = 'Finder 打开失败：$error');
+                }
+              },
+            ),
+          ],
           const SizedBox(height: 16),
           Expanded(
             child: definitions.isEmpty
@@ -272,11 +317,17 @@ class _InstancesPageState extends State<InstancesPage> {
                     itemCount: definitions.length,
                     itemBuilder: (context, index) {
                       final definition = definitions[index];
-                      final missing = widget.instances.missingReason(
-                        definition,
-                      );
+                      final missing = _preparing
+                          ? null
+                          : widget.instances.missingReason(definition);
                       final runs = widget.instances.runsFor(definition.id);
                       final live = runs.any((r) => r.hasLiveProcess);
+                      final actual = widget.instances.actualCommand(
+                        definition.id,
+                      );
+                      final origin = widget.instances.runningOrigin(
+                        definition.id,
+                      );
                       final engine = widget.instances.catalog.state.entries
                           .where((e) => e.id == definition.engineId)
                           .firstOrNull;
@@ -288,7 +339,8 @@ class _InstancesPageState extends State<InstancesPage> {
                           .artifacts
                           .where((a) => a.id == definition.artifactId)
                           .firstOrNull;
-                      final busy = _working.contains(definition.id);
+                      final busy =
+                          _preparing || _working.contains(definition.id);
                       return Card(
                         child: Padding(
                           padding: const EdgeInsets.all(16),
@@ -305,7 +357,9 @@ class _InstancesPageState extends State<InstancesPage> {
                                     ),
                               ),
                               Text(
-                                '${asset?.name ?? '模型缺失'} · ${engine == null ? '引擎缺失' : engineDisplayName(engine)}',
+                                _preparing
+                                    ? '读取模型与引擎资源…'
+                                    : '${asset?.name ?? '模型缺失'} · ${engine == null ? '引擎缺失' : engineDisplayName(engine)}',
                               ),
                               if (engine != null)
                                 SelectableText(
@@ -313,12 +367,16 @@ class _InstancesPageState extends State<InstancesPage> {
                                   style: Theme.of(context).textTheme.bodySmall,
                                 ),
                               Text(
-                                missing ??
-                                    (widget.instances.isStarting(definition.id)
-                                        ? '启动中'
-                                        : live
-                                        ? '运行中'
-                                        : '已保存'),
+                                _preparing
+                                    ? '准备中'
+                                    : missing ??
+                                          (widget.instances.isStarting(
+                                                definition.id,
+                                              )
+                                              ? '启动中'
+                                              : live
+                                              ? '运行中'
+                                              : '已保存'),
                                 style: Theme.of(context).textTheme.bodyMedium
                                     ?.copyWith(
                                       color: missing == null
@@ -329,6 +387,33 @@ class _InstancesPageState extends State<InstancesPage> {
                               SelectableText(
                                 '公开模型 ID  ${definition.publicName}',
                               ),
+                              if (live && origin != null)
+                                Text(
+                                  '实际运行 · ${engineDisplayName(origin)} · ${widget.instances.runningVersion(definition.id) ?? '版本未提供'}',
+                                ),
+                              if (actual != null)
+                                TextButton.icon(
+                                  icon: const Icon(Icons.terminal),
+                                  label: const Text('实际启动命令'),
+                                  onPressed: () => showDialog<void>(
+                                    context: context,
+                                    builder: (_) => AlertDialog(
+                                      title: const Text('实际启动命令'),
+                                      content: SingleChildScrollView(
+                                        child: SelectableText(
+                                          actual.displayText,
+                                        ),
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.pop(context),
+                                          child: const Text('关闭'),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
                               Wrap(
                                 spacing: 8,
                                 children: [
@@ -403,7 +488,7 @@ class _InstancesPageState extends State<InstancesPage> {
                                     child: const Text('复制'),
                                   ),
                                   TextButton(
-                                    onPressed: busy || missing != null
+                                    onPressed: busy
                                         ? null
                                         : () => _edit(existing: definition),
                                     child: const Text('编辑参数'),

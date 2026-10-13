@@ -311,6 +311,7 @@ class _SplashRun {
     this.command,
     this.generation,
     this.endpoint,
+    this.version,
   );
   bool temporaryTest = false;
   String? launchInstanceId;
@@ -320,6 +321,7 @@ class _SplashRun {
   final EngineLaunchCommand command;
   final int generation;
   final Uri endpoint;
+  final String version;
   EngineChild? child;
   int? exit;
   String? serverId;
@@ -426,7 +428,7 @@ class SplashEngine implements EngineRuntime {
          for (final binding in bindings) binding.artifactId: binding,
        };
 
-  final SplashInstallation _installation;
+  SplashInstallation _installation;
   bool _installationVerified;
   SplashInstallation get installation => _installation;
   final ModelLibrary library;
@@ -463,6 +465,7 @@ class SplashEngine implements EngineRuntime {
   int? pidFor(String id) => _runs[id]?.child?.pid;
   Uri? endpointFor(String id) => _runs[id]?.endpoint;
   EngineLaunchCommand? actualCommandFor(String id) => _runs[id]?.command;
+  String? actualVersionFor(String id) => _runs[id]?.version;
   void _publish() {
     if (!_changes.isClosed) _changes.add(state);
   }
@@ -575,6 +578,7 @@ class SplashEngine implements EngineRuntime {
           composeLaunch(configuration, binding: binding, alias: id, port: port),
           ++_generation,
           Uri.parse('http://127.0.0.1:$port'),
+          _installation.observedVersion,
         );
         run.temporaryTest = temporaryTest;
         run.launchInstanceId = launchInstanceId;
@@ -639,15 +643,6 @@ class SplashEngine implements EngineRuntime {
               }
             }
             await Future<void>.delayed(const Duration(milliseconds: 50));
-          }
-          final probe = await _text(
-            run,
-            TextRequest(prompt: 'Reply with OK.'),
-            const Duration(seconds: 30),
-            cancellation,
-          );
-          if (probe.text.trim().isEmpty) {
-            throw const SplashEngineException('Splash没有实际文本生成');
           }
           if (run.exit != null ||
               run.cancellation.isCancelled ||
@@ -999,17 +994,12 @@ class SplashEngine implements EngineRuntime {
 
   Future<void> refreshInstallation() => _serial(() async {
     try {
-      await _assertInstallation();
+      _installation = await inspectInstallation(_installation.root, io: io);
+      _installationVerified = true;
       _error = null;
     } catch (error) {
+      _installationVerified = false;
       _error = '$error';
-      for (final run in _runs.values) {
-        if (run.status == RuntimeInstanceStatus.ready) {
-          run.status = RuntimeInstanceStatus.failed;
-          run.error = _error;
-          run.cancellation.cancel();
-        }
-      }
     }
     _publish();
   });
@@ -1080,10 +1070,12 @@ class SplashEngine implements EngineRuntime {
     bool initial = false,
     _SplashBudget? budget,
   }) async {
-    if (budget == null) {
-      await _assertInstallation();
-    } else {
-      await budget.wait(_assertInstallation);
+    if (initial) {
+      if (budget == null) {
+        await _assertInstallation();
+      } else {
+        await budget.wait(_assertInstallation);
+      }
     }
     final ready = await _json(run, '/ready', budget: budget);
     if (ready['status'] != 'ready') throw const _SplashLoading();
@@ -1410,20 +1402,13 @@ class SplashEngine implements EngineRuntime {
           current.entries.any(
             (entry) => _installation.fingerprints[entry.key] != entry.value,
           )) {
-        throw const SplashEngineException('Splash关联内容已变化，请重新核验');
+        _installation = await inspectInstallation(_installation.root, io: io);
       }
       _installationVerified = true;
       _error = null;
     } catch (error) {
       _installationVerified = false;
       _error = '$error';
-      for (final run in _runs.values) {
-        if (run.status == RuntimeInstanceStatus.ready) {
-          run.status = RuntimeInstanceStatus.failed;
-          run.error = _error;
-          run.cancellation.cancel();
-        }
-      }
       _publish();
       throw SplashEngineException(_error!);
     }
@@ -1431,6 +1416,7 @@ class SplashEngine implements EngineRuntime {
 
   Future<void> _checkModel(SplashModelBinding binding) async {
     await _assertInstallation();
+    final checkedInstallation = _installation;
     await runtimeDirectory.create(recursive: true);
     final temporary = await runtimeDirectory.createTemp('model-check-');
     try {
@@ -1482,6 +1468,10 @@ class SplashEngine implements EngineRuntime {
         );
       }
       await _assertInstallation();
+      if (jsonEncode(checkedInstallation.fingerprints) !=
+          jsonEncode(_installation.fingerprints)) {
+        throw const SplashEngineException('Splash内容在模型检查期间变化，请重新核验');
+      }
       await _verifyBinding(binding);
     } finally {
       await temporary.delete(recursive: true);

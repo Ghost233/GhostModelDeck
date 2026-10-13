@@ -60,6 +60,102 @@ Future<(int, dynamic)> _http(
 }
 
 void main() {
+  test('HTTP and MCP report saved member partial results without borrowing an unbound peer', () async {
+    final runtime = await CouncilRuntime.create(
+      modelCount: 1,
+      sourceSystemone: true,
+    );
+    addTearDown(runtime.close);
+    final instances = LaunchInstances(
+      catalog: runtime.catalog,
+      file: File('${runtime.root.path}/instances.json'),
+    );
+    addTearDown(instances.close);
+    final first = await instances.save(
+      name: 'First',
+      artifactId: runtime.library.state.artifacts.single.id,
+      engineId: EngineCatalog.officialId,
+      configuration: EngineLaunchConfiguration(),
+    );
+    final second = await instances.copy(first.id);
+    final controller = CouncilController(
+      catalog: runtime.catalog,
+      launchInstances: instances,
+    );
+    addTearDown(controller.close);
+    await controller.models.save(
+      JevModelDefinition.council(
+        name: 'committee',
+        seats: controller.models.availableBindings,
+        timeout: const Duration(seconds: 2),
+      ),
+    );
+    final run = await instances.start(first.id);
+    final routes = PublicModelRoutes(
+      library: runtime.library,
+      runtimes: runtime.catalog.runtimes.toList(),
+      instances: instances,
+    );
+    final http = PublicGatewayServer(
+      routes: routes,
+      jevModels: controller.models,
+      port: 0,
+    );
+    final mcp = CouncilMcpServer(controller: controller, port: 0);
+    await http.start();
+    await mcp.start();
+    addTearDown(() async {
+      await http.stop();
+      http.close();
+      routes.close();
+      await mcp.stop();
+      mcp.close();
+    });
+    final client = await _connect(mcp.endpoint!);
+    addTearDown(client.close);
+    final args = {
+      'model': 'committee',
+      'state': 'Choose',
+      'questions': {
+        'pick': {
+          'type': 'choice',
+          'instructions': 'Pick',
+          'criteria': {'a': 'A', 'b': 'B'},
+        },
+      },
+    };
+    runtime.io.requests.clear();
+    final (status, body) = await _http(
+      http.baseUrl!.resolve('/v1/systemone'),
+      args,
+    );
+    final rpc = await client.callTool(
+      CallToolRequest(name: CouncilMcpServer.batchToolName, arguments: args),
+    );
+    expect(status, 200);
+    expect(rpc.isError, isNot(true));
+    expect(rpc.structuredContent, body);
+    expect(body['council']['status'], 'partial');
+    final members = body['council']['members'] as List;
+    expect(members, hasLength(2));
+    expect(
+      members.singleWhere(
+        (member) => member['instance_id'] == first.id,
+      )['status'],
+      'ok',
+    );
+    expect(
+      members.singleWhere(
+        (member) => member['instance_id'] == second.id,
+      )['status'],
+      'not_ready',
+    );
+    expect(body['usage'], {'input_tokens': 10, 'output_tokens': 0});
+    expect(runtime.io.requests.map((request) => request['model']).toSet(), {
+      run.id,
+    });
+    await instances.stop(first.id);
+  });
   test('MCP discovers and calls the saved instance, not an unbound peer of the same model', () async {
     final runtime = await CouncilRuntime.create(
       modelCount: 1,

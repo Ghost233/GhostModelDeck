@@ -442,11 +442,28 @@ class EngineCatalog {
 
   Future<void> refresh() => _serial(() async {
     await _load();
+    final beforeLinked = jsonEncode([
+      for (final provider in _linked.values)
+        {
+          'path': provider.linkedInstallation!.path,
+          'version': provider.linkedInstallation!.version,
+          'fingerprints': provider.linkedInstallation!.fingerprints,
+        },
+    ]);
     for (final provider in _providers) {
       if (provider.state.installation != LlamaInstallationStatus.installing) {
         await provider.refreshInstallation();
       }
     }
+    final afterLinked = jsonEncode([
+      for (final provider in _linked.values)
+        {
+          'path': provider.linkedInstallation!.path,
+          'version': provider.linkedInstallation!.version,
+          'fingerprints': provider.linkedInstallation!.fingerprints,
+        },
+    ]);
+    if (beforeLinked != afterLinked) await _save();
     for (final provider in _splash.values) {
       await provider.refreshInstallation();
     }
@@ -459,10 +476,6 @@ class EngineCatalog {
           Directory(row.value.path),
           previousReceipt: row.value.receipt,
         );
-        if (receipt.bundleManifestSha256 !=
-            row.value.receipt.bundleManifestSha256) {
-          throw const OmlxException('oMLX 关联 app 内容变化');
-        }
         _linkedOmlx[row.key] = _LinkedOmlx(row.value.path, receipt);
       } catch (_) {
         _linkedOmlx[row.key] = _LinkedOmlx(
@@ -472,6 +485,7 @@ class EngineCatalog {
         );
       }
     }
+    if (_splash.isNotEmpty || _linkedOmlx.isNotEmpty) await _save();
   });
   Future<void> _load() async {
     if (_loaded) return;
@@ -874,7 +888,7 @@ class EngineCatalog {
     }
     return EngineParameterRecognition.builtIn(
       family: entry.family,
-      notice: '当前 oMLX 帮助不可用；使用内置规则，仅保存配置，生产模型运行尚未接通。',
+      notice: '当前 oMLX 帮助不可用；使用内置规则，未知参数保留并交由引擎处理。',
     );
   }
 
@@ -1291,6 +1305,7 @@ class EngineCatalog {
       );
     }
     if (entry.family == EngineFamily.omlx) {
+      omlxEngine!.assertRemovable();
       if (entry.source == EngineSource.managed) {
         final plan = await omlxEngine!.prepareRemoval();
         return EngineRemovalPlan._(
@@ -1363,34 +1378,43 @@ class EngineCatalog {
           return;
         }
         if (plan.entry.family == EngineFamily.omlx) {
-          final current = state.entries
-              .where((e) => e.id == plan.entry.id)
-              .firstOrNull;
-          if (current == null ||
-              current.path != plan.entry.path ||
-              current.omlxReceipt?.bundleManifestSha256 !=
-                  plan.entry.omlxReceipt?.bundleManifestSha256) {
-            throw const OmlxException('oMLX 删除计划已失效');
-          }
-          if (plan.entry.source == EngineSource.managed) {
-            await omlxEngine!.removeInstallation(plan._omlx!, confirmed: true);
-          } else {
-            if (await omlxEngine!.linkedDigest(Directory(current.path!)) !=
-                plan._linkedDigest) {
-              throw const OmlxException('oMLX 解除关联前内容变化');
+          final release = omlxEngine!.holdStartAdmission();
+          try {
+            omlxEngine!.assertRemovable();
+            final current = state.entries
+                .where((e) => e.id == plan.entry.id)
+                .firstOrNull;
+            if (current == null ||
+                current.path != plan.entry.path ||
+                current.omlxReceipt?.bundleManifestSha256 !=
+                    plan.entry.omlxReceipt?.bundleManifestSha256) {
+              throw const OmlxException('oMLX 删除计划已失效');
             }
-            final history = _unlinkedSnapshot(current);
-            await _save(
-              excluding: current.id,
-              unlinkedConfigurations: {
-                ..._unlinkedConfigurations,
-                current.id: history,
-              },
-            );
-            _unlinkedConfigurations[current.id] = history;
-            _linkedOmlx.remove(current.id);
+            if (plan.entry.source == EngineSource.managed) {
+              await omlxEngine!.removeInstallation(
+                plan._omlx!,
+                confirmed: true,
+              );
+            } else {
+              if (await omlxEngine!.linkedDigest(Directory(current.path!)) !=
+                  plan._linkedDigest) {
+                throw const OmlxException('oMLX 解除关联前内容变化');
+              }
+              final history = _unlinkedSnapshot(current);
+              await _save(
+                excluding: current.id,
+                unlinkedConfigurations: {
+                  ..._unlinkedConfigurations,
+                  current.id: history,
+                },
+              );
+              _unlinkedConfigurations[current.id] = history;
+              _linkedOmlx.remove(current.id);
+            }
+            return;
+          } finally {
+            release();
           }
-          return;
         }
         final provider = providerFor(plan.entry.id);
         if (plan.entry.source == EngineSource.managed) {

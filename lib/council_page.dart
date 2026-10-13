@@ -75,32 +75,53 @@ class _CouncilPageState extends State<CouncilPage> {
                       children: [
                         Row(
                           children: [
-                            const Expanded(child: Text('命名 JEV 模型')),
+                            Expanded(
+                              child: Text(
+                                widget.controller.models.instances == null
+                                    ? '命名 JEV 模型'
+                                    : '委员会',
+                              ),
+                            ),
                             TextButton.icon(
                               onPressed: () => _editModel(),
                               icon: const Icon(Icons.add, size: 16),
-                              label: const Text('创建模型'),
+                              label: Text(
+                                widget.controller.models.instances == null
+                                    ? '创建模型'
+                                    : '创建委员会',
+                              ),
                             ),
                           ],
                         ),
                         if (models.isEmpty)
-                          const Text('创建委员会配置或原生调用名。配置不会自动加载模型。'),
+                          Text(
+                            widget.controller.models.instances == null
+                                ? '创建委员会配置或原生调用名。配置不会自动加载模型。'
+                                : '创建委员会并选择已保存实例。保存不启动成员。',
+                          ),
                         for (final model in models)
                           ListTile(
                             contentPadding: EdgeInsets.zero,
                             title: Text(
                               '${model.definition.name} · ${model.definition.source == JevModelSource.council ? '委员会' : '原生 JEV'}',
+                              style: TextStyle(
+                                color: model.missingReason == null
+                                    ? null
+                                    : Theme.of(context).colorScheme.error,
+                              ),
                             ),
                             subtitle: Text(
                               widget.controller.models.isEvaluationLocked(
                                     model.definition.name,
                                   )
                                   ? '评测中 · 配置与调用名已锁定'
+                                  : model.missingReason != null
+                                  ? '引用失效 · ${model.missingReason}${model.available ? ' · 当前运行仍可调用' : ''}'
                                   : model.available
                                   ? model.reason == null
                                         ? '可调用 · ${model.definition.bindings.length} 个绑定'
                                         : '可调用 · 部分绑定未就绪 · ${model.reason}'
-                                  : '未就绪 · ${model.reason}',
+                                  : '已保存 · ${model.reason}',
                             ),
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,
@@ -240,7 +261,11 @@ class _ModelEditorState extends State<_ModelEditor> {
   Widget build(BuildContext context) {
     final bindings = _bindings;
     return AlertDialog(
-      title: Text(widget.existing == null ? '创建 JEV 模型' : '编辑 JEV 模型'),
+      title: Text(
+        widget.models.instances == null
+            ? (widget.existing == null ? '创建 JEV 模型' : '编辑 JEV 模型')
+            : (widget.existing == null ? '创建委员会' : '编辑委员会'),
+      ),
       content: SizedBox(
         width: 520,
         child: SingleChildScrollView(
@@ -253,33 +278,34 @@ class _ModelEditorState extends State<_ModelEditor> {
                 controller: _name,
                 decoration: const InputDecoration(labelText: '调用名'),
               ),
-              DropdownButton<JevModelSource>(
-                key: const Key('jev-model-source'),
-                value: _source,
-                isExpanded: true,
-                items: const [
-                  DropdownMenuItem(
-                    value: JevModelSource.council,
-                    child: Text('委员会'),
-                  ),
-                  DropdownMenuItem(
-                    value: JevModelSource.native,
-                    child: Text('原生 JEV'),
-                  ),
-                ],
-                onChanged: _saving
-                    ? null
-                    : (value) => setState(() {
-                        _source = value!;
-                        if (_source == JevModelSource.native &&
-                            _chosen.length > 1) {
-                          final first = _chosen.first;
-                          _chosen
-                            ..clear()
-                            ..add(first);
-                        }
-                      }),
-              ),
+              if (widget.models.instances == null)
+                DropdownButton<JevModelSource>(
+                  key: const Key('jev-model-source'),
+                  value: _source,
+                  isExpanded: true,
+                  items: const [
+                    DropdownMenuItem(
+                      value: JevModelSource.council,
+                      child: Text('委员会'),
+                    ),
+                    DropdownMenuItem(
+                      value: JevModelSource.native,
+                      child: Text('原生 JEV'),
+                    ),
+                  ],
+                  onChanged: _saving
+                      ? null
+                      : (value) => setState(() {
+                          _source = value!;
+                          if (_source == JevModelSource.native &&
+                              _chosen.length > 1) {
+                            final first = _chosen.first;
+                            _chosen
+                              ..clear()
+                              ..add(first);
+                          }
+                        }),
+                ),
               if (_source == JevModelSource.council)
                 TextField(
                   key: const Key('jev-model-timeout'),
@@ -288,12 +314,25 @@ class _ModelEditorState extends State<_ModelEditor> {
                   decoration: const InputDecoration(labelText: '整轮超时（秒）'),
                 ),
               const SizedBox(height: 12),
-              const Text('绑定已登记的本机模型与引擎；保存不启动模型。'),
+              Text(
+                widget.models.instances == null
+                    ? '绑定已登记的本机模型与引擎；保存不启动模型。'
+                    : '选择已保存的实例；保存委员会不启动成员。',
+              ),
               for (final binding in bindings)
                 CheckboxListTile(
                   value: _chosen.contains(binding.id),
                   title: Text(widget.models.bindingLabel(binding)),
-                  subtitle: Text(widget.models.bindingReason(binding) ?? '可调用'),
+                  subtitle: Text(
+                    widget.models.bindingMissingReason(binding) ??
+                        widget.models.bindingReason(binding) ??
+                        '可调用',
+                    style: TextStyle(
+                      color: widget.models.bindingMissingReason(binding) == null
+                          ? null
+                          : Theme.of(context).colorScheme.error,
+                    ),
+                  ),
                   contentPadding: EdgeInsets.zero,
                   onChanged: _saving
                       ? null
@@ -304,7 +343,12 @@ class _ModelEditorState extends State<_ModelEditor> {
                               : _chosen.remove(binding.id);
                         }),
                 ),
-              if (bindings.isEmpty) const Text('模型库中尚无已登记的 JEV 模型。'),
+              if (bindings.isEmpty)
+                Text(
+                  widget.models.instances == null
+                      ? '模型库中尚无已登记的 JEV 模型。'
+                      : '尚未保存实例，请先在实例管理中创建。',
+                ),
               if (_error != null)
                 Text(
                   _error!,

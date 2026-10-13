@@ -363,7 +363,7 @@ void main() {
     expect(again.state.entries, hasLength(1));
   });
 
-  test('dependency link changes invalidate an association even when both library contents stay unchanged', () async {
+  test('verified dependency updates refresh receipts while escaping links invalidate associations', () async {
     final root = await Directory.systemTemp.createTemp(
       'jev-engine-dependencies-',
     );
@@ -400,6 +400,20 @@ void main() {
 
     await catalog.refresh();
 
+    expect(
+      catalog.state.entries.singleWhere((value) => value.id == entry.id).status,
+      LlamaInstallationStatus.installed,
+    );
+    expect(catalog.providerFor(entry.id).executablePath, binary.path);
+    final saved = jsonDecode(await catalog.registryFile.readAsString()) as Map;
+    expect(
+      (saved['linked'] as List).single['fingerprints'][link.path],
+      sha256.convert(utf8.encode('link:two.dylib')).toString(),
+    );
+    final outside = await File('${root.path}/outside.dylib')
+        .writeAsString('external dependency');
+    await link.update(outside.path);
+    await catalog.refresh();
     expect(
       catalog.state.entries.singleWhere((value) => value.id == entry.id).status,
       LlamaInstallationStatus.failed,

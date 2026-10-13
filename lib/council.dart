@@ -265,7 +265,7 @@ class CouncilController {
     controller: this,
     registryFile: modelRegistryFile,
     registryIO: modelRegistryIO,
-    publicNames: publicNames,
+    publicNames: publicNames ?? launchInstances?.names,
     instances: launchInstances,
   );
   final _changes = StreamController<CouncilState>.broadcast();

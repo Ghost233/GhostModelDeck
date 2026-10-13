@@ -14,6 +14,159 @@ import 'package:ghost_model_deck/public_model_names.dart';
 import 'fixtures/council_runtime.dart';
 
 void main() {
+  test('rebinding keeps the admitted committee run and public identity until stop and restart', () async {
+    final runtime = await CouncilRuntime.create(
+      modelCount: 2,
+      sourceSystemone: true,
+    );
+    addTearDown(runtime.close);
+    final store = LaunchInstances(
+      catalog: runtime.catalog,
+      file: File('${runtime.root.path}/instances.json'),
+    );
+    addTearDown(store.close);
+    final assets = runtime.library.state.artifacts;
+    final definition = await store.save(
+      name: 'Old',
+      artifactId: assets.first.id,
+      engineId: EngineCatalog.officialId,
+      configuration: EngineLaunchConfiguration(
+        formValues: {
+          ...EngineLaunchConfiguration.initialValues,
+          '--ctx-size': '1024',
+        },
+      ),
+    );
+    final controller = CouncilController(
+      catalog: runtime.catalog,
+      launchInstances: store,
+    );
+    addTearDown(controller.close);
+    await controller.models.save(
+      JevModelDefinition.council(
+        name: 'committee',
+        seats: controller.models.availableBindings,
+        timeout: const Duration(seconds: 2),
+      ),
+    );
+    final first = await store.start(definition.id);
+    final command = store.actualCommand(definition.id);
+    await store.save(
+      id: definition.id,
+      name: 'New',
+      artifactId: assets.last.id,
+      engineId: EngineCatalog.officialId,
+      configuration: EngineLaunchConfiguration(
+        formValues: {
+          ...EngineLaunchConfiguration.initialValues,
+          '--ctx-size': '2048',
+        },
+      ),
+    );
+    expect(store.actualCommand(definition.id), same(command));
+    expect(store.definitions.single.publicName, definition.publicName);
+    final request = DecisionBatchRequest(
+      state: 'choose',
+      questions: {
+        'pick': ChoiceQuestion(
+          instructions: 'Pick',
+          options: {'a': 'A', 'b': 'B'},
+        ),
+      },
+    );
+    runtime.io.requests.clear();
+    await controller.models.decide('committee', request);
+    expect(runtime.io.requests.single['model'], first.id);
+    await store.stop(definition.id);
+    final next = await store.start(definition.id);
+    expect(next.id, isNot(first.id));
+    expect(next.artifactId, assets.last.id);
+    expect(
+      store.actualCommand(definition.id)!.arguments,
+      containsAllInOrder(['--ctx-size', '2048']),
+    );
+    runtime.io.requests.clear();
+    await controller.models.decide('committee', request);
+    expect(runtime.io.requests.single['model'], next.id);
+    expect(
+      controller.models.definitions.single.bindings.single.instanceId,
+      definition.id,
+    );
+    await store.stop(definition.id);
+  });
+  test('committee keeps saved instance identities through restart and reports deleted members without erasing references', () async {
+    final runtime = await CouncilRuntime.create(
+      modelCount: 1,
+      sourceSystemone: true,
+    );
+    addTearDown(runtime.close);
+    final instances = LaunchInstances(
+      catalog: runtime.catalog,
+      file: File('${runtime.root.path}/instances.json'),
+    );
+    addTearDown(instances.close);
+    final first = await instances.save(
+      name: 'First',
+      artifactId: runtime.library.state.artifacts.single.id,
+      engineId: EngineCatalog.officialId,
+      configuration: EngineLaunchConfiguration(),
+    );
+    final second = await instances.copy(first.id);
+    final file = File('${runtime.root.path}/councils.json');
+    final controller = CouncilController(
+      catalog: runtime.catalog,
+      launchInstances: instances,
+      modelRegistryFile: file,
+    );
+    final bindings = controller.models.availableBindings;
+    expect(bindings.map((binding) => binding.instanceId).toSet(), {
+      first.id,
+      second.id,
+    });
+    await controller.models.save(
+      JevModelDefinition.council(
+        name: 'committee',
+        seats: bindings,
+        timeout: const Duration(seconds: 2),
+      ),
+    );
+    final cold = controller.models.configuredModels.single;
+    expect(cold.available, isFalse);
+    expect(cold.missingReason, isNull);
+    await controller.close();
+    final restored = CouncilController(
+      catalog: runtime.catalog,
+      launchInstances: instances,
+      modelRegistryFile: file,
+    );
+    addTearDown(restored.close);
+    await restored.models.load();
+    expect(
+      restored.models.definitions.single.bindings
+          .map((binding) => binding.instanceId)
+          .toSet(),
+      {first.id, second.id},
+    );
+    await instances.start(first.id);
+    expect(restored.models.configuredModels.single.available, isTrue);
+    await instances.delete(second.id);
+    final missing = restored.models.configuredModels.single;
+    expect(missing.available, isTrue);
+    expect(missing.missingReason, contains('实例配置已删除'));
+    expect(
+      missing.definition.bindings.map((binding) => binding.instanceId),
+      contains(second.id),
+    );
+    expect(
+      restored.models.bindingLabel(
+        missing.definition.bindings.firstWhere(
+          (binding) => binding.instanceId == first.id,
+        ),
+      ),
+      contains('First'),
+    );
+    await instances.stop(first.id);
+  });
   test('committee conflicts with instance name and suggests without silently renaming', () async {
     final runtime = await CouncilRuntime.create();
     addTearDown(runtime.close);

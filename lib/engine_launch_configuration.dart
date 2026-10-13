@@ -193,7 +193,7 @@ class EngineLaunchConfiguration {
       notices: [
         for (final name in managedNames)
           configurationOnly
-              ? '$name 由软件管理；生产运行尚未接通，当前未确定实际值。'
+              ? '$name 由软件管理；在实例运行时分配实际值。'
               : '$name 由软件管理，实际采用 ${managed[name]}',
         ...notices,
       ],

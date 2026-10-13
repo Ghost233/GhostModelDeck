@@ -364,7 +364,7 @@ void main() {
     },
   );
   testWidgets(
-    'a changed external version retains tuning but requires verified relink and shows its source version',
+    'a verified original path update keeps tuning and an explicit later relink preserves parameter provenance',
     (tester) async {
       final fixture = (await tester.runAsync(_LifecycleFixture.create))!;
       addTearDown(() => tester.runAsync(fixture.close));
@@ -402,15 +402,21 @@ void main() {
           fixture.catalog.state.entries
               .singleWhere((entry) => entry.id == source.id)
               .status,
-          LlamaInstallationStatus.failed,
+          LlamaInstallationStatus.installed,
         );
         expect(
           fixture.catalog.launchDefaultsFor(source.id).argumentText,
           ' --old-option keep\n',
         );
-        await expectLater(
-          fixture.catalog.providerFor(source.id).start(fixture.asset.id),
-          throwsA(isA<LlamaEngineException>()),
+        expect(
+          fixture.catalog.providerFor(source.id).linkedInstallation!.version,
+          fixture.io.version,
+        );
+        expect(
+          fixture.catalog
+              .parameterRecognitionFor(source.id)
+              .recognizes('--new-option'),
+          isTrue,
         );
         expect(fixture.io.startedArguments, isEmpty);
         await fixture.catalog.remove(

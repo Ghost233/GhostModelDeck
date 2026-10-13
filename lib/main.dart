@@ -155,6 +155,8 @@ class _ManagerShellState extends State<_ManagerShell>
       startStartluxReadout: _startStartluxReadout,
     );
     _omlxEngine = OmlxEngine(
+      library: _library,
+      useRegistry: _useRegistry,
       installationDirectory: Directory(
         '${_settings.file.parent.path}/engines/omlx',
       ),
@@ -388,6 +390,11 @@ class _ManagerShellState extends State<_ManagerShell>
         _settingsError = null;
       });
     }
+    if (!_openedPages.contains(2)) {
+      await _library.scanDirectories(
+        directories.libraryPaths.map(Directory.new).toList(),
+      );
+    }
     return saved;
   }
 
@@ -396,6 +403,11 @@ class _ManagerShellState extends State<_ManagerShell>
       ModelDirectories(downloadPath: _libraryPath!, libraryPaths: paths),
     );
     if (mounted) setState(() => _libraryPaths = directories.libraryPaths);
+    if (!_openedPages.contains(2)) {
+      await _library.scanDirectories(
+        directories.libraryPaths.map(Directory.new).toList(),
+      );
+    }
   }
 
   void _navigate(int page) => setState(() {

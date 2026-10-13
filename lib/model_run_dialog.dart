@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'engine_catalog.dart';
 import 'engine_labels.dart';
 import 'splash_engine.dart';
+import 'omlx_engine.dart';
 import 'engine_launch_configuration.dart';
 import 'engine_launch_editor.dart';
 import 'model_launch_test.dart';
@@ -195,13 +196,9 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
           .previewLaunch(assets.single.id, configuration: _draft);
     }
     if (entry.family == EngineFamily.omlx) {
-      if (assets.single.format != 'Safetensors' ||
-          assets.single.kind != AssetKind.chat) {
-        return null;
-      }
-      return _draft!.command(
-        executable: entry.path ?? '',
-        modelPath: '',
+      return (widget.catalog.runtimeFor(engineId) as OmlxEngine).previewLaunch(
+        _draft!,
+        sourceBundle: Directory(entry.path!),
         recognition: widget.catalog.parameterRecognitionFor(engineId),
       );
     }
@@ -346,7 +343,6 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
         .where((entry) => entry.id == _engineId)
         .singleOrNull;
     final asset = _configurationAsset;
-    final omlx = selectedEntry?.family == EngineFamily.omlx;
     return PopScope(
       canPop: !_working,
       child: AlertDialog(
@@ -474,11 +470,6 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
                               ? null
                               : _selectEngine,
                         ),
-                        if (omlx)
-                          const Padding(
-                            padding: EdgeInsets.only(top: 12),
-                            child: Text('仅保存配置；生产模型运行尚未接通，参数未实际生效。'),
-                          ),
                         if (selectedEntry?.family == EngineFamily.splash) ...[
                           const SizedBox(height: 16),
                           TextField(
@@ -634,11 +625,7 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
           ),
           OutlinedButton(
             onPressed:
-                _working ||
-                    _loading ||
-                    _engineId == null ||
-                    _previewBlocked ||
-                    omlx
+                _working || _loading || _engineId == null || _previewBlocked
                 ? null
                 : () => _submit(test: true),
             child: const Text('测试运行'),

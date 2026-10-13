@@ -96,10 +96,12 @@ class JevModelAvailability {
     this.definition,
     this.reason, {
     required this.available,
+    this.missingReason,
   });
   final JevModelDefinition definition;
   final String? reason;
   final bool available;
+  final String? missingReason;
   Map<String, Object> toJson() => {
     'id': definition.name,
     'source': definition.source.name,
@@ -158,6 +160,7 @@ class JevModels {
     JevRegistryIO? registryIO,
   }) : registryIO = registryIO ?? NativeJevRegistryIO() {
     _subscription = controller.catalog.changes.listen((_) => _publish());
+    _instanceSubscription = instances?.changes.listen((_) => _publish());
   }
   final CouncilController controller;
   final File? registryFile;
@@ -166,6 +169,7 @@ class JevModels {
   final JevRegistryIO registryIO;
   final _changes = StreamController<void>.broadcast();
   late final StreamSubscription<EngineCatalogState> _subscription;
+  StreamSubscription<void>? _instanceSubscription;
   List<JevModelDefinition> _definitions = const [];
   bool _loaded = false;
   Future<void>? _loading;
@@ -179,15 +183,26 @@ class JevModels {
   List<JevModelDefinition> get definitions => _definitions;
   Iterable<JevModelDefinition> get _instanceModels sync* {
     for (final definition in instances?.definitions ?? <LaunchInstance>[]) {
-      final engine = controller.catalog.state.entries
-          .where(
-            (e) =>
-                e.id == definition.engineId &&
-                e.family == EngineFamily.llamaCpp,
-          )
-          .firstOrNull;
+      final running = instances!
+          .runsFor(definition.id)
+          .any(
+            (run) =>
+                run.hasLiveProcess &&
+                run.capabilities.contains(RuntimeCapability.choiceProbability),
+          );
+      final engine =
+          (running ? instances!.runningOrigin(definition.id) : null) ??
+          controller.catalog.state.entries
+              .where(
+                (e) =>
+                    e.id == definition.engineId &&
+                    e.family == EngineFamily.llamaCpp,
+              )
+              .firstOrNull;
       if (engine != null &&
-          controller.catalog.providerFor(engine.id).supportsSystemone) {
+          engine.family == EngineFamily.llamaCpp &&
+          (running ||
+              controller.catalog.providerFor(engine.id).supportsSystemone)) {
         yield JevModelDefinition.native(
           name: definition.publicName,
           binding: JevModelBinding(
@@ -319,22 +334,50 @@ class JevModels {
     };
   }
 
-  List<JevModelBinding> get availableBindings => List.unmodifiable([
-    for (final engine in controller.catalog.state.entries)
-      if (engine.family == EngineFamily.llamaCpp)
-        for (final asset in controller.catalog.library.state.artifacts)
-          if ((asset.hasStartluxReadout &&
-                  controller.catalog.providerFor(engine.id).sourceBuild ==
-                      null) ||
-              (controller.catalog.providerFor(engine.id).declaresSystemone &&
-                  asset.format == 'GGUF' &&
-                  [AssetKind.chat, AssetKind.decision].contains(asset.kind)) ||
-              (asset.kind == AssetKind.decision &&
-                  controller.catalog.providerFor(engine.id).supportsSystemone))
-            JevModelBinding(artifactId: asset.id, engineId: engine.id),
-  ]);
+  List<JevModelBinding> get availableBindings => instances != null
+      ? List.unmodifiable([
+          for (final definition in instances!.definitions)
+            JevModelBinding(
+              artifactId: definition.artifactId,
+              engineId: definition.engineId,
+              instanceId: definition.id,
+            ),
+        ])
+      : List.unmodifiable([
+          for (final engine in controller.catalog.state.entries)
+            if (engine.family == EngineFamily.llamaCpp)
+              for (final asset in controller.catalog.library.state.artifacts)
+                if ((asset.hasStartluxReadout &&
+                        controller.catalog.providerFor(engine.id).sourceBuild ==
+                            null) ||
+                    (controller.catalog
+                            .providerFor(engine.id)
+                            .declaresSystemone &&
+                        asset.format == 'GGUF' &&
+                        [
+                          AssetKind.chat,
+                          AssetKind.decision,
+                        ].contains(asset.kind)) ||
+                    (asset.kind == AssetKind.decision &&
+                        controller.catalog
+                            .providerFor(engine.id)
+                            .supportsSystemone))
+                  JevModelBinding(artifactId: asset.id, engineId: engine.id),
+        ]);
 
   String bindingLabel(JevModelBinding binding) {
+    if (binding.instanceId != null) {
+      final definition = instances?.find(binding.instanceId!);
+      if (definition != null) {
+        final engine = controller.catalog.state.entries
+            .where((entry) => entry.id == definition.engineId)
+            .firstOrNull;
+        final asset = controller.catalog.library.state.artifacts
+            .where((asset) => asset.id == definition.artifactId)
+            .firstOrNull;
+        return '${definition.name} · ${asset?.name ?? '模型缺失'} · ${engine?.name ?? '引擎缺失'}';
+      }
+    }
     final asset = controller.catalog.library.state.artifacts
         .where((a) => a.id == binding.artifactId)
         .firstOrNull;
@@ -416,10 +459,22 @@ class JevModels {
     }
   }
 
+  String? bindingMissingReason(JevModelBinding binding) {
+    if (binding.instanceId == null || instances == null) return null;
+    final definition = instances!.find(binding.instanceId!);
+    if (definition == null) return '实例配置已删除';
+    return instances!.missingReason(definition);
+  }
+
   JevModelAvailability _availability(JevModelDefinition definition) {
     final reasons = <String>[];
+    final missing = <String>[];
     var ready = 0;
     for (final binding in definition.bindings) {
+      final resourceError = bindingMissingReason(binding);
+      if (resourceError != null) {
+        missing.add('${bindingLabel(binding)}：$resourceError');
+      }
       final reason = bindingReason(binding);
       if (reason == null) {
         ready++;
@@ -431,10 +486,46 @@ class JevModels {
       definition,
       reasons.isEmpty ? null : reasons.join('；'),
       available: ready > 0,
+      missingReason: missing.isEmpty ? null : missing.join('；'),
     );
   }
 
   CouncilSeat _resolve(JevModelBinding binding) {
+    if (binding.instanceId != null && instances != null) {
+      final definition = instances!.find(binding.instanceId!);
+      if (definition == null) {
+        throw const JevRequestException(503, 'model_not_ready', '实例配置已删除');
+      }
+      final found = <CouncilSeat>[];
+      for (final runtime
+          in controller.catalog.runtimes.whereType<LlamaEngine>()) {
+        for (final run in runtime.runtimeInstances.where(
+          (run) =>
+              run.launchInstanceId == definition.id &&
+              run.status == RuntimeInstanceStatus.ready &&
+              run.acceptingRequests &&
+              run.hasLiveProcess &&
+              run.capabilities.contains(RuntimeCapability.choiceProbability),
+        )) {
+          final origin = instances!.runningOrigin(definition.id);
+          if (origin == null) continue;
+          found.add(
+            CouncilSeat(
+              engine: origin,
+              instance: runtime.state.instances.singleWhere(
+                (instance) => instance.id == run.id,
+              ),
+            ),
+          );
+        }
+      }
+      if (found.length == 1) return found.single;
+      throw JevRequestException(
+        found.isEmpty ? 503 : 409,
+        found.isEmpty ? 'model_not_ready' : 'route_conflict',
+        found.isEmpty ? '所选实例没有就绪的原生决策运行；不会自动启动成员' : '所选实例存在多个运行资源',
+      );
+    }
     final engine = controller.catalog.state.entries
         .where(
           (e) => e.id == binding.engineId && e.family == EngineFamily.llamaCpp,
@@ -529,13 +620,17 @@ class JevModels {
         for (final binding in entry['bindings'] as List) {
           if (binding is! Map ||
               binding['artifact_id'] is! String ||
-              binding['engine_id'] is! String) {
+              binding['engine_id'] is! String ||
+              (instances != null &&
+                  (binding['instance_id'] is! String ||
+                      (binding['instance_id'] as String).isEmpty))) {
             throw const FormatException('绑定格式无效');
           }
           bindings.add(
             JevModelBinding(
               artifactId: binding['artifact_id'] as String,
               engineId: binding['engine_id'] as String,
+              instanceId: binding['instance_id'] as String?,
             ),
           );
         }
@@ -546,7 +641,9 @@ class JevModels {
             timeout: Duration(microseconds: entry['timeout_us'] as int),
           ),
           'native'
-              when bindings.length == 1 && entry['timeout_us'] == 10000000 =>
+              when instances == null &&
+                  bindings.length == 1 &&
+                  entry['timeout_us'] == 10000000 =>
             JevModelDefinition.native(
               name: entry['name'] as String,
               binding: bindings.single,
@@ -589,13 +686,17 @@ class JevModels {
       final watch = Stopwatch()..start();
       final traces = <String, DecisionIOTrace>{};
       final seats = <CouncilSeat>[];
+      final selectedMembers = <String, CouncilSeat>{};
+      final memberErrors = <String, String>{};
       final unavailable = <Map<String, Object>>[];
       for (final binding in definition.bindings) {
         try {
           final seat = _resolve(binding);
           seats.add(seat);
+          selectedMembers[binding.id] = seat;
           if (debug) traces[seat.id] = DecisionIOTrace();
         } on JevRequestException catch (error) {
+          memberErrors[binding.id] = error.message;
           if (debug) {
             unavailable.add({
               'binding': binding.toJson(),
@@ -665,7 +766,37 @@ class JevModels {
           );
         }
         final converted = receivedResult.standardResult(definition.name);
-        return {...converted, if (debug) 'debug': snapshot(converted)};
+        final members = <Map<String, Object?>>[];
+        if (instances != null) {
+          for (final binding in definition.bindings) {
+            final seat = selectedMembers[binding.id];
+            final opinion = receivedResult.seats
+                .where((opinion) => opinion.seat.id == seat?.id)
+                .firstOrNull;
+            members.add({
+              'instance_id': binding.instanceId,
+              'status': switch (opinion?.status) {
+                null || CouncilSeatStatus.notReady => 'not_ready',
+                CouncilSeatStatus.timedOut => 'timed_out',
+                CouncilSeatStatus.invalidResponse => 'invalid_response',
+                final status => status.name,
+              },
+              if (opinion?.error != null || memberErrors[binding.id] != null)
+                'error': opinion?.error ?? memberErrors[binding.id],
+            });
+          }
+        }
+        return {
+          ...converted,
+          if (instances != null)
+            'council': {
+              'status': members.every((member) => member['status'] == 'ok')
+                  ? 'ok'
+                  : 'partial',
+              'members': members,
+            },
+          if (debug) 'debug': snapshot(converted),
+        };
       } on JevRequestException catch (error) {
         throw JevRequestException(
           error.statusCode,
@@ -842,6 +973,9 @@ class JevModels {
     String? replacing,
   }) => _serial(() async {
     await _restore();
+    if (instances != null && definition.source == JevModelSource.native) {
+      throw const DecisionProtocolException('原生模型使用实例自身的调用名，请在实例管理中修改');
+    }
     if (isEvaluationLocked(definition.name) ||
         replacing != null && isEvaluationLocked(replacing)) {
       throw const DecisionProtocolException('模型正在参与评测，配置与调用名已锁定');
@@ -856,7 +990,14 @@ class JevModels {
         '调用名已存在，委员会与原生模型必须使用唯一名称${publicNames == null ? '' : '；建议 ${publicNames!.suggest(definition.name)}'}',
       );
     }
-    final registered = availableBindings.map((b) => b.id).toSet();
+    final registered = {
+      ...availableBindings.map((binding) => binding.id),
+      if (replacing != null)
+        ..._definitions
+            .singleWhere((model) => model.name == replacing)
+            .bindings
+            .map((binding) => binding.id),
+    };
     if (definition.bindings.any((b) => !registered.contains(b.id))) {
       throw const DecisionProtocolException('席位必须绑定已登记的本机 JEV 模型与兼容引擎');
     }
@@ -955,6 +1096,7 @@ class JevModels {
         publicNames?.release('jev:${definition.name}', definition.name);
       }
       await _subscription.cancel();
+      await _instanceSubscription?.cancel();
       await _changes.close();
     }
   }
