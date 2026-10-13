@@ -383,7 +383,7 @@ void main() {
         );
         expect(record.evaluations, hasLength(15));
         expect(record.evaluations.first.timeout, const Duration(seconds: 2));
-        expect(record.evaluations[1].timeout, const Duration(seconds: 30));
+        expect(record.evaluations[1].timeout, const Duration(seconds: 60));
         expect(record.evaluations.first.items.single['complete'], isFalse);
         expect(work.activeProcessId, isNull);
         final restored = await store.load(record.id);

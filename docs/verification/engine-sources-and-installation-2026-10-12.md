@@ -2,77 +2,53 @@
 
 ## 唯一当前状态
 
-2026-10-13。来源为 [产品职责与实例管理规格](../requirements/product-scope-and-launch-instances-spec.md) 和 #82–#96。主线程推进，没有子代理、容器或正式发布。
+2026-10-13。规格为 [产品职责与实例管理](../requirements/product-scope-and-launch-instances-spec.md)，来源 #82–#96，包含用户补充的默认 60 秒 JEV 请求预算。主线程推进，没有子代理、容器或正式发布。
 
 | 项目 | 当前状态 |
 | --- | --- |
-| 候选 | 阶段 C，分支 `codex/product-instances-stage-3`；代码提交 `5514498fe010b893bfe1153adc5c79e2e6d6f999`，固定提交双轴复审通过；文档补齐后交付阶段 PR |
-| 唯一完整检查 | `run-AGOOpq` 已结束：954 项、格式与分析通过，退出 0，成功标记存在；前后和当前输入一致，无有效检查作业 |
-| 未关闭事项 | 完整门禁终态；提交后的固定候选双轴复审；阶段 C PR 与 dev 集成；阶段 D #95/#96。已知原失败已关闭：`run-23zdhL` 定点及 `run-4TsQFq` 46 项模块通过；完整门禁已通过；仍须固定提交复审 |
-| 下一动作 | 阶段 C PR 合入 dev → 同步本地与远端；再推进 #95/#96 |
-| 原生产物 | `stage-c-final-council-macos-build.log` 构建退出 0，应用、FlutterMacOS 和 App.framework 均为 arm64；此后只调整测试，应用代码未变，产物继续复用 |
-| 服务交接 | Wiki/Kev-4B 交接独立推进，见下文；具体模型原生能力或成绩不作为阶段 C 交付条件 |
-
-A、B 已完成，不列为待办。D 仅接通 #95 的新对象和 #96 最终集成；已有五项完整基准与整批功能不重新开发。
+| 候选 | 阶段 D 分支 `codex/product-instances-stage-4`，起点 `58f452b4546acf186a86dc4315b335bb9b1d4134`，代码候选 `10199a624a068576c089d8e9bd8e481175501e06` 已提交并固定复审通过 |
+| 有效作业 | 无；最终 `run-uCS7B1` 已结束，960 项、格式与分析全部通过，退出 0、完成标记有效、716 份输入前后及当前一致 |
+| 未关闭问题 | 无已知产品 P0/P1/P2；固定提交两轴复审通过；剩余阶段 PR/dev 集成、总审查和总 PR ready |
+| 下一动作 | 阶段 PR 合入 dev，再完成总审查及 dev→main ready PR |
+| 原生产物 | `stage-d-root-final-macos-build.log` 退出 0；应用、FlutterMacOS、App.framework 实际均 arm64；后续仅根路由 lint 原因注释和测试/文档变更，运行行为未变，原生产物复用 |
+| 服务 | Kev 唯一运行，保存预算 60 秒、原模型/引擎/CLI；恢复身份 app26711/engine42511/native56352/public54841 已通知 Wiki 继续开发 |
 
 ## 当前工作分类
 
-- **未实现：** #95 测试场对保存实例/委员会的新对象接线，以及 #96 最终集成。
-- **未验证：** 阶段 PR 集成与同步；完整门禁、固定候选复审和原生验收已通过，不是模型成绩验证。
-- **已验证待提交：** 阶段 C 主要实现、相关模块检查、arm64 原生产物、短公开调用、草稿隔离、资源恢复、实际快照及错误文件/Finder。
-- **历史问题：** 字形损坏和旧黑屏目前未复现，根因未定；旧失败与取消检查保留。历史问题不以重跑题集替代诊断。
+- **未实现：** 无本次规格的剩余产品功能。
+- **未验证：** 固定提交复审、总提交范围与跨阶段审查、最终 PR 状态及本地/远端同步。
+- **已验证待提交：** 阶段 D 新对象、预算和根路由修复已提交，固定复审通过，待 PR 集成；A/B/C 已提交并集成，不列为待办。
+- **历史问题：** 字形损坏尚无本轮复现或根因结论；此次黑屏已精确复现为重复下拉激活弹出桌面根路由并释放服务，定点和原生修复通过，不扩展为所有旧图形事件已修复。
 
-## 已完成阶段与分支
+## 已完成阶段
 
-| 阶段 | 完成证据 | Git 状态 |
+| 阶段 | 验证 | 集成 |
 | --- | --- | --- |
-| A #83–#86 | `run-70BRLY`：925 项、格式、分析通过；真实多目录/文件链接/安装交互及 arm64 产物通过 | [PR #97](https://github.com/Ghost233/GhostModelDeck/pull/97) 已合入 dev；阶段复审见 [报告](product-scope-stage-a-review.md) |
-| B #87–#89 | `run-dDSmSQ`：935 项完整检查通过；保存快照、公开名、llama.cpp/JEV 健康启动/停止与真实短 HTTP 通过 | [PR #98](https://github.com/Ghost233/GhostModelDeck/pull/98) 已合入 dev `fd67875923b60d79da8731d0e979d62897b5d395`；见 [报告](product-scope-stage-b-review.md) |
+| A #83–#86 | `run-70BRLY` 925 项；多目录/文件链接/非阻塞安装与源码构建真实证据 | [PR #97](https://github.com/Ghost233/GhostModelDeck/pull/97) 已合入 dev；[复审](product-scope-stage-a-review.md) |
+| B #87–#89 | `run-dDSmSQ` 935 项；保存快照/公开名/实际启动停止及短 HTTP | [PR #98](https://github.com/Ghost233/GhostModelDeck/pull/98) 已合入 dev；[复审](product-scope-stage-b-review.md) |
+| C #90–#94 | `run-AGOOpq` 954 项；Splash/oMLX、失效资源、草稿隔离、委员会及文件入口真实证据 | [PR #99](https://github.com/Ghost233/GhostModelDeck/pull/99) 已合入 dev `58f452b4546acf186a86dc4315b335bb9b1d4134`；[复审](product-scope-stage-c-review.md) |
+| D #95/#96 | `run-uCS7B1` 960 项；公开新对象、完整计划/取消/历史、默认及显式预算、原生对象选择 | 固定提交复审通过，待阶段 PR；[审查记录](product-scope-stage-d-review.md) |
 
-本地/远端 dev 为 `fd67875923b60d79da8731d0e979d62897b5d395`；main 为 `0eda06296aa4fdff65b9ee83f90564ff7a76ebde`。2026-10-13 最近一次认证核对为 Ghost233，fetch 后这些分支同步。后续写操作完成后再核对完整 hash 与工作区状态。
+## 阶段 D 验证与限制
 
-## 阶段 C 已收齐证据
+- 保存实例的公开对象查询与评测锁统一接线，冷实例不自动加载。实际运行的资产/引擎/启动修订用于身份；下一次重绑不改当前已运行选择，停止后原选择失效。
+- 普通 HTTP/MCP 的保存实例和委员会、完整 400 题计划、整批取消及历史持久化由应用图和外部引擎 I/O 夹具验证。五项完整题集、Jevman 100 局及已有调度/评分/报告没有重开发，不要求每模型真实跑题集。
+- 用户补充的 JEV 默认预算为 60 秒；实例显式预算持久化、复制和改名保持，两种公开通道读同一值。实际 60 秒超时、取消及清理 `run-qjYlIK`，UI 保存 `run-rjtZPi`，125 项模块 `run-F6ScQ7` 通过。Jevman 固定 2 秒决策/30 秒 warmup 保持；其他能力和引擎探测期限不在该补充范围。
+- 黑屏原生现场、系统日志及短栈保留。最小复现 `run-0rbcly` → 根路由保护 `run-j4UMXZ`；52 项回归 `run-xVzztG` 通过。根路由的局部 must_call_super 例外已说明：拒绝完成根路由与基类完成方法冲突。用户直接确认重复选择后窗口正常，AX 核对选中 Kev 及根页面保留；工具点击失效另记，不算应用失败。
+- `run-gZVV07` 原完整失败保留：956 通过、4 失败、退出 1。生产布局夹具改为使用真实路由工厂，委员会/客户端断言按新默认值更新；字体、可点击、资源及精确时限断言全部保留。`run-VHqGnj` 四个原失败、`run-p2o9Le` 三个模块 79 项通过后，最终 `run-uCS7B1` 全部通过。测试/文档修正没有重复构建或重启模型。
 
-审查范围为 #90–#94，见 [阶段 C 首审与复盘](product-scope-stage-c-review.md)。固定提交复审已通过，两轴没有未关闭 P0/P1/P2。
+证据位于 `.scratch/product-scope-20261012/`；门禁详细输入/命令/退出/完成判定在 `.tooling/host-tests/`。原生收据为 `stage-d-final-native-receipt.json`；预算实际生效为 `stage-d-budget-native/record.json` 和原始 `response.json`。
 
-| 行为 | 已有证据与范围 |
-| --- | --- |
-| Splash/oMLX、实例、委员会与公开调用 | `run-vgVM0O`：196 项受影响检查通过，源码输入未变 |
-| 资源准备态 | 原失败 `run-wQ9K2E` → `run-7zBFk1`；`run-pnNgED` 32 项通过。真实窗口显示准备中、操作暂关；读取完成后显示已保存，没有缺失误报 |
-| 委员会失效说明 | 原失败 `run-BtWsxE` → `run-neVq1n`；`run-1qu8jx` 44 项通过。真实窗口同时显示缺失原因与旧运行仍可调用，恢复目录后清除标红 |
-| 引擎页面旧提示 | `run-XTbkyF` 原失败 → `run-EVm8zu`；`run-v0ifeo` 27 项通过。保留真实来源、两项未安装及操作断言 |
-| 原位置更新及启动零推理 | `run-cWWcKm` 的 7 项旧契约失败已成组处理；参数别名新增断言错误 `run-n5s8Ub` 保留，`run-jjlvQC` 定点及 `run-5KlWJI` 33 项模块回归通过。错误架构、检查期间文件变化和参数保留断言继续执行 |
-| 未知架构显式短测试 | `run-3jSqk0` → `run-VuRUGf`；只拒绝实际缺失/损坏，不新增架构或模型名称名单 |
-| 最终静态与构建 | `run-49SojX` 分析通过；最后构建及三项实际架构均通过，测试修改不触发重复构建 |
+## 服务交接
 
-真实证据位于 `.scratch/product-scope-20261012/`：
+已获用户授权向「设计标准化 Wiki 构建流程」回复与恢复通知，并核对该会话的直接用户授权。Kev 使用精确 GGUF SHA `33ae6b18926502b2209a1bf7d3b61a350d65938441515c686bb87d226a19eff9`、保存 ID `instance-1791853429727769-2217734541`、公开号 `kev-4b-q4-k-m`、b11381；原 ctx65536/batch4096/ubatch4096/parallel1/GPU99/MTL0/reasoning off 保持。
 
-- `stage-c-splash-native-http.json`：普通 JSON 与 SSE 返回 OK/200，所属进程停止，外部 Splash 保留；原参数失败单独保留。
-- `stage-c-omlx-native-http.json`：真实模型物理加载、普通 HTTP 非空完成文本、停止。固定模型提交及 SHA 见 `omlx-native-model-receipt.json`，准备作业已经结束。
-- `stage-c-omlx-private-native.json`：第一份内存保护拒绝保留；未保存草稿使用明确 2 GiB 保护上限后 HTTP 200，临时进程为 0，保存文件摘要不变，已有 StartLux 保持。
-- `stage-c-root-unlink-native-http.json`：解除读取关联后标红，旧运行与实际命令保持，HTTP 仍 OK/200；原目录恢复，文件及公开名不变。
-- `stage-c-native-error-file.json`：明确无效参数真实失败，一行摘要，完整 2409 字节日志与堆栈保留；Finder 选中正确文件。失败进程清零，原 Splash 参数已通过界面还原。
-- `stage-c-final-native-incremental.json`：准备、资源恢复、最终缺失说明、正常退出与产物绑定。验收委员会 `stage-c-resource-check` 保留，没有自动删除或概率请求。
+GUI 已保存 `jev_request_timeout_seconds=60` / revision2，唯一最小公开 HTTP 返回 200、实际 `timeout_us=60000000`、0.188 秒。已通知 Wiki 继续开发，不自动撤销其业务测试暂停。StartLux 保存配置在本轮前已不存在，按当前配置保留，不自动重建。此前 StartLux 原生 501、代表请求非精确重放及 Wiki 业务失败均是独立历史，不作为产品成绩前置。
 
-`run-mdxC6d`、`run-XTbkyF`、`run-cWWcKm` 保留原始失败/中断，均不计完整通过。其他定点原失败和先前阶段的成功记录见 [历史快照](archive/engine-sources-and-installation-2026-10-12-progress-history.md)，不再把其中的旧作业状态当作当前待办。
+## 交付约束
 
-## 服务交接独立记录
+只编译、打包和提供 macOS arm64。固定 Flutter/Dart SDK、原 lockfile、联网解析及宿主检查；字体与布局断言保持。主线程、同作业一份、长作业 sleep 300 后收取。保留其他会话修改，不正式发布。
 
-用户已明确授权向「设计标准化 Wiki 构建流程」回复及恢复通知，并在该会话授权创建/启动精确 Kev-4B 验收实例。GMD 主线程独占正式 GUI 创建与启动；协议请求由对方唯一执行者负责，不自动换模型或运行题集。
+阶段 PR 合入 dev，最终 dev→main 总 PR 保持 ready，等待用户合并。最终核对所有涉及本地及远端完整 hash，不将远端更新单独算完成。完整 JSON 使用文件路径和 Finder，UI 分批展示摘要；原生题目、固定 submodule、五项完整基准、100 局和无快速试跑保持。
 
-- StartLux 文本服务保持；原生接口实际由引擎返回 501 “This model is not a decision model”，GMD 如实返回 502。该模型能力不兼容不阻塞产品阶段交付。
-- 现有 Kev-4B 文件 3033489824 字节，全 SHA `33ae6b18926502b2209a1bf7d3b61a350d65938441515c686bb87d226a19eff9` 及前后 stat 已核对。已创建并启动唯一保存实例，公开号 `kev-4b-q4-k-m`，保存参数与授权边界一致；实际加载身份、容量 65536/width1、PID8631 和引擎 SHA 已核对，ready 回执已落盘。显示名称不作为前置。
-- 交接主记录：`startlux-current-public-service-status.json`。Kev 独立记录：`kev4b-private-native-ready.json`。只在实际保存、加载和元数据核对后登记 ready；失败保留原文。
-- GUI 操作两次遇到“用户改变应用”护栏，持久文件确认没有创建重复实例。用户已回复“现在可以继续操作 GMD”；随后从精确模型库项成功创建，未重复实例。
-
-## 固定收尾规则
-
-相关契约检查 → 最小原生流程 → 关闭已知问题 → 完整门禁 → 提交 → 固定提交复审 → 阶段 PR 合入 dev。阶段 D 完成后总审查，`dev → main` 总 PR 保持 ready，等待用户合并。
-
-只支持 macOS arm64。固定 Flutter/Dart SDK、lockfile、联网解析和宿主检查；字体与布局断言保持。主线程只保留一份同类作业，长作业 sleep 300 实际结束后收取。保留其他会话修改，不正式发布。
-
-保留公开 HTTP/MCP、原生题目、固定 submodule、五项完整基准、Jevman 100 局、无快速试跑、摘要分页和 Finder 文件入口。评测是可选功能，不要求每个模型跑全部题集。未受影响成功证据直接复用；失败、取消、超时或缺失完成证据不计通过。
-
-阶段 C 最后完整检查 run-8LKd5e 已结束，953 通过、1 失败。原失效成员保存断言和零延迟等待不符合新持久保存路径；原失败 run-VlPyKv 保留。run-23zdhL 定点通过，验证改名/重开仍保留两份引用，再显式移除缺失引用。相关模块 `run-4TsQFq` 46 项通过，日志 stage-c-final-member-reference-affected.log；应用代码未改，原生产物复用。
-
-最终宿主检查 run-AGOOpq：954 项，格式 189 文件无变化，分析无问题，退出 0；完成标记及当前指纹核对通过。构建绑定的应用代码未变，原生产物复用。当前没有有效检查作业，接下来提交并复审固定提交。
+阶段 D 过程历史见 [快照](archive/product-scope-stage-d-progress-history.md)，此前过程见 [历史记录](archive/engine-sources-and-installation-2026-10-12-progress-history.md)，不将历史旧状态当作当前待办。

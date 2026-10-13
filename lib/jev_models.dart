@@ -61,9 +61,9 @@ class JevModelDefinition {
   JevModelDefinition.native({
     required this.name,
     required JevModelBinding binding,
+    this.timeout = const Duration(seconds: 60),
   }) : source = JevModelSource.native,
-       bindings = List.unmodifiable([binding]),
-       timeout = const Duration(seconds: 10) {
+       bindings = List.unmodifiable([binding]) {
     _validate();
   }
   final String name;
@@ -181,15 +181,21 @@ class JevModels {
   final Map<String, JevEvaluationLock> _evaluationLocks = {};
   Stream<void> get changes => _changes.stream;
   List<JevModelDefinition> get definitions => _definitions;
+  JevModelDefinition? definitionFor(String name) => [
+    ..._definitions,
+    ..._instanceModels,
+  ].where((model) => model.name == name).firstOrNull;
   Iterable<JevModelDefinition> get _instanceModels sync* {
     for (final definition in instances?.definitions ?? <LaunchInstance>[]) {
-      final running = instances!
+      final actual = instances!
           .runsFor(definition.id)
-          .any(
+          .where(
             (run) =>
                 run.hasLiveProcess &&
                 run.capabilities.contains(RuntimeCapability.choiceProbability),
-          );
+          )
+          .firstOrNull;
+      final running = actual != null;
       final engine =
           (running ? instances!.runningOrigin(definition.id) : null) ??
           controller.catalog.state.entries
@@ -205,8 +211,9 @@ class JevModels {
               controller.catalog.providerFor(engine.id).supportsSystemone)) {
         yield JevModelDefinition.native(
           name: definition.publicName,
+          timeout: Duration(seconds: definition.jevRequestTimeoutSeconds),
           binding: JevModelBinding(
-            artifactId: definition.artifactId,
+            artifactId: actual?.artifactId ?? definition.artifactId,
             engineId: engine.id,
             instanceId: definition.id,
           ),
@@ -246,7 +253,7 @@ class JevModels {
   }
 
   Map<String, Object?>? _evaluationIdentity(String name) {
-    final definition = _definitions.where((m) => m.name == name).firstOrNull;
+    final definition = definitionFor(name);
     if (definition == null || !_availability(definition).available) return null;
     return {
       'model': definition.name,
@@ -278,6 +285,13 @@ class JevModels {
             .where((e) => e.id == binding.engineId)
             .firstOrNull;
     final command = instance?.launchCommand;
+    final runtimeInstance = seat == null
+        ? null
+        : controller.catalog
+              .providerFor(seat.engine.id)
+              .runtimeInstances
+              .where((run) => run.id == instance?.id)
+              .singleOrNull;
     final arguments = command?.arguments;
     return {
       'binding': binding.toJson(),
@@ -317,6 +331,10 @@ class JevModels {
           : {
               'id': instance.id,
               'generation': instance.generation,
+              if (runtimeInstance?.launchInstanceId != null) ...{
+                'launch_instance_id': runtimeInstance!.launchInstanceId,
+                'launch_revision': runtimeInstance.launchRevision,
+              },
               'endpoint': instance.endpoint.toString(),
               'native_alias': instance.nativeAlias,
               'decision_source': instance.decisionSourceIdentity,
@@ -643,10 +661,11 @@ class JevModels {
           'native'
               when instances == null &&
                   bindings.length == 1 &&
-                  entry['timeout_us'] == 10000000 =>
+                  entry['timeout_us'] > 0 =>
             JevModelDefinition.native(
               name: entry['name'] as String,
               binding: bindings.single,
+              timeout: Duration(microseconds: entry['timeout_us'] as int),
             ),
           _ => throw const FormatException('模型来源无效'),
         });

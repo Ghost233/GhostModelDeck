@@ -286,9 +286,10 @@ class _EmbeddingPageState extends State<EmbeddingPage> {
                   child: Text(id, overflow: TextOverflow.ellipsis),
                 ),
             ],
-            onChanged: document == null
+            onChanged: document == null || _active != null
                 ? null
                 : (value) {
+                    setState(() => _result = null);
                     _json.text = _encoder.convert({
                       ...document,
                       'model': value,

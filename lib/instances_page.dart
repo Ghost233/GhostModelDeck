@@ -164,6 +164,66 @@ class _InstancesPageState extends State<InstancesPage> {
     }
   }
 
+  Future<void> _editJevBudget(LaunchInstance definition) async {
+    final input = TextEditingController(
+      text: '${definition.jevRequestTimeoutSeconds}',
+    );
+    String? error;
+    try {
+      final seconds = await showDialog<int>(
+        context: context,
+        builder: (context) => StatefulBuilder(
+          builder: (context, update) => AlertDialog(
+            title: const Text('JEV 请求预算'),
+            content: TextField(
+              key: const Key('instance-jev-budget'),
+              controller: input,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: '整轮请求预算（秒）',
+                helperText: '默认 60 秒；保存后用于新的 HTTP/MCP 请求。',
+                errorText: error,
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final seconds = int.tryParse(input.text);
+                  if (seconds == null || seconds < 1) {
+                    update(() => error = '请输入正整数秒');
+                  } else {
+                    Navigator.pop(context, seconds);
+                  }
+                },
+                child: const Text('保存'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (seconds == null) return;
+      await _operate(definition.id, () async {
+        final current = widget.instances.find(definition.id);
+        if (current == null) throw StateError('实例已删除');
+        await widget.instances.save(
+          id: current.id,
+          name: current.name,
+          artifactId: current.artifactId,
+          engineId: current.engineId,
+          configuration: current.configuration,
+          splashAssembly: current.splashAssembly,
+          jevRequestTimeoutSeconds: seconds,
+        );
+      });
+    } finally {
+      input.dispose();
+    }
+  }
+
   Future<void> _delete(LaunchInstance definition) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -492,6 +552,14 @@ class _InstancesPageState extends State<InstancesPage> {
                                         ? null
                                         : () => _edit(existing: definition),
                                     child: const Text('编辑参数'),
+                                  ),
+                                  TextButton(
+                                    onPressed: busy
+                                        ? null
+                                        : () => _editJevBudget(definition),
+                                    child: Text(
+                                      'JEV 预算 ${definition.jevRequestTimeoutSeconds} 秒',
+                                    ),
                                   ),
                                   TextButton(
                                     onPressed: busy || live || missing != null

@@ -91,7 +91,7 @@ void main() {
               key: _captureKey,
               child: Builder(
                 builder: (context) {
-                  // Keep the actual public app's home; adapt only test-font families.
+                  // Keep the actual public app's root route; adapt only test-font families.
                   final production = const app.GhostModelDeckApp().build(
                     context,
                   ) as MaterialApp;
@@ -100,7 +100,7 @@ void main() {
                     debugShowCheckedModeBanner: false,
                     theme: _readableTheme(production.theme!),
                     darkTheme: _readableTheme(production.darkTheme!),
-                    home: production.home,
+                    onGenerateRoute: production.onGenerateRoute,
                   );
                 },
               ),

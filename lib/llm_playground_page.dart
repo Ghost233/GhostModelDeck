@@ -437,9 +437,12 @@ class _LlmPlaygroundPageState extends State<LlmPlaygroundPage> {
                   child: Text(id, overflow: TextOverflow.ellipsis),
                 ),
             ],
-            onChanged: document == null
+            onChanged: document == null || _active != null
                 ? null
-                : (value) => _edit('model', value),
+                : (value) {
+                    setState(() => _result = null);
+                    _edit('model', value);
+                  },
           ),
           Align(
             alignment: Alignment.centerLeft,

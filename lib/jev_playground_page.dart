@@ -43,7 +43,7 @@ class _JevPlaygroundPageState extends State<JevPlaygroundPage> {
     mcp: widget.mcp,
   );
   final _subscriptions = <StreamSubscription<Object?>>[];
-  final _timeout = TextEditingController(text: '30');
+  final _timeout = TextEditingController(text: '60');
   String? _exportStatus;
   bool _exporting = false;
   JevPlaygroundMode _mode = JevPlaygroundMode.http;
@@ -189,6 +189,7 @@ class _JevPlaygroundPageState extends State<JevPlaygroundPage> {
 
   void _select(String? model) {
     if (model == null) return;
+    setState(() => _result = null);
     _edit(['model'], model);
   }
 
@@ -312,7 +313,7 @@ class _JevPlaygroundPageState extends State<JevPlaygroundPage> {
           document: _json.text,
           result: _result,
           mode: _mode,
-          timeout: _clientDeadline ?? const Duration(seconds: 30),
+          timeout: _clientDeadline ?? const Duration(seconds: 60),
         );
         if (mounted) setState(() => _exportStatus = '已导出：$destination');
       } catch (error) {
@@ -554,7 +555,7 @@ class _JevPlaygroundPageState extends State<JevPlaygroundPage> {
                   child: Text(name, overflow: TextOverflow.ellipsis),
                 ),
             ],
-            onChanged: document == null ? null : _select,
+            onChanged: document == null || _active != null ? null : _select,
           ),
           const SizedBox(height: 8),
           for (final source in models)
@@ -621,7 +622,7 @@ class _JevPlaygroundPageState extends State<JevPlaygroundPage> {
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: const InputDecoration(
               labelText: '客户端期限（秒）',
-              helperText: '默认 30 秒；只控制本次客户端请求，不修改模型或委员会预算。',
+              helperText: '默认 60 秒；只控制本次客户端请求，不修改模型或委员会预算。',
             ),
           ),
           const SizedBox(height: 12),

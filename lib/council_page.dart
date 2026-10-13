@@ -199,7 +199,7 @@ class _ModelEditor extends StatefulWidget {
 class _ModelEditorState extends State<_ModelEditor> {
   late final _name = TextEditingController(text: widget.existing?.name ?? '');
   late final _timeout = TextEditingController(
-    text: '${(widget.existing?.timeout.inMicroseconds ?? 10000000) / 1000000}',
+    text: '${(widget.existing?.timeout.inMicroseconds ?? 60000000) / 1000000}',
   );
   late JevModelSource _source =
       widget.existing?.source ?? JevModelSource.council;

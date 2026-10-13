@@ -1042,7 +1042,7 @@ class LlamaEngine implements EmbeddingRuntime {
   Future<DecisionResult> decide(
     String instanceId,
     DecisionRequest request, {
-    Duration timeout = const Duration(seconds: 10),
+    Duration timeout = const Duration(seconds: 60),
     DecisionCancellation? cancellation,
   }) async {
     if (_shuttingDown) {
@@ -1108,7 +1108,7 @@ class LlamaEngine implements EmbeddingRuntime {
   Future<DecisionBatchResult> decideBatch(
     String instanceId,
     DecisionBatchRequest request, {
-    Duration timeout = const Duration(seconds: 10),
+    Duration timeout = const Duration(seconds: 60),
     DecisionCancellation? cancellation,
     DecisionIOTrace? ioTrace,
   }) async {

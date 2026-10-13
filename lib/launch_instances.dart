@@ -22,6 +22,7 @@ class LaunchInstance {
     required this.configuration,
     this.revision = 1,
     this.splashAssembly,
+    this.jevRequestTimeoutSeconds = 60,
   });
   final String id;
   final String name;
@@ -31,6 +32,7 @@ class LaunchInstance {
   final EngineLaunchConfiguration configuration;
   final int revision;
   final String? splashAssembly;
+  final int jevRequestTimeoutSeconds;
   Map<String, Object?> toJson() => {
     'id': id,
     'name': name,
@@ -40,6 +42,7 @@ class LaunchInstance {
     'configuration': configuration.toJson(),
     'revision': revision,
     'splash_assembly': splashAssembly,
+    'jev_request_timeout_seconds': jevRequestTimeoutSeconds,
   };
   factory LaunchInstance.fromJson(Object? value) {
     if (value is! Map ||
@@ -51,6 +54,9 @@ class LaunchInstance {
           value['engine_id'],
         ].any((v) => v is! String || v.trim().isEmpty) ||
         !PublicModelNames.isValid(value['public_name'] as String) ||
+        (value['jev_request_timeout_seconds'] != null &&
+            (value['jev_request_timeout_seconds'] is! int ||
+                value['jev_request_timeout_seconds'] < 1)) ||
         value['revision'] is! int ||
         value['revision'] < 1 ||
         (value['splash_assembly'] != null &&
@@ -67,6 +73,7 @@ class LaunchInstance {
       configuration: EngineLaunchConfiguration.fromJson(value['configuration']),
       revision: value['revision'],
       splashAssembly: value['splash_assembly'],
+      jevRequestTimeoutSeconds: value['jev_request_timeout_seconds'] ?? 60,
     );
   }
 }
@@ -251,11 +258,15 @@ class LaunchInstances {
     required String engineId,
     required EngineLaunchConfiguration configuration,
     String? splashAssembly,
+    int? jevRequestTimeoutSeconds,
   }) => _serial(() async {
     await _load();
     if (name.trim().isEmpty) throw ArgumentError('请输入实例名称');
     final previous = id == null ? null : find(id);
     if (id != null && previous == null) throw StateError('实例已删除');
+    final budget =
+        jevRequestTimeoutSeconds ?? previous?.jevRequestTimeoutSeconds ?? 60;
+    if (budget < 1) throw ArgumentError('JEV 请求预算必须是正整数秒');
     final selectedEngine = catalog.state.entries
         .where((e) => e.id == engineId)
         .singleOrNull;
@@ -298,6 +309,7 @@ class LaunchInstances {
       engineId: engineId,
       configuration: configuration,
       revision: (previous?.revision ?? 0) + 1,
+      jevRequestTimeoutSeconds: budget,
       splashAssembly: splashAssembly?.trim().isEmpty == true
           ? null
           : splashAssembly,
@@ -342,6 +354,7 @@ class LaunchInstances {
       engineId: original.engineId,
       configuration: original.configuration,
       splashAssembly: original.splashAssembly,
+      jevRequestTimeoutSeconds: original.jevRequestTimeoutSeconds,
     );
     names.claim('instance:${copied.id}', copied.publicName);
     try {
@@ -371,6 +384,7 @@ class LaunchInstances {
           configuration: previous.configuration,
           revision: previous.revision,
           splashAssembly: previous.splashAssembly,
+          jevRequestTimeoutSeconds: previous.jevRequestTimeoutSeconds,
         );
         try {
           await _write([
