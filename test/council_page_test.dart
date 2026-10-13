@@ -8,11 +8,121 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/app_theme.dart';
 import 'package:ghost_model_deck/council_page.dart';
 import 'package:ghost_model_deck/jev_playground_page.dart';
+import 'package:ghost_model_deck/council.dart';
+import 'package:ghost_model_deck/jev_models.dart';
+import 'package:ghost_model_deck/launch_instances.dart';
+import 'package:ghost_model_deck/engine_catalog.dart';
+import 'package:ghost_model_deck/engine_launch_configuration.dart';
+
+import 'fixtures/council_runtime.dart';
 
 import 'fixtures/playground_runtime.dart';
 import 'fixtures/test_environment.dart';
 
 void main() {
+  testWidgets(
+    'saved committee uses instance choices and turns red only for a missing reference',
+    (tester) async {
+      final runtime = (await tester.runAsync(
+        () => HttpOverrides.runWithHttpOverrides(
+          () => CouncilRuntime.create(modelCount: 1, sourceSystemone: true),
+          _NetworkBoundary(),
+        ),
+      ))!;
+      final store = LaunchInstances(
+        catalog: runtime.catalog,
+        file: File('${runtime.root.path}/instances.json'),
+      );
+      final controller = CouncilController(
+        catalog: runtime.catalog,
+        launchInstances: store,
+      );
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.runAsync(() async {
+          await controller.close();
+          await store.close();
+          await runtime.close();
+        });
+      });
+      await tester.runAsync(() async {
+        await store.save(
+          name: 'Saved First',
+          artifactId: runtime.library.state.artifacts.single.id,
+          engineId: EngineCatalog.officialId,
+          configuration: EngineLaunchConfiguration(),
+        );
+        await controller.models.save(
+          JevModelDefinition.council(
+            name: 'committee',
+            seats: controller.models.availableBindings,
+            timeout: const Duration(seconds: 2),
+          ),
+        );
+      });
+      final theme = buildJevTheme(Brightness.light);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: theme,
+          home: Scaffold(
+            body: CouncilPage(controller: controller, onOpenLibrary: () {}),
+          ),
+        ),
+      );
+      await tester.pump();
+      final title = find.text('committee · 委员会');
+      expect(
+        tester.widget<Text>(title).style?.color,
+        isNot(theme.colorScheme.error),
+      );
+      expect(find.textContaining('已保存'), findsWidgets);
+      await tester.tap(find.text('创建委员会'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Saved First'), findsWidgets);
+      expect(find.byKey(const Key('jev-model-source')), findsNothing);
+      await tester.tap(find.widgetWithText(TextButton, '取消'));
+      await tester.pumpAndSettle();
+      final roots = runtime.library.state.rootPaths.map(Directory.new).toList();
+      await tester.runAsync(
+        () => HttpOverrides.runWithHttpOverrides(() async {
+          await store.start(store.definitions.single.id);
+          final invalidated = controller.models.changes.firstWhere(
+            (_) =>
+                controller.models.configuredModels.single.missingReason != null,
+          );
+          await runtime.library.scanDirectories([]);
+          await invalidated.timeout(const Duration(seconds: 2));
+          await tester.pump();
+          await tester.pump();
+        }, _NetworkBoundary()),
+      );
+      expect(controller.models.configuredModels.single.available, isTrue);
+      expect(tester.widget<Text>(title).style?.color, theme.colorScheme.error);
+      expect(find.textContaining('模型缺失'), findsWidgets);
+      await tester.runAsync(() async {
+        await runtime.library.scanDirectories(roots);
+        await store.stop(store.definitions.single.id);
+      });
+      await tester.runAsync(() async {
+        final invalidated = controller.models.changes.firstWhere(
+          (_) =>
+              controller.models.configuredModels.single.missingReason != null,
+        );
+        await store.delete(store.definitions.single.id);
+        await invalidated.timeout(const Duration(seconds: 5));
+      });
+      expect(
+        controller.models.configuredModels.single.missingReason,
+        contains('实例配置已删除'),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(tester.widget<Text>(title).style?.color, theme.colorScheme.error);
+      expect(find.textContaining('实例配置已删除'), findsWidgets);
+      expect(controller.models.definitions.single.bindings, hasLength(1));
+      expect(tester.takeException(), isNull);
+    },
+  );
   testWidgets('委员会配置只保留创建编辑删除，配置操作不发起内部咨询', (tester) async {
     final fixture = (await tester.runAsync(
       () => HttpOverrides.runWithHttpOverrides(

@@ -84,12 +84,21 @@ void main() {
       );
       await tester.enterText(find.byKey(const Key('jev-model-timeout')), '3');
       await tester.runAsync(() async {
+        final saved = council.models.changes.firstWhere(
+          (_) =>
+              council.models.definitions.single.name == 'renamed' &&
+              council.models.definitions.single.bindings.length == 2,
+        );
         await tester.tap(find.text('保存'));
+        await saved.timeout(const Duration(seconds: 5));
         await Future<void>.delayed(Duration.zero);
       });
       await tester.pumpAndSettle();
-      expect(find.byType(AlertDialog), findsOneWidget);
-      expect(find.textContaining('席位必须绑定已登记的本机 JEV 模型与兼容引擎'), findsOneWidget);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(
+        council.models.definitions.single.bindings.map((binding) => binding.id),
+        [remaining.id, removed.id],
+      );
       await tester.runAsync(() async {
         final restored = CouncilController(
           catalog: runtime.catalog,
@@ -98,8 +107,8 @@ void main() {
         try {
           await restored.models.load();
           final saved = restored.models.definitions.single;
-          expect(saved.name, 'quick');
-          expect(saved.timeout, const Duration(seconds: 2));
+          expect(saved.name, 'renamed');
+          expect(saved.timeout, const Duration(seconds: 3));
           expect(saved.bindings.map((binding) => binding.id), [
             remaining.id,
             removed.id,
@@ -108,6 +117,9 @@ void main() {
           await restored.close();
         }
       });
+      await tester.ensureVisible(find.byKey(const Key('edit-model-renamed')));
+      await tester.tap(find.byKey(const Key('edit-model-renamed')));
+      await tester.pumpAndSettle();
       final unavailableCheckbox = find.ancestor(
         of: unavailableLabel,
         matching: find.byType(CheckboxListTile),

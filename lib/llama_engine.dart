@@ -6,6 +6,8 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 
 import 'chat_protocol.dart';
+import 'engine_install_progress.dart';
+export 'engine_install_progress.dart';
 import 'decision_protocol.dart';
 import 'embedding_protocol.dart';
 import 'startlux_readout.dart';
@@ -561,7 +563,7 @@ class LlamaEngine implements EmbeddingRuntime {
   ) => _readLaunchConfiguration = readConfiguration;
   final ModelUseRegistry useRegistry;
   final Duration loadTimeout;
-  final LinkedLlamaInstallation? linkedInstallation;
+  LinkedLlamaInstallation? linkedInstallation;
   final String? installationId;
   final StartluxReadoutStarter? startStartluxReadout;
   final Map<String, Object?>? sourceBuild;
@@ -577,6 +579,28 @@ class LlamaEngine implements EmbeddingRuntime {
   LlamaEngineState _state = const LlamaEngineState();
   LlamaEngineState get state => _state;
   Stream<LlamaEngineState> get changes => _changes.stream;
+  EngineInstallProgress? installationProgress;
+  DecisionCancellation? _installCancellation;
+  HttpClient? _installClient;
+  void cancelInstallation() {
+    _installCancellation?.cancel();
+    _installClient?.close(force: true);
+  }
+
+  void _installProgress(
+    EngineInstallPhase phase,
+    int received, {
+    String? error,
+  }) {
+    installationProgress = EngineInstallProgress(
+      phase,
+      received: received,
+      total: release.sizeBytes,
+      error: error,
+    );
+    if (!_changes.isClosed) _changes.add(_state);
+  }
+
   @override
   List<RuntimeInstance> get runtimeInstances =>
       List.unmodifiable(state.instances.map(_runtimeInstance));
@@ -595,6 +619,9 @@ class LlamaEngine implements EmbeddingRuntime {
     activeRequests: instance.activeRequests,
     acceptingRequests: instance.acceptingRequests,
     hasLiveProcess: instance.hasLiveProcess,
+    temporaryTest: _temporaryTestIds.contains(instance.id),
+    launchInstanceId: _launchIdentities[instance.id]?.$1,
+    launchRevision: _launchIdentities[instance.id]?.$2,
     capabilities: {
       for (final capability in instance.capabilities)
         switch (capability) {
@@ -627,6 +654,10 @@ class LlamaEngine implements EmbeddingRuntime {
   String? get binarySha256 => executablePath == null ? null : _binarySha256;
   LlamaBinaryVersion? get binaryVersion =>
       LlamaBinaryVersion.parse(observedVersion);
+  final _launchIdentities = <String, (String, int)>{};
+  final _temporaryTestIds = <String>{};
+  bool isTemporaryTest(String instanceId) =>
+      _temporaryTestIds.contains(instanceId);
   final _running = <String, _Running>{};
   final _instances = <String, LlamaInstance>{};
   final _reserved = <String, Set<String>>{};
@@ -656,7 +687,10 @@ class LlamaEngine implements EmbeddingRuntime {
     };
   }
 
-  Future<EngineLaunchCommand> previewLaunch(String artifactId) async {
+  Future<EngineLaunchCommand> previewLaunch(
+    String artifactId, {
+    EngineLaunchConfiguration? configuration,
+  }) async {
     final executable = executablePath;
     if (executable == null) {
       throw const LlamaEngineException('请先安装或关联并核验引擎');
@@ -669,10 +703,11 @@ class LlamaEngine implements EmbeddingRuntime {
     }
     final files = assets.single.files.toList()
       ..sort((a, b) => a.path.compareTo(b.path));
-    final configuration =
+    final selectedConfiguration =
+        configuration ??
         _readLaunchConfiguration?.call(artifactId) ??
         EngineLaunchConfiguration();
-    return configuration.command(
+    return selectedConfiguration.command(
       executable: executable,
       // The library snapshot already stores canonical real-file paths. Preview
       // reads that snapshot; start still verifies the current file before use.
@@ -684,13 +719,20 @@ class LlamaEngine implements EmbeddingRuntime {
     );
   }
 
-  Future<LlamaInstance> start(String artifactId) {
+  Future<LlamaInstance> start(
+    String artifactId, {
+    EngineLaunchConfiguration? configuration,
+    DecisionCancellation? cancellation,
+    bool temporaryTest = false,
+    String? launchInstanceId,
+    int? launchRevision,
+  }) {
     if (_recycling || _startAdmissionHolds > 0) {
       return Future.error(const LlamaEngineException('受管引擎正在回收'));
     }
     final generation = _generation;
     final instanceGeneration = ++_nextInstanceGeneration;
-    final startupCancellation = DecisionCancellation();
+    final startupCancellation = cancellation ?? DecisionCancellation();
     void checkStartup() {
       _checkStartup();
       if (startupCancellation.isCancelled) {
@@ -703,13 +745,17 @@ class LlamaEngine implements EmbeddingRuntime {
 
     return _serial(() async {
       // Freeze at operation admission, before any installation/model I/O.
-      final configuration =
+      final selectedConfiguration =
+          configuration ??
           _readLaunchConfiguration?.call(artifactId) ??
           EngineLaunchConfiguration();
       checkStartup();
       if (_detached) throw const LlamaEngineException('该引擎关联已解除');
       final recognition = _parameterRecognition;
-      configuration.validateArgumentText();
+      if (selectedConfiguration.family != EngineFamily.llamaCpp) {
+        throw const LlamaEngineException('启动配置与引擎家族不一致');
+      }
+      selectedConfiguration.validateArgumentText();
       if (state.installation != LlamaInstallationStatus.installed ||
           executablePath == null ||
           !(linkedInstallation != null
@@ -724,32 +770,29 @@ class LlamaEngine implements EmbeddingRuntime {
       if (assets.length != 1 ||
           assets.single.format != 'GGUF' ||
           ![
-            AssetKind.decision,
-            AssetKind.chat,
-            AssetKind.embedding,
-          ].contains(assets.single.kind) ||
-          assets.single.integrity != AssetIntegrity.complete ||
-          !assets.single.fingerprintsVerified ||
-          (assets.single.kind == AssetKind.decision &&
-              sourceBuild == null &&
-              !['kev', 'laya'].contains(assets.single.decisionType))) {
-        throw const LlamaEngineException('请选择完整且已核验的文本、嵌入或 Kev/Laya GGUF 模型变体');
+            AssetIntegrity.complete,
+            AssetIntegrity.unknown,
+          ].contains(assets.single.integrity) ||
+          !assets.single.fingerprintsVerified) {
+        throw const LlamaEngineException('请选择结构有效且已核验的 GGUF 模型变体');
       }
       final asset = assets.single;
-      if (asset.kind == AssetKind.decision && !supportsSystemone) {
-        throw const LlamaEngineException(
-          '此引擎未声明支持 /v1/systemone；请选择支持 JEV 的引擎',
-        );
-      }
       final alias =
           'jev-${List.generate(24, (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0')).join()}';
+      if (temporaryTest) _temporaryTestIds.add(alias);
+      if (launchInstanceId != null) {
+        _launchIdentities[alias] = (launchInstanceId, launchRevision ?? 1);
+      }
       _reserved[alias] = asset.files.map((value) => value.path).toSet();
       _Running? running;
       var unexpectedStartupExit = false;
       try {
         await _protect();
         final verified = (await library.verify([asset.id])).single;
-        if (verified.integrity != AssetIntegrity.complete ||
+        if (![
+              AssetIntegrity.complete,
+              AssetIntegrity.unknown,
+            ].contains(verified.integrity) ||
             verified.kind != asset.kind ||
             verified.files.length != asset.files.length ||
             verified.files.any(
@@ -771,7 +814,7 @@ class LlamaEngine implements EmbeddingRuntime {
         final port = socket.port;
         await socket.close();
         final endpoint = Uri.parse('http://127.0.0.1:$port');
-        final command = configuration.command(
+        final command = selectedConfiguration.command(
           executable: executablePath!,
           modelPath: path,
           alias: alias,
@@ -875,6 +918,7 @@ class LlamaEngine implements EmbeddingRuntime {
         final watch = Stopwatch()..start();
         var healthy = false;
         while (watch.elapsed < loadTimeout &&
+            !startupCancellation.isCancelled &&
             owned.exitCode == null &&
             !_shuttingDown &&
             !owned.stopping) {
@@ -907,114 +951,15 @@ class LlamaEngine implements EmbeddingRuntime {
           cancellation: owned.startupCancellation,
         );
         owned.instance = _copy(owned.instance, properties: properties);
-        if (asset.kind == AssetKind.chat &&
-            startStartluxReadout != null &&
-            sourceBuild == null) {
-          StartluxReadout? readout;
-          try {
-            readout = await startStartluxReadout!(
-              verified,
-              endpoint,
-              alias,
-              instanceGeneration,
-              owned.startupCancellation,
-            );
-          } on StartluxReadoutStartException catch (error) {
-            // A failed readiness handshake has no endpoint yet. Take ownership
-            // of the surviving child before the outer failure path drains it.
-            _bindReadout(owned, error.readout, ready: false);
-            rethrow;
-          }
-          if (readout != null) _bindReadout(owned, readout, ready: true);
-          checkStartup();
-        }
-        DecisionResult? result;
-        TextResult? text;
-        final evidence = <DecisionPrimitive, DecisionBatchResult>{};
-        final capabilities = <LlamaCapability>{};
-        if (asset.kind == AssetKind.chat) {
-          text = await _text(
-            owned,
-            TextRequest(prompt: 'Say hello.', maxTokens: 8),
-            const Duration(seconds: 10),
-            cancellation: owned.startupCancellation,
-          );
-        } else if (asset.kind == AssetKind.embedding) {
-          final embedding = await _embedding(
-            owned,
-            EmbeddingRequest.fromJson({
-              'model': alias,
-              'input': ['Embedding readiness probe.'],
-              'encoding_format': 'float',
-            }),
-            const Duration(seconds: 30),
-            cancellation: owned.startupCancellation,
-          );
-          if (asset.embeddingDimensions != null &&
-              embedding.dimensions != asset.embeddingDimensions) {
-            throw const LlamaEngineException('实际嵌入向量维度与已核验模型资产不一致');
-          }
-          capabilities.add(LlamaCapability.embeddings);
-        }
-        if (!declaresSystemone &&
-            (asset.kind == AssetKind.decision || owned.readout != null)) {
-          result = await _decision(
-            owned,
-            DecisionRequest(
-              state: 'A change has been requested.',
-              instructions: 'Choose an action.',
-              options: {
-                'keep': 'Keep the current state.',
-                'change': 'Apply the requested change.',
-              },
-            ),
-            const Duration(seconds: 10),
-            cancellation: owned.startupCancellation,
-          );
-        }
-        if (text != null) capabilities.add(LlamaCapability.textGeneration);
-        if (result != null) {
-          capabilities.add(LlamaCapability.choiceProbability);
-          // Independent real owned calls: metadata or choice never earns these.
-          for (final question in <DecisionQuestion>[
-            ScoreQuestion(
-              instructions: 'Rate the requested change.',
-              levels: ['Not applicable', 'Applicable'],
-            ),
-            NoulQuestion(
-              instructions: 'Is a change requested?',
-              falseText: 'No change requested.',
-              trueText: 'A change requested.',
-            ),
-          ]) {
-            checkStartup();
-            try {
-              await _identity(
-                owned,
-                const Duration(seconds: 5),
-                cancellation: owned.startupCancellation,
-              );
-              final proof = await _batchDecision(
-                owned,
-                DecisionBatchRequest(
-                  state: 'A change has been requested.',
-                  questions: {'capability_probe': question},
-                ),
-                const Duration(seconds: 10),
-                cancellation: owned.startupCancellation,
-              );
-              evidence[question.type] = proof;
-              capabilities.add(capabilityForPrimitive(question.type));
-            } on _InstanceIdentityException {
-              rethrow;
-            } on LlamaRequestException catch (error) {
-              if (error.kind == DecisionFailureKind.cancelled) rethrow;
-              // Failed probe does not imply support or revoke proven choice.
-            }
-          }
-        }
-        checkStartup();
-        if (declaresSystemone && asset.kind != AssetKind.embedding) {
+        // Startup advertises selected engine interfaces, never model scores.
+        // Model support and inference results come from explicit user requests.
+        final capabilities = <LlamaCapability>{
+          if (asset.kind == AssetKind.embedding)
+            LlamaCapability.embeddings
+          else
+            LlamaCapability.textGeneration,
+        };
+        if (supportsSystemone && asset.kind != AssetKind.embedding) {
           capabilities.addAll({
             LlamaCapability.choiceProbability,
             LlamaCapability.scoreProbability,
@@ -1026,10 +971,12 @@ class LlamaEngine implements EmbeddingRuntime {
             decisionPid: owned.child.pid,
             decisionSourceIdentity: {
               'kind': 'engine_declared_systemone',
-              'capability_origin': 'source_declaration',
-              'source': sourceBuild!['source'],
-              'requested_ref': sourceBuild!['requested_ref'],
-              'commit': sourceBuild!['commit'],
+              'capability_origin': sourceBuild == null
+                  ? 'engine_release'
+                  : 'source_declaration',
+              'source': sourceBuild?['source'] ?? release.url.toString(),
+              'requested_ref': sourceBuild?['requested_ref'],
+              'commit': sourceBuild?['commit'] ?? release.commit,
               'binary_sha256': owned.instance.binarySha256,
               'native_endpoint': endpoint.toString(),
               'generation': instanceGeneration,
@@ -1037,21 +984,14 @@ class LlamaEngine implements EmbeddingRuntime {
             },
           );
         }
-        if (owned.readout != null &&
-            ![
-              LlamaCapability.choiceProbability,
-              LlamaCapability.scoreProbability,
-              LlamaCapability.noulScalar,
-            ].every(capabilities.contains)) {
-          throw const LlamaEngineException('StartLux 未完成全部三项真实 typed 能力验证');
-        }
+        checkStartup();
         owned.instance = _copy(
           owned.instance,
           status: LlamaInstanceStatus.ready,
           acceptingRequests: true,
-          lastResult: result,
-          lastTextResult: text,
-          typedEvidence: Map.unmodifiable(evidence),
+          lastResult: null,
+          lastTextResult: null,
+          typedEvidence: const {},
           capabilities: Set.unmodifiable(capabilities),
         );
         _instances[alias] = owned.instance;
@@ -1095,35 +1035,6 @@ class LlamaEngine implements EmbeddingRuntime {
     });
   }
 
-  void _bindReadout(
-    _Running owned,
-    StartluxReadout readout, {
-    required bool ready,
-  }) {
-    owned.readout = readout;
-    owned.instance = _copy(
-      owned.instance,
-      decisionEndpoint: ready ? readout.endpoint : null,
-      decisionSourceIdentity: readout.sourceIdentity,
-      decisionPid: readout.pid,
-    );
-    readout.exited.then((code) async {
-      owned.readoutExitCode = code;
-      if (owned.stopping || !_isCurrent(owned)) return;
-      try {
-        await _fail(owned, 'StartLux 受管概率读出已退出 ($code)');
-      } catch (error) {
-        owned.instance = _copy(
-          owned.instance,
-          status: LlamaInstanceStatus.failed,
-          capabilities: const {},
-          error: 'StartLux 退出收尾未完成：$error',
-        );
-        _publishRun(owned);
-      }
-    });
-  }
-
   void _checkStartup() {
     if (_shuttingDown) throw const LlamaEngineException('应用退出，已取消引擎启动');
   }
@@ -1131,7 +1042,7 @@ class LlamaEngine implements EmbeddingRuntime {
   Future<DecisionResult> decide(
     String instanceId,
     DecisionRequest request, {
-    Duration timeout = const Duration(seconds: 10),
+    Duration timeout = const Duration(seconds: 60),
     DecisionCancellation? cancellation,
   }) async {
     if (_shuttingDown) {
@@ -1197,7 +1108,7 @@ class LlamaEngine implements EmbeddingRuntime {
   Future<DecisionBatchResult> decideBatch(
     String instanceId,
     DecisionBatchRequest request, {
-    Duration timeout = const Duration(seconds: 10),
+    Duration timeout = const Duration(seconds: 60),
     DecisionCancellation? cancellation,
     DecisionIOTrace? ioTrace,
   }) async {
@@ -2045,6 +1956,7 @@ class LlamaEngine implements EmbeddingRuntime {
   @override
   Future<void> stopManaged() {
     if (_recycle != null) return _recycle!;
+    cancelInstallation();
     _recycling = true;
     _generation++;
     for (final entry in _pendingStarts.entries.toList()) {
@@ -2159,6 +2071,7 @@ class LlamaEngine implements EmbeddingRuntime {
 
   void beginShutdown() {
     _shuttingDown = true;
+    cancelInstallation();
     _shutdownCancellation.cancel();
   }
 
@@ -2196,6 +2109,17 @@ class LlamaEngine implements EmbeddingRuntime {
       ),
     );
     Directory? staging;
+    final cancellation = DecisionCancellation();
+    _installCancellation = cancellation;
+    void checkCancelled() {
+      if (_shuttingDown || cancellation.isCancelled) {
+        throw const LlamaEngineException('引擎安装已取消');
+      }
+    }
+
+    var received = 0;
+    final progressClock = Stopwatch()..start();
+    _installProgress(EngineInstallPhase.downloading, received);
     try {
       await installationDirectory.create(recursive: true);
       final root = await installationDirectory.resolveSymbolicLinks();
@@ -2206,10 +2130,13 @@ class LlamaEngine implements EmbeddingRuntime {
           throw const LlamaEngineException('引擎 archive 尺寸不匹配');
         }
         await verifiedArchive.openRead().pipe(archive.openWrite());
+        received = release.sizeBytes;
       } else {
         final client = HttpClient()
           ..connectionTimeout = const Duration(seconds: 30);
+        _installClient = client;
         try {
+          checkCancelled();
           final response = await (await client.getUrl(release.url))
               .close()
               .timeout(const Duration(seconds: 30));
@@ -2217,16 +2144,21 @@ class LlamaEngine implements EmbeddingRuntime {
             throw LlamaEngineException('引擎下载 HTTP ${response.statusCode}');
           }
           final sink = archive.openWrite();
-          var received = 0;
           try {
             await for (final bytes in response.timeout(
               const Duration(seconds: 30),
             )) {
+              checkCancelled();
               received += bytes.length;
               if (received > release.sizeBytes) {
                 throw const LlamaEngineException('引擎 archive 超出发布尺寸');
               }
               sink.add(bytes);
+              if (received == bytes.length ||
+                  progressClock.elapsedMilliseconds >= 100) {
+                _installProgress(EngineInstallPhase.downloading, received);
+                progressClock.reset();
+              }
             }
             await sink.flush();
           } finally {
@@ -2234,8 +2166,11 @@ class LlamaEngine implements EmbeddingRuntime {
           }
         } finally {
           client.close(force: true);
+          _installClient = null;
         }
       }
+      checkCancelled();
+      _installProgress(EngineInstallPhase.verifying, received);
       if (await archive.length() != release.sizeBytes) {
         throw const LlamaEngineException('引擎 archive 尺寸不匹配');
       }
@@ -2253,6 +2188,7 @@ class LlamaEngine implements EmbeddingRuntime {
               version: observedVersion,
             ),
           );
+          _installProgress(EngineInstallPhase.complete, received);
           return;
         }
         throw const LlamaEngineException('已有引擎安装校验失败，未覆盖原目录');
@@ -2275,6 +2211,8 @@ class LlamaEngine implements EmbeddingRuntime {
           )) {
         throw const LlamaEngineException('引擎 archive 目录不匹配');
       }
+      checkCancelled();
+      _installProgress(EngineInstallPhase.unpacking, received);
       final unpack = Directory('${staging.path}/unpack');
       await unpack.create();
       final result = await io.run('/usr/bin/tar', [
@@ -2288,6 +2226,7 @@ class LlamaEngine implements EmbeddingRuntime {
       final binary = File('${extracted.path}/llama-server');
       final inventory = await _inventory(extracted);
       final version = await _version(binary);
+      checkCancelled();
       await File('${extracted.path}/installation.json').writeAsString(
         jsonEncode({
           'tag': release.tag,
@@ -2302,6 +2241,7 @@ class LlamaEngine implements EmbeddingRuntime {
         }),
         flush: true,
       );
+      checkCancelled();
       await extracted.rename(target.path);
       _binarySha256 = (inventory['llama-server'] as Map)['sha256'] as String;
       executablePath = '${target.path}/llama-server';
@@ -2313,8 +2253,11 @@ class LlamaEngine implements EmbeddingRuntime {
           version: version,
         ),
       );
+      _installProgress(EngineInstallPhase.complete, received);
     } catch (error) {
-      final reason = error is LlamaEngineException
+      final reason = cancellation.isCancelled || _shuttingDown
+          ? '引擎安装已取消'
+          : error is LlamaEngineException
           ? error.message
           : '引擎安装失败：${error.runtimeType}';
       _publish(
@@ -2324,9 +2267,28 @@ class LlamaEngine implements EmbeddingRuntime {
           error: reason,
         ),
       );
+      _installProgress(
+        cancellation.isCancelled || _shuttingDown
+            ? EngineInstallPhase.cancelled
+            : EngineInstallPhase.failed,
+        received,
+        error: reason,
+      );
       throw LlamaEngineException(reason);
     } finally {
-      if (staging != null) await staging.delete(recursive: true);
+      try {
+        if (staging != null) await staging.delete(recursive: true);
+      } catch (error) {
+        _installProgress(
+          EngineInstallPhase.failed,
+          received,
+          error: '安装临时目录清理失败：${error.runtimeType}',
+        );
+        rethrow;
+      } finally {
+        _installCancellation = null;
+        _installClient = null;
+      }
     }
   });
 
@@ -2444,18 +2406,6 @@ class LlamaEngine implements EmbeddingRuntime {
     executablePath = null;
     observedVersion = null;
     _binarySha256 = null;
-    for (final running in _running.values.toList()) {
-      if (!running.hasLiveOwnedProcess) continue;
-      _seal(running);
-      running.instance = _copy(
-        running.instance,
-        status: LlamaInstanceStatus.failed,
-        properties: const {},
-        capabilities: const {},
-        error: '$reason；请停止旧实例后重新启动',
-      );
-      _publishRun(running);
-    }
   }
 
   bool _discardUnverifiedParameters() {
@@ -2521,19 +2471,11 @@ class LlamaEngine implements EmbeddingRuntime {
     try {
       final expected = linkedInstallation!;
       final actual = await inspectLinkedLlama(File(expected.path), io);
-      final recordedIdentity = LlamaBinaryVersion.parse(expected.version);
-      final observedIdentity = LlamaBinaryVersion.parse(actual.version);
-      final sameVersion = recordedIdentity != null && observedIdentity != null
-          ? recordedIdentity.semanticVersion ==
-                    observedIdentity.semanticVersion &&
-                recordedIdentity.build == observedIdentity.build &&
-                recordedIdentity.commit == observedIdentity.commit &&
-                recordedIdentity.platform == observedIdentity.platform
-          : actual.version == expected.version;
-      if (!sameVersion ||
-          jsonEncode(actual.fingerprints) !=
-              jsonEncode(expected.fingerprints)) {
-        return _discardUnverifiedParameters();
+      if (actual.path != expected.path) return _discardUnverifiedParameters();
+      if (jsonEncode(actual.fingerprints) !=
+              jsonEncode(expected.fingerprints) ||
+          actual.version != expected.version) {
+        linkedInstallation = actual;
       }
       executablePath = actual.path;
       _binarySha256 = actual.sha256;

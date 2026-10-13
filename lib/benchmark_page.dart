@@ -29,7 +29,7 @@ class BenchmarkPage extends StatefulWidget {
 }
 
 class _BenchmarkPageState extends State<BenchmarkPage> {
-  final _timeout = TextEditingController(text: '30');
+  final _timeout = TextEditingController(text: '60');
   late final StreamSubscription<BenchmarkRun> _subscription;
   late final StreamSubscription<BenchmarkResourceProgress?>
   _resourceSubscription;
@@ -1642,7 +1642,7 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
               ),
               decoration: const InputDecoration(
                 labelText: '客户端期限（秒）',
-                helperText: '默认 30 秒；题源准备不计入模型端到端耗时。',
+                helperText: '默认 60 秒；题源准备不计入模型端到端耗时。',
               ),
             ),
           if (!_onlyGames && _deadline == null) const Text('客户端期限必须为有效正秒数。'),

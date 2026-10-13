@@ -18,15 +18,20 @@ import 'jev_playground.dart';
 import 'llm_playground_page.dart';
 import 'council_mcp.dart';
 import 'download_panel.dart';
+import 'application_configuration.dart';
 import 'download_preferences.dart';
 import 'download_tasks_page.dart';
 import 'engine_catalog.dart';
+import 'launch_instances.dart';
+import 'desktop_home_route.dart';
+import 'instances_page.dart';
 import 'engine_page.dart';
 import 'engine_source_build.dart';
 import 'embedding_page.dart';
 import 'omlx_engine.dart';
 import 'hf_model_browser.dart';
 import 'public_gateway.dart';
+import 'public_model_names.dart';
 import 'library_directory_settings.dart';
 import 'library_page.dart';
 import 'llama_engine.dart';
@@ -55,7 +60,10 @@ class GhostModelDeckApp extends StatelessWidget {
     debugShowCheckedModeBanner: false,
     theme: buildJevTheme(Brightness.light),
     darkTheme: buildJevTheme(Brightness.dark),
-    home: const _ManagerShell(),
+    onGenerateRoute: (settings) => DesktopHomeRoute(
+      settings: settings,
+      builder: (_) => const _ManagerShell(),
+    ),
   );
 }
 
@@ -83,6 +91,9 @@ class _ManagerShellState extends State<_ManagerShell>
   Future<void> _startluxPreparation = Future.value();
   late final OmlxEngine _omlxEngine;
   late final EngineCatalog _engines;
+  late final LaunchInstances _instances;
+  final _publicNames = PublicModelNames();
+  String? _instanceArtifact;
   late final CouncilController _council;
   late final CouncilMcpServer _mcp;
   late final PublicModelRoutes _publicRoutes;
@@ -95,6 +106,7 @@ class _ManagerShellState extends State<_ManagerShell>
   late final ManagerLifecycle _lifecycle;
   late final VersionStatusBridge _versionStatusBridge;
   String? _libraryPath;
+  List<String> _libraryPaths = [];
   String? _settingsError;
   String? _appVersion;
   int _page = 0;
@@ -147,6 +159,8 @@ class _ManagerShellState extends State<_ManagerShell>
       startStartluxReadout: _startStartluxReadout,
     );
     _omlxEngine = OmlxEngine(
+      library: _library,
+      useRegistry: _useRegistry,
       installationDirectory: Directory(
         '${_settings.file.parent.path}/engines/omlx',
       ),
@@ -164,13 +178,21 @@ class _ManagerShellState extends State<_ManagerShell>
         Directory('${_settings.file.parent.path}/engines/source'),
       ),
     );
+    _instances = LaunchInstances(
+      catalog: _engines,
+      file: File('${_settings.file.parent.path}/launch-instances.json'),
+      names: _publicNames,
+    );
     _council = CouncilController(
       catalog: _engines,
       modelRegistryFile: File('${_settings.file.parent.path}/jev_models.json'),
+      publicNames: _publicNames,
+      launchInstances: _instances,
     );
     _mcp = CouncilMcpServer(controller: _council);
     _publicRoutes = PublicModelRoutes(
       library: _library,
+      instances: _instances,
       runtimes: [
         _officialEngine,
         _standardEngine,
@@ -210,6 +232,7 @@ class _ManagerShellState extends State<_ManagerShell>
       gateway: _publicGateway,
       mcp: _mcp,
       startupSet: _startupSet,
+      instances: _instances,
       // 窗口激活最小原生 seam；原生窗口行为验证属 #19 范围。原生未实现时
       // MissingPluginException 真实上抛，不假装窗口已激活。
       onOpenWindow: () => _native.invokeMethod<void>('activateMainWindow'),
@@ -218,6 +241,7 @@ class _ManagerShellState extends State<_ManagerShell>
       onVersionStatus: _versionStatusBridge.query,
     );
     _lifecycle = ManagerLifecycle(
+      instances: _instances,
       council: _council,
       mcp: _mcp,
       engines: _engines,
@@ -250,12 +274,7 @@ class _ManagerShellState extends State<_ManagerShell>
       }
       return true;
     });
-    unawaited(_mcp.start().catchError((Object _) {}));
-    // 启动失败（含公开端口冲突）保留在网关状态机中显式呈现，不影响其余服务。
-    unawaited(_publicGateway.start().catchError((Object _) {}));
-    // SDK 连接立即返回，握手与重连在后台维持；启动器不在场不影响独立使用。
-    _launcherService.connect();
-    _loadSettings();
+    unawaited(_loadSettings());
     _loadAppVersion();
   }
 
@@ -333,12 +352,26 @@ class _ManagerShellState extends State<_ManagerShell>
 
   Future<void> _loadSettings() async {
     try {
-      final path = await _settings.load();
+      await ApplicationConfiguration(directory: _settings.file.parent)
+          .prepare();
+      final directories = await _settings.loadDirectories();
+      final path = directories.downloadPath;
       await _preferences.load();
       await _startupSet.load();
-      if (mounted) setState(() => _libraryPath = path);
-    } catch (_) {
-      if (mounted) setState(() => _settingsError = '设置读取失败');
+      await _instances.load();
+      if (!mounted) return;
+      unawaited(_mcp.start().catchError((Object _) {}));
+      // Public and SDK discovery must not read the previous configuration.
+      unawaited(_publicGateway.start().catchError((Object _) {}));
+      _launcherService.connect();
+      if (mounted) {
+        setState(() {
+          _libraryPath = path;
+          _libraryPaths = directories.libraryPaths;
+        });
+      }
+    } catch (error) {
+      if (mounted) setState(() => _settingsError = '设置读取失败：$error');
     }
   }
 
@@ -347,20 +380,44 @@ class _ManagerShellState extends State<_ManagerShell>
   Future<String?> _pickEngineDirectory() =>
       _native.invokeMethod<String>('pickEngineDirectory');
   Future<String> _saveDirectory(String path) async {
-    final saved = await _settings.save(path);
+    final directories = await _settings.saveDirectories(
+      ModelDirectories(
+        downloadPath: path,
+        libraryPaths: [..._libraryPaths, path],
+      ),
+    );
+    final saved = directories.downloadPath;
     if (mounted) {
       setState(() {
         _libraryPath = saved;
+        _libraryPaths = directories.libraryPaths;
         _settingsError = null;
       });
     }
+    if (!_openedPages.contains(2)) {
+      await _library.scanDirectories(
+        directories.libraryPaths.map(Directory.new).toList(),
+      );
+    }
     return saved;
+  }
+
+  Future<void> _saveLibraryPaths(List<String> paths) async {
+    final directories = await _settings.saveDirectories(
+      ModelDirectories(downloadPath: _libraryPath!, libraryPaths: paths),
+    );
+    if (mounted) setState(() => _libraryPaths = directories.libraryPaths);
+    if (!_openedPages.contains(2)) {
+      await _library.scanDirectories(
+        directories.libraryPaths.map(Directory.new).toList(),
+      );
+    }
   }
 
   void _navigate(int page) => setState(() {
     _page = page;
     _openedPages.add(page);
-    if (page <= 6 && page != 4) {
+    if ((page <= 6 || page == 11) && page != 4) {
       _enginePage = page;
       _workspaceTabs.index = 0;
     } else if (page >= 7) {
@@ -417,6 +474,7 @@ class _ManagerShellState extends State<_ManagerShell>
     _mcp.close();
     _publicGateway.close();
     _publicRoutes.close();
+    unawaited(_instances.close().catchError((Object _) {}));
     unawaited(_council.close().catchError((Object _) {}));
     _engines.close();
     _officialEngine.close();
@@ -485,11 +543,8 @@ class _ManagerShellState extends State<_ManagerShell>
                     Text(_settingsError!),
                     const SizedBox(height: 12),
                     TextButton(
-                      onPressed: () async {
-                        final selected = await _pickDirectory();
-                        if (selected != null) await _saveDirectory(selected);
-                      },
-                      child: const Text('选择模型目录'),
+                      onPressed: _loadSettings,
+                      child: const Text('重试'),
                     ),
                   ],
                 ),
@@ -570,9 +625,10 @@ class _ManagerShellState extends State<_ManagerShell>
                                 _groupLabel('模型'),
                                 _navigation('发现模型', Icons.search_rounded, 0),
                                 _navigation('模型库', Icons.folder_outlined, 2),
-                                _navigation('下载任务', Icons.download_outlined, 1),
+                                _navigation('下载', Icons.download_outlined, 1),
                                 _groupLabel('服务'),
                                 _navigation('引擎管理', Icons.memory_outlined, 3),
+                                _navigation('实例', Icons.layers_outlined, 11),
                                 _navigation('委员会配置', Icons.groups_outlined, 5),
                                 _navigation('MCP', Icons.cable_outlined, 6),
                               ] else ...[
@@ -622,17 +678,24 @@ class _ManagerShellState extends State<_ManagerShell>
                             onDownloadStarted: () => _navigate(1),
                           ),
                           if (_openedPages.contains(1))
-                            DownloadTasksPage(downloads: _downloads)
+                            DownloadTasksPage(
+                              downloads: _downloads,
+                              engines: _engines,
+                            )
                           else
                             const SizedBox.shrink(),
                           if (_openedPages.contains(2))
                             LibraryPage(
                               library: _library,
                               libraryPath: path,
+                              libraryPaths: _libraryPaths,
                               engines: _engines,
                               publicRoutes: _publicRoutes,
                               publicGateway: _publicGateway,
-                              startupSet: _startupSet,
+                              onCreateInstance: (artifact) {
+                                _instanceArtifact = artifact;
+                                _navigate(11);
+                              },
                             )
                           else
                             const SizedBox.shrink(),
@@ -640,6 +703,7 @@ class _ManagerShellState extends State<_ManagerShell>
                             EnginePage(
                               catalog: _engines,
                               pickEngineDirectory: _pickEngineDirectory,
+                              onDownloadStarted: () => _navigate(1),
                             )
                           else
                             const SizedBox.shrink(),
@@ -648,6 +712,8 @@ class _ManagerShellState extends State<_ManagerShell>
                               preferences: _preferences,
                               libraryPath: path,
                               onLibraryPathChanged: _saveDirectory,
+                              libraryPaths: _libraryPaths,
+                              onLibraryPathsChanged: _saveLibraryPaths,
                               pickLibraryDirectory: _pickDirectory,
                               softwareUpdate: _softwareUpdateConfig(),
                             )
@@ -691,6 +757,26 @@ class _ManagerShellState extends State<_ManagerShell>
                             EmbeddingPage(
                               gateway: _publicGateway,
                               active: _workspaceTabs.index == 1 && _page == 10,
+                            )
+                          else
+                            const SizedBox.shrink(),
+                          if (_openedPages.contains(11))
+                            InstancesPage(
+                              instances: _instances,
+                              startupSet: _startupSet,
+                              initialArtifactId: _instanceArtifact,
+                              onInitialArtifactHandled: () {
+                                setState(() => _instanceArtifact = null);
+                              },
+                              prepare: () async {
+                                await _engines.refresh();
+                                if (!_library.state.scanning &&
+                                    _library.state.rootPaths.isEmpty) {
+                                  await _library.scanDirectories(
+                                    _libraryPaths.map(Directory.new).toList(),
+                                  );
+                                }
+                              },
                             )
                           else
                             const SizedBox.shrink(),

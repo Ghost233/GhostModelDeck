@@ -10,6 +10,7 @@ import 'package:ghost_model_deck/embedding_page.dart';
 import 'package:ghost_model_deck/jev_playground_page.dart';
 import 'package:ghost_model_deck/settings_page.dart';
 import 'package:ghost_model_deck/council_page.dart';
+import 'package:ghost_model_deck/instances_page.dart';
 
 import 'fixtures/actual_app_environment.dart';
 
@@ -17,6 +18,21 @@ void main() {
   late ActualAppEnvironment environment;
   setUp(() async => environment = await ActualAppEnvironment.create());
   tearDown(() => environment.close());
+  testWidgets('实例入口属于引擎区并在切换区域后保持', (tester) async {
+    await _runWithCleanup(tester, () async {
+      await _openApp(tester);
+      await _tap(tester, _navigation('实例'));
+      expect(find.byType(InstancesPage), findsOneWidget);
+      expect(find.text('创建实例').hitTestable(), findsOneWidget);
+      await _tap(tester, find.text('测试场'));
+      expect(find.text('创建实例').hitTestable(), findsNothing);
+      await _tap(tester, find.text('引擎'));
+      expect(find.byType(InstancesPage), findsOneWidget);
+      expect(find.text('创建实例').hitTestable(), findsOneWidget);
+      expect(find.byKey(const Key('playground-capability-tabs')), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  });
   testWidgets('顶层区域先于侧栏，引擎六入口与共享设置可访问', (tester) async {
     tester.view.physicalSize = const Size(900, 560);
     tester.view.devicePixelRatio = 1;
@@ -32,7 +48,7 @@ void main() {
         tester.getBottomLeft(tabs).dy,
         lessThanOrEqualTo(tester.getTopLeft(_navigation('发现模型')).dy),
       );
-      for (final label in ['发现模型', '模型库', '下载任务', '引擎管理', '委员会配置', 'MCP']) {
+      for (final label in ['发现模型', '模型库', '下载', '引擎管理', '委员会配置', 'MCP']) {
         await tester.scrollUntilVisible(
           _navigation(label),
           100,

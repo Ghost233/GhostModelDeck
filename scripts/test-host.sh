@@ -49,7 +49,7 @@ before = json.loads((run / 'input.json').read_text())['source_files']
 after = {name: hashlib.sha256(pathlib.Path(name).read_bytes()).hexdigest() if pathlib.Path(name).is_file() else None for name in before}
 for directory in ('lib', 'test', 'benchmarks', 'assets'):
     for path in pathlib.Path(directory).rglob('*'):
-        if path.is_file() and '.git' not in path.parts and '__pycache__' not in path.parts and str(path) not in after:
+        if path.is_file() and '.git' not in path.parts and '__pycache__' not in path.parts and path.name != '.DS_Store' and str(path) not in after:
             after[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
 (run / 'output.json').write_text(json.dumps({'source_files_after': after, 'source_unchanged': before == after}, indent=2) + '\n')
 if before != after:
@@ -116,7 +116,7 @@ else:
 source = {}
 for directory in ('lib', 'test', 'benchmarks', 'assets'):
     for path in sorted((root / directory).rglob('*')):
-        if path.is_file() and '.git' not in path.parts and '__pycache__' not in path.parts:
+        if path.is_file() and '.git' not in path.parts and '__pycache__' not in path.parts and path.name != '.DS_Store':
             source[str(path.relative_to(root))] = digest(path)
 for name in ('pubspec.yaml', 'pubspec.lock', 'analysis_options.yaml', 'scripts/test-host.sh', 'scripts/verify_flutter_test_result.py'):
     source[name] = digest(root / name)

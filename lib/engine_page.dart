@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
@@ -14,9 +16,11 @@ class EnginePage extends StatefulWidget {
     super.key,
     required this.catalog,
     required this.pickEngineDirectory,
+    this.onDownloadStarted,
   });
   final EngineCatalog catalog;
   final Future<String?> Function() pickEngineDirectory;
+  final VoidCallback? onDownloadStarted;
   @override
   State<EnginePage> createState() => _EnginePageState();
 }
@@ -56,11 +60,23 @@ class _EnginePageState extends State<EnginePage> {
     }
   }
 
-  Future<void> _buildSource() => showDialog<void>(
-    context: context,
-    barrierDismissible: false,
-    builder: (_) => EngineSourceDialog(catalog: widget.catalog),
-  );
+  Future<void> _buildSource() async {
+    final started = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => EngineSourceDialog(catalog: widget.catalog),
+    );
+    if (started == true && mounted) widget.onDownloadStarted?.call();
+  }
+
+  void _install(EngineRegistration entry) {
+    unawaited(
+      widget.catalog.installManaged(entry.id).catchError((Object error) {
+        if (mounted) setState(() => _error = error.toString());
+      }),
+    );
+    widget.onDownloadStarted?.call();
+  }
 
   Future<void> _showUnlinkedConfigurations() => showDialog<void>(
     context: context,
@@ -178,7 +194,7 @@ class _EnginePageState extends State<EnginePage> {
                   if (error != null)
                     Text(
                       error!,
-                      style: TextStyle(
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: Theme.of(context).colorScheme.error,
                       ),
                     ),
@@ -230,7 +246,7 @@ class _EnginePageState extends State<EnginePage> {
     builder: (_) => EngineLaunchEditor(
       title: '${engineDisplayName(entry)} · 启动参数',
       initialConfiguration: widget.catalog.launchDefaultsFor(entry.id),
-      executable: entry.path,
+      executable: entry.splashInstallation?.python.path ?? entry.path,
       recognition: widget.catalog.parameterRecognitionFor(entry.id),
       onSave: (configuration) =>
           widget.catalog.saveLaunchDefaults(entry.id, configuration),
@@ -252,7 +268,7 @@ class _EnginePageState extends State<EnginePage> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(entry.name),
+                Text(engineDisplayName(entry)),
                 const SizedBox(height: 12),
                 if (linked)
                   Text(entry.path ?? '')
@@ -295,16 +311,14 @@ class _EnginePageState extends State<EnginePage> {
           child: SingleChildScrollView(
             child: SelectableText(
               [
-                sourceBuild == null ? engineSourceLabel(entry) : 'Git 源码构建',
+                engineSourceLabel(entry),
                 if (sourceBuild != null) ...[
-                  '引擎名称 ${entry.name}',
                   '来源地址 ${sourceBuild['source']}',
                   '请求版本 ${sourceBuild['requested_ref'] ?? '仓库默认版本'}',
                   '实际提交 ${sourceBuild['commit']}',
                   '构建日志 ${sourceBuild['log_path']}',
                 ],
                 if (entry.family == EngineFamily.omlx) ...[
-                  '完整官方 app · 生产模型运行尚未接通',
                   OmlxEngine.artifactUrl,
                   if (entry.omlxReceipt != null) ...[
                     '发行标签 ${entry.omlxReceipt!.releaseLabel} · app 构建 ${entry.omlxReceipt!.build}',
@@ -348,6 +362,16 @@ class _EnginePageState extends State<EnginePage> {
     builder: (context, snapshot) {
       final state = snapshot.data!;
       final busy = _working || state.busy;
+      final entries = state.entries
+          .where(
+            (entry) =>
+                ![EngineCatalog.embeddingId].contains(entry.id) ||
+                entry.status != LlamaInstallationStatus.absent,
+          )
+          .toList();
+      final showSplash = !entries.any(
+        (entry) => entry.family == EngineFamily.splash,
+      );
       final theme = Theme.of(context);
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -410,10 +434,49 @@ class _EnginePageState extends State<EnginePage> {
                 padding: EdgeInsets.zero,
                 child: ListView.separated(
                   shrinkWrap: true,
-                  itemCount: state.entries.length,
+                  itemCount: entries.length + (showSplash ? 1 : 0),
                   separatorBuilder: (_, _) => const Divider(),
                   itemBuilder: (context, index) {
-                    final entry = state.entries[index];
+                    if (index == entries.length) {
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 18,
+                          vertical: 16,
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.memory_outlined, size: 20),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Splash',
+                                    style: theme.textTheme.titleMedium,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'incoai/splash',
+                                    style: theme.textTheme.bodySmall,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const JevStatusChip(
+                              label: '未关联',
+                              tone: JevStatusTone.neutral,
+                            ),
+                            const SizedBox(width: 12),
+                            OutlinedButton(
+                              onPressed: busy ? null : _link,
+                              child: const Text('关联'),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+                    final entry = entries[index];
                     final configurationNotice = widget.catalog
                         .configurationVersionNoticeFor(entry.id);
                     final linked = entry.source == EngineSource.linked;
@@ -451,10 +514,13 @@ class _EnginePageState extends State<EnginePage> {
                                       style: theme.textTheme.titleMedium,
                                     ),
                                     const SizedBox(height: 4),
+                                    SelectableText(
+                                      engineSourceLabel(entry),
+                                      style: theme.textTheme.bodySmall,
+                                    ),
+                                    const SizedBox(height: 4),
                                     Text(
-                                      entry.family == EngineFamily.omlx
-                                          ? '完整官方 app · 生产模型运行尚未接通'
-                                          : entry.version == null
+                                      entry.version == null
                                           ? '${entry.release?.tag ?? '未知版本'} · macOS arm64'
                                           : engineVersionLabel(entry.version),
                                       style: theme.textTheme.bodySmall,
@@ -479,14 +545,18 @@ class _EnginePageState extends State<EnginePage> {
                               ),
                               if (!linked && !installed)
                                 FilledButton(
-                                  onPressed: busy
+                                  onPressed:
+                                      busy ||
+                                          entry.status ==
+                                              LlamaInstallationStatus.installing
                                       ? null
-                                      : () => _run(
-                                          () => widget.catalog.installManaged(
-                                            entry.id,
-                                          ),
-                                        ),
-                                  child: const Text('安装'),
+                                      : () => _install(entry),
+                                  child: Text(
+                                    entry.status ==
+                                            LlamaInstallationStatus.installing
+                                        ? '安装中'
+                                        : '安装',
+                                  ),
                                 ),
                               if (linked || installed)
                                 TextButton(

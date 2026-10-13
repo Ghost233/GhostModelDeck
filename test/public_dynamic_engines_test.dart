@@ -26,7 +26,6 @@ void main() {
           verifyFiles: true,
         )).singleWhere((entry) => entry.kind == AssetKind.chat);
       }
-      final id = 'gmd-${asset.id}';
       final routes = PublicModelRoutes(
         library: fixture.library,
         runtimes: const [],
@@ -36,6 +35,7 @@ void main() {
         ],
       );
       await routes.enable(asset.id);
+      final id = routes.publicIdFor(asset.id);
       final gateway = PublicGatewayServer(routes: routes, port: 0);
       await gateway.start();
       addTearDown(() async {

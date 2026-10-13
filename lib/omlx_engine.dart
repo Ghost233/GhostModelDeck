@@ -7,9 +7,11 @@ import 'package:crypto/crypto.dart';
 
 import 'chat_protocol.dart';
 import 'engine_runtime.dart';
+import 'engine_launch_configuration.dart';
 import 'engine_parameter_recognition.dart';
 import 'model_library.dart';
 import 'model_use_registry.dart';
+import 'engine_install_progress.dart';
 
 class OmlxException implements Exception {
   const OmlxException(this.message);
@@ -35,9 +37,11 @@ class OmlxReceipt {
     required this.runtimeIdentity,
     this.dmgSha256,
     this.parameterRecognition,
+    this.releaseLabel = '0.7.0',
+    this.build = '2987',
   });
-  String get releaseLabel => '0.7.0';
-  String get build => '2987';
+  final String releaseLabel;
+  final String build;
   final String bundleManifestSha256;
   final int entries;
   final int sizeBytes;
@@ -58,8 +62,11 @@ class OmlxReceipt {
   };
   static OmlxReceipt fromJson(Object? value) {
     if (value is! Map ||
-        value['release'] != '0.7.0' ||
-        value['build'] != '2987' ||
+        value['release'] is! String ||
+        !RegExp(r'^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$')
+            .hasMatch(value['release'] as String) ||
+        value['build'] is! String ||
+        (value['build'] as String).isEmpty ||
         value['bundleManifestSha256'] is! String ||
         !RegExp(r'^[a-f0-9]{64}$')
             .hasMatch(value['bundleManifestSha256'] as String) ||
@@ -70,10 +77,14 @@ class OmlxReceipt {
         value['python'] != '3.11.10' ||
         value['architecture'] != 'arm64' ||
         (value['dmgSha256'] != null &&
-            value['dmgSha256'] != OmlxEngine.dmgDigest)) {
+            (value['dmgSha256'] != OmlxEngine.dmgDigest ||
+                value['release'] != '0.7.0' ||
+                value['build'] != '2987'))) {
       throw const OmlxException('oMLX 安装收据无效');
     }
     return OmlxReceipt(
+      releaseLabel: value['release'] as String,
+      build: value['build'] as String,
       bundleManifestSha256: value['bundleManifestSha256'] as String,
       entries: value['entries'] as int,
       sizeBytes: value['sizeBytes'] as int,
@@ -124,7 +135,16 @@ abstract interface class OmlxProcessIO {
   Future<void> download(Uri url, File destination);
 }
 
-class NativeOmlxProcessIO implements OmlxProcessIO {
+abstract interface class OmlxProgressiveDownload {
+  Future<void> downloadWithProgress(
+    Uri url,
+    File destination, {
+    required DecisionCancellation cancellation,
+    required void Function(int bytes) onProgress,
+  });
+}
+
+class NativeOmlxProcessIO implements OmlxProcessIO, OmlxProgressiveDownload {
   @override
   Future<ProcessResult> run(
     String executable,
@@ -168,23 +188,55 @@ class NativeOmlxProcessIO implements OmlxProcessIO {
   }
 
   @override
-  Future<void> download(Uri url, File destination) async {
+  Future<void> download(Uri url, File destination) => downloadWithProgress(
+    url,
+    destination,
+    cancellation: DecisionCancellation(),
+    onProgress: (_) {},
+  );
+
+  @override
+  Future<void> downloadWithProgress(
+    Uri url,
+    File destination, {
+    required DecisionCancellation cancellation,
+    required void Function(int bytes) onProgress,
+  }) async {
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 60);
+    final remove = cancellation.listen(() => client.close(force: true));
     try {
+      if (cancellation.isCancelled) throw const OmlxException('oMLX 下载已取消');
       final request = await client.getUrl(url);
-      final response = await request.close();
+      final response = await request.close().timeout(
+        const Duration(seconds: 60),
+      );
       if (response.statusCode != HttpStatus.ok) {
         await response.drain<void>();
         throw const OmlxException('oMLX 官方分发下载失败');
       }
       final sink = destination.openWrite();
       try {
-        await response.pipe(sink);
+        var received = 0;
+        final clock = Stopwatch()..start();
+        await for (final bytes in response.timeout(
+          const Duration(seconds: 60),
+        )) {
+          if (cancellation.isCancelled) throw const OmlxException('oMLX 下载已取消');
+          received += bytes.length;
+          sink.add(bytes);
+          if (received == bytes.length || clock.elapsedMilliseconds >= 100) {
+            onProgress(received);
+            clock.reset();
+          }
+        }
+        await sink.flush();
+        onProgress(received);
       } finally {
         await sink.close();
       }
     } finally {
+      remove();
       client.close(force: true);
     }
   }
@@ -305,6 +357,24 @@ class OmlxEngine implements EngineRuntime {
   final _inspectionResiduals = <String>{};
   OmlxState get state => _state;
   Stream<OmlxState> get changes => _changes.stream;
+  EngineInstallProgress? installationProgress;
+  DecisionCancellation? _downloadCancellation;
+  void cancelInstallation() {
+    if (_state.status != OmlxInstallationStatus.installing) return;
+    _downloadCancellation?.cancel();
+    _epoch++;
+  }
+
+  void _installProgress(EngineInstallPhase phase, int bytes, {String? error}) {
+    installationProgress = EngineInstallProgress(
+      phase,
+      received: bytes,
+      total: 830879938,
+      error: error,
+    );
+    if (!_changes.isClosed) _changes.add(_state);
+  }
+
   Future<void> _operations = Future.value();
   int _epoch = 0;
   bool _closed = false;
@@ -316,12 +386,25 @@ class OmlxEngine implements EngineRuntime {
   final Duration _poolLoadTimeout;
   final Duration _poolStopTimeout;
   final List<_OmlxRun> _runs = <_OmlxRun>[];
+  final _configured = <String, OmlxEngine>{};
+  final _configuredStarts = <String, Future<RuntimeInstance>>{};
+  int _configuredGeneration = 0;
+  final _configuredSubscriptions = <String, StreamSubscription<OmlxState>>{};
+  Directory? _selectedBundle;
+  EngineLaunchConfiguration? _selectedConfiguration;
+  String? _selectedModelDirectory;
+  String? _launchInstanceId;
+  int? _launchRevision;
+  bool _temporaryTest = false;
+  String? _runtimePrefix;
+  _OmlxPool? _startingPool;
   _OmlxPool? _pool;
   Future<void> _poolQueue = Future<void>.value();
   int _runtimeIds = 0;
   int _poolGeneration = 0;
   int _startHolds = 0;
   void Function() holdInstallationAdmission() {
+    cancelInstallation();
     _admissionHolds++;
     _epoch++;
     var released = false;
@@ -335,7 +418,8 @@ class OmlxEngine implements EngineRuntime {
 
   Directory get _versionDirectory =>
       Directory('${installationDirectory.path}/0.7.0');
-  Directory get bundle => Directory('${_versionDirectory.path}/oMLX.app');
+  Directory get bundle =>
+      _selectedBundle ?? Directory('${_versionDirectory.path}/oMLX.app');
   File get _marker => File('${_versionDirectory.path}/installation.json');
   void _set(OmlxState state) {
     _state = _inspectionResiduals.isEmpty
@@ -537,7 +621,7 @@ class OmlxEngine implements EngineRuntime {
     }
   }
 
-  Future<void> _signature(Directory app) async {
+  Future<({String release, String build})> _signature(Directory app) async {
     await _run('/usr/bin/codesign', [
       '--verify',
       '--deep',
@@ -571,10 +655,17 @@ class OmlxEngine implements EngineRuntime {
     final value = jsonDecode(plist.stdout.toString());
     if (value is! Map ||
         value['CFBundleIdentifier'] != 'app.omlx' ||
-        value['CFBundleShortVersionString'] != '0.7.0' ||
-        value['CFBundleVersion'] != '2987') {
+        value['CFBundleShortVersionString'] is! String ||
+        !RegExp(r'^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$')
+            .hasMatch(value['CFBundleShortVersionString'] as String) ||
+        value['CFBundleVersion'] is! String ||
+        (value['CFBundleVersion'] as String).isEmpty) {
       throw const OmlxException('oMLX 发布标签或构建身份不符');
     }
+    return (
+      release: value['CFBundleShortVersionString'] as String,
+      build: value['CFBundleVersion'] as String,
+    );
   }
 
   Future<_Manifest> _inventory(Directory app) async {
@@ -768,7 +859,7 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
       throw const OmlxException('oMLX app 根路径不能是链接');
     }
     final before = await _inventory(canonical);
-    await _signature(canonical);
+    final bundleIdentity = await _signature(canonical);
     final cwd = await _privateDirectory('.inspect-');
     late OmlxReceipt receipt;
     try {
@@ -779,7 +870,12 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
         '${canonical.path}/Contents/MacOS/omlx-cli',
         ['--version'],
       );
-      if (version.stdout.toString().trim() != '0.7.0') {
+      final observedVersion = version.stdout.toString().trim();
+      if (!RegExp(r'^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$')
+              .hasMatch(observedVersion) ||
+          observedVersion != bundleIdentity.release ||
+          (dmgSha256 != null &&
+              (observedVersion != '0.7.0' || bundleIdentity.build != '2987'))) {
         throw const OmlxException('oMLX CLI 版本不符');
       }
       _check(epoch);
@@ -790,8 +886,8 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
         ['-s', '-c', _identityProbe],
       );
       final identity = jsonDecode(probe.stdout.toString());
-      const versions = {
-        'omlx': '0.7.0',
+      final versions = {
+        'omlx': observedVersion,
         'mlx': '0.32.2',
         'mlx-lm': '0.31.4.dev132+g94cdcae13',
         'fastapi': '0.142.2',
@@ -833,7 +929,7 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
       final executable = '${canonical.path}/Contents/MacOS/omlx-cli';
       final builtIn = EngineParameterRecognition.builtIn(
         family: EngineFamily.omlx,
-        version: '0.7.0',
+        version: observedVersion,
         executablePath: executable,
         contentFingerprint: before.digest,
       );
@@ -854,13 +950,13 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
           ? EngineParameterRecognition.fromHelp(
               text,
               family: EngineFamily.omlx,
-              version: '0.7.0',
+              version: observedVersion,
               executablePath: executable,
               contentFingerprint: before.digest,
               previous: previous,
             )
           : (previous ?? builtIn).withReadFailure(
-              version: '0.7.0',
+              version: observedVersion,
               notice: '当前 oMLX 帮助读取失败、超时或输出过大；保留已有识别规则与原配置。',
             );
       await _signature(canonical);
@@ -869,6 +965,8 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
         throw const OmlxException('oMLX 验证期间 app 发生变化');
       }
       receipt = OmlxReceipt(
+        releaseLabel: observedVersion,
+        build: bundleIdentity.build,
         bundleManifestSha256: after.digest,
         entries: after.entries,
         sizeBytes: after.bytes,
@@ -932,6 +1030,8 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
   });
 
   Future<void> install({File? verifiedArtifact}) => _serial((epoch) async {
+    final cancellation = DecisionCancellation();
+    _downloadCancellation = cancellation;
     Directory? work;
     String? ownedDevice;
     bool detached = false;
@@ -943,6 +1043,7 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
       throw const OmlxException('oMLX 清理残留尚未解决，禁止新安装');
     }
     _set(const OmlxState(status: OmlxInstallationStatus.installing));
+    _installProgress(EngineInstallPhase.downloading, 0);
     try {
       // Existence is lexical, including dangling symlinks; never overwrite.
       if (await FileSystemEntity.type(
@@ -956,12 +1057,27 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
       work = await _privateDirectory('.install-');
       final artifact = verifiedArtifact ?? File('${work.path}/official.dmg');
       if (verifiedArtifact == null) {
-        await io.download(Uri.parse(artifactUrl), artifact);
+        if (io case OmlxProgressiveDownload downloader) {
+          await downloader.downloadWithProgress(
+            Uri.parse(artifactUrl),
+            artifact,
+            cancellation: cancellation,
+            onProgress: (bytes) =>
+                _installProgress(EngineInstallPhase.downloading, bytes),
+          );
+        } else {
+          await io.download(Uri.parse(artifactUrl), artifact);
+        }
       }
+      _installProgress(EngineInstallPhase.verifying, await artifact.length());
       await _verifyArtifact(
         artifact,
       ); // Even a preverified artifact is rehashed here.
       _check(epoch);
+      _installProgress(
+        EngineInstallPhase.unpacking,
+        installationProgress!.received,
+      );
       final mount = await Directory('${work.path}/readonly-mount').create();
       attachAttempted = true;
       final attach = await _run('/usr/bin/hdiutil', [
@@ -1154,6 +1270,16 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
           }
         }
       }
+      _downloadCancellation = null;
+      _installProgress(
+        _state.status == OmlxInstallationStatus.installed
+            ? EngineInstallPhase.complete
+            : cancellation.isCancelled
+            ? EngineInstallPhase.cancelled
+            : EngineInstallPhase.failed,
+        installationProgress?.received ?? 0,
+        error: _state.error,
+      );
     }
   });
   Future<void> _verifyArtifact(File artifact) async {
@@ -1269,7 +1395,19 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
     }
   }
 
+  void assertRemovable() {
+    if (_configuredStarts.isNotEmpty ||
+        runtimeInstances.any(
+          (run) =>
+              run.hasLiveProcess ||
+              run.status == RuntimeInstanceStatus.starting,
+        )) {
+      throw const OmlxException('请先停止该引擎的模型实例');
+    }
+  }
+
   Future<OmlxRemovalPlan> prepareRemoval() => _serial((epoch) async {
+    assertRemovable();
     if (_state.status != OmlxInstallationStatus.installed ||
         _state.receipt == null ||
         _state.residualDirectory != null ||
@@ -1289,6 +1427,7 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
     required bool confirmed,
   }) => _serial((epoch) async {
     if (!confirmed) return;
+    assertRemovable();
     if (!identical(plan._owner, this) ||
         plan.bundlePath != bundle.path ||
         _state.receipt?.bundleManifestSha256 !=
@@ -1379,7 +1518,7 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
   //
   // Installed ≠ Started ≠ Ready. One owned front-end serve process per pool
   // generation; enablement is pin-only settings + fallback-false readback +
-  // physical load + physical-row reconciliation + a short real probe. The
+  // physical load + physical-row reconciliation. Inference only follows explicit requests. The
   // request fence rejects unknown/cold/disabled/drifted selections without
   // hidden retries or background loads.
   // ---------------------------------------------------------------------
@@ -1394,8 +1533,204 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
   }
 
   @override
-  List<RuntimeInstance> get runtimeInstances =>
-      List.unmodifiable(_runs.map((run) => run.snapshot()));
+  List<RuntimeInstance> get runtimeInstances => List.unmodifiable([
+    ..._runs.map((run) => run.snapshot()),
+    for (final child in _configured.values) ...child.runtimeInstances,
+  ]);
+
+  OmlxEngine? _configuredOwner(String id) => _configured.values
+      .where((child) => child.runtimeInstances.any((run) => run.id == id))
+      .singleOrNull;
+
+  EngineLaunchCommand? actualCommandFor(String id) {
+    final owner = _configuredOwner(id);
+    if (owner != null) return owner.actualCommandFor(id);
+    return _runs.where((run) => run.id == id).firstOrNull?.pool.command;
+  }
+
+  String? actualVersionFor(String id) {
+    final owner = _configured.values
+        .where((child) => child.runtimeInstances.any((run) => run.id == id))
+        .firstOrNull;
+    return (owner ?? this)._state.receipt?.parameterRecognition?.version;
+  }
+
+  EngineLaunchCommand previewLaunch(
+    EngineLaunchConfiguration configuration, {
+    Directory? sourceBundle,
+    EngineParameterRecognition? recognition,
+  }) => _composePoolCommand(
+    configuration,
+    sourceBundle ?? bundle,
+    '<仅包含所选模型的运行目录>',
+    '<启动时分配的私有数据目录>',
+    '<启动时分配的端口>',
+    recognition: recognition,
+    provisional: true,
+  );
+
+  EngineLaunchCommand _composePoolCommand(
+    EngineLaunchConfiguration configuration,
+    Directory app,
+    String modelRoot,
+    String basePath,
+    String port, {
+    EngineParameterRecognition? recognition,
+    bool provisional = false,
+  }) {
+    final parameters = configuration.command(
+      executable: '${app.path}/Contents/MacOS/omlx-cli',
+      modelPath: '',
+      recognition: recognition,
+    );
+    return EngineLaunchCommand(
+      executable: '${app.path}/Contents/MacOS/omlx-cli',
+      provisional: provisional,
+      arguments: [
+        'serve',
+        '--model-dir',
+        modelRoot,
+        '--host',
+        '127.0.0.1',
+        '--port',
+        port,
+        '--base-path',
+        basePath,
+        '--no-hf-cache',
+        ...parameters.arguments,
+      ],
+      overriddenForm: parameters.overriddenForm,
+      notices: parameters.notices,
+    );
+  }
+
+  Future<RuntimeInstance> startWithConfiguration(
+    String artifactId,
+    EngineLaunchConfiguration configuration, {
+    required String launchInstanceId,
+    required int launchRevision,
+    Directory? sourceBundle,
+    OmlxReceipt? sourceReceipt,
+    DecisionCancellation? cancellation,
+    bool temporaryTest = false,
+  }) {
+    if (_closed || _held || _admissionHolds != 0 || _startHolds != 0) {
+      return Future.error(const OmlxException('oMLX 启动准入已关闭'));
+    }
+    final pending = _configuredStarts[launchInstanceId];
+    if (pending != null) return pending;
+    final operation = _startConfigured(
+      artifactId,
+      configuration,
+      launchInstanceId,
+      launchRevision,
+      sourceBundle ?? bundle,
+      sourceReceipt ?? _state.receipt,
+      cancellation,
+      temporaryTest,
+    );
+    _configuredStarts[launchInstanceId] = operation;
+    unawaited(
+      operation.then<void>(
+        (_) {
+          _configuredStarts.remove(launchInstanceId);
+        },
+        onError: (Object _) {
+          _configuredStarts.remove(launchInstanceId);
+        },
+      ),
+    );
+    return operation;
+  }
+
+  Future<RuntimeInstance> _startConfigured(
+    String artifactId,
+    EngineLaunchConfiguration configuration,
+    String launchInstanceId,
+    int launchRevision,
+    Directory sourceBundle,
+    OmlxReceipt? receipt,
+    DecisionCancellation? cancellation,
+    bool temporaryTest,
+  ) async {
+    if (configuration.family != EngineFamily.omlx || receipt == null) {
+      throw const OmlxException('oMLX 参数或安装收据不可用');
+    }
+    configuration.validateArgumentText();
+    final previous = _configured[launchInstanceId];
+    if (previous != null) {
+      final ready = previous.runtimeInstances.where(
+        (run) =>
+            run.status == RuntimeInstanceStatus.ready && run.hasLiveProcess,
+      );
+      if (ready.length == 1) return ready.single;
+      if (previous.runtimeInstances.any((run) => run.hasLiveProcess)) {
+        throw const OmlxException('oMLX 实例仍有未释放的运行资源');
+      }
+      await previous.shutdown();
+      await _configuredSubscriptions.remove(launchInstanceId)?.cancel();
+      previous.close();
+      _configured.remove(launchInstanceId);
+    }
+    final library = _library;
+    if (library == null) throw const OmlxException('oMLX 没有已关联模型库');
+    final artifact = library.state.artifacts
+        .where((asset) => asset.id == artifactId)
+        .singleOrNull;
+    if (artifact == null) throw const OmlxException('oMLX 模型引用缺失');
+    final directory = await _modelDirectory(artifact);
+    if (_closed || cancellation?.isCancelled == true) {
+      throw const OmlxException('oMLX 启动已取消');
+    }
+    final child =
+        OmlxEngine(
+            installationDirectory: installationDirectory,
+            io: io,
+            library: library,
+            poolIo: _poolIo,
+            useRegistry: _useRegistry,
+            poolLoadTimeout: _poolLoadTimeout,
+            poolStopTimeout: _poolStopTimeout,
+          )
+          .._selectedBundle = sourceBundle
+          .._selectedConfiguration = configuration
+          .._selectedModelDirectory = directory
+          .._launchInstanceId = launchInstanceId
+          .._launchRevision = launchRevision
+          .._temporaryTest = temporaryTest
+          .._runtimePrefix = '$launchInstanceId-${++_configuredGeneration}';
+    _configured[launchInstanceId] = child;
+    _configuredSubscriptions[launchInstanceId] = child.changes.listen(
+      (_) => _set(_state),
+    );
+    final removeCancellation = cancellation?.listen(child.beginShutdown);
+    try {
+      final actual = await child.inspectLinked(
+        sourceBundle,
+        previousReceipt: receipt,
+      );
+      if (receipt.dmgSha256 != null &&
+          actual.bundleManifestSha256 != receipt.bundleManifestSha256) {
+        throw const OmlxException('oMLX 引擎内容已变化，请重新关联');
+      }
+      child._set(
+        OmlxState(status: OmlxInstallationStatus.installed, receipt: actual),
+      );
+      if (_closed || cancellation?.isCancelled == true) {
+        throw const OmlxException('oMLX 启动已取消');
+      }
+      return await child.startRuntime(artifactId);
+    } catch (error) {
+      try {
+        await child.shutdown();
+      } catch (cleanup) {
+        throw OmlxException('$error；运行资源收尾失败：$cleanup');
+      }
+      rethrow;
+    } finally {
+      removeCancellation?.call();
+    }
+  }
 
   @override
   void Function() holdStartAdmission() {
@@ -1439,9 +1774,12 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
       throw const OmlxException('oMLX 资产核验已变化，请重新选择并核验');
     }
     final artifact = verified.single;
-    if (artifact.kind != AssetKind.chat ||
-        artifact.integrity != AssetIntegrity.complete) {
-      throw const OmlxException('oMLX 池只启用完整核验的聊天资产');
+    if (artifact.format != 'Safetensors' ||
+        ![
+          AssetIntegrity.complete,
+          AssetIntegrity.unknown,
+        ].contains(artifact.integrity)) {
+      throw const OmlxException('oMLX 需要未损坏且文件完整的 Safetensors 模型');
     }
     final directory = await _modelDirectory(artifact);
     final modelId = _baseName(directory);
@@ -1461,7 +1799,10 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
     }
     final pool = await _ensurePool();
     final run = _OmlxRun(
-      id: 'omlx-${++_runtimeIds}',
+      id: '${_runtimePrefix ?? 'omlx'}-${++_runtimeIds}',
+      launchInstanceId: _launchInstanceId,
+      launchRevision: _launchRevision,
+      temporaryTest: _temporaryTest,
       artifactId: artifactId,
       modelId: modelId,
       directory: directory,
@@ -1469,29 +1810,33 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
       pool: pool,
     );
     _runs.add(run);
+    await _syncUseRegistration();
     var loaded = false;
     try {
       await _pin(pool, modelId, true);
       await _load(pool, modelId);
       loaded = true;
       await _checkPhysicalRow(pool, run);
-      await _probe(pool, run);
       run.status = RuntimeInstanceStatus.ready;
       run.acceptingRequests = true;
       await _syncUseRegistration();
       return run.snapshot();
     } catch (error) {
+      Object? cleanupFailure;
       if (loaded) {
         try {
           await _unload(pool, modelId);
-        } catch (_) {
-          // Best-effort rollback; the failure verdict below stands.
+        } catch (cleanup) {
+          cleanupFailure = cleanup;
         }
       }
       run.status = RuntimeInstanceStatus.failed;
       run.acceptingRequests = false;
-      run.hasLiveProcess = false;
-      run.error = pool.redact(error.toString());
+      run.hasLiveProcess = cleanupFailure != null || (_closed && !pool.dead);
+      run.error = pool.redact(
+        '$error${cleanupFailure == null ? '' : '；卸载失败：$cleanupFailure'}',
+      );
+      await _syncUseRegistration();
       throw OmlxException(run.error!);
     }
   }
@@ -1530,7 +1875,7 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
     if (rootPath == null) {
       throw const OmlxException('oMLX 模型库尚未扫描');
     }
-    final modelRoot = await Directory(rootPath).resolveSymbolicLinks();
+    var modelRoot = await Directory(rootPath).resolveSymbolicLinks();
     final generation = ++_poolGeneration;
 
     // Reserve an owned loopback port, then hand it to the service.
@@ -1542,6 +1887,12 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
     await reservation.close();
 
     final base = await _privateDirectory('.pool-');
+    if (_selectedModelDirectory != null) {
+      final root = await Directory('${base.path}/models').create();
+      await Link('${root.path}/${_baseName(_selectedModelDirectory!)}')
+          .create(_selectedModelDirectory!);
+      modelRoot = root.path;
+    }
     OmlxPoolChild? child;
     try {
       final apiKey = _poolSecret('k');
@@ -1574,20 +1925,18 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
         settingsFile.path,
       ], timeout: const Duration(seconds: 10));
 
+      final command = _composePoolCommand(
+        _selectedConfiguration ??
+            EngineLaunchConfiguration(family: EngineFamily.omlx),
+        bundle,
+        modelRoot,
+        base.path,
+        '$port',
+        recognition: _state.receipt?.parameterRecognition,
+      );
       child = await _poolIo.start(
-        '${bundle.path}/Contents/MacOS/omlx-cli',
-        [
-          'serve',
-          '--model-dir',
-          modelRoot,
-          '--host',
-          '127.0.0.1',
-          '--port',
-          '$port',
-          '--base-path',
-          base.path,
-          '--no-hf-cache',
-        ],
+        command.executable,
+        command.arguments,
         workingDirectory: base.path,
         environment: {
           'PATH': '/usr/bin:/bin:/usr/sbin:/sbin',
@@ -1597,6 +1946,7 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
       );
       final pool = _OmlxPool(
         generation: generation,
+        command: command,
         child: child,
         base: base,
         port: port,
@@ -1609,13 +1959,17 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
       unawaited(child.exitCode.then((code) => _onPoolExit(pool, code)));
       unawaited(child.stdout.drain<void>());
       unawaited(child.stderr.drain<void>());
+      _startingPool = pool;
       await _awaitHealth(pool);
       pool.cookie = await _login(pool);
       await _enforceFallback(pool);
       await _reconcileStale(pool);
+      _startingPool = null;
       return pool;
     } catch (_) {
+      _startingPool = null;
       child?.kill(ProcessSignal.sigkill);
+      if (child != null) await child.exitCode.timeout(_poolStopTimeout);
       try {
         await base.delete(recursive: true);
       } catch (_) {
@@ -1633,9 +1987,12 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
 
   Future<void> _onPoolExit(_OmlxPool pool, int code) async {
     if (pool.retired || pool.dead) return;
+    pool.dead = true;
     await _poolSerial(() async {
-      if (pool.retired || pool.dead || !identical(_pool, pool)) return;
-      pool.dead = true;
+      if (pool.retired ||
+          (!identical(_pool, pool) && !identical(_startingPool, pool))) {
+        return;
+      }
       for (final run in _runs) {
         if (!identical(run.pool, pool) ||
             (run.status != RuntimeInstanceStatus.ready &&
@@ -1662,6 +2019,7 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
   Future<void> _awaitHealth(_OmlxPool pool) async {
     final deadline = DateTime.now().add(_poolLoadTimeout);
     while (true) {
+      if (_closed || _held) throw const OmlxException('oMLX 启动已取消');
       if (pool.dead) {
         throw const OmlxException('oMLX 服务进程在启动期退出');
       }
@@ -1858,26 +2216,6 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
     }
   }
 
-  Future<void> _probe(_OmlxPool pool, _OmlxRun run) async {
-    final probe = TextRequest(prompt: 'ping', maxTokens: 8);
-    final String text;
-    try {
-      text = await _bearer(
-        pool,
-        'POST',
-        '/v1/chat/completions',
-        probe.toChat(model: run.modelId),
-      );
-    } on OmlxException catch (error) {
-      throw OmlxException('oMLX 短文本探测失败：${error.message}');
-    }
-    try {
-      TextResult.parse(text, expectedModel: run.modelId);
-    } on TextProtocolException catch (error) {
-      throw OmlxException('oMLX 短文本探测未通过：${error.message}');
-    }
-  }
-
   _OmlxRun _admitRun(String instanceId) {
     if (_closed) {
       throw const OmlxRequestException(OmlxRequestKind.notReady, 'oMLX 引擎已关闭');
@@ -1912,6 +2250,15 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
     Duration timeout = const Duration(seconds: 30),
     DecisionCancellation? cancellation,
   }) async {
+    final owner = _configuredOwner(instanceId);
+    if (owner != null && !_closed) {
+      return owner.generateText(
+        instanceId,
+        request,
+        timeout: timeout,
+        cancellation: cancellation,
+      );
+    }
     final run = _admitRun(instanceId);
     final pool = run.pool;
     final op = _OmlxInFlight();
@@ -1992,6 +2339,16 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
     Duration timeout = const Duration(seconds: 30),
     DecisionCancellation? cancellation,
   }) async* {
+    final owner = _configuredOwner(instanceId);
+    if (owner != null && !_closed) {
+      yield* owner.streamText(
+        instanceId,
+        request,
+        timeout: timeout,
+        cancellation: cancellation,
+      );
+      return;
+    }
     final run = _admitRun(instanceId);
     final pool = run.pool;
     final op = _OmlxInFlight();
@@ -2080,6 +2437,8 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
 
   @override
   Future<void> stop(String instanceId) {
+    final owner = _configuredOwner(instanceId);
+    if (owner != null) return _stopConfigured(owner, instanceId);
     _OmlxRun? target;
     for (final run in _runs) {
       if (run.id == instanceId) target = run;
@@ -2096,6 +2455,11 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
       target.status = RuntimeInstanceStatus.stopping;
     }
     return _poolSerial(() => _stopRun(target!));
+  }
+
+  Future<void> _stopConfigured(OmlxEngine owner, String instanceId) async {
+    await owner.stop(instanceId);
+    await owner.shutdown();
   }
 
   Future<void> _stopRun(_OmlxRun run) async {
@@ -2205,7 +2569,7 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
       }
     }
     if (!exited) failed = true;
-    if (failed) {
+    if (!exited) {
       // Failed-live residue stays visible and retryable; the owned process
       // and its base are kept as evidence for the next stopManaged.
       for (final run in live) {
@@ -2226,6 +2590,9 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
       run.unloadPending = false;
     }
     await _syncUseRegistration();
+    if (failed) {
+      throw const OmlxException('oMLX 卸载接口失败；所属进程已退出，运行资源已释放');
+    }
   }
 
   Future<bool> _awaitExit(_OmlxPool pool, Duration timeout) async {
@@ -2257,6 +2624,7 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
     final paths = <String>{};
     for (final run in _runs) {
       final inUse =
+          run.status == RuntimeInstanceStatus.starting ||
           run.status == RuntimeInstanceStatus.ready ||
           run.status == RuntimeInstanceStatus.stopping ||
           (run.status == RuntimeInstanceStatus.failed && run.hasLiveProcess);
@@ -2266,6 +2634,14 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
   }
 
   void beginShutdown() {
+    for (final child in _configured.values) {
+      child.beginShutdown();
+    }
+    _startingPool?.client.close(force: true);
+    if (_runs.any((run) => run.status == RuntimeInstanceStatus.starting)) {
+      _pool?.client.close(force: true);
+    }
+    cancelInstallation();
     _closed = true;
     _epoch++;
   }
@@ -2274,6 +2650,12 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
   Future<void> shutdown() async {
     beginShutdown();
     try {
+      await Future.wait(
+        _configuredStarts.values.map(
+          (start) => start.then<void>((_) {}, onError: (Object _) {}),
+        ),
+      );
+      await Future.wait(_configured.values.map((child) => child.shutdown()));
       await _recyclePool();
     } finally {
       await _operations;
@@ -2286,6 +2668,15 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
     _held = true;
     _epoch++;
     try {
+      for (final child in _configured.values) {
+        child.beginShutdown();
+      }
+      await Future.wait(
+        _configuredStarts.values.map(
+          (start) => start.then<void>((_) {}, onError: (Object _) {}),
+        ),
+      );
+      await Future.wait(_configured.values.map((child) => child.shutdown()));
       await _recyclePool();
       await _operations;
       await _retryResidualCleanup();
@@ -2296,6 +2687,12 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
 
   void close() {
     beginShutdown();
+    for (final subscription in _configuredSubscriptions.values) {
+      unawaited(subscription.cancel());
+    }
+    for (final child in _configured.values) {
+      child.close();
+    }
     _changes.close();
   }
 }
@@ -2309,8 +2706,14 @@ final class _OmlxRun {
     required this.directory,
     required this.filePaths,
     required this.pool,
+    this.launchInstanceId,
+    this.launchRevision,
+    this.temporaryTest = false,
   });
 
+  final String? launchInstanceId;
+  final int? launchRevision;
+  final bool temporaryTest;
   final String id;
   final String artifactId;
   final String modelId;
@@ -2329,6 +2732,9 @@ final class _OmlxRun {
     artifactId: artifactId,
     status: status,
     generation: pool.generation,
+    launchInstanceId: launchInstanceId,
+    launchRevision: launchRevision,
+    temporaryTest: temporaryTest,
     activeRequests: inFlight.length,
     acceptingRequests: acceptingRequests,
     hasLiveProcess: hasLiveProcess,
@@ -2345,6 +2751,7 @@ final class _OmlxRun {
 final class _OmlxPool {
   _OmlxPool({
     required this.generation,
+    required this.command,
     required this.child,
     required this.base,
     required this.port,
@@ -2354,6 +2761,7 @@ final class _OmlxPool {
   });
 
   final int generation;
+  final EngineLaunchCommand command;
   final OmlxPoolChild child;
   final Directory base;
   final int port;

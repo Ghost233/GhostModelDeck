@@ -42,7 +42,7 @@ class EngineLaunchCommandView extends StatelessWidget {
           ],
         ),
         if (command.isConfigurationOnly)
-          const Text('生产模型运行尚未接通；配置保存和识别不表示参数已实际生效。'),
+          const Text('当前编辑引擎默认参数；模型目录和运行地址在实例启动时确定。'),
         if (command.provisional)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
@@ -171,7 +171,7 @@ class _EngineLaunchEditorState extends State<EngineLaunchEditor> {
                 children: [
                   Text(
                     widget.initialConfiguration.family == EngineFamily.omlx
-                        ? '仅保存配置；生产模型运行尚未接通。清空表单项不生成自定义参数。'
+                        ? '保存默认参数，不启动模型。清空表单项不生成自定义参数。'
                         : '保存后用于后续启动。清空表单项将使用引擎自身默认值。',
                   ),
                   const SizedBox(height: 16),
@@ -233,7 +233,7 @@ class _EngineLaunchEditorState extends State<EngineLaunchEditor> {
                   if (_error != null)
                     Text(
                       _error!,
-                      style: TextStyle(
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: Theme.of(context).colorScheme.error,
                       ),
                     ),

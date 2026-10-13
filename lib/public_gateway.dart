@@ -13,6 +13,8 @@ import 'jev_debug.dart';
 import 'llama_engine.dart';
 import 'model_library.dart';
 import 'omlx_engine.dart';
+import 'launch_instances.dart';
+import 'public_model_names.dart';
 
 /// Public business rejection with an HTTP verdict, never a silent fallback.
 class PublicRequestException implements Exception {
@@ -44,8 +46,8 @@ class PublicRouteTarget {
   final RuntimeInstance instance;
 }
 
-/// Public route identity layer. Public model IDs derive from the model
-/// library's own stable artifact identity, survive restarts, and never
+/// Public names are allocated from model names and persisted by artifact
+/// identity. Collision suffixes remain stable across restarts and never
 /// expose native aliases or internal ports. Enable/disable is an explicit
 /// business operation; cold, unknown or ambiguous routes are refused with
 /// zero upstream contact.
@@ -55,27 +57,107 @@ class PublicModelRoutes {
     required List<EngineRuntime> runtimes,
     this._runtimeSources,
     this._registryFile,
-  }) : _runtimes = List.unmodifiable(runtimes);
+    Set<String>? instanceIds,
+    LaunchInstances? instances,
+  }) : _runtimes = List.unmodifiable(runtimes),
+       _instances = instances,
+       _instanceIds = instanceIds == null
+           ? null
+           : Set.unmodifiable(instanceIds) {
+    _librarySubscription = _library.changes.listen((_) {
+      unawaited(_refreshNames());
+    });
+    _instanceSubscription = instances?.changes.listen((_) {
+      if (!_closed) _changes.add(null);
+    });
+  }
 
-  static const _schema = 1;
+  static const _schema = 2;
 
   final ModelLibrary _library;
   final List<EngineRuntime> _runtimes;
+  final Set<String>? _instanceIds;
+  final LaunchInstances? _instances;
+  StreamSubscription<void>? _instanceSubscription;
+  Iterable<String> get _registeredIds =>
+      _instances?.definitions.map((definition) => definition.id) ?? _enabled;
   final List<EngineRuntime> Function()? _runtimeSources;
   final File? _registryFile;
   final Set<String> _enabled = {};
+  final _publicIds = <String, String>{};
+  final _persistedIds = <String, String>{};
   final _changes = StreamController<void>.broadcast();
   bool _loaded = false;
+  Future<void>? _loading;
+  Future<void> _writes = Future.value();
+  late final StreamSubscription<LibraryState> _librarySubscription;
+  Object? _nameStorageError;
+  String? get error => _nameStorageError?.toString();
+
+  Future<void> _refreshNames() async {
+    try {
+      await load();
+      if (_closed) return;
+      var dirty = _nameStorageError != null;
+      for (final artifact in _library.state.artifacts) {
+        if (_enabled.contains(artifact.id)) {
+          final name = publicIdFor(artifact.id);
+          if (_persistedIds[artifact.id] != name) dirty = true;
+        }
+      }
+      if (dirty) {
+        await _persist();
+        _nameStorageError = null;
+        if (!_closed) _changes.add(null);
+      }
+    } catch (error) {
+      _nameStorageError = error;
+      if (!_closed) _changes.add(null);
+    }
+  }
+
   bool _closed = false;
 
   Stream<void> get changes => _changes.stream;
 
-  String publicIdFor(String artifactId) => 'gmd-$artifactId';
+  String publicIdFor(String artifactId) {
+    if (_instances != null) {
+      final definition = _instances.find(artifactId);
+      if (definition == null) throw StateError('实例配置不存在：$artifactId');
+      return definition.publicName;
+    }
+    final saved = _publicIds[artifactId];
+    if (saved != null) return saved;
+    final artifact = _library.state.artifacts
+        .where((a) => a.id == artifactId)
+        .singleOrNull;
+    if (artifact == null) throw StateError('模型不在当前模型库中：$artifactId');
+    final base = PublicModelNames.normalize(artifact.name);
+    var candidate = base;
+    var suffix = 2;
+    while (_publicIds.containsValue(candidate)) {
+      candidate = '$base-${suffix++}';
+    }
+    _publicIds[artifactId] = candidate;
+    return candidate;
+  }
 
-  bool isEnabled(String artifactId) => _enabled.contains(artifactId);
+  bool isEnabled(String artifactId) => _instances == null
+      ? _enabled.contains(artifactId)
+      : _instances.find(artifactId) != null;
 
-  Future<void> load() async {
+  Future<void> load() {
+    if (_loaded || _closed) return Future.value();
+    return _loading ??= _load().whenComplete(() => _loading = null);
+  }
+
+  Future<void> _load() async {
     if (_loaded || _closed) return;
+    if (_instances != null) {
+      await _instances.load();
+      _loaded = true;
+      return;
+    }
     final file = _registryFile;
     if (file == null || !file.existsSync()) {
       _loaded = true;
@@ -95,20 +177,46 @@ class PublicModelRoutes {
         enabled.any((entry) => entry is! String)) {
       throw StateError('公开模型登记文件无效：${file.path}');
     }
+    final ids = value['publicIds'];
+    if (ids is! Map ||
+        ids.entries.any(
+          (e) =>
+              e.key is! String ||
+              e.value is! String ||
+              (e.value as String).toLowerCase() != e.value ||
+              !RegExp(
+                r'^[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)*$',
+                unicode: true,
+              ).hasMatch(e.value as String),
+        ) ||
+        ids.values.toSet().length != ids.length) {
+      throw StateError('公开模型名称登记文件无效：${file.path}');
+    }
+    _publicIds.clear();
+    _publicIds.addAll(ids.cast<String, String>());
+    _persistedIds.addAll(ids.cast<String, String>());
     _enabled.addAll(enabled.cast<String>());
+    for (final id in _enabled) {
+      if (_library.state.artifacts.any((a) => a.id == id)) publicIdFor(id);
+    }
     _loaded = true;
   }
 
   Future<void> enable(String artifactId) async {
     _ensureOpen();
     await load();
+    if (_instances != null) {
+      if (_instances.find(artifactId) == null) throw StateError('实例配置不存在');
+      return;
+    }
     final artifact = _library.state.artifacts
         .where((entry) => entry.id == artifactId)
         .firstOrNull;
     if (artifact == null) {
       throw StateError('公开模型不存在于模型库：$artifactId');
     }
-    if (artifact.kind != AssetKind.chat &&
+    if (_instanceIds == null &&
+        artifact.kind != AssetKind.chat &&
         artifact.kind != AssetKind.embedding) {
       throw StateError('仅标准文本或嵌入模型可登记公开访问：$artifactId');
     }
@@ -119,15 +227,15 @@ class PublicModelRoutes {
     if (conflict) {
       throw StateError('公开模型 ID 冲突：$publicId');
     }
-    if (_enabled.add(artifactId)) {
-      await _persist();
-      _changes.add(null);
-    }
+    final changed = _enabled.add(artifactId);
+    await _persist();
+    if (changed) _changes.add(null);
   }
 
   Future<void> disable(String artifactId) async {
     _ensureOpen();
     await load();
+    if (_instances != null) throw StateError('公开访问随保存实例的启动和停止管理');
     if (_enabled.remove(artifactId)) {
       await _persist();
       _changes.add(null);
@@ -139,7 +247,7 @@ class PublicModelRoutes {
     RuntimeCapability requiredCapability = RuntimeCapability.textGeneration,
   }) {
     final entries = <PublicModelEntry>[];
-    for (final artifactId in _enabled.toList()..sort()) {
+    for (final artifactId in _registeredIds.toList()..sort()) {
       final ready = _readyInstances(artifactId, requiredCapability);
       if (requiredCapability == RuntimeCapability.embeddings
           ? ready.length == 1
@@ -147,7 +255,7 @@ class PublicModelRoutes {
         entries.add(
           PublicModelEntry(
             publicId: publicIdFor(artifactId),
-            artifactId: artifactId,
+            artifactId: ready.first.instance.artifactId,
           ),
         );
       }
@@ -160,11 +268,17 @@ class PublicModelRoutes {
     String publicId, {
     RuntimeCapability requiredCapability = RuntimeCapability.textGeneration,
   }) {
-    if (publicId.length != 68 || !publicId.startsWith('gmd-')) {
-      throw const PublicRequestException(404, 'model_not_found', '公开模型不存在');
-    }
-    final artifactId = publicId.substring(4);
-    if (!_enabled.contains(artifactId)) {
+    _ensureOpen();
+    final artifactId = _instances != null
+        ? _instances.definitions
+              .where((definition) => definition.publicName == publicId)
+              .firstOrNull
+              ?.id
+        : _publicIds.entries
+              .where((entry) => entry.value == publicId)
+              .firstOrNull
+              ?.key;
+    if (artifactId == null || !isEnabled(artifactId)) {
       throw const PublicRequestException(
         404,
         'model_not_found',
@@ -189,7 +303,7 @@ class PublicModelRoutes {
     final hit = ready.single;
     return PublicRouteTarget(
       publicId: publicId,
-      artifactId: artifactId,
+      artifactId: hit.instance.artifactId,
       runtime: hit.runtime,
       instance: hit.instance,
     );
@@ -206,7 +320,12 @@ class PublicModelRoutes {
       ..addAll(_runtimeSources?.call() ?? _runtimes);
     for (final runtime in runtimes) {
       for (final instance in runtime.runtimeInstances) {
-        if (instance.artifactId == artifactId &&
+        if ((_instances == null
+                ? instance.artifactId == artifactId
+                : instance.launchInstanceId == artifactId) &&
+            (_instanceIds == null
+                ? !instance.temporaryTest
+                : _instanceIds.contains(instance.id)) &&
             instance.status == RuntimeInstanceStatus.ready &&
             instance.acceptingRequests &&
             instance.hasLiveProcess &&
@@ -224,16 +343,27 @@ class PublicModelRoutes {
   /// declared maximum or a saved launch form. Ambiguous routes stay absent.
   List<Map<String, Object?>> capacityModels() {
     final entries = <Map<String, Object?>>[];
-    for (final artifactId in _enabled.toList()..sort()) {
+    for (final artifactId in _registeredIds.toList()..sort()) {
       final artifact = _library.state.artifacts
-          .where((artifact) => artifact.id == artifactId)
+          .where(
+            (artifact) =>
+                artifact.id ==
+                (_instances?.find(artifactId)?.artifactId ?? artifactId),
+          )
           .firstOrNull;
-      if (artifact == null ||
-          (artifact.kind != AssetKind.chat &&
-              artifact.kind != AssetKind.embedding)) {
+      if (_instances == null &&
+          (artifact == null ||
+              (artifact.kind != AssetKind.chat &&
+                  artifact.kind != AssetKind.embedding))) {
         continue;
       }
-      final capability = artifact.kind == AssetKind.embedding
+      final capability =
+          (_instances == null
+              ? artifact!.kind == AssetKind.embedding
+              : _readyInstances(
+                  artifactId,
+                  RuntimeCapability.embeddings,
+                ).isNotEmpty)
           ? RuntimeCapability.embeddings
           : RuntimeCapability.textGeneration;
       final ready = _readyInstances(artifactId, capability);
@@ -265,22 +395,39 @@ class PublicModelRoutes {
     return entries;
   }
 
-  Future<void> _persist() async {
+  Future<void> _persist() {
     final file = _registryFile;
-    if (file == null) return;
-    await file.parent.create(recursive: true);
+    if (file == null) return Future.value();
     final enabled = _enabled.toList()..sort();
-    await file.writeAsString(
-      jsonEncode({'schema': _schema, 'enabled': enabled}),
-    );
+    final names = Map<String, String>.from(_publicIds);
+    final text = jsonEncode({
+      'schema': _schema,
+      'enabled': enabled,
+      'publicIds': names,
+    });
+    final operation = _writes.then((_) async {
+      await file.parent.create(recursive: true);
+      final temporary = File('${file.path}.tmp');
+      await temporary.writeAsString(text, flush: true);
+      await temporary.rename(file.path);
+      _persistedIds.clear();
+      _persistedIds.addAll(names);
+    });
+    _writes = operation.then<void>((_) {}, onError: (Object _) {});
+    return operation;
   }
 
   void _ensureOpen() {
     if (_closed) throw StateError('公开路由层已关闭');
+    if (_nameStorageError != null) {
+      throw StateError('公开模型名称保存失败：$_nameStorageError');
+    }
   }
 
   void close() {
     _closed = true;
+    unawaited(_librarySubscription.cancel());
+    unawaited(_instanceSubscription?.cancel());
     unawaited(_changes.close());
   }
 }
@@ -513,22 +660,27 @@ class PublicGatewayServer {
         inflight.claimed = true;
       }
       if (request.method == 'GET' && path == '/v1/models') {
+        final nativeModels =
+            jevModels?.callableModels ?? <JevModelAvailability>[];
+        final nativeNames = nativeModels
+            .map((entry) => entry.definition.name)
+            .toSet();
         _sendJson(request.response, 200, {
           'object': 'list',
           'data': [
-            for (final entry
-                in jevModels?.callableModels ?? <JevModelAvailability>[])
+            for (final entry in nativeModels)
               {
                 ...entry.toJson(),
                 'object': 'model',
                 'owned_by': 'ghostmodeldeck',
               },
             for (final entry in _routes.listModels())
-              {
-                'id': entry.publicId,
-                'object': 'model',
-                'owned_by': 'ghostmodeldeck',
-              },
+              if (!nativeNames.contains(entry.publicId))
+                {
+                  'id': entry.publicId,
+                  'object': 'model',
+                  'owned_by': 'ghostmodeldeck',
+                },
             for (final entry in _routes.listModels(
               requiredCapability: RuntimeCapability.embeddings,
             ))

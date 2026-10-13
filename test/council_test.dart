@@ -231,7 +231,7 @@ void main() {
     expect(partial.aggregateScores, isNull);
     expect(runtime.io.killedChildren, 0);
   });
-  test('the default round budget expires after ten seconds with no fabricated opinion', () async {
+  test('the default round budget expires after sixty seconds with no fabricated opinion', () async {
     final runtime = await CouncilRuntime.create();
     addTearDown(runtime.close);
     final council = CouncilController(catalog: runtime.catalog);
@@ -243,13 +243,13 @@ void main() {
       options: {'accept': '接受', 'reject': '拒绝'},
     );
     await runtime.io.bothArrived!.future.timeout(const Duration(seconds: 2));
-    final result = await pending.timeout(const Duration(seconds: 12));
+    final result = await pending.timeout(const Duration(seconds: 65));
     runtime.io.release!.complete();
     expect(
       result.elapsed,
-      greaterThanOrEqualTo(const Duration(milliseconds: 9900)),
+      greaterThanOrEqualTo(const Duration(milliseconds: 59900)),
     );
-    expect(result.elapsed, lessThan(const Duration(seconds: 11)));
+    expect(result.elapsed, lessThan(const Duration(seconds: 61)));
     expect(result.status, CouncilStatus.failed);
     expect(result.scope, CouncilScope.none);
     expect(result.seats.map((opinion) => opinion.status), [
@@ -261,7 +261,7 @@ void main() {
     expect(result.votes, isNull);
     expect(result.disagreement, isNull);
     expect(runtime.io.killedChildren, 0);
-  });
+  }, timeout: const Timeout(Duration(seconds: 90)));
   test('invalid external opinions remain raw failures and never enter the valid peer result', () async {
     final runtime = await CouncilRuntime.create();
     addTearDown(runtime.close);

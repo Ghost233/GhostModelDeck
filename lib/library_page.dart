@@ -13,27 +13,29 @@ import 'engine_launch_editor.dart';
 import 'llama_engine.dart';
 import 'model_run_dialog.dart';
 import 'public_gateway.dart';
-import 'sdk_service.dart';
 
 class LibraryPage extends StatefulWidget {
   const LibraryPage({
     super.key,
     required this.library,
     required this.libraryPath,
+    this.libraryPaths,
+    this.onCreateInstance,
     this.engines,
     this.publicRoutes,
     this.publicGateway,
-    this.startupSet,
   });
 
   final ModelLibrary library;
   final String libraryPath;
+  final List<String>? libraryPaths;
+  final void Function(String artifactId)? onCreateInstance;
+  List<String> get roots => libraryPaths ?? [libraryPath];
   final EngineCatalog? engines;
   final PublicModelRoutes? publicRoutes;
   final PublicGatewayServer? publicGateway;
 
   /// 启动模型集合配置：用户把某个运行组合显式设为推理服务启动时加载。
-  final StartupModelSet? startupSet;
 
   @override
   State<LibraryPage> createState() => _LibraryPageState();
@@ -44,6 +46,7 @@ class _LibraryPageState extends State<LibraryPage> {
   final _variantIds = <String, String>{};
   final _expanded = <String>{};
   final _stopping = <String>{};
+  final _starting = <String>{};
   final _filter = TextEditingController();
   LibraryState? _packageState;
   String? _packagePath;
@@ -83,7 +86,7 @@ class _LibraryPageState extends State<LibraryPage> {
         if (mounted) setState(() {});
       });
     }
-    if (oldWidget.libraryPath != widget.libraryPath ||
+    if (oldWidget.roots.join('\n') != widget.roots.join('\n') ||
         oldWidget.library != widget.library) {
       _selected.clear();
       _variantIds.clear();
@@ -100,7 +103,9 @@ class _LibraryPageState extends State<LibraryPage> {
     _selected.clear();
     _awaitingScan = path.isNotEmpty;
     if (path.isNotEmpty) {
-      library.scan(Directory(path)).then((_) {
+      library.scanDirectories(widget.roots.map(Directory.new).toList()).then((
+        _,
+      ) {
         if (mounted &&
             generation == _scanGeneration &&
             widget.library == library &&
@@ -170,6 +175,40 @@ class _LibraryPageState extends State<LibraryPage> {
     }
   }
 
+  Future<void> _startModel(LocalModelVariant variant) async {
+    final catalog = widget.engines;
+    if (catalog == null || !_starting.add(variant.id)) return;
+    setState(() => _operationError = null);
+    try {
+      await catalog.refresh();
+      await widget.library.verify(variant.artifactIds);
+      final asset = variant.artifacts
+          .where(
+            (a) => [
+              AssetKind.chat,
+              AssetKind.decision,
+              AssetKind.embedding,
+            ].contains(a.kind),
+          )
+          .single;
+      final preferred = catalog.preferredEngineFor(asset.id);
+      final entries = catalog.state.entries.where(
+        (e) => e.status == LlamaInstallationStatus.installed,
+      );
+      final entry = preferred == null
+          ? entries.firstOrNull
+          : entries.where((e) => e.id == preferred).firstOrNull;
+      if (entry == null) throw StateError('已保存的引擎不可用，请在参数中选择引擎');
+      if (entry.family == EngineFamily.omlx) throw StateError('此引擎尚未接通模型运行');
+      await catalog.runtimeFor(entry.id).startRuntime(asset.id);
+    } catch (error) {
+      if (mounted) setState(() => _operationError = error.toString());
+    } finally {
+      _starting.remove(variant.id);
+      if (mounted) setState(() {});
+    }
+  }
+
   Future<void> _verify(List<String> artifactIds) async {
     final path = widget.libraryPath;
     final library = widget.library;
@@ -206,12 +245,37 @@ class _LibraryPageState extends State<LibraryPage> {
           ? Future.value(
               LocalModelPackages(packages: [], residualArtifacts: []),
             )
-          : LocalModelPackages.discover(
-              Directory(state.rootPath ?? widget.libraryPath),
-              state.artifacts,
-            );
+          : _discoverPackages(state);
     }
     return _packageFuture!;
+  }
+
+  Future<LocalModelPackages> _discoverPackages(LibraryState state) async {
+    final packages = <LocalModelPackage>[];
+    final roots = state.rootPaths.toList()
+      ..sort((a, b) => b.length.compareTo(a.length));
+    final assigned = <String>{};
+    for (final root in roots) {
+      final assets = state.artifacts
+          .where(
+            (a) =>
+                !assigned.contains(a.id) &&
+                ['GGUF', 'Safetensors'].contains(a.format) &&
+                a.files.any((f) => f.path.startsWith('$root/')),
+          )
+          .toList();
+      assigned.addAll(assets.map((asset) => asset.id));
+      final discovered = await LocalModelPackages.discover(
+        Directory(root),
+        assets,
+      );
+      packages.addAll(discovered.packages);
+    }
+    final unique = {for (final package in packages) package.id: package};
+    return LocalModelPackages(
+      packages: unique.values.toList(),
+      residualArtifacts: [],
+    );
   }
 
   LocalModelVariant _variant(LocalModelPackage package) =>
@@ -291,14 +355,17 @@ class _LibraryPageState extends State<LibraryPage> {
                 const SizedBox(height: 24),
                 if ((!_awaitingScan && state.error != null) ||
                     _operationError != null ||
+                    widget.publicRoutes?.error != null ||
                     grouped.hasError)
                   Padding(
+                    key: const Key('library-operation-error'),
                     padding: const EdgeInsets.only(top: 10),
                     child: Text(
                       _operationError ??
                           state.error ??
+                          widget.publicRoutes?.error ??
                           grouped.error.toString(),
-                      style: TextStyle(
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: Theme.of(context).colorScheme.error,
                       ),
                     ),
@@ -347,6 +414,7 @@ class _LibraryPageState extends State<LibraryPage> {
                         ),
                       ),
                       SizedBox(width: 64),
+                      SizedBox(width: 40),
                       SizedBox(width: 28),
                     ],
                   ),
@@ -492,35 +560,71 @@ class _LibraryPageState extends State<LibraryPage> {
                                         ),
                                       ),
                                       SizedBox(
-                                        width: 64,
+                                        width: widget.onCreateInstance == null
+                                            ? 64
+                                            : 88,
                                         child: TextButton(
                                           onPressed:
-                                              busy ||
-                                                  widget.engines == null ||
-                                                  !variant.artifacts.any(
-                                                    (asset) =>
-                                                        [
-                                                          AssetKind.decision,
-                                                          AssetKind.chat,
-                                                          AssetKind.embedding,
-                                                        ].contains(
-                                                          asset.kind,
-                                                        ) &&
-                                                        asset.integrity ==
-                                                            AssetIntegrity
-                                                                .complete,
-                                                  )
+                                              widget.onCreateInstance != null
+                                              ? busy
+                                                    ? null
+                                                    : () =>
+                                                          widget
+                                                              .onCreateInstance!(
+                                                            variant
+                                                                .artifactIds
+                                                                .first,
+                                                          )
+                                              : busy ||
+                                                    widget.engines == null ||
+                                                    !variant.artifacts.any(
+                                                      (asset) =>
+                                                          [
+                                                            AssetKind.decision,
+                                                            AssetKind.chat,
+                                                            AssetKind.embedding,
+                                                          ].contains(
+                                                            asset.kind,
+                                                          ) &&
+                                                          asset.integrity ==
+                                                              AssetIntegrity
+                                                                  .complete,
+                                                    )
                                               ? null
-                                              : () => showModelRunDialog(
-                                                  context,
-                                                  catalog: widget.engines!,
-                                                  library: widget.library,
-                                                  modelPackage: package,
-                                                  variant: variant,
-                                                ),
-                                          child: const Text('运行'),
+                                              : _starting.contains(variant.id)
+                                              ? null
+                                              : () => _startModel(variant),
+                                          child: Text(
+                                            widget.onCreateInstance == null
+                                                ? '运行'
+                                                : '创建实例',
+                                          ),
                                         ),
                                       ),
+                                      if (widget.onCreateInstance == null)
+                                        SizedBox(
+                                          width: 40,
+                                          child: IconButton(
+                                            tooltip: '模型参数',
+                                            icon: const Icon(
+                                              Icons.tune,
+                                              size: 18,
+                                            ),
+                                            onPressed:
+                                                busy ||
+                                                    widget.engines == null ||
+                                                    widget.onCreateInstance !=
+                                                        null
+                                                ? null
+                                                : () => showModelRunDialog(
+                                                    context,
+                                                    catalog: widget.engines!,
+                                                    library: widget.library,
+                                                    modelPackage: package,
+                                                    variant: variant,
+                                                  ),
+                                          ),
+                                        ),
                                       SizedBox(
                                         width: 28,
                                         child: IconButton(
@@ -547,8 +651,10 @@ class _LibraryPageState extends State<LibraryPage> {
                                           variant.artifactIds,
                                         ) ??
                                         <EngineRun>[])
-                                  _runRow(run, busy),
-                                if (widget.publicRoutes != null &&
+                                  if (widget.onCreateInstance == null)
+                                    _runRow(run, busy),
+                                if (widget.onCreateInstance == null &&
+                                    widget.publicRoutes != null &&
                                     variant.artifacts.length == 1 &&
                                     [
                                       AssetKind.chat,
@@ -569,7 +675,10 @@ class _LibraryPageState extends State<LibraryPage> {
                                         package.details
                                             .map(_details)
                                             .join('\n\n'),
-                                        style: const TextStyle(fontSize: 11),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium
+                                            ?.copyWith(fontSize: 11),
                                       ),
                                     ),
                                   ),
@@ -578,28 +687,6 @@ class _LibraryPageState extends State<LibraryPage> {
                           },
                         ),
                 ),
-                if (catalog != null && catalog.residualArtifacts.isNotEmpty)
-                  ExpansionTile(
-                    dense: true,
-                    tilePadding: EdgeInsets.zero,
-                    title: Text(
-                      '目录其他文件 (${catalog.residualArtifacts.length}) · 只读',
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    children: [
-                      SizedBox(
-                        height: 140,
-                        child: SingleChildScrollView(
-                          child: SelectableText(
-                            catalog.residualArtifacts
-                                .map(_details)
-                                .join('\n\n'),
-                            style: const TextStyle(fontSize: 11),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
                 Padding(
                   padding: const EdgeInsets.only(top: 10),
                   child: Text(
@@ -706,34 +793,6 @@ class _LibraryPageState extends State<LibraryPage> {
     }
   }
 
-  /// 启动模型集合开关：把该行对应的（引擎登记 id + 模型资产 id）运行组合
-  /// 显式加入/移出集合；集合只记录用户选择，加载发生在推理服务 onStart。
-  Widget _startupSetToggle(EngineRun run, ThemeData theme) {
-    final set = widget.startupSet!;
-    final inSet = set.contains(run.engine.id, run.instance.artifactId);
-    return IconButton(
-      tooltip: inSet ? '从启动模型集合移除' : '加入启动模型集合（推理服务启动时加载）',
-      iconSize: 16,
-      padding: EdgeInsets.zero,
-      onPressed: () async {
-        try {
-          if (inSet) {
-            await set.remove(run.engine.id, run.instance.artifactId);
-          } else {
-            await set.add(run.engine.id, run.instance.artifactId);
-          }
-          if (mounted) setState(() => _operationError = null);
-        } catch (error) {
-          if (mounted) setState(() => _operationError = error.toString());
-        }
-      },
-      icon: Icon(
-        inSet ? Icons.rocket_launch : Icons.rocket_launch_outlined,
-        color: inSet ? theme.colorScheme.primary : null,
-      ),
-    );
-  }
-
   Widget _runRow(EngineRun run, bool busy) {
     final instance = run.instance;
     final legacy = run.engine.family == EngineFamily.llamaCpp
@@ -790,7 +849,7 @@ class _LibraryPageState extends State<LibraryPage> {
                   icon: const Icon(Icons.terminal, size: 18),
                   onPressed: () => _showLaunchCommand(legacy!),
                 ),
-              if (widget.startupSet != null) _startupSetToggle(run, theme),
+
               if (active)
                 TextButton(
                   onPressed: busy || stopping
@@ -880,7 +939,7 @@ String _variantStatus(LocalModelVariant variant) {
   )) {
     return '完整性不符';
   }
-  return '未支持 · 包待确认';
+  return '模型文件组';
 }
 
 String _status(LibraryArtifact artifact) {
@@ -888,21 +947,14 @@ String _status(LibraryArtifact artifact) {
   if (artifact.kind == AssetKind.adapter) return 'Adapter · 不完整';
   if (artifact.kind == AssetKind.encoder) return 'Encoder · 待配套';
   if (artifact.integrity == AssetIntegrity.incomplete) return '缺文件 / Metadata';
-  if (artifact.kind == AssetKind.chat) {
-    return artifact.integrity == AssetIntegrity.complete &&
-            artifact.fingerprintsVerified
-        ? '普通聊天模型'
-        : '聊天 · 文件待核验';
-  }
-  if (artifact.kind == AssetKind.unknown) return '已发现 · 未知';
+  if (artifact.kind == AssetKind.chat) return '聊天模型';
+  if (artifact.kind == AssetKind.unknown) return '${artifact.format} 模型';
   if (artifact.kind == AssetKind.embedding) {
-    return '嵌入模型 · ${artifact.embeddingDimensions ?? "未知"} 维 · 待能力验证';
+    return artifact.embeddingDimensions == null
+        ? '嵌入模型'
+        : '嵌入模型 · ${artifact.embeddingDimensions} 维';
   }
-  return artifact.integrity == AssetIntegrity.complete
-      ? artifact.fingerprintsVerified
-            ? '完整 · 待能力验证'
-            : '文件齐全 · 待核验'
-      : '已发现 · 文件待核验';
+  return '决策模型';
 }
 
 String _details(LibraryArtifact artifact) => [

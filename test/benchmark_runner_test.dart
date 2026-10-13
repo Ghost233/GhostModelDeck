@@ -38,7 +38,7 @@ void main() {
     expect(completed.status, BenchmarkRunStatus.completed);
     expect(completed.model, 'native-kev');
     expect(completed.source, 'native');
-    expect(completed.timeout, const Duration(seconds: 30));
+    expect(completed.timeout, const Duration(seconds: 60));
     expect(completed.items, hasLength(400));
     expect(completed.groups, hasLength(200));
     expect(completed.summary['complete'], isTrue);

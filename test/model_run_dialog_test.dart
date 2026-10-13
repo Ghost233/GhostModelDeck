@@ -16,11 +16,373 @@ import 'package:ghost_model_deck/local_model_package.dart';
 import 'package:ghost_model_deck/llama_engine.dart';
 import 'package:ghost_model_deck/model_library.dart';
 import 'package:ghost_model_deck/model_use_registry.dart';
+import 'package:ghost_model_deck/launch_instances.dart';
+import 'package:ghost_model_deck/instances_page.dart';
+import 'package:ghost_model_deck/public_gateway.dart';
+import 'package:ghost_model_deck/chat_protocol.dart';
+import 'package:ghost_model_deck/decision_protocol.dart';
 
 import 'fixtures/decision_gguf.dart';
 import 'fixtures/engine_archive.dart';
 
 void main() {
+  testWidgets(
+    'instance JEV budget saves without changing launch arguments or starting a model',
+    (tester) async {
+      final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
+      addTearDown(() => tester.runAsync(fixture.close));
+      final store = LaunchInstances(
+        catalog: fixture.catalog,
+        file: File('${fixture.root.path}/instances.json'),
+      );
+      addTearDown(() => tester.runAsync(store.close));
+      final definition = (await tester.runAsync(
+        () => store.save(
+          name: 'Saved',
+          artifactId: fixture.asset.id,
+          engineId: EngineCatalog.officialId,
+          configuration: EngineLaunchConfiguration(),
+        ),
+      ))!;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: InstancesPage(instances: store)),
+        ),
+      );
+      await _settleFilesystemFrames(tester);
+      final budget = find.text('JEV 预算 60 秒');
+      await tester.ensureVisible(budget);
+      await tester.runAsync(() => tester.tap(budget));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('instance-jev-budget')), '0');
+      await tester.tap(find.widgetWithText(FilledButton, '保存'));
+      await tester.pump();
+      expect(find.text('请输入正整数秒'), findsOneWidget);
+      await tester.enterText(
+        find.byKey(const Key('instance-jev-budget')),
+        '17',
+      );
+      await tester.runAsync(() async {
+        final saved = store.changes.firstWhere(
+          (_) => store.find(definition.id)!.jevRequestTimeoutSeconds == 17,
+        );
+        await tester.tap(find.widgetWithText(FilledButton, '保存'));
+        await tester.pumpAndSettle();
+        await saved.timeout(const Duration(seconds: 5));
+      });
+      await _settleFilesystemFrames(tester);
+      expect(find.text('JEV 预算 17 秒'), findsOneWidget);
+      expect(
+        store.find(definition.id)!.configuration.toJson(),
+        definition.configuration.toJson(),
+      );
+      expect(store.runsFor(definition.id), isEmpty);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'instance resource preparation is pending rather than a missing resource and blocks configuration edits',
+    (tester) async {
+      final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
+      addTearDown(() => tester.runAsync(fixture.close));
+      final store = LaunchInstances(
+        catalog: fixture.catalog,
+        file: File('${fixture.root.path}/instances.json'),
+      );
+      addTearDown(() => tester.runAsync(store.close));
+      final gate = Completer<void>();
+      await tester.runAsync(() async {
+        await store.save(
+          name: 'Saved',
+          artifactId: fixture.asset.id,
+          engineId: EngineCatalog.officialId,
+          configuration: EngineLaunchConfiguration(),
+        );
+        await fixture.library.scanDirectories([]);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: InstancesPage(instances: store, prepare: () => gate.future),
+            ),
+          ),
+        );
+        await tester.pump();
+        expect(find.text('模型缺失'), findsNothing);
+        expect(find.textContaining('模型缺失 ·'), findsNothing);
+        expect(
+          tester
+              .widget<TextButton>(find.widgetWithText(TextButton, '编辑参数'))
+              .onPressed,
+          isNull,
+        );
+        expect(
+          tester
+              .widget<TextButton>(find.widgetWithText(TextButton, '删除配置'))
+              .onPressed,
+          isNull,
+        );
+        gate.complete();
+        await tester.pump();
+        await tester.pump();
+        expect(find.text('模型缺失'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+    },
+  );
+
+  test('linked engine original path refresh accepts verified updates and retains the running binary snapshot', () async {
+    await HttpOverrides.runWithHttpOverrides(() async {
+      final fixture = await _LaunchTextFixture.create();
+      addTearDown(fixture.close);
+      final binary = await File('${fixture.root.path}/linked/llama-server')
+          .create(recursive: true);
+      await binary.writeAsString('server fixture');
+      expect(
+        (await Process.run('/bin/chmod', ['+x', binary.path])).exitCode,
+        0,
+      );
+      final registration = await fixture.catalog.link(binary.path);
+      final provider = fixture.catalog.providerFor(registration.id);
+      final first = await provider.start(fixture.asset.id);
+      final oldFingerprint = first.binarySha256;
+      await binary.writeAsString('verified new contents at the same path');
+      await fixture.catalog.refresh();
+      expect(
+        fixture.catalog.state.entries
+            .singleWhere((entry) => entry.id == registration.id)
+            .status,
+        LlamaInstallationStatus.installed,
+      );
+      expect(
+        provider.state.instances
+            .singleWhere((instance) => instance.id == first.id)
+            .binarySha256,
+        oldFingerprint,
+      );
+      expect(
+        provider.state.instances
+            .singleWhere((instance) => instance.id == first.id)
+            .status,
+        LlamaInstanceStatus.ready,
+      );
+      await provider.stop(first.id);
+      final second = await provider.start(fixture.asset.id);
+      expect(second.binarySha256, isNot(oldFingerprint));
+      expect(second.launchCommand!.executable, binary.path);
+      final saved =
+          jsonDecode(await fixture.catalog.registryFile.readAsString()) as Map;
+      final row = (saved['linked'] as List).singleWhere(
+        (row) => row['id'] == registration.id,
+      );
+      expect(row['fingerprints'][binary.path], second.binarySha256);
+      await provider.stop(second.id);
+    }, _NetworkBoundary());
+  });
+  testWidgets(
+    'instance failure shows a bounded summary and file entry while controls remain usable',
+    (tester) async {
+      final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
+      addTearDown(() => tester.runAsync(fixture.close));
+      await tester.runAsync(() async {
+        final store = LaunchInstances(
+          catalog: fixture.catalog,
+          file: File('${fixture.root.path}/instances.json'),
+        );
+        try {
+          await store.save(
+            name: 'Saved',
+            artifactId: fixture.asset.id,
+            engineId: EngineCatalog.officialId,
+            configuration: EngineLaunchConfiguration(),
+          );
+          final original =
+              'startup failed\n${List.filled(200, 'usage and full runtime details').join('\n')}\nserver: error: invalid --kv-format';
+          await tester.pumpWidget(
+            MaterialApp(
+              home: Scaffold(
+                body: InstancesPage(
+                  instances: store,
+                  prepare: () async {
+                    throw StateError(original);
+                  },
+                ),
+              ),
+            ),
+          );
+          await _settleFilesystemFrames(tester);
+          expect(find.textContaining('invalid --kv-format'), findsWidgets);
+          expect(
+            find.textContaining('usage and full runtime details'),
+            findsNothing,
+          );
+          expect(
+            find.widgetWithText(TextButton, '编辑参数').hitTestable(),
+            findsOneWidget,
+          );
+          expect(find.text('完整错误文件'), findsOneWidget);
+          final path = tester
+              .widget<SelectableText>(
+                find.byKey(const Key('instance-error-file')),
+              )
+              .data!;
+          expect(await File(path).readAsString(), contains(original));
+          expect(tester.takeException(), isNull);
+        } finally {
+          await tester.pumpWidget(const SizedBox.shrink());
+          await store.close();
+        }
+      });
+    },
+  );
+  testWidgets(
+    'saved instance editor reopens the same model without rescanning engines',
+    (tester) async {
+      final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
+      addTearDown(() => tester.runAsync(fixture.close));
+      await tester.runAsync(() async {
+        final store = LaunchInstances(
+          catalog: fixture.catalog,
+          file: File('${fixture.root.path}/instances.json'),
+        );
+        try {
+          await store.load();
+          final checks = fixture.io.versionChecks;
+          await tester.pumpWidget(
+            MaterialApp(
+              home: Scaffold(
+                body: InstancesPage(
+                  instances: store,
+                  initialArtifactId: fixture.asset.id,
+                ),
+              ),
+            ),
+          );
+          await _settleFilesystemFrames(tester, dialogRemainsOpen: true);
+          expect(find.text('实例配置'), findsOneWidget);
+          expect(fixture.io.versionChecks, checks);
+          await tester.tap(find.widgetWithText(TextButton, '取消'));
+          await tester.pump(const Duration(milliseconds: 300));
+          await tester.pumpWidget(
+            MaterialApp(
+              home: Scaffold(body: InstancesPage(instances: store)),
+            ),
+          );
+          await tester.pump();
+          await tester.pumpWidget(
+            MaterialApp(
+              home: Scaffold(
+                body: InstancesPage(
+                  instances: store,
+                  initialArtifactId: fixture.asset.id,
+                ),
+              ),
+            ),
+          );
+          await _settleFilesystemFrames(tester, dialogRemainsOpen: true);
+          expect(find.text('实例配置'), findsOneWidget);
+          expect(fixture.io.versionChecks, checks);
+          expect(fixture.engine.runtimeInstances, isEmpty);
+        } finally {
+          await tester.pumpWidget(const SizedBox.shrink());
+          await store.close();
+        }
+      });
+    },
+  );
+  testWidgets(
+    'recognized new architecture can save an instance without starting',
+    (tester) async {
+      final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
+      addTearDown(() => tester.runAsync(fixture.close));
+      await tester.runAsync(() async {
+        final file = File(fixture.asset.files.single.path);
+        final bytes = await file.readAsBytes();
+        final marker = ascii.encode('qwen35');
+        for (var offset = 0; offset <= bytes.length - marker.length; offset++) {
+          if (List.generate(
+                marker.length,
+                (index) => bytes[offset + index],
+              ).join(',') ==
+              marker.join(',')) {
+            bytes.setRange(
+              offset,
+              offset + marker.length,
+              ascii.encode('novel0'),
+            );
+            break;
+          }
+        }
+        await file.writeAsBytes(bytes);
+        final asset = (await fixture.library.scan(
+          Directory('${fixture.root.path}/models'),
+          verifyFiles: true,
+        )).single;
+        expect(asset.architecture, 'novel0');
+        expect(asset.kind, AssetKind.unknown);
+        final store = LaunchInstances(
+          catalog: fixture.catalog,
+          file: File('${fixture.root.path}/instances.json'),
+        );
+        final routes = PublicModelRoutes(
+          library: fixture.library,
+          runtimes: [fixture.engine],
+        );
+        try {
+          await store.load();
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: buildJevTheme(Brightness.light),
+              home: Scaffold(body: InstancesPage(instances: store)),
+            ),
+          );
+          await _settleFilesystemFrames(tester);
+          await tester.tap(find.text('创建实例'));
+          await _settleFilesystemFrames(tester);
+          expect(find.byType(AlertDialog), findsOneWidget);
+          await tester.tap(find.widgetWithText(FilledButton, '保存'));
+          await _settleFilesystemFrames(tester);
+          await tester.pump(const Duration(milliseconds: 300));
+          expect(store.definitions, hasLength(1));
+          expect(store.definitions.single.artifactId, asset.id);
+          expect(fixture.engine.runtimeInstances, isEmpty);
+          final displayName = store.definitions.single.name;
+          await tester.tap(find.text('修改调用名'));
+          await _settleFilesystemFrames(tester);
+          await tester.enterText(
+            find.widgetWithText(TextField, '公开调用名'),
+            'FAST Model',
+          );
+          final renameDialog = find.ancestor(
+            of: find.widgetWithText(TextField, '公开调用名'),
+            matching: find.byType(AlertDialog),
+          );
+          final renamed = store.changes.firstWhere(
+            (_) => store.definitions.single.publicName == 'fast-model',
+          );
+          await tester.tap(
+            find.descendant(
+              of: renameDialog,
+              matching: find.widgetWithText(FilledButton, '保存'),
+            ),
+          );
+          await renamed.timeout(const Duration(seconds: 5));
+          await _settleFilesystemFrames(tester);
+          await tester.pump(const Duration(milliseconds: 300));
+          expect(store.definitions.single.publicName, 'fast-model');
+          expect(store.definitions.single.name, displayName);
+          expect(find.textContaining('公开模型 ID  fast-model'), findsOneWidget);
+          expect(tester.takeException(), isNull);
+        } finally {
+          await tester.pumpWidget(const SizedBox.shrink());
+          routes.close();
+          await store.close();
+        }
+      });
+    },
+  );
   test('model configuration JSON rejects partial mutation and retains orphan registrations', () async {
     final fixture = await _LaunchTextFixture.create();
     addTearDown(fixture.close);
@@ -353,18 +715,27 @@ void main() {
     }, _NetworkBoundary());
   });
   testWidgets(
-    'model run copies engine defaults into an independent full configuration',
+    'model parameter list edits drafts, restores overrides and keeps footer fixed',
     (tester) async {
       final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
       addTearDown(() => tester.runAsync(fixture.close));
-      await _openTextEditor(tester, fixture);
-      await tester.enterText(find.widgetWithText(TextField, '上下文大小'), '2048');
-      const source = ' --device=CPU\n';
-      final text = find.widgetWithText(TextField, '启动参数文本');
-      await tester.ensureVisible(text);
-      await tester.enterText(text, source);
-      await tester.pump();
-      await _saveTextEditor(tester, fixture);
+      tester.view.physicalSize = const Size(1100, 732);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      const id = EngineCatalog.officialId;
+      await tester.runAsync(
+        () => fixture.catalog.saveLaunchDefaults(
+          id,
+          EngineLaunchConfiguration(
+            formValues: {
+              ...EngineLaunchConfiguration.initialValues,
+              '--ctx-size': '2048',
+            },
+            argumentText: ' --device=CPU\n',
+          ),
+        ),
+      );
       await tester.runAsync(() async {
         await tester.pumpWidget(
           MaterialApp(
@@ -379,49 +750,86 @@ void main() {
           ),
         );
         await _settleFilesystemFrames(tester);
-        await tester.tap(find.widgetWithText(TextButton, '运行'));
+        await tester.tap(find.byTooltip('模型参数'));
         await tester.pump();
         await fixture.catalog.refresh();
         await tester.pump();
       });
       await tester.pumpAndSettle();
-      expect(find.text('模型独立'), findsOneWidget);
+      expect(find.text('模型独立'), findsNothing);
+      expect(find.text('引擎默认'), findsNothing);
+      expect(find.text('编辑模型参数'), findsNothing);
+      expect(find.byType(AlertDialog), findsOneWidget);
+      final field = find.widgetWithText(TextField, '上下文大小');
+      expect(tester.widget<TextField>(field).controller!.text, '2048');
+      expect(find.text('override ↶'), findsNothing);
+      final commandBefore = tester.getRect(find.text('完整启动命令'));
+      final saveBefore = tester.getRect(
+        find.widgetWithText(FilledButton, '保存'),
+      );
+      await tester.enterText(field, '1024');
+      await tester.pumpAndSettle();
+      expect(find.text('override ↶'), findsOneWidget);
+      expect(find.textContaining('--ctx-size 1024'), findsOneWidget);
+      await tester.tap(find.text('override ↶'));
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(field).controller!.text, '2048');
+      expect(find.text('override ↶'), findsNothing);
+      await tester.drag(find.byType(ListView).last, const Offset(0, -350));
+      await tester.pumpAndSettle();
+      expect(tester.getRect(find.text('完整启动命令')), commandBefore);
+      expect(
+        tester.getRect(find.widgetWithText(FilledButton, '保存')),
+        saveBefore,
+      );
+      final text = find.widgetWithText(TextField, '启动参数文本');
+      await tester.ensureVisible(text);
+      expect(
+        tester.widget<TextField>(text).controller!.text,
+        ' --device=CPU\n',
+      );
+      await tester.enterText(text, '--threads 9');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+      expect(
+        fixture.catalog.modelLaunchOverridesFor(id, fixture.asset.id).enabled,
+        isFalse,
+      );
       await tester.runAsync(() async {
-        final selected = fixture.catalog.changes.firstWhere(
-          (state) => !state.busy,
-        );
-        await tester.tap(find.text('模型独立'));
-        await selected.timeout(const Duration(seconds: 5));
+        await tester.tap(find.byTooltip('模型参数'));
+        await tester.pump();
+        await fixture.catalog.refresh();
         await tester.pump();
       });
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(OutlinedButton, '编辑模型参数'));
+      await tester.enterText(find.widgetWithText(TextField, '上下文大小'), '1024');
       await tester.pumpAndSettle();
-      final contextField = find.widgetWithText(TextField, '上下文大小');
-      expect(tester.widget<TextField>(contextField).controller!.text, '2048');
-      expect(tester.widget<TextField>(text).controller!.text, source);
-      expect(
-        find.descendant(
-          of: find.ancestor(
-            of: contextField,
-            matching: find.byType(AlertDialog),
-          ),
-          matching: find.textContaining(fixture.asset.files.single.path),
-        ),
-        findsOneWidget,
-      );
-      await tester.enterText(contextField, '1024');
-      await tester.pump();
       await _saveTextEditor(tester, fixture);
-      expect(find.textContaining('--ctx-size 1024'), findsOneWidget);
+      expect(fixture.catalog.preferredEngineFor(fixture.asset.id), id);
+      expect(
+        fixture.catalog
+            .launchConfigurationFor(id, fixture.asset.id)
+            .formValues['--ctx-size'],
+        '1024',
+      );
+      expect(
+        fixture.catalog.launchDefaultsFor(id).formValues['--ctx-size'],
+        '2048',
+      );
+      expect(
+        fixture.engine.state.instances,
+        isEmpty,
+        reason: 'save never starts a model',
+      );
       await tester.runAsync(
         () => HttpOverrides.runWithHttpOverrides(() async {
+          await tester.tap(find.widgetWithText(TextButton, '运行'));
           final ready = fixture.engine.changes.firstWhere(
             (state) => state.instances.any(
-              (instance) => instance.status == LlamaInstanceStatus.ready,
+              (i) => i.status == LlamaInstanceStatus.ready,
             ),
           );
-          await tester.tap(find.widgetWithText(FilledButton, '运行'));
           await ready.timeout(const Duration(seconds: 5));
           await _settleFilesystemFrames(tester);
         }, _NetworkBoundary()),
@@ -429,18 +837,6 @@ void main() {
       expect(
         fixture.io.startedArguments.single,
         containsAllInOrder(['--ctx-size', '1024', '--device=CPU']),
-      );
-      expect(
-        fixture.catalog
-            .launchDefaultsFor(EngineCatalog.officialId)
-            .formValues['--ctx-size'],
-        '2048',
-      );
-      expect(
-        fixture.catalog
-            .launchDefaultsFor(EngineCatalog.officialId)
-            .argumentText,
-        source,
       );
       expect(tester.takeException(), isNull);
     },
@@ -679,7 +1075,6 @@ void main() {
           ),
         );
         await _settleFilesystemFrames(tester);
-        await tester.tap(find.widgetWithText(TextButton, '运行'));
         await tester.pump();
         await fixture.catalog.refresh();
         await tester.pump();
@@ -692,7 +1087,7 @@ void main() {
               (instance) => instance.status == LlamaInstanceStatus.failed,
             ),
           );
-          await tester.tap(find.widgetWithText(FilledButton, '运行'));
+          await tester.tap(find.widgetWithText(TextButton, '运行'));
           await failed.timeout(const Duration(seconds: 5));
           await fixture.catalog.refresh();
           await tester.pump();
@@ -702,7 +1097,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(
         find.descendant(
-          of: find.widgetWithText(AlertDialog, '运行模型'),
+          of: find.byKey(const Key('library-operation-error')),
           matching: find.textContaining(diagnostic),
         ),
         findsOneWidget,
@@ -1411,7 +1806,7 @@ void main() {
         await _settleFilesystemFrames(tester);
       });
       await tester.runAsync(() async {
-        await tester.tap(find.widgetWithText(TextButton, '运行'));
+        await tester.tap(find.byTooltip('模型参数'));
         // Build the real dialog in the I/O zone before queuing a refresh behind
         // its own refresh. Leaving this zone earlier strands its loading state.
         await tester.pump();
@@ -1421,7 +1816,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(
         tester
-            .widget<FilledButton>(find.widgetWithText(FilledButton, '运行'))
+            .widget<FilledButton>(find.widgetWithText(FilledButton, '保存'))
             .onPressed,
         isNotNull,
       );
@@ -1437,6 +1832,11 @@ void main() {
       expect(clipboard, contains(modelPath!));
       expect(clipboard, contains(engine.executablePath!));
       expect(clipboard, contains('启动时分配'));
+      await tester.runAsync(() async {
+        await tester.tap(find.widgetWithText(FilledButton, '保存'));
+        await catalog.refresh();
+        await _settleFilesystemFrames(tester);
+      });
       await tester.runAsync(
         () => HttpOverrides.runWithHttpOverrides(() async {
           final ready = catalog.changes.firstWhere(
@@ -1444,7 +1844,7 @@ void main() {
               (instance) => instance.status == LlamaInstanceStatus.ready,
             ),
           );
-          await tester.tap(find.widgetWithText(FilledButton, '运行'));
+          await tester.tap(find.widgetWithText(TextButton, '运行'));
           await ready.timeout(const Duration(seconds: 5));
         }, _NetworkBoundary()),
       );
@@ -1565,10 +1965,9 @@ void main() {
           final a = await runtimeA.startRuntime(asset.id);
           expect(a.status, RuntimeInstanceStatus.ready);
           expect(a.capabilities, contains(RuntimeCapability.textGeneration));
-          expect(
-            a.capabilities,
-            isNot(contains(RuntimeCapability.choiceProbability)),
-          );
+          expect(a.capabilities, contains(RuntimeCapability.choiceProbability));
+          expect(capturedA.state.instances.single.typedEvidence, isEmpty);
+          expect(capturedA.state.instances.single.lastResult, isNull);
           expect(catalog.runsFor([asset.id]).single.instance.id, a.id);
           await providers[1].start(asset.id);
           Future<EngineRegistration>? linking;
@@ -1792,9 +2191,11 @@ void main() {
       await standardBinary.writeAsString('foreign replacement');
       await catalog.refresh();
       expect(all[1].state.installation, LlamaInstallationStatus.failed);
-      expect(all[1].state.instances.last.capabilities, isEmpty);
-      expect(all[1].state.instances.last.acceptingRequests, isFalse);
-      expect(all[1].state.instances.last.nativeAlias, isNull);
+      expect(all[1].state.instances.last.capabilities, {
+        LlamaCapability.textGeneration,
+      });
+      expect(all[1].state.instances.last.acceptingRequests, isTrue);
+      expect(all[1].state.instances.last.nativeAlias, restarted[1].id);
       expect(all[1].state.instances.last.hasLiveProcess, isTrue);
       expect(all[0].state.instances.last.status, LlamaInstanceStatus.ready);
       expect(all[2].state.instances.last.status, LlamaInstanceStatus.ready);
@@ -1802,8 +2203,9 @@ void main() {
       await catalog.refresh();
       expect(
         all[1].state.instances.last.capabilities,
-        isEmpty,
-        reason: 'repair must not resurrect old generation evidence',
+        {LlamaCapability.textGeneration},
+        reason:
+            'resource repair leaves the admitted running snapshot unchanged',
       );
       await all[1].stop(restarted[1].id);
       final removal = await catalog.prepareRemoval(EngineCatalog.standardId);
@@ -1935,14 +2337,16 @@ void main() {
           );
           for (var n = 0; n < 100; n++) {
             await tester.pump();
-            final run = find.widgetWithText(TextButton, '运行');
+            final run = find.byWidgetPredicate(
+              (w) => w is IconButton && w.tooltip == '模型参数',
+            );
             if (run.evaluate().isNotEmpty &&
-                tester.widget<TextButton>(run).onPressed != null) {
+                tester.widget<IconButton>(run).onPressed != null) {
               break;
             }
             await Future<void>.delayed(const Duration(milliseconds: 10));
           }
-          await tester.tap(find.widgetWithText(TextButton, '运行'));
+          await tester.tap(find.byTooltip('模型参数'));
           for (var n = 0; n < 100; n++) {
             await tester.pump();
             final dropdown = find.byType(DropdownButton<String>);
@@ -1963,7 +2367,7 @@ void main() {
         if (standard) {
           await tester.tap(find.byType(DropdownButton<String>));
           await tester.pumpAndSettle();
-          await tester.tap(find.text('llama.cpp · 标准 v0.5.0').last);
+          await tester.tap(find.text('llama.cpp · b11146').last);
           await tester.pumpAndSettle();
         }
         expect(find.text('请先安装或关联引擎'), findsNothing);
@@ -1979,6 +2383,11 @@ void main() {
           lessThanOrEqualTo(fieldBounds.bottom),
           reason: 'The selected engine version must stay inside its input',
         );
+        await tester.runAsync(() async {
+          await tester.tap(find.widgetWithText(FilledButton, '保存'));
+          await catalog.refresh();
+          await _settleFilesystemFrames(tester);
+        });
         await tester.runAsync(
           () => HttpOverrides.runWithHttpOverrides(() async {
             final completed = catalog.changes.firstWhere(
@@ -1986,7 +2395,7 @@ void main() {
                 (instance) => instance.status == LlamaInstanceStatus.ready,
               ),
             );
-            await tester.tap(find.widgetWithText(FilledButton, '运行'));
+            await tester.tap(find.widgetWithText(TextButton, '运行'));
             await completed.timeout(const Duration(seconds: 5));
           }, _NetworkBoundary()),
         );
@@ -1995,16 +2404,38 @@ void main() {
         expect(find.text('运行模型'), findsNothing);
         expect(find.widgetWithText(TextButton, '停止'), findsOneWidget);
         if (ordinaryChat) {
-          expect(fresh.state.instances.single.lastTextResult!.text, 'Hello.');
-          expect(fresh.state.instances.single.capabilities, {
-            LlamaCapability.textGeneration,
-          });
+          expect(fresh.state.instances.single.lastTextResult, isNull);
+          final explicit = await tester.runAsync(
+            () => HttpOverrides.runWithHttpOverrides(
+              () => fresh.generateText(
+                fresh.state.instances.single.id,
+                TextRequest(prompt: 'Hello'),
+              ),
+              _NetworkBoundary(),
+            ),
+          );
+          expect(explicit!.text, 'Hello.');
+          expect(
+            fresh.state.instances.single.capabilities,
+            contains(LlamaCapability.textGeneration),
+          );
           expect(fresh.state.instances.single.lastResult, isNull);
         } else {
-          expect(fresh.state.instances.single.lastResult!.probabilities, {
-            'keep': 0.25,
-            'change': 0.75,
-          });
+          expect(fresh.state.instances.single.lastResult, isNull);
+          final explicit = await tester.runAsync(
+            () => HttpOverrides.runWithHttpOverrides(
+              () => fresh.decide(
+                fresh.state.instances.single.id,
+                DecisionRequest(
+                  state: 'A change',
+                  instructions: 'Choose an action',
+                  options: {'keep': 'Keep', 'change': 'Change'},
+                ),
+              ),
+              _NetworkBoundary(),
+            ),
+          );
+          expect(explicit!.probabilities, {'keep': 0.25, 'change': 0.75});
         }
         final instance = fresh.state.instances.single;
         expect(
@@ -2246,6 +2677,7 @@ class _RuntimeIO implements EngineProcessIO {
   Completer<void>? startupExitGate;
   bool stopFailure = false;
   int stopAttempts = 0;
+  int versionChecks = 0;
   Completer<void>? stopRelease;
   Completer<void>? stopRequested;
   Completer<void>? inspectionRequested;
@@ -2267,6 +2699,7 @@ class _RuntimeIO implements EngineProcessIO {
       );
     }
     if (arguments.singleOrNull == '--version') {
+      versionChecks++;
       if (inspectionRequested != null && !inspectionRequested!.isCompleted) {
         inspectionRequested!.complete();
         await inspectionRelease!.future;

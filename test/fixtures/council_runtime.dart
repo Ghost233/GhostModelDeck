@@ -230,8 +230,7 @@ class CouncilRuntimeIO implements EngineProcessIO {
             'answers': typedAnswers(questions),
             'usage': {'input_tokens': 10, 'output_tokens': 0},
           });
-          if (!consultation &&
-              failScoreForOther &&
+          if (failScoreForOther &&
               arg('--model').contains('/Other/') &&
               questions.values.any((q) => q['type'] == 'score')) {
             raw = jsonEncode({

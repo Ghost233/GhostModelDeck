@@ -8,6 +8,10 @@ import 'package:ghost_model_deck/engine_catalog.dart';
 import 'package:ghost_model_deck/engine_page.dart';
 import 'package:ghost_model_deck/engine_source_build.dart';
 import 'package:ghost_model_deck/engine_source_dialog.dart';
+import 'package:ghost_model_deck/download_tasks_page.dart';
+import 'package:ghost_model_deck/download_panel.dart';
+import 'package:ghost_model_deck/download_preferences.dart';
+import 'package:ghost_model_deck/model_downloader.dart';
 import 'package:ghost_model_deck/llama_engine.dart';
 import 'package:ghost_model_deck/model_library.dart';
 import 'package:ghost_model_deck/model_use_registry.dart';
@@ -121,15 +125,23 @@ void main() {
       await tester.runAsync(() async {
         await tester.tap(find.byKey(const Key('engine-source-build')));
         await _until(
-          () => find
-              .byKey(const Key('engine-source-success'))
-              .evaluate()
-              .isNotEmpty,
+          () =>
+              !fixture.catalog.sourceBuildActive &&
+              fixture.catalog.sourceBuildProgress?.phase ==
+                  EngineSourceBuildPhase.complete,
           tester,
         );
       });
       await tester.pumpAndSettle();
-      expect(find.text('已登记引擎：本地源码'), findsOneWidget);
+      expect(find.byType(EngineSourceDialog), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('engine-source-task')),
+          matching: find.text('已完成'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('引擎已登记'), findsOneWidget);
       final entry = fixture.catalog.state.entries.singleWhere(
         (entry) => entry.name == '本地源码',
       );
@@ -150,8 +162,6 @@ void main() {
       expect(after.generation, before.generation);
       expect(after.status, LlamaInstanceStatus.ready);
       expect(after.hasLiveProcess, isTrue);
-      await tester.tap(find.text('完成'));
-      await tester.pumpAndSettle();
       await tester.runAsync(() async {
         await tester.pumpWidget(
           MaterialApp(
@@ -237,20 +247,23 @@ void main() {
         await tester.pump();
       });
       await tester.pump();
-      expect(find.text('编译引擎'), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byType(EngineSourceDialog), findsNothing);
+      expect(find.text('编译中'), findsOneWidget);
       expect(find.text('取消构建'), findsOneWidget);
       await tester.runAsync(() async {
-        await tester.tap(find.byKey(const Key('engine-source-cancel')));
+        await tester.tap(find.text('取消构建'));
         await _until(
-          () => find
-              .byKey(const Key('engine-source-error'))
-              .evaluate()
-              .isNotEmpty,
+          () =>
+              !fixture.catalog.sourceBuildActive &&
+              fixture.catalog.sourceBuildProgress?.phase ==
+                  EngineSourceBuildPhase.cancelled,
           tester,
         );
       });
       await tester.pumpAndSettle();
       expect(find.textContaining('源码引擎构建已取消'), findsOneWidget);
+      expect(find.text('已取消'), findsOneWidget);
       expect(fixture.io.held!.groupAlive, isFalse);
       expect(
         fixture.catalog.state.entries.any((entry) => entry.name == '本地源码'),
@@ -274,10 +287,10 @@ void main() {
       await tester.runAsync(() async {
         await tester.tap(find.byKey(const Key('engine-source-build')));
         await _until(
-          () => find
-              .byKey(const Key('engine-source-error'))
-              .evaluate()
-              .isNotEmpty,
+          () =>
+              !fixture.catalog.sourceBuildActive &&
+              fixture.catalog.sourceBuildProgress?.phase ==
+                  EngineSourceBuildPhase.failed,
           tester,
         );
       });
@@ -291,7 +304,20 @@ void main() {
         fixture.runtime.engine.state.instances.single.hasLiveProcess,
         isTrue,
       );
-      expect(find.byKey(const Key('engine-source-log')), findsOneWidget);
+      expect(find.text('失败'), findsOneWidget);
+      expect(find.text('在 Finder 中显示'), findsOneWidget);
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is SelectableText &&
+              widget.data?.startsWith(
+                    '${fixture.runtime.root.path}/source-builds/',
+                  ) ==
+                  true &&
+              widget.data!.endsWith('/build.log'),
+        ),
+        findsOneWidget,
+      );
       expect(tester.takeException(), isNull);
     },
   );
@@ -314,21 +340,50 @@ Future<void> _fill(
 }
 
 Future<void> _open(WidgetTester tester, EngineCatalog catalog) async {
-  await tester.pumpWidget(
-    MaterialApp(
-      home: Scaffold(
-        body: Builder(
-          builder: (context) => TextButton(
-            onPressed: () => showDialog<void>(
-              context: context,
-              barrierDismissible: false,
-              builder: (_) => EngineSourceDialog(catalog: catalog),
+  late ModelDownloader downloader;
+  late DownloadPreferences preferences;
+  await tester.runAsync(() async {
+    downloader = ModelDownloader();
+    preferences = DownloadPreferences(
+      file: File(
+        '${catalog.registryFile.parent.path}/download-preferences.json',
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => Column(
+              children: [
+                TextButton(
+                  onPressed: () => showDialog<bool>(
+                    context: context,
+                    barrierDismissible: false,
+                    builder: (_) => EngineSourceDialog(catalog: catalog),
+                  ),
+                  child: const Text('open'),
+                ),
+                Expanded(
+                  child: DownloadTasksPage(
+                    engines: catalog,
+                    downloads: DownloadTaskController(
+                      downloader: downloader,
+                      preferences: preferences,
+                    ),
+                  ),
+                ),
+              ],
             ),
-            child: const Text('open'),
           ),
         ),
       ),
-    ),
+    );
+  });
+  addTearDown(
+    () => tester.runAsync(() async {
+      await downloader.close();
+      preferences.dispose();
+    }),
   );
   await tester.tap(find.text('open'));
   await tester.pumpAndSettle();

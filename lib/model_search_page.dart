@@ -196,7 +196,7 @@ class _ModelSearchPageState extends State<ModelSearchPage> {
                     hintText: '在 Hugging Face 上搜索模型',
                     hintStyle:
                         Theme.of(context).inputDecorationTheme.hintStyle ??
-                        TextStyle(
+                        Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                     prefixIcon: Icon(
@@ -467,10 +467,11 @@ class _ModelSearchPageState extends State<ModelSearchPage> {
                           const SizedBox(height: 8),
                           Text(
                             selection.variant.unavailableReason ?? '暂不支持此变体',
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.error,
-                              fontSize: 12,
-                            ),
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(
+                                  color: Theme.of(context).colorScheme.error,
+                                  fontSize: 12,
+                                ),
                           ),
                         ],
                         const SizedBox(height: 12),
@@ -575,7 +576,10 @@ class _CacheBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Tooltip(
     message: error ?? '缓存元数据',
-    child: const Text('缓存', style: TextStyle(fontSize: 12)),
+    child: Text(
+      '缓存',
+      style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 12),
+    ),
   );
 }
 
@@ -589,7 +593,7 @@ class _Status extends StatelessWidget {
     child: Text(
       message,
       textAlign: TextAlign.center,
-      style: const TextStyle(fontSize: 13),
+      style: Theme.of(context).textTheme.bodyMedium,
     ),
   );
 }

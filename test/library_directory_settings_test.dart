@@ -5,6 +5,34 @@ import 'package:ghost_model_deck/library_directory_settings.dart';
 
 void main() {
   test(
+    'download location remains saved after removing its library association',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'gmd-multiple-settings-',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      final settings = LibraryDirectorySettings(
+        file: File('${root.path}/settings.json'),
+      );
+      final download = '${root.path}/downloads';
+      final other = '${root.path}/other';
+      await settings.save(download);
+      await settings.saveDirectories(
+        ModelDirectories(downloadPath: download, libraryPaths: [other]),
+      );
+      final reopened = await LibraryDirectorySettings(file: settings.file)
+          .loadDirectories();
+      expect(reopened.downloadPath, download);
+      expect(reopened.libraryPaths, [other]);
+      final next = '${root.path}/next';
+      await settings.save(next);
+      final changed = await LibraryDirectorySettings(file: settings.file)
+          .loadDirectories();
+      expect(changed.downloadPath, next);
+      expect(changed.libraryPaths, [other, next]);
+    },
+  );
+  test(
     'selected shared directory persists without moving its model files',
     () async {
       final root = await Directory.systemTemp.createTemp('jev-settings-');

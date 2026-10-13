@@ -10,109 +10,91 @@ import 'engine_catalog.dart';
 import 'engine_runtime.dart';
 import 'model_library.dart';
 import 'public_gateway.dart';
+import 'launch_instances.dart';
 
-/// 启动模型集合中的一项：用户显式选定的一个模型运行组合（引擎登记 id +
-/// 模型资产 id）。集合只记录用户的显式选择，不替用户挑选模型或引擎。
+/// An explicitly selected saved instance; never an implicit model/engine pair.
 class StartupModelEntry {
-  const StartupModelEntry({required this.engineId, required this.artifactId});
-
-  final String engineId;
-  final String artifactId;
-
-  Map<String, Object?> toJson() => {'engine': engineId, 'artifact': artifactId};
+  const StartupModelEntry({required this.instanceId});
+  final String instanceId;
+  Map<String, Object?> toJson() => {'instance': instanceId};
 }
 
-/// 持久化的启动模型集合（schema 1）。MacLauncher 推理服务的 onStart 显式
-/// 加载这组运行组合；GUI 与 SDK 共用这一份配置。
 class StartupModelSet {
   StartupModelSet({required this.file});
-
   factory StartupModelSet.user() => StartupModelSet(
     file: File(
       '${_home()}/Library/Application Support/GhostModelDeck/startup-models.json',
     ),
   );
-
   static const int schema = 1;
-
   final File file;
   List<StartupModelEntry> _entries = const [];
   bool _loaded = false;
-
+  Future<void> _operations = Future.value();
   List<StartupModelEntry> get entries => List.unmodifiable(_entries);
+  bool contains(String id) => _entries.any((entry) => entry.instanceId == id);
+  Future<void> _serial(Future<void> Function() action) {
+    final operation = _operations.then((_) => action());
+    _operations = operation.then<void>((_) {}, onError: (Object _) {});
+    return operation;
+  }
 
-  bool contains(String engineId, String artifactId) => _entries.any(
-    (entry) => entry.engineId == engineId && entry.artifactId == artifactId,
-  );
-
-  /// 幂等读取：GUI 与 SDK onStart 共用。配置损坏抛 FormatException，由调用
-  /// 方真实呈现（GUI 设置错误、SDK start 失败），不静默吞掉。
-  Future<void> load() async {
+  Future<void> load() => _serial(_load);
+  Future<void> _load() async {
     if (_loaded) return;
     if (!await file.exists()) {
-      _entries = const [];
       _loaded = true;
       return;
     }
-    final decoded = jsonDecode(await file.readAsString());
-    if (decoded is! Map || decoded['schema'] != schema) {
+    final value = jsonDecode(await file.readAsString());
+    if (value is! Map || value['schema'] != schema) {
       throw const FormatException('启动模型集合配置版本不受支持');
     }
-    final rawEntries = decoded['entries'];
-    if (rawEntries is! List) {
+    if (value['entries'] is! List) {
       throw const FormatException('启动模型集合配置缺少 entries');
     }
     final parsed = <StartupModelEntry>[];
-    for (final raw in rawEntries) {
-      if (raw is! Map) {
-        throw const FormatException('启动模型集合条目必须是对象');
+    for (final entry in value['entries'] as List) {
+      if (entry is! Map ||
+          entry['instance'] is! String ||
+          (entry['instance'] as String).trim().isEmpty) {
+        throw const FormatException('启动集合条目需要非空实例身份');
       }
-      final engine = raw['engine'];
-      final artifact = raw['artifact'];
-      if (engine is! String ||
-          engine.isEmpty ||
-          artifact is! String ||
-          artifact.isEmpty) {
-        throw const FormatException('启动模型集合条目需要非空 engine 与 artifact');
-      }
-      parsed.add(StartupModelEntry(engineId: engine, artifactId: artifact));
+      parsed.add(StartupModelEntry(instanceId: entry['instance'] as String));
     }
-    _entries = parsed;
+    if (parsed.map((entry) => entry.instanceId).toSet().length !=
+        parsed.length) {
+      throw const FormatException('启动集合实例重复');
+    }
+    _entries = List.unmodifiable(parsed);
     _loaded = true;
   }
 
-  Future<void> add(String engineId, String artifactId) async {
-    if (contains(engineId, artifactId)) return;
-    _entries = [
-      ..._entries,
-      StartupModelEntry(engineId: engineId, artifactId: artifactId),
-    ];
-    await _save();
-  }
-
-  Future<void> remove(String engineId, String artifactId) async {
-    final remaining = _entries
-        .where(
-          (entry) =>
-              entry.engineId != engineId || entry.artifactId != artifactId,
-        )
-        .toList();
-    if (remaining.length == _entries.length) return;
-    _entries = remaining;
-    await _save();
-  }
-
-  Future<void> _save() async {
+  Future<void> add(String id) => _serial(() async {
+    await _load();
+    if (id.trim().isEmpty) throw ArgumentError('实例身份不能为空');
+    if (!contains(id)) {
+      await _write([..._entries, StartupModelEntry(instanceId: id)]);
+    }
+  });
+  Future<void> remove(String id) => _serial(() async {
+    await _load();
+    if (contains(id)) {
+      await _write(_entries.where((entry) => entry.instanceId != id).toList());
+    }
+  });
+  Future<void> _write(List<StartupModelEntry> next) async {
     await file.parent.create(recursive: true);
     final temporary = File('${file.path}.tmp');
     await temporary.writeAsString(
       jsonEncode({
         'schema': schema,
-        'entries': [for (final entry in _entries) entry.toJson()],
+        'entries': next.map((entry) => entry.toJson()).toList(),
       }),
       flush: true,
     );
     await temporary.rename(file.path);
+    _entries = List.unmodifiable(next);
   }
 
   static String _home() {
@@ -146,6 +128,7 @@ class LauncherInferenceService {
     required this.gateway,
     required this.mcp,
     required this.startupSet,
+    required this.instances,
     this.onOpenWindow,
     this.onSetEntryManaged,
     this.onVersionStatus,
@@ -168,6 +151,7 @@ class LauncherInferenceService {
   final PublicGatewayServer gateway;
   final CouncilMcpServer mcp;
   final StartupModelSet startupSet;
+  final LaunchInstances instances;
 
   /// 窗口激活最小 seam：由应用壳注入（原生 MethodChannel）；原生窗口行为
   /// 验证属 #19 范围。未配置时 openWindow 请求真实失败，不假装成功。
@@ -317,6 +301,7 @@ class LauncherInferenceService {
       throw StateError('推理服务正在变更：${_state.name}');
     }
     _state = LauncherServiceState.stopping;
+    instances.cancelPendingStarts();
     _log('推理服务回收受理：封入场→排空→卸载受管模型→停服务，实例 $_instanceId');
     final failures = <String>[];
     // 1) 先关新入场：封公开 API 并取消在途 Chat/SSE，解除引擎排空等待。
@@ -375,9 +360,9 @@ class LauncherInferenceService {
         for (final entry in entries) {
           final instance = _matchingInstance(entry);
           if (instance == null) {
-            problems.add('模型未运行：${entry.artifactId}');
+            problems.add('模型未运行：${entry.instanceId}');
           } else if (instance.status != RuntimeInstanceStatus.ready) {
-            problems.add('模型未就绪：${entry.artifactId}（${instance.status.name}）');
+            problems.add('模型未就绪：${entry.instanceId}（${instance.status.name}）');
           }
         }
       }
@@ -449,46 +434,35 @@ class LauncherInferenceService {
   /// 复用，不创建副本；缺资产与单项失败记录日志并继续，由 onStatus 真实
   /// 报告未就绪。
   Future<void> _loadStartupSet() async {
+    await instances.load();
     for (final entry in startupSet.entries) {
       try {
-        if (!_artifactExists(entry.artifactId)) {
-          _log('启动集合模型缺失：${entry.artifactId}');
+        if (instances.find(entry.instanceId) == null) {
+          _log('启动集合模型缺失：${entry.instanceId}');
           continue;
         }
         if (_matchingInstance(entry) != null) {
-          _log('启动集合复用运行实例：${entry.artifactId}');
+          _log('启动集合复用运行实例：${entry.instanceId}');
           continue;
         }
-        final started = await engines
-            .runtimeFor(entry.engineId)
-            .startRuntime(entry.artifactId);
-        _log('启动集合加载模型：${entry.artifactId}（实例 ${started.id}）');
+        final started = await instances.start(entry.instanceId);
+        _log('启动集合加载模型：${entry.instanceId}（实例 ${started.id}）');
       } catch (error) {
-        _log('启动集合加载失败：${entry.artifactId}：$error');
+        _log('启动集合加载失败：${entry.instanceId}：$error');
       }
     }
   }
 
-  bool _artifactExists(String artifactId) =>
-      library.state.artifacts.any((artifact) => artifact.id == artifactId);
-
-  RuntimeInstance? _matchingInstance(StartupModelEntry entry) {
-    final EngineRuntime runtime;
-    try {
-      runtime = engines.runtimeFor(entry.engineId);
-    } catch (_) {
-      return null;
-    }
-    for (final instance in runtime.runtimeInstances) {
-      if (instance.artifactId == entry.artifactId &&
-          instance.hasLiveProcess &&
-          (instance.status == RuntimeInstanceStatus.starting ||
-              instance.status == RuntimeInstanceStatus.ready)) {
-        return instance;
-      }
-    }
-    return null;
-  }
+  RuntimeInstance? _matchingInstance(StartupModelEntry entry) => instances
+      .runsFor(entry.instanceId)
+      .where(
+        (instance) =>
+            !instance.temporaryTest &&
+            instance.hasLiveProcess &&
+            (instance.status == RuntimeInstanceStatus.starting ||
+                instance.status == RuntimeInstanceStatus.ready),
+      )
+      .firstOrNull;
 
   void _log(String text) {
     _logBuffer.add(

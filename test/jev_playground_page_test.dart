@@ -346,7 +346,7 @@ void main() {
             .widget<TextField>(find.byKey(const Key('playground-timeout')))
             .controller!
             .text,
-        '30',
+        '60',
       );
       await tester.enterText(
         find.byKey(const Key('playground-timeout')),

@@ -418,7 +418,7 @@ void main() {
     expect(error.containsKey('answers'), false);
     expect(io.killedAliases, [alias]);
   });
-  test('native cancellation and its actual ten-second budget preserve only submitted IO', () async {
+  test('native cancellation and its actual sixty-second budget preserve only submitted IO', () async {
     final runtime = await CouncilRuntime.create(modelCount: 1);
     addTearDown(runtime.close);
     final council = CouncilController(catalog: runtime.catalog);
@@ -453,7 +453,7 @@ void main() {
       );
       await arrived.future.timeout(const Duration(seconds: 2));
       if (cancel) token.cancel();
-      final result = await pending.timeout(const Duration(seconds: 12));
+      final result = await pending.timeout(const Duration(seconds: 65));
       expect(
         (result['error'] as Map)['code'],
         cancel ? 'cancelled' : 'timed_out',
@@ -465,7 +465,7 @@ void main() {
       expect(debug['native']['http_status'], isNull);
       expect(debug.containsKey('council'), false);
       expect(debug.containsKey('valid_seats'), false);
-      if (!cancel) expect(debug['elapsed_us'], greaterThanOrEqualTo(9900000));
+      if (!cancel) expect(debug['elapsed_us'], greaterThanOrEqualTo(59900000));
       final frozen = jsonEncode(result);
       expect(
         (await council.models.decide('native', request('next')))['model'],
@@ -479,7 +479,7 @@ void main() {
       expect(runtime.engine.state.instances.single.pid, pid);
       expect(runtime.io.killedChildren, 0);
     }
-  });
+  }, timeout: const Timeout(Duration(seconds: 90)));
   test('the public managed decideBatch trace seals failures and returns deep snapshots', () async {
     final runtime = await CouncilRuntime.create();
     addTearDown(runtime.close);
@@ -836,7 +836,7 @@ void main() {
       );
       expect(
         debug['configuration']['timeout_us'],
-        source == 'native' ? 10000000 : 3000000,
+        source == 'native' ? 60000000 : 3000000,
       );
       final expectedState = {
         'conversation': [
@@ -906,7 +906,7 @@ void main() {
       expect(newDebug['configuration']['bindings'], [bindings.last.toJson()]);
       expect(
         newDebug['configuration']['timeout_us'],
-        source == 'native' ? 10000000 : 1000000,
+        source == 'native' ? 60000000 : 1000000,
       );
     }
     expect(

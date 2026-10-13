@@ -6,6 +6,8 @@ import 'decision_protocol.dart';
 import 'engine_catalog.dart';
 import 'engine_runtime.dart';
 import 'jev_models.dart';
+import 'public_model_names.dart';
+import 'launch_instances.dart';
 import 'jev_debug.dart';
 import 'llama_engine.dart';
 
@@ -249,16 +251,22 @@ class CouncilController {
     required this.catalog,
     this.modelRegistryFile,
     this.modelRegistryIO,
+    this.publicNames,
+    this.launchInstances,
   }) {
     _subscription = catalog.changes.listen((_) => _publish());
   }
   final EngineCatalog catalog;
   final File? modelRegistryFile;
   final JevRegistryIO? modelRegistryIO;
+  final PublicModelNames? publicNames;
+  final LaunchInstances? launchInstances;
   late final JevModels models = JevModels(
     controller: this,
     registryFile: modelRegistryFile,
     registryIO: modelRegistryIO,
+    publicNames: publicNames ?? launchInstances?.names,
+    instances: launchInstances,
   );
   final _changes = StreamController<CouncilState>.broadcast();
   late final StreamSubscription<EngineCatalogState> _subscription;
@@ -284,7 +292,8 @@ class CouncilController {
     for (final entry in catalog.state.entries)
       if (entry.family == EngineFamily.llamaCpp)
         for (final instance in catalog.providerFor(entry.id).state.instances)
-          if (instance.status == LlamaInstanceStatus.ready &&
+          if (!catalog.providerFor(entry.id).isTemporaryTest(instance.id) &&
+              instance.status == LlamaInstanceStatus.ready &&
               instance.capabilities.contains(LlamaCapability.choiceProbability))
             CouncilSeat(engine: entry, instance: instance),
   ]);
@@ -312,7 +321,7 @@ class CouncilController {
     required String state,
     required Map<String, String> options,
     String instructions = '根据上下文，从候选项中选择最合适的一项。',
-    Duration timeout = const Duration(seconds: 10),
+    Duration timeout = const Duration(seconds: 60),
     DecisionCancellation? cancellation,
   }) async {
     if (_shuttingDown) throw StateError('委员会正在退出');
@@ -410,7 +419,7 @@ class CouncilController {
 
   Future<CouncilBatchConsultation> consultBatch(
     DecisionBatchRequest request, {
-    Duration timeout = const Duration(seconds: 10),
+    Duration timeout = const Duration(seconds: 60),
     DecisionCancellation? cancellation,
     List<CouncilSeat>? seats,
     Map<String, DecisionIOTrace>? ioTraces,

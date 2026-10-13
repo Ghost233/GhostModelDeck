@@ -16,6 +16,145 @@ import 'fixtures/decision_gguf.dart';
 
 void main() {
   test(
+    'source loss keeps the loaded Splash run callable until explicit stop',
+    () async {
+      final fixture = await SplashRuntimeFixture.create();
+      addTearDown(fixture.close);
+      final engine = fixture.engine();
+      addTearDown(engine.close);
+      await engine.bindModel(fixture.asset.id, fixture.assembly);
+      final run = await engine.startRuntime(fixture.asset.id);
+      try {
+        await fixture.installation.nativeBinary.delete();
+        await engine.refreshInstallation();
+        expect(engine.state.installation, LlamaInstallationStatus.failed);
+        expect(
+          engine.runtimeInstances.single.status,
+          RuntimeInstanceStatus.ready,
+        );
+        expect(
+          (await engine.generateText(
+            run.id,
+            TextRequest(prompt: 'Hello'),
+          )).text,
+          isNotEmpty,
+        );
+      } finally {
+        await engine.stop(run.id);
+      }
+      await expectLater(
+        engine.startRuntime(fixture.asset.id),
+        throwsA(isA<SplashEngineException>()),
+      );
+    },
+  );
+
+  test('normal Splash startup loads and binds identity without any inference request', () async {
+    final fixture = await SplashRuntimeFixture.create();
+    addTearDown(fixture.close);
+    final engine = fixture.engine();
+    addTearDown(engine.close);
+    await engine.bindModel(fixture.asset.id, fixture.assembly);
+    try {
+      final run = await engine.startRuntime(fixture.asset.id);
+      expect(run.status, RuntimeInstanceStatus.ready);
+      expect(run.hasLiveProcess, isTrue);
+      expect(run.capabilities, {RuntimeCapability.textGeneration});
+      expect(fixture.io.httpPaths, contains('/ready'));
+      expect(fixture.io.httpPaths, contains('/status'));
+      expect(fixture.io.chatModels, isEmpty);
+      expect(fixture.io.sizedPosts, 0);
+      await engine.stop(run.id);
+      expect(engine.runtimeInstances.single.hasLiveProcess, isFalse);
+    } finally {
+      await engine.shutdown();
+    }
+  });
+  test('Splash sends sized JSON for explicit text and streaming without startup inference', () async {
+    final fixture = await SplashRuntimeFixture.create();
+    addTearDown(fixture.close);
+    fixture.io.rejectTransferEncoding = true;
+    final engine = fixture.engine();
+    addTearDown(engine.close);
+    await engine.bindModel(fixture.asset.id, fixture.assembly);
+    try {
+      final run = await engine.startRuntime(fixture.asset.id);
+      final reply = await engine.generateText(
+        run.id,
+        TextRequest(prompt: 'Reply OK.'),
+        timeout: const Duration(seconds: 2),
+      );
+      expect(reply.text, 'OK');
+      final events = await engine
+          .streamText(
+            run.id,
+            TextRequest(prompt: 'Reply OK.'),
+            timeout: const Duration(seconds: 2),
+          )
+          .toList();
+      expect(events.any((event) => event.result != null), isTrue);
+      expect(fixture.io.sizedPosts, 2);
+    } finally {
+      await engine.shutdown();
+    }
+  });
+  test('cold readiness timeout stays within the startup deadline without an automatic text probe', () async {
+    final fixture = await SplashRuntimeFixture.create();
+    addTearDown(fixture.close);
+    fixture.io.identityDelay = const Duration(seconds: 6);
+    final engine = fixture.engine();
+    addTearDown(engine.close);
+    await engine.bindModel(fixture.asset.id, fixture.assembly);
+    try {
+      final run = await engine.startRuntime(fixture.asset.id);
+      expect(run.status, RuntimeInstanceStatus.ready);
+      expect(fixture.io.starts, 1);
+      expect(
+        fixture.io.httpPaths.where((path) => path == '/ready').length,
+        greaterThan(1),
+      );
+      expect(fixture.io.httpPaths, isNot(contains('/v1/chat/completions')));
+      final reply = await engine.generateText(
+        run.id,
+        TextRequest(prompt: 'Reply OK.'),
+      );
+      expect(reply.text, 'OK');
+      expect(fixture.io.httpPaths, contains('/v1/chat/completions'));
+    } finally {
+      await engine.shutdown();
+    }
+  });
+  test('Splash only supplies its private cache directory with an explicit persistent-cache option', () async {
+    final fixture = await SplashRuntimeFixture.create();
+    addTearDown(fixture.close);
+    final engine = fixture.engine();
+    addTearDown(engine.close);
+    for (final text in ['', '--future-option "--persistent-cache"']) {
+      final command = engine.composeLaunch(
+        EngineLaunchConfiguration(
+          family: EngineFamily.splash,
+          argumentText: text,
+        ),
+      );
+      expect(command.arguments, isNot(contains('--cache-dir')));
+    }
+    final persistent = engine.composeLaunch(
+      EngineLaunchConfiguration(
+        family: EngineFamily.splash,
+        argumentText: '--persistent-cache --cache-dir /external',
+      ),
+    );
+    expect(persistent.arguments, contains('--persistent-cache'));
+    expect(
+      persistent.arguments,
+      containsAllInOrder([
+        '--cache-dir',
+        '${engine.runtimeDirectory.path}/cache',
+      ]),
+    );
+    expect(persistent.arguments, isNot(contains('/external')));
+  });
+  test(
     'linked Splash refuses content changed during actual help observation',
     () async {
       final root = await Directory.systemTemp.createTemp('splash-observe-');
@@ -264,6 +403,10 @@ void main() {
     await File('${fixture.source.path}/build/splash')
         .writeAsString('updated binary');
     await engine.refreshInstallation();
+    expect(engine.state.installation, LlamaInstallationStatus.installed);
+    expect(engine.installation.fingerprints, isNot(recorded.fingerprints));
+    await fixture.installation.nativeBinary.delete();
+    await engine.refreshInstallation();
     expect(engine.state.installation, LlamaInstallationStatus.failed);
     await expectLater(
       engine.previewLaunch(fixture.asset.id),
@@ -410,40 +553,38 @@ void main() {
       isA<DeletionPlan>(),
     );
   });
-  test(
-    'source replacement withdraws every old Ready receipt without a reload',
-    () async {
-      final fixture = await SplashRuntimeFixture.create();
-      addTearDown(fixture.close);
-      final engine = fixture.engine();
-      await engine.bindModel(fixture.asset.id, fixture.assembly);
-      final first = await engine.startRuntime(fixture.asset.id);
-      await engine.startRuntime(fixture.asset.id);
-      await File('${fixture.source.path}/build/splash')
-          .writeAsString('replacement');
-      await expectLater(
-        engine.generateText(first.id, TextRequest(prompt: 'OK')),
-        throwsA(
-          isA<SplashRequestException>().having(
-            (e) => e.kind,
-            'kind',
-            DecisionFailureKind.notReady,
-          ),
-        ),
-      );
-      expect(
-        engine.runtimeInstances.every(
-          (run) =>
-              run.capabilities.isEmpty &&
-              run.status == RuntimeInstanceStatus.failed,
-        ),
-        isTrue,
-      );
-      expect(fixture.io.starts, 2);
-      await engine.shutdown();
-      await engine.close();
-    },
-  );
+  test('source replacement retains loaded Splash runs and refreshes only future launches', () async {
+    final fixture = await SplashRuntimeFixture.create();
+    addTearDown(fixture.close);
+    final engine = fixture.engine();
+    await engine.bindModel(fixture.asset.id, fixture.assembly);
+    final first = await engine.startRuntime(fixture.asset.id);
+    await engine.startRuntime(fixture.asset.id);
+    await File('${fixture.source.path}/build/splash')
+        .writeAsString('replacement');
+    final oldVersion = engine.actualVersionFor(first.id);
+    await engine.refreshInstallation();
+    expect(engine.state.installation, LlamaInstallationStatus.installed);
+    expect(
+      (await engine.generateText(first.id, TextRequest(prompt: 'OK'))).text,
+      isNotEmpty,
+    );
+    expect(
+      engine.runtimeInstances.every(
+        (run) =>
+            run.status == RuntimeInstanceStatus.ready && run.hasLiveProcess,
+      ),
+      isTrue,
+    );
+    expect(engine.actualVersionFor(first.id), oldVersion);
+    expect(
+      engine.installation.fingerprints,
+      isNot(fixture.installation.fingerprints),
+    );
+    expect(fixture.io.starts, 2);
+    await engine.shutdown();
+    await engine.close();
+  });
   test(
     'timeout and truncated SSE are failures, never terminal text successes',
     () async {
@@ -489,7 +630,9 @@ void main() {
   );
   for (final wrongPid in [true, false]) {
     test(
-      'startup refuses ${wrongPid ? 'unowned PID' : 'reasoning-only empty content'} as Ready',
+      wrongPid
+          ? 'startup refuses unowned PID as Ready'
+          : 'explicit generation refuses reasoning-only empty content',
       () async {
         final fixture = await SplashRuntimeFixture.create();
         addTearDown(fixture.close);
@@ -497,10 +640,27 @@ void main() {
         fixture.io.emptyText = !wrongPid;
         final engine = fixture.engine();
         await engine.bindModel(fixture.asset.id, fixture.assembly);
-        await expectLater(
-          engine.startRuntime(fixture.asset.id),
-          throwsA(isA<SplashEngineException>()),
-        );
+        if (wrongPid) {
+          await expectLater(
+            engine.startRuntime(fixture.asset.id),
+            throwsA(isA<SplashEngineException>()),
+          );
+        } else {
+          final run = await engine.startRuntime(fixture.asset.id);
+          expect(fixture.io.chatModels, isEmpty);
+          expect(run.status, RuntimeInstanceStatus.ready);
+          await expectLater(
+            engine.generateText(run.id, TextRequest(prompt: 'Reply OK.')),
+            throwsA(
+              isA<SplashRequestException>().having(
+                (error) => error.kind,
+                'kind',
+                DecisionFailureKind.invalidResponse,
+              ),
+            ),
+          );
+          await engine.stop(run.id);
+        }
         expect(engine.runtimeInstances.single.capabilities, isEmpty);
         expect(engine.hasLiveInstances, isFalse);
         expect(fixture.io.starts, 1);
@@ -1113,6 +1273,10 @@ class SplashTestProcessIO implements SplashProcessIO {
   final bool mutate;
   final bool wrongPrefix;
   final calls = <List<String>>[];
+  final httpPaths = <String>[];
+  final chatModels = <String>[];
+  bool rejectTransferEncoding = false;
+  int sizedPosts = 0;
   int starts = 0;
   Duration identityDelay = Duration.zero;
   Completer<void>? identityEntered;
@@ -1203,6 +1367,7 @@ class SplashTestProcessIO implements SplashProcessIO {
       try {
         request.response.headers.contentType = ContentType.json;
         Object response;
+        httpPaths.add(request.uri.path);
         switch (request.uri.path) {
           case '/ready':
             if (identityDelay > Duration.zero || identityRelease != null) {
@@ -1277,9 +1442,22 @@ class SplashTestProcessIO implements SplashProcessIO {
               ],
             };
           case '/v1/chat/completions':
+            if (rejectTransferEncoding &&
+                (request.headers.value(HttpHeaders.transferEncodingHeader) !=
+                        null ||
+                    request.contentLength < 0)) {
+              request.response.statusCode = 400;
+              request.response.write(
+                '{"error":{"message":"transfer encoding is not supported"}}',
+              );
+              await request.response.close();
+              return;
+            }
+            if (request.contentLength >= 0) sizedPosts++;
             final body = jsonDecode(
               await request.cast<List<int>>().transform(utf8.decoder).join(),
             ) as Map;
+            chatModels.add(body['model'] as String);
             if ((body['messages'] as List).last['content'] == 'hold') {
               if (!holdReached.isCompleted) holdReached.complete();
               await releaseHeld.future;

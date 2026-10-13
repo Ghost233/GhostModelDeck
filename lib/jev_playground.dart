@@ -208,7 +208,7 @@ class JevPlayground {
     JevPlaygroundMode mode,
     String document, {
     DecisionCancellation? cancellation,
-    Duration timeout = const Duration(seconds: 30),
+    Duration timeout = const Duration(seconds: 60),
     bool validateBeforeSend = true,
   }) async {
     final token = cancellation ?? DecisionCancellation();
@@ -399,7 +399,7 @@ class JevPlayground {
     required String document,
     JevPlaygroundResult? result,
     JevPlaygroundMode mode = JevPlaygroundMode.http,
-    Duration timeout = const Duration(seconds: 30),
+    Duration timeout = const Duration(seconds: 60),
   }) async {
     if (!destination.isAbsolute) {
       throw ArgumentError('导出需要完整绝对路径');

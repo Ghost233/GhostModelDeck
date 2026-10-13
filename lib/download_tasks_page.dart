@@ -1,13 +1,22 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'app_theme.dart';
 import 'download_panel.dart';
 import 'model_downloader.dart';
+import 'engine_catalog.dart';
+import 'engine_labels.dart';
+import 'engine_source_build.dart';
+import 'jev_debug.dart';
+import 'llama_engine.dart';
 
 class DownloadTasksPage extends StatelessWidget {
-  const DownloadTasksPage({super.key, required this.downloads});
+  const DownloadTasksPage({super.key, required this.downloads, this.engines});
 
   final DownloadTaskController downloads;
+  final EngineCatalog? engines;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -15,41 +24,247 @@ class DownloadTasksPage extends StatelessWidget {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const JevPageHeader(title: '下载任务'),
+        const JevPageHeader(title: '下载'),
         Expanded(
-          child: StreamBuilder<DownloadState>(
-            stream: downloads.downloader.changes,
-            initialData: downloads.downloader.state,
-            builder: (context, snapshot) {
-              final state = snapshot.data!;
-              if (state.status == DownloadStatus.idle) {
-                return Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.download_outlined,
-                        size: 32,
-                        color: Theme.of(context).colorScheme.outline,
+          child: StreamBuilder<EngineCatalogState>(
+            stream: engines?.changes,
+            initialData: engines?.state,
+            builder: (context, engineSnapshot) => StreamBuilder<DownloadState>(
+              stream: downloads.downloader.changes,
+              initialData: downloads.downloader.state,
+              builder: (context, snapshot) {
+                final state = snapshot.data!;
+                final tasks = engines?.installationTasks ?? {};
+                if (state.status == DownloadStatus.idle &&
+                    tasks.isEmpty &&
+                    engines?.sourceBuildProgress == null) {
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.download_outlined,
+                          size: 32,
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          '暂无下载',
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                              ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                return ListView(
+                  children: [
+                    if (engines?.sourceBuildProgress != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: _sourceTask(context, engines!),
                       ),
-                      const SizedBox(height: 12),
-                      Text(
-                        '暂无下载',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    for (final task in tasks.entries)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: _engineTask(
+                          context,
+                          engineSnapshot.data!.entries.singleWhere(
+                            (entry) => entry.id == task.key,
+                          ),
+                          task.value,
                         ),
                       ),
-                    ],
-                  ),
+                    if (state.status != DownloadStatus.idle)
+                      _task(context, state),
+                  ],
                 );
-              }
-              return ListView(children: [_task(context, state)]);
-            },
+              },
+            ),
           ),
         ),
       ],
     ),
   );
+
+  Widget _sourceTask(BuildContext context, EngineCatalog catalog) {
+    final progress = catalog.sourceBuildProgress!;
+    final request = catalog.sourceBuildRequest!;
+    final logPath = catalog.sourceBuildLogPath;
+    final phase = switch (progress.phase) {
+      EngineSourceBuildPhase.validating => '检查工具',
+      EngineSourceBuildPhase.cloning => '获取源码',
+      EngineSourceBuildPhase.checkout => '选择版本',
+      EngineSourceBuildPhase.configuring => '准备编译',
+      EngineSourceBuildPhase.building => '编译中',
+      EngineSourceBuildPhase.inspecting => '核验并登记',
+      EngineSourceBuildPhase.complete => '已完成',
+      EngineSourceBuildPhase.failed => '失败',
+      EngineSourceBuildPhase.cancelled => '已取消',
+    };
+    final message =
+        sealDebugJson({'message': progress.logText})['message'] as String;
+    final summary = message.length > 1024
+        ? message.substring(message.length - 1024)
+        : message;
+    return JevSurface(
+      key: const Key('engine-source-task'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.build_outlined),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  request.name,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              JevStatusChip(
+                label: phase,
+                tone: progress.phase == EngineSourceBuildPhase.failed
+                    ? JevStatusTone.error
+                    : JevStatusTone.neutral,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          SelectableText(repositoryDisplayLabel(request.source)),
+          if (catalog.sourceBuildActive) ...[
+            const SizedBox(height: 12),
+            const LinearProgressIndicator(),
+            TextButton(
+              onPressed: catalog.cancelSourceBuild,
+              child: const Text('取消构建'),
+            ),
+          ],
+          if (summary.isNotEmpty)
+            Text(summary, maxLines: 4, overflow: TextOverflow.ellipsis),
+          if (logPath != null) ...[
+            SelectableText(logPath),
+            TextButton.icon(
+              icon: const Icon(Icons.folder_open),
+              label: const Text('在 Finder 中显示'),
+              onPressed: () async {
+                try {
+                  await const MethodChannel(
+                    'com.ghost233.ghostmodeldeck/native',
+                  ).invokeMethod<void>('revealInFinder', {'path': logPath});
+                } catch (error) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Finder 定位失败：$error')),
+                    );
+                  }
+                }
+              },
+            ),
+          ],
+          if (!catalog.sourceBuildActive &&
+              [
+                EngineSourceBuildPhase.failed,
+                EngineSourceBuildPhase.cancelled,
+              ].contains(progress.phase))
+            TextButton(
+              onPressed: () {
+                unawaited(
+                  catalog
+                      .buildFromSource(request)
+                      .then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+                );
+              },
+              child: const Text('重试构建'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _engineTask(
+    BuildContext context,
+    EngineRegistration entry,
+    EngineInstallProgress progress,
+  ) {
+    final label = switch (progress.phase) {
+      EngineInstallPhase.downloading => '下载中',
+      EngineInstallPhase.verifying => '校验中',
+      EngineInstallPhase.unpacking => '安装中',
+      EngineInstallPhase.complete => '已完成',
+      EngineInstallPhase.cancelled => '已取消',
+      EngineInstallPhase.failed => '失败',
+    };
+    return JevSurface(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.memory_outlined),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  engineDisplayName(entry),
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              JevStatusChip(
+                label: label,
+                tone: progress.phase == EngineInstallPhase.failed
+                    ? JevStatusTone.error
+                    : JevStatusTone.neutral,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          SelectableText(engineSourceLabel(entry)),
+          const SizedBox(height: 16),
+          if (progress.active)
+            LinearProgressIndicator(
+              value:
+                  progress.phase == EngineInstallPhase.downloading &&
+                      progress.total > 0
+                  ? (progress.received / progress.total).clamp(0, 1)
+                  : null,
+            ),
+          const SizedBox(height: 8),
+          Text('${_size(progress.received)} / ${_size(progress.total)}'),
+          if (progress.error != null)
+            Text(
+              progress.error!,
+              style: Theme.of(context).textTheme.bodyMedium
+                  ?.copyWith(color: Theme.of(context).colorScheme.error),
+            ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child: progress.active
+                ? OutlinedButton(
+                    onPressed: () => engines!.cancelInstallation(entry.id),
+                    child: const Text('取消'),
+                  )
+                : progress.phase == EngineInstallPhase.complete
+                ? const SizedBox.shrink()
+                : FilledButton(
+                    onPressed: () async {
+                      try {
+                        await engines!.installManaged(entry.id);
+                      } catch (_) {
+                        /* State retains the original installation failure. */
+                      }
+                    },
+                    child: const Text('重试'),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _task(BuildContext context, DownloadState state) {
     final theme = Theme.of(context);

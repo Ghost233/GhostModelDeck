@@ -18,7 +18,8 @@ import 'package:ghost_model_deck/engine_catalog.dart';
 import 'package:ghost_model_deck/engine_launch_configuration.dart';
 import 'package:ghost_model_deck/engine_runtime.dart';
 import 'package:ghost_model_deck/app_theme.dart';
-import 'package:ghost_model_deck/library_page.dart';
+import 'package:ghost_model_deck/instances_page.dart';
+import 'package:ghost_model_deck/launch_instances.dart';
 import 'package:ghost_model_deck/llama_engine.dart';
 import 'package:ghost_model_deck/model_library.dart';
 import 'package:ghost_model_deck/model_use_registry.dart';
@@ -32,14 +33,16 @@ import 'fixtures/decision_gguf.dart';
 import 'fixtures/engine_archive.dart';
 
 void main() {
-  _realNet('SDK startup reuses persisted model configuration and applies changes only after recycle', () async {
+  _realNet('SDK startup reuses saved instance snapshot and applies changes only after recycle', () async {
     final fixture = await _SdkFixture.create(useAssetEntry: true);
     addTearDown(fixture.close);
     const id = EngineCatalog.officialId;
-    await fixture.catalog.saveModelLaunchOverrides(
-      id,
-      fixture.asset.id,
-      EngineLaunchConfiguration(
+    await fixture.instances.save(
+      id: fixture.definition.id,
+      name: fixture.definition.name,
+      artifactId: fixture.asset.id,
+      engineId: id,
+      configuration: EngineLaunchConfiguration(
         formValues: {
           ...EngineLaunchConfiguration.initialValues,
           '--ctx-size': '1024',
@@ -47,7 +50,12 @@ void main() {
         argumentText: '-b=2048 --device=CPU',
       ),
     );
-    final desktopPreview = await fixture.engine.previewLaunch(fixture.asset.id);
+    final desktopPreview = await fixture.engine.previewLaunch(
+      fixture.asset.id,
+      configuration: fixture.instances
+          .find(fixture.definition.id)!
+          .configuration,
+    );
     await fixture.connect();
     await fixture.peer.call('start');
     final first = await fixture.peer.call('status');
@@ -77,10 +85,12 @@ void main() {
       original.launchCommand!.arguments,
       fixture.io.startedArguments.single,
     );
-    await fixture.catalog.saveModelLaunchOverrides(
-      id,
-      fixture.asset.id,
-      EngineLaunchConfiguration(
+    await fixture.instances.save(
+      id: fixture.definition.id,
+      name: fixture.definition.name,
+      artifactId: fixture.asset.id,
+      engineId: id,
+      configuration: EngineLaunchConfiguration(
         formValues: {
           ...EngineLaunchConfiguration.initialValues,
           '--ctx-size': '3072',
@@ -108,10 +118,13 @@ void main() {
       independent.launchCommand!.arguments,
       containsAllInOrder(['--ctx-size', '3072', '--device=CPU']),
     );
-    await fixture.catalog.setModelLaunchMode(
-      id,
-      fixture.asset.id,
-      independent: false,
+    final preserved = await fixture.instances.copy(fixture.definition.id);
+    await fixture.instances.save(
+      id: fixture.definition.id,
+      name: fixture.definition.name,
+      artifactId: fixture.asset.id,
+      engineId: id,
+      configuration: fixture.catalog.launchDefaultsFor(id),
     );
     await fixture.peer.call('start');
     expect(fixture.io.startCount, 2);
@@ -131,9 +144,9 @@ void main() {
     );
     expect(inherited.launchCommand!.arguments, isNot(contains('--device=CPU')));
     expect(
-      fixture.catalog
-          .modelLaunchOverridesFor(id, fixture.asset.id)
-          .configuration!
+      fixture.instances
+          .find(preserved.id)!
+          .configuration
           .formValues['--ctx-size'],
       '3072',
     );
@@ -607,7 +620,7 @@ void main() {
       // 空集合下的 start 已 completed；把模型加入集合后以同 id 重放：
       // 不得再次执行回调（否则会把模型拉起来）。
       final first = await fixture.peer.call('start', id: 'D1');
-      await fixture.startupSet.add(EngineCatalog.officialId, fixture.asset.id);
+      await fixture.startupSet.add(fixture.definition.id);
       final replay = await fixture.peer.call('start', id: 'D1');
       expect(replay['result'], equals(first['result']));
       expect(fixture.io.startCount, 0, reason: '重放不得重跑 start 回调');
@@ -988,6 +1001,34 @@ void main() {
   });
 
   group('StartupModelSet 持久化', () {
+    _realNet('启动集合只保存实例身份并拒绝旧模型引擎条目', () async {
+      final root = await Directory.systemTemp.createTemp(
+        'gmd-instance-startup-',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      final set = StartupModelSet(file: File('${root.path}/startup.json'));
+      await set.add('instance-a');
+      await set.add('instance-b');
+      final reopened = StartupModelSet(file: set.file);
+      await reopened.load();
+      expect(reopened.entries.map((entry) => entry.instanceId), [
+        'instance-a',
+        'instance-b',
+      ]);
+      expect(reopened.contains('instance-a'), isTrue);
+      await set.file.writeAsString(
+        jsonEncode({
+          'schema': 1,
+          'entries': [
+            {'engine': 'engine-a', 'artifact': 'model-a'},
+          ],
+        }),
+      );
+      await expectLater(
+        StartupModelSet(file: set.file).load(),
+        throwsFormatException,
+      );
+    });
     _realNet('schema/增删/坏结构真实报错，不静默吞掉', () async {
       final root = await Directory.systemTemp.createTemp('gmd-startup-set-');
       addTearDown(() => root.delete(recursive: true));
@@ -997,19 +1038,16 @@ void main() {
       await set.load();
       expect(set.entries, isEmpty);
 
-      await set.add('engine-a', 'artifact-a');
-      await set.add('engine-a', 'artifact-a');
+      await set.add('instance-a');
+      await set.add('instance-a');
       expect(set.entries, hasLength(1), reason: '去重');
-      expect(set.contains('engine-a', 'artifact-a'), isTrue);
+      expect(set.contains('instance-a'), isTrue);
       final saved = (jsonDecode(await set.file.readAsString()) as Map)
           .cast<String, Object?>();
       expect(saved['schema'], 1);
-      expect((saved['entries'] as List).single, {
-        'engine': 'engine-a',
-        'artifact': 'artifact-a',
-      });
+      expect((saved['entries'] as List).single, {'instance': 'instance-a'});
 
-      await set.remove('engine-a', 'artifact-a');
+      await set.remove('instance-a');
       expect(set.entries, isEmpty);
 
       await set.file.writeAsString(jsonEncode({'schema': 2, 'entries': []}));
@@ -1035,7 +1073,7 @@ void main() {
     });
   });
 
-  group('模型库页启动模型集合开关', () {
+  group('实例页启动模型集合开关', () {
     testWidgets(
       '运行行上显式切换启动模型集合并持久化',
       (tester) => HttpOverrides.runWithHttpOverrides(() async {
@@ -1049,16 +1087,16 @@ void main() {
         addTearDown(() async {
           await tester.runAsync(() => fixture.close());
         });
-        await tester.runAsync(() => fixture.engine.start(fixture.asset.id));
+        await tester.runAsync(
+          () => fixture.instances.start(fixture.definition.id),
+        );
 
         Future<void> pumpPage({required bool withSet}) => tester.pumpWidget(
           MaterialApp(
             theme: buildJevTheme(Brightness.light),
             home: Scaffold(
-              body: LibraryPage(
-                library: fixture.library,
-                libraryPath: fixture.models.path,
-                engines: fixture.catalog,
+              body: InstancesPage(
+                instances: fixture.instances,
                 startupSet: withSet ? fixture.startupSet : null,
               ),
             ),
@@ -1088,13 +1126,7 @@ void main() {
             () => find.byIcon(Icons.rocket_launch).evaluate().isNotEmpty,
           );
         });
-        expect(
-          fixture.startupSet.contains(
-            EngineCatalog.officialId,
-            fixture.asset.id,
-          ),
-          isTrue,
-        );
+        expect(fixture.startupSet.contains(fixture.definition.id), isTrue);
         expect(find.byIcon(Icons.rocket_launch), findsOneWidget);
         final saved = await tester.runAsync(() async {
           return (jsonDecode(
@@ -1104,8 +1136,7 @@ void main() {
         expect(saved, isNotNull);
         expect(saved!['schema'], 1);
         expect((saved['entries'] as List).single, {
-          'engine': EngineCatalog.officialId,
-          'artifact': fixture.asset.id,
+          'instance': fixture.definition.id,
         });
 
         await tester.runAsync(() async {
@@ -1115,13 +1146,7 @@ void main() {
                 find.byIcon(Icons.rocket_launch_outlined).evaluate().isNotEmpty,
           );
         });
-        expect(
-          fixture.startupSet.contains(
-            EngineCatalog.officialId,
-            fixture.asset.id,
-          ),
-          isFalse,
-        );
+        expect(fixture.startupSet.contains(fixture.definition.id), isFalse);
         expect(find.byIcon(Icons.rocket_launch_outlined), findsOneWidget);
 
         await tester.runAsync(() async {
@@ -1585,6 +1610,8 @@ class _SdkFixture {
     required this.council,
     required this.mcp,
     required this.startupSet,
+    required this.instances,
+    required this.definition,
     required this.peer,
     required this.service,
     required this.events,
@@ -1603,6 +1630,8 @@ class _SdkFixture {
   final CouncilController council;
   final CouncilMcpServer mcp;
   final StartupModelSet startupSet;
+  final LaunchInstances instances;
+  final LaunchInstance definition;
   _LauncherPeer peer;
   final LauncherInferenceService service;
   final List<String> events;
@@ -1657,7 +1686,21 @@ class _SdkFixture {
       io: io,
     );
     await catalog.installOfficial(verifiedArchive: archive);
-    final routes = PublicModelRoutes(library: library, runtimes: [engine]);
+    final instances = LaunchInstances(
+      catalog: catalog,
+      file: File('${root.path}/private/instances.json'),
+    );
+    final definition = await instances.save(
+      name: 'SDK instance',
+      artifactId: asset.id,
+      engineId: EngineCatalog.officialId,
+      configuration: EngineLaunchConfiguration(),
+    );
+    final routes = PublicModelRoutes(
+      library: library,
+      runtimes: [engine],
+      instances: instances,
+    );
     await routes.load();
     final gateway = PublicGatewayServer(routes: routes, port: 0);
     gateway.changes.listen((state) {
@@ -1676,10 +1719,10 @@ class _SdkFixture {
     } else {
       await startupSet.load();
       if (useAssetEntry) {
-        await startupSet.add(EngineCatalog.officialId, asset.id);
+        await startupSet.add(definition.id);
       }
       if (extraMissingEntry) {
-        await startupSet.add(EngineCatalog.officialId, 'missing-artifact');
+        await startupSet.add('missing-artifact');
       }
     }
     final socketPath = '${root.path}/launcher.sock';
@@ -1701,6 +1744,8 @@ class _SdkFixture {
       council: council,
       mcp: mcp,
       startupSet: startupSet,
+      instances: instances,
+      definition: definition,
       peer: peer,
       service: LauncherInferenceService(
         library: library,
@@ -1708,6 +1753,7 @@ class _SdkFixture {
         gateway: gateway,
         mcp: mcp,
         startupSet: startupSet,
+        instances: instances,
         onOpenWindow: openWindowSeam ? openWindowCounter.increment : null,
         onSetEntryManaged: onSetEntryManaged,
         onVersionStatus: onVersionStatus,
@@ -1738,6 +1784,7 @@ class _SdkFixture {
     mcp.close();
     await council.close();
     await catalog.stopManaged();
+    await instances.close();
     catalog.close();
     engine.close();
     library.close();

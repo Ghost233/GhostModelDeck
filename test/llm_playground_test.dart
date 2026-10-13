@@ -307,7 +307,7 @@ class LlmTestRuntime {
   final EngineCatalog catalog;
   final PublicModelRoutes routes;
   final PublicGatewayServer gateway;
-  String get publicId => 'gmd-${asset.id}';
+  String get publicId => routes.publicIdFor(asset.id);
 
   static Future<LlmTestRuntime> create({LlmTestIO? processIO}) async {
     final root = await Directory.systemTemp.createTemp('gmd-llm-playground-');
