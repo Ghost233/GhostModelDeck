@@ -9,6 +9,7 @@ import 'chat_protocol.dart';
 import 'engine_install_progress.dart';
 export 'engine_install_progress.dart';
 import 'decision_protocol.dart';
+import 'decision_runtime.dart';
 import 'embedding_protocol.dart';
 import 'startlux_readout.dart';
 import 'startlux_runtime.dart' show StartluxRuntimeCleanupException;
@@ -17,9 +18,10 @@ import 'engine_launch_configuration.dart';
 import 'engine_parameter_recognition.dart';
 import 'jev_debug.dart';
 
-export 'engine_runtime.dart' show DecisionCancellation;
+export 'engine_runtime.dart' show DecisionCancellation, DecisionFailureKind;
 import 'model_library.dart';
 import 'model_use_registry.dart';
+import 'runtime_monitor.dart';
 
 class LlamaRelease {
   const LlamaRelease({
@@ -371,7 +373,7 @@ LlamaCapability capabilityForPrimitive(DecisionPrimitive type) =>
 
 enum LlamaInstanceStatus { starting, ready, stopping, stopped, failed }
 
-class LlamaInstance {
+class LlamaInstance implements DecisionInstance {
   const LlamaInstance({
     required this.id,
     required this.asset,
@@ -399,16 +401,22 @@ class LlamaInstance {
     this.decisionSourceIdentity,
     this.decisionPid,
   });
+  @override
   final String id;
+  @override
   final LibraryArtifact asset;
+  @override
   final Uri endpoint;
   final Uri? decisionEndpoint;
+  @override
   final Map<String, Object?>? decisionSourceIdentity;
   final int? decisionPid;
+  @override
   int? get maxDecisionConcurrentRequests =>
       decisionSourceIdentity?['kind'] == 'startlux_author_readout'
       ? 1
       : RuntimeCapacity.fromLlamaProperties(properties)?.slotCount;
+  @override
   final int? pid;
   final String? installationId;
 
@@ -419,18 +427,22 @@ class LlamaInstance {
   final Map<String, String>? processEnvironment;
 
   /// Immutable command passed to this instance's successfully created process.
+  @override
   final EngineLaunchCommand? launchCommand;
 
   /// Validated launch snapshots; not claims about a later on-disk replacement.
   final LlamaBinaryVersion? binaryVersion;
+  @override
   final String? binarySha256;
   String get modelInferenceInstanceId => id;
 
   /// Observed, identity-checked native alias; null before props succeeds.
+  @override
   String? get nativeAlias =>
       status == LlamaInstanceStatus.ready && properties['model_alias'] == id
       ? id
       : null;
+  @override
   final int generation;
   final int activeRequests;
   final bool acceptingRequests;
@@ -442,6 +454,23 @@ class LlamaInstance {
   final DecisionBatchResult? lastBatchResult;
   final Map<DecisionPrimitive, DecisionBatchResult> typedEvidence;
   final Set<LlamaCapability> capabilities;
+  @override
+  bool get decisionReady =>
+      status == LlamaInstanceStatus.ready &&
+      acceptingRequests &&
+      hasLiveProcess;
+  @override
+  RuntimeCapacity? get capacity =>
+      RuntimeCapacity.fromLlamaProperties(properties);
+  @override
+  Set<RuntimeCapability> get decisionCapabilities => {
+    if (capabilities.contains(LlamaCapability.choiceProbability))
+      RuntimeCapability.choiceProbability,
+    if (capabilities.contains(LlamaCapability.scoreProbability))
+      RuntimeCapability.scoreProbability,
+    if (capabilities.contains(LlamaCapability.noulScalar))
+      RuntimeCapability.noulScalar,
+  };
   final String? error;
 }
 
@@ -491,21 +520,16 @@ class LlamaEngineException implements Exception {
   String toString() => message;
 }
 
-enum DecisionFailureKind {
-  notReady,
-  timedOut,
-  cancelled,
-  invalidResponse,
-  failed,
-}
-
-class LlamaRequestException extends LlamaEngineException {
+class LlamaRequestException extends LlamaEngineException
+    implements DecisionCallFailure {
   const LlamaRequestException(
     super.message, {
     required this.kind,
     this.rawResponse,
   });
+  @override
   final DecisionFailureKind kind;
+  @override
   final String? rawResponse;
 }
 
@@ -521,7 +545,8 @@ typedef StartluxReadoutStarter = Future<StartluxReadout?> Function(
   DecisionCancellation cancellation,
 );
 
-class LlamaEngine implements EmbeddingRuntime {
+class LlamaEngine
+    implements EmbeddingRuntime, DecisionRuntime, RuntimeMonitorSource {
   LlamaEngine({
     required this.library,
     required this.installationDirectory,
@@ -573,6 +598,7 @@ class LlamaEngine implements EmbeddingRuntime {
   bool get declaresSystemone =>
       sourceBuild != null &&
       (sourceBuild!['supports_systemone'] ?? true) == true;
+  @override
   bool get supportsSystemone =>
       sourceBuild == null ? release.supportsSystemone : declaresSystemone;
   final _changes = StreamController<LlamaEngineState>.broadcast();
@@ -606,6 +632,52 @@ class LlamaEngine implements EmbeddingRuntime {
   @override
   List<RuntimeInstance> get runtimeInstances =>
       List.unmodifiable(state.instances.map(_runtimeInstance));
+  @override
+  List<DecisionInstance> get decisionInstances =>
+      state.instances.where((run) => !isTemporaryTest(run.id)).toList();
+
+  @override
+  Future<RuntimeTelemetry> readTelemetry(
+    String instanceId, {
+    required DecisionCancellation cancellation,
+  }) async {
+    final run = _running[instanceId];
+    if (run == null ||
+        run.exitCode != null ||
+        run.stopping ||
+        !_isCurrent(run)) {
+      throw StateError('实例已停止');
+    }
+    Future<String?> read(String path) async {
+      try {
+        return await readMonitorHttp(
+          run.instance.endpoint.resolve(path),
+          cancellation: cancellation,
+        );
+      } on HttpException {
+        return null;
+      }
+    }
+
+    await _identity(
+      run,
+      const Duration(seconds: 2),
+      cancellation: cancellation,
+    );
+    final values = await Future.wait([read('/slots'), read('/metrics')]);
+    if (cancellation.isCancelled ||
+        run.exitCode != null ||
+        run.stopping ||
+        !_isCurrent(run)) {
+      throw StateError('实例已变化');
+    }
+    return RuntimeTelemetry.llama(
+      slots: values[0] == null ? null : jsonDecode(values[0]!),
+      metrics: values[1],
+      capacity: RuntimeCapacity.fromLlamaProperties(run.instance.properties)
+          ?.slotCount,
+    );
+  }
 
   RuntimeInstance _runtimeInstance(LlamaInstance instance) => RuntimeInstance(
     id: instance.id,
@@ -1041,6 +1113,7 @@ class LlamaEngine implements EmbeddingRuntime {
     if (_shuttingDown) throw const LlamaEngineException('应用退出，已取消引擎启动');
   }
 
+  @override
   Future<DecisionResult> decide(
     String instanceId,
     DecisionRequest request, {
@@ -1107,6 +1180,7 @@ class LlamaEngine implements EmbeddingRuntime {
     }
   }
 
+  @override
   Future<DecisionBatchResult> decideBatch(
     String instanceId,
     DecisionBatchRequest request, {

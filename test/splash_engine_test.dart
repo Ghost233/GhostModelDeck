@@ -15,6 +15,32 @@ import 'package:ghost_model_deck/chat_protocol.dart';
 import 'fixtures/decision_gguf.dart';
 
 void main() {
+  test('decision GGUF binding uses the same assembly and native validation as chat', () async {
+    final fixture = await SplashRuntimeFixture.create(ordinaryChat: false);
+    addTearDown(fixture.close);
+    expect(fixture.asset.kind, AssetKind.decision);
+    final engine = fixture.engine();
+    addTearDown(() async {
+      await engine.shutdown();
+      await engine.close();
+    });
+    final binding = await engine.bindModel(fixture.asset.id, fixture.assembly);
+    expect(
+      binding.sourceHashes[fixture.asset.files.single.path],
+      fixture.asset.files.single.sha256,
+    );
+    final run = await engine.startRuntime(fixture.asset.id);
+    expect(run.status, RuntimeInstanceStatus.ready);
+    expect(
+      (await engine.generateText(
+        run.id,
+        TextRequest(prompt: 'Reply OK.'),
+      )).text,
+      isNotEmpty,
+    );
+    await engine.stop(run.id);
+    expect(engine.hasLiveInstances, isFalse);
+  });
   test(
     'source loss keeps the loaded Splash run callable until explicit stop',
     () async {
@@ -1166,7 +1192,10 @@ class SplashRuntimeFixture {
   final SplashInstallation installation;
   final SplashTestProcessIO io;
 
-  static Future<SplashRuntimeFixture> create() async {
+  static Future<SplashRuntimeFixture> create({
+    bool ordinaryChat = true,
+    bool supportsSystemone = false,
+  }) async {
     final root = await Directory.systemTemp.createTemp('splash-runtime-');
     final source = Directory('${root.path}/source');
     for (final path in [
@@ -1181,11 +1210,16 @@ class SplashRuntimeFixture {
       await file.writeAsString('original $path');
     }
     final io = SplashTestProcessIO(source, mutate: false);
+    if (supportsSystemone) {
+      await File('${source.path}/server/server.py').writeAsString(
+        '"/v1/systemone": PostRoute("_post_systemone", SYSTEMONE_ERRORS)',
+      );
+    }
     final installation = await SplashEngine.inspectInstallation(source, io: io);
     final library = ModelLibrary();
     final model = await writeDecisionKev(
       Directory('${root.path}/models'),
-      ordinaryChat: true,
+      ordinaryChat: ordinaryChat,
     );
     final asset = (await library.scan(model.parent, verifyFiles: true)).single;
     final result = SplashRuntimeFixture(
@@ -1275,6 +1309,13 @@ class SplashTestProcessIO implements SplashProcessIO {
   final calls = <List<String>>[];
   final httpPaths = <String>[];
   final chatModels = <String>[];
+  final decisionBodies = <Map>[];
+  Completer<void>? decisionEntered;
+  Completer<void>? decisionRelease;
+  int decisionStatus = 200;
+  Map<String, Object?> Function(Map body)? decisionResponse;
+  Map<String, Object?>? monitorStatus;
+  void Function()? afterDecision;
   bool rejectTransferEncoding = false;
   int sizedPosts = 0;
   int starts = 0;
@@ -1418,6 +1459,7 @@ class SplashTestProcessIO implements SplashProcessIO {
             response = {'status': 'ready'};
           case '/status':
             response = {
+              ...?monitorStatus,
               'ready': true,
               'instance': {
                 'id': 'source-${child.pid}',
@@ -1441,6 +1483,43 @@ class SplashTestProcessIO implements SplashProcessIO {
                 {'id': alias},
               ],
             };
+          case '/v1/systemone':
+            final body =
+                jsonDecode(await utf8.decoder.bind(request).join()) as Map;
+            decisionBodies.add(body);
+            if (decisionEntered?.isCompleted == false) {
+              decisionEntered!.complete();
+            }
+            if (decisionRelease != null) await decisionRelease!.future;
+            request.response.statusCode = decisionStatus;
+            response =
+                decisionResponse?.call(body) ??
+                {
+                  'model': nativeResponseModel ?? model,
+                  'answers': {
+                    for (final entry in (body['questions'] as Map).entries)
+                      '${entry.key}': {
+                        'type': 'choice',
+                        'choice': ((entry.value as Map)['criteria'] as Map)
+                            .keys
+                            .first,
+                        'probabilities': {
+                          for (final key
+                              in ((entry.value as Map)['criteria'] as Map).keys)
+                            '$key':
+                                key ==
+                                    ((entry.value as Map)['criteria'] as Map)
+                                        .keys
+                                        .first
+                                ? 1.0
+                                : 0.0,
+                        },
+                        'confidence': 1.0,
+                      },
+                  },
+                  'usage': {'input_tokens': 10, 'output_tokens': 0},
+                };
+            afterDecision?.call();
           case '/v1/chat/completions':
             if (rejectTransferEncoding &&
                 (request.headers.value(HttpHeaders.transferEncodingHeader) !=

@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'council.dart';
 import 'decision_protocol.dart';
+import 'decision_runtime.dart';
 import 'engine_catalog.dart';
 import 'engine_runtime.dart';
 import 'llama_engine.dart';
@@ -202,13 +203,19 @@ class JevModels {
               .where(
                 (e) =>
                     e.id == definition.engineId &&
-                    e.family == EngineFamily.llamaCpp,
+                    (e.family == EngineFamily.llamaCpp ||
+                        e.family == EngineFamily.splash),
               )
               .firstOrNull;
       if (engine != null &&
-          engine.family == EngineFamily.llamaCpp &&
+          (engine.family == EngineFamily.llamaCpp ||
+              engine.family == EngineFamily.splash) &&
           (running ||
-              controller.catalog.providerFor(engine.id).supportsSystemone)) {
+              (engine.family == EngineFamily.splash
+                  ? engine.splashInstallation?.supportsSystemone == true
+                  : controller.catalog
+                        .providerFor(engine.id)
+                        .supportsSystemone))) {
         yield JevModelDefinition.native(
           name: definition.publicName,
           timeout: Duration(seconds: definition.jevRequestTimeoutSeconds),
@@ -288,7 +295,7 @@ class JevModels {
     final runtimeInstance = seat == null
         ? null
         : controller.catalog
-              .providerFor(seat.engine.id)
+              .runtimeFor(seat.engine.id)
               .runtimeInstances
               .where((run) => run.id == instance?.id)
               .singleOrNull;
@@ -424,9 +431,7 @@ class JevModels {
       for (final binding in definition.bindings) {
         try {
           final seat = _resolve(binding);
-          final capacity = RuntimeCapacity.fromLlamaProperties(
-            seat.instance.properties,
-          );
+          final capacity = seat.instance.capacity;
           final concurrency = seat.instance.maxDecisionConcurrentRequests;
           if (capacity == null || concurrency == null) {
             capacities.clear();
@@ -516,7 +521,7 @@ class JevModels {
       }
       final found = <CouncilSeat>[];
       for (final runtime
-          in controller.catalog.runtimes.whereType<LlamaEngine>()) {
+          in controller.catalog.runtimes.whereType<DecisionRuntime>()) {
         for (final run in runtime.runtimeInstances.where(
           (run) =>
               run.launchInstanceId == definition.id &&
@@ -526,15 +531,14 @@ class JevModels {
               run.capabilities.contains(RuntimeCapability.choiceProbability),
         )) {
           final origin = instances!.runningOrigin(definition.id);
-          if (origin == null) continue;
-          found.add(
-            CouncilSeat(
-              engine: origin,
-              instance: runtime.state.instances.singleWhere(
-                (instance) => instance.id == run.id,
-              ),
-            ),
-          );
+          final observation = runtime.decisionInstances
+              .where(
+                (instance) => instance.id == run.id && instance.decisionReady,
+              )
+              .singleOrNull;
+          if (origin != null && observation != null) {
+            found.add(CouncilSeat(engine: origin, instance: observation));
+          }
         }
       }
       if (found.length == 1) return found.single;
@@ -544,34 +548,11 @@ class JevModels {
         found.isEmpty ? '所选实例没有就绪的原生决策运行；不会自动启动成员' : '所选实例存在多个运行资源',
       );
     }
-    final engine = controller.catalog.state.entries
+    final ready = controller.availableSeats
         .where(
-          (e) => e.id == binding.engineId && e.family == EngineFamily.llamaCpp,
-        )
-        .firstOrNull;
-    if (engine == null) {
-      throw const JevRequestException(503, 'model_not_ready', '引擎未登记');
-    }
-    final ready = controller.catalog
-        .providerFor(engine.id)
-        .state
-        .instances
-        .where(
-          (instance) =>
-              (binding.instanceId == null
-                  ? instance.asset.id == binding.artifactId
-                  : controller.catalog
-                        .providerFor(engine.id)
-                        .runtimeInstances
-                        .any(
-                          (run) =>
-                              run.id == instance.id &&
-                              run.launchInstanceId == binding.instanceId,
-                        )) &&
-              instance.status == LlamaInstanceStatus.ready &&
-              instance.acceptingRequests &&
-              instance.hasLiveProcess &&
-              instance.capabilities.contains(LlamaCapability.choiceProbability),
+          (seat) =>
+              seat.engine.id == binding.engineId &&
+              seat.instance.asset.id == binding.artifactId,
         )
         .toList();
     if (ready.isEmpty) {
@@ -588,7 +569,7 @@ class JevModels {
         '绑定歧义：存在多个就绪 JEV 实例',
       );
     }
-    return CouncilSeat(engine: engine, instance: ready.single);
+    return ready.single;
   }
 
   Future<void> load() {
@@ -879,9 +860,11 @@ class JevModels {
     try {
       seat = _resolve(definition.bindings.single);
       if (request.questions.values.any(
-        (q) => !seat!.instance.capabilities.contains(
-          capabilityForPrimitive(q.type),
-        ),
+        (q) => !seat!.instance.decisionCapabilities.contains(switch (q.type) {
+          DecisionPrimitive.choice => RuntimeCapability.choiceProbability,
+          DecisionPrimitive.score => RuntimeCapability.scoreProbability,
+          DecisionPrimitive.noul => RuntimeCapability.noulScalar,
+        }),
       )) {
         throw const JevRequestException(
           409,
@@ -889,9 +872,10 @@ class JevModels {
           '所选原生实例没有本次请求需要的题型能力',
         );
       }
-      receivedResult = await controller.catalog
-          .providerFor(seat.engine.id)
-          .decideBatch(
+      receivedResult =
+          await (controller.catalog.runtimeFor(
+            seat.engine.id,
+          ) as DecisionRuntime).decideBatch(
             seat.instance.id,
             request,
             timeout: definition.timeout,
@@ -910,7 +894,7 @@ class JevModels {
       return {...converted, if (debug) 'debug': snapshot(converted)};
     } on JevRequestException catch (error) {
       throw finishError(error);
-    } on LlamaRequestException catch (error) {
+    } on DecisionCallFailure catch (error) {
       throw finishError(
         JevRequestException(
           switch (error.kind) {

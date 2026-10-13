@@ -3,13 +3,13 @@ import 'dart:io';
 import 'dart:math';
 
 import 'decision_protocol.dart';
+import 'decision_runtime.dart';
 import 'engine_catalog.dart';
 import 'engine_runtime.dart';
 import 'jev_models.dart';
 import 'public_model_names.dart';
 import 'launch_instances.dart';
 import 'jev_debug.dart';
-import 'llama_engine.dart';
 
 export 'llama_engine.dart' show DecisionCancellation;
 
@@ -38,7 +38,7 @@ String _seatStatusName(CouncilSeatStatus status) => switch (status) {
 class CouncilSeat {
   const CouncilSeat({required this.engine, required this.instance});
   final EngineRegistration engine;
-  final LlamaInstance instance;
+  final DecisionInstance instance;
   String get id => '${engine.id}/${instance.id}';
 }
 
@@ -290,11 +290,16 @@ class CouncilController {
   List<CouncilSeat> get selectedSeats => _selected;
   List<CouncilSeat> get availableSeats => List.unmodifiable([
     for (final entry in catalog.state.entries)
-      if (entry.family == EngineFamily.llamaCpp)
-        for (final instance in catalog.providerFor(entry.id).state.instances)
-          if (!catalog.providerFor(entry.id).isTemporaryTest(instance.id) &&
-              instance.status == LlamaInstanceStatus.ready &&
-              instance.capabilities.contains(LlamaCapability.choiceProbability))
+      if ((entry.family == EngineFamily.llamaCpp ||
+              entry.splashInstallation != null) &&
+          catalog.runtimeFor(entry.id) is DecisionRuntime)
+        for (final instance in (catalog.runtimeFor(
+          entry.id,
+        ) as DecisionRuntime).decisionInstances)
+          if (instance.decisionReady &&
+              instance.decisionCapabilities.contains(
+                RuntimeCapability.choiceProbability,
+              ))
             CouncilSeat(engine: entry, instance: instance),
   ]);
 
@@ -528,7 +533,7 @@ class CouncilController {
     String? rawResponse;
     var status = CouncilSeatStatus.ok;
     try {
-      final engine = catalog.providerFor(seat.engine.id);
+      final engine = catalog.runtimeFor(seat.engine.id) as DecisionRuntime;
       if (batch != null) {
         batchResult = await engine.decideBatch(
           seat.instance.id,
@@ -547,7 +552,7 @@ class CouncilController {
       }
     } catch (failure) {
       error = failure.toString();
-      status = failure is LlamaRequestException
+      status = failure is DecisionCallFailure
           ? switch (failure.kind) {
               DecisionFailureKind.notReady => CouncilSeatStatus.notReady,
               DecisionFailureKind.timedOut => CouncilSeatStatus.timedOut,
@@ -557,7 +562,7 @@ class CouncilController {
               DecisionFailureKind.failed => CouncilSeatStatus.failed,
             }
           : CouncilSeatStatus.failed;
-      if (failure is LlamaRequestException) rawResponse = failure.rawResponse;
+      if (failure is DecisionCallFailure) rawResponse = failure.rawResponse;
     }
     return CouncilOpinion(
       seat: seat,

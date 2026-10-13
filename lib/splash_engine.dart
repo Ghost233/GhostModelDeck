@@ -13,6 +13,10 @@ import 'llama_engine.dart';
 import 'model_library.dart';
 import 'model_use_registry.dart';
 import 'chat_protocol.dart';
+import 'decision_protocol.dart';
+import 'decision_runtime.dart';
+import 'jev_debug.dart';
+import 'runtime_monitor.dart';
 
 class SplashEngineException implements Exception {
   const SplashEngineException(this.message);
@@ -21,13 +25,16 @@ class SplashEngineException implements Exception {
   String toString() => message;
 }
 
-class SplashRequestException extends SplashEngineException {
+class SplashRequestException extends SplashEngineException
+    implements DecisionCallFailure {
   const SplashRequestException(
     super.message, {
     required this.kind,
     this.rawResponse,
   });
+  @override
   final DecisionFailureKind kind;
+  @override
   final String? rawResponse;
 }
 
@@ -46,6 +53,7 @@ class SplashInstallation {
     required this.help,
     this.helpError,
     this.verified = false,
+    this.supportsSystemone = false,
     required Map<String, String> fingerprints,
   }) : fingerprints = Map.unmodifiable(fingerprints);
 
@@ -57,6 +65,7 @@ class SplashInstallation {
   final String observedVersion;
   final String pythonVersion;
   final String pythonPrefix;
+  final bool supportsSystemone;
   final String help;
   final String? helpError;
   // Current I/O observation only; never restored from JSON.
@@ -92,6 +101,7 @@ class SplashInstallation {
     'observed_version': observedVersion,
     'python_version': pythonVersion,
     'python_prefix': pythonPrefix,
+    'supports_systemone': supportsSystemone,
     'help': help,
     'help_error': helpError,
     'fingerprints': fingerprints,
@@ -99,6 +109,10 @@ class SplashInstallation {
 
   factory SplashInstallation.fromJson(Object? value) {
     final row = _object(value, 'Splash installation');
+    if (row.containsKey('supports_systemone') &&
+        row['supports_systemone'] is! bool) {
+      throw const FormatException('Splash 原生接口声明无效');
+    }
     final kind = switch (row['kind']) {
       'source' => SplashInstallationKind.source,
       'packaged' => SplashInstallationKind.packaged,
@@ -130,6 +144,7 @@ class SplashInstallation {
       observedVersion: _string(row['observed_version']),
       pythonVersion: _string(row['python_version']),
       pythonPrefix: _path(row['python_prefix']),
+      supportsSystemone: row['supports_systemone'] == true,
       help: _string(row['help'], empty: true),
       helpError: row['help_error'] == null ? null : _string(row['help_error']),
       fingerprints: hashes,
@@ -312,11 +327,18 @@ class _SplashRun {
     this.generation,
     this.endpoint,
     this.version,
+    this.asset,
+    this.supportsSystemone,
+    this.binarySha256,
   );
   bool temporaryTest = false;
   String? launchInstanceId;
   int? launchRevision;
   final String id;
+  final LibraryArtifact asset;
+  final bool supportsSystemone;
+  final String? binarySha256;
+  RuntimeCapacity? capacity;
   final SplashModelBinding binding;
   final EngineLaunchCommand command;
   final int generation;
@@ -346,7 +368,14 @@ class _SplashRun {
     launchInstanceId: launchInstanceId,
     launchRevision: launchRevision,
     capabilities: status == RuntimeInstanceStatus.ready
-        ? {RuntimeCapability.textGeneration}
+        ? {
+            RuntimeCapability.textGeneration,
+            if (supportsSystemone) ...{
+              RuntimeCapability.choiceProbability,
+              RuntimeCapability.scoreProbability,
+              RuntimeCapability.noulScalar,
+            },
+          }
         : {},
     error: error,
   );
@@ -356,6 +385,46 @@ class _SplashPermit {
   final cancellation = DecisionCancellation();
   final done = Completer<void>();
   void Function()? remove;
+}
+
+class _SplashDecisionInstance implements DecisionInstance {
+  _SplashDecisionInstance(this.run);
+  final _SplashRun run;
+  @override
+  String get id => run.id;
+  @override
+  LibraryArtifact get asset => run.asset;
+  @override
+  Uri get endpoint => run.endpoint;
+  @override
+  int? get pid => run.child?.pid;
+  @override
+  int get generation => run.generation;
+  @override
+  bool get decisionReady =>
+      run.snapshot().acceptingRequests &&
+      run.supportsSystemone &&
+      run.groupLive;
+  @override
+  Set<RuntimeCapability> get decisionCapabilities =>
+      run.snapshot().capabilities;
+  @override
+  RuntimeCapacity? get capacity => run.capacity;
+  @override
+  int? get maxDecisionConcurrentRequests => run.capacity?.slotCount;
+  @override
+  String? get binarySha256 => run.binarySha256;
+  @override
+  String? get nativeAlias => run.responseModel;
+  @override
+  Map<String, Object?> get decisionSourceIdentity => {
+    'kind': 'native_systemone',
+    'family': 'splash',
+    'native_model': run.binding.nativeModel,
+    'endpoint': run.endpoint.resolve('/v1/systemone').toString(),
+  };
+  @override
+  EngineLaunchCommand get launchCommand => run.command;
 }
 
 class _SplashBudget {
@@ -411,7 +480,7 @@ class _SplashLoading implements Exception {
   const _SplashLoading();
 }
 
-class SplashEngine implements EngineRuntime {
+class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
   SplashEngine({
     required SplashInstallation installation,
     required this.library,
@@ -464,6 +533,50 @@ class SplashEngine implements EngineRuntime {
   );
   int? pidFor(String id) => _runs[id]?.child?.pid;
   Uri? endpointFor(String id) => _runs[id]?.endpoint;
+  @override
+  bool get supportsSystemone => _installation.supportsSystemone;
+  @override
+  List<DecisionInstance> get decisionInstances => [
+    for (final run in _runs.values)
+      if (!run.temporaryTest) _SplashDecisionInstance(run),
+  ];
+  @override
+  Future<RuntimeTelemetry> readTelemetry(
+    String instanceId, {
+    required DecisionCancellation cancellation,
+  }) async {
+    final run = _runs[instanceId];
+    if (run == null ||
+        run.exit != null ||
+        run.status != RuntimeInstanceStatus.ready) {
+      throw StateError('实例未就绪');
+    }
+    final row = _object(
+      jsonDecode(
+        await readMonitorHttp(
+          run.endpoint.resolve('/status'),
+          cancellation: cancellation,
+        ),
+      ),
+      'Splash status',
+    );
+    final instance = _object(row['instance'], 'Splash instance');
+    final transport = _object(row['transport'], 'Splash transport');
+    if (cancellation.isCancelled ||
+        !identical(_runs[instanceId], run) ||
+        run.exit != null ||
+        run.status != RuntimeInstanceStatus.ready ||
+        instance['pid'] != run.child?.pid ||
+        instance['id'] != run.serverId ||
+        instance['model'] != run.binding.nativeModel ||
+        transport['restarts'] != run.transportEpoch ||
+        transport['ready'] != true ||
+        row['ready'] != true) {
+      throw StateError('实例身份已变化');
+    }
+    return RuntimeTelemetry.splash(row);
+  }
+
   EngineLaunchCommand? actualCommandFor(String id) => _runs[id]?.command;
   String? actualVersionFor(String id) => _runs[id]?.version;
   void _publish() {
@@ -579,6 +692,11 @@ class SplashEngine implements EngineRuntime {
           ++_generation,
           Uri.parse('http://127.0.0.1:$port'),
           _installation.observedVersion,
+          library.state.artifacts.singleWhere(
+            (asset) => asset.id == artifactId,
+          ),
+          _installation.supportsSystemone,
+          _installation.fingerprints[_installation.nativeBinary.path],
         );
         run.temporaryTest = temporaryTest;
         run.launchInstanceId = launchInstanceId;
@@ -769,6 +887,124 @@ class SplashEngine implements EngineRuntime {
             run.cancellation.isCancelled || permit.cancellation.isCancelled,
       );
     } finally {
+      budget.close();
+      _release(run, permit);
+    }
+  }
+
+  @override
+  Future<DecisionResult> decide(
+    String instanceId,
+    DecisionRequest request, {
+    Duration timeout = const Duration(seconds: 60),
+    DecisionCancellation? cancellation,
+  }) async {
+    final result = await decideBatch(
+      instanceId,
+      DecisionBatchRequest(
+        state: request.state,
+        questions: {
+          'council_choice': ChoiceQuestion(
+            instructions: request.instructions,
+            options: request.options,
+          ),
+        },
+      ),
+      timeout: timeout,
+      cancellation: cancellation,
+    );
+    return DecisionResult.parse(
+      result.rawResponse,
+      request,
+      expectedModel: result.model,
+      elapsed: result.elapsed,
+    );
+  }
+
+  @override
+  Future<DecisionBatchResult> decideBatch(
+    String instanceId,
+    DecisionBatchRequest request, {
+    Duration timeout = const Duration(seconds: 60),
+    DecisionCancellation? cancellation,
+    DecisionIOTrace? ioTrace,
+  }) async {
+    final run = _admit(instanceId);
+    if (!run.supportsSystemone) {
+      throw const SplashRequestException(
+        '该 Splash 版本未声明原生决策接口',
+        kind: DecisionFailureKind.notReady,
+      );
+    }
+    final permit = _permit(run, cancellation);
+    final budget = _SplashBudget(timeout, permit.cancellation);
+    final watch = Stopwatch()..start();
+    final client = HttpClient();
+    final remove = permit.cancellation.listen(() => client.close(force: true));
+    final removeStop = run.cancellation.listen(() => client.close(force: true));
+    String? raw;
+    try {
+      client.connectionTimeout = budget.remaining;
+      await _checkedIdentity(run, budget: budget);
+      final http = await budget.wait(
+        () => client.postUrl(run.endpoint.resolve('/v1/systemone')),
+      );
+      http.headers.contentType = ContentType.json;
+      final body = jsonEncode(request.toSystemone(model: run.id));
+      final bytes = utf8.encode(body);
+      http.contentLength = bytes.length;
+      http.add(bytes);
+      ioTrace?.sent(body);
+      final response = await budget.wait(http.close);
+      raw = await budget.wait(() async {
+        final bytes = <int>[];
+        await for (final chunk in response) {
+          if (bytes.length + chunk.length > decisionMaxResponseBytes) {
+            throw const DecisionProtocolException('typed 响应超出字节上限');
+          }
+          bytes.addAll(chunk);
+        }
+        return utf8.decode(bytes);
+      });
+      ioTrace?.received(raw!, response.statusCode);
+      if (response.statusCode != 200) {
+        throw SplashRequestException(
+          'Splash 原生决策 HTTP ${response.statusCode}',
+          kind: DecisionFailureKind.failed,
+          rawResponse: raw,
+        );
+      }
+      final result = DecisionBatchResult.parse(
+        raw!,
+        request,
+        expectedModel: run.responseModel!,
+        elapsed: watch.elapsed,
+      );
+      await _checkedIdentity(run, budget: budget);
+      budget.remaining;
+      if (run.cancellation.isCancelled || permit.cancellation.isCancelled) {
+        throw const SplashRequestException(
+          'Splash决策已取消',
+          kind: DecisionFailureKind.cancelled,
+        );
+      }
+      return result;
+    } catch (error) {
+      final failure = _requestError(
+        error,
+        timedOut: budget.timedOut,
+        cancelled:
+            run.cancellation.isCancelled || permit.cancellation.isCancelled,
+      );
+      throw SplashRequestException(
+        failure.message,
+        kind: failure.kind,
+        rawResponse: failure.rawResponse ?? raw,
+      );
+    } finally {
+      remove();
+      removeStop();
+      client.close(force: true);
       budget.close();
       _release(run, permit);
     }
@@ -1116,6 +1352,13 @@ class SplashEngine implements EngineRuntime {
     run.serverId ??= instance['id'] as String;
     run.transportEpoch ??= transport['restarts'] as int;
     run.responseModel ??= responseModel as String;
+    final context = status['maximum_context_tokens'];
+    final http = status['http'];
+    final requests = http is Map ? http['requests'] : null;
+    final slots = requests is Map ? requests['capacity'] : null;
+    run.capacity = context is int && context > 0 && slots is int && slots > 0
+        ? RuntimeCapacity(contextPerSlot: context, slotCount: slots)
+        : null;
   }
 
   Future<TextResult> _text(
@@ -1357,9 +1600,9 @@ class SplashEngine implements EngineRuntime {
         .where((asset) => asset.id == artifactId)
         .toList();
     if (assets.length != 1 ||
-        assets.single.kind != AssetKind.chat ||
+        ![AssetKind.chat, AssetKind.decision].contains(assets.single.kind) ||
         assets.single.integrity != AssetIntegrity.complete) {
-      throw const SplashEngineException('请选择已完整验证的chat模型资产');
+      throw const SplashEngineException('请选择已完整验证的文本或决策模型资产');
     }
     final weights = assets.single.files
         .where(
@@ -1398,7 +1641,8 @@ class SplashEngine implements EngineRuntime {
         _installation.python,
         _installation.nativeBinary,
       );
-      if (current.length != _installation.fingerprints.length ||
+      if (!_installationVerified ||
+          current.length != _installation.fingerprints.length ||
           current.entries.any(
             (entry) => _installation.fingerprints[entry.key] != entry.value,
           )) {
@@ -1550,6 +1794,9 @@ class SplashEngine implements EngineRuntime {
     } catch (error) {
       helpError = 'Splash帮助读取失败：$error';
     }
+    final supportsSystemone = (await File(
+      '${root.path}/server/server.py',
+    ).readAsString()).contains('"/v1/systemone": PostRoute(');
     final after = await _installationFiles(root, python, native);
     if (before.length != after.length ||
         before.entries.any((entry) => after[entry.key] != entry.value)) {
@@ -1569,6 +1816,7 @@ class SplashEngine implements EngineRuntime {
       help: helpText,
       helpError: helpError,
       verified: true,
+      supportsSystemone: supportsSystemone,
       fingerprints: after,
     );
   }
@@ -1667,7 +1915,10 @@ SplashRequestException _requestError(
   }
   return SplashRequestException(
     '$error',
-    kind: error is TextProtocolException
+    kind:
+        error is TextProtocolException ||
+            error is DecisionProtocolException ||
+            error is FormatException
         ? DecisionFailureKind.invalidResponse
         : DecisionFailureKind.failed,
   );

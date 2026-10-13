@@ -11,6 +11,7 @@ import 'engine_launch_configuration.dart';
 import 'engine_parameter_recognition.dart';
 import 'model_library.dart';
 import 'model_use_registry.dart';
+import 'runtime_monitor.dart';
 import 'engine_install_progress.dart';
 
 class OmlxException implements Exception {
@@ -331,7 +332,7 @@ class OmlxRequestException implements Exception {
 /// Owns the native oMLX installation, its exact validation lifecycle, and the
 /// owned front-end model pool: one supervised serve process per generation,
 /// pin-only enablement, fenced routing, and exact stop/recycle semantics.
-class OmlxEngine implements EngineRuntime {
+class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
   OmlxEngine({
     required this.installationDirectory,
     OmlxProcessIO? io,
@@ -1554,6 +1555,30 @@ print(json.dumps({"python": platform.python_version(), "architecture": platform.
   OmlxEngine? _configuredOwner(String id) => _configured.values
       .where((child) => child.runtimeInstances.any((run) => run.id == id))
       .singleOrNull;
+
+  @override
+  Future<RuntimeTelemetry> readTelemetry(
+    String instanceId, {
+    required DecisionCancellation cancellation,
+  }) async {
+    final owner = _configuredOwner(instanceId);
+    if (owner != null) {
+      return owner.readTelemetry(instanceId, cancellation: cancellation);
+    }
+    final run = _admitRun(instanceId);
+    final uri = run.pool
+        .uri('/admin/api/stats')
+        .replace(queryParameters: {'model': run.modelId, 'scope': 'session'});
+    final raw = await readMonitorHttp(
+      uri,
+      cancellation: cancellation,
+      headers: {'cookie': 'omlx_admin_session=${run.pool.cookie}'},
+    );
+    if (cancellation.isCancelled || !identical(_admitRun(instanceId), run)) {
+      throw StateError('实例已变化');
+    }
+    return RuntimeTelemetry.omlx(jsonDecode(raw), run.modelId);
+  }
 
   EngineLaunchCommand? actualCommandFor(String id) {
     final owner = _configuredOwner(id);

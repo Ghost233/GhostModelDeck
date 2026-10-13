@@ -1018,7 +1018,7 @@ class EngineCatalog {
                     ].contains(asset.kind)
               : family == EngineFamily.splash
               ? ['GGUF', 'Safetensors'].contains(asset.format) &&
-                    asset.kind == AssetKind.chat
+                    [AssetKind.chat, AssetKind.decision].contains(asset.kind)
               : asset.format == 'Safetensors' && asset.kind == AssetKind.chat),
     )) {
       throw LlamaEngineException(

@@ -41,6 +41,7 @@ import 'model_search_page.dart';
 import 'mcp_page.dart';
 import 'manager_lifecycle.dart';
 import 'model_use_registry.dart';
+import 'runtime_monitor_page.dart';
 import 'sdk_service.dart';
 import 'settings_page.dart';
 import 'startlux_readout.dart';
@@ -417,7 +418,7 @@ class _ManagerShellState extends State<_ManagerShell>
   void _navigate(int page) => setState(() {
     _page = page;
     _openedPages.add(page);
-    if ((page <= 6 || page == 11) && page != 4) {
+    if ((page <= 6 || page == 11 || page == 12) && page != 4) {
       _enginePage = page;
       _workspaceTabs.index = 0;
     } else if (page >= 7) {
@@ -629,6 +630,11 @@ class _ManagerShellState extends State<_ManagerShell>
                                 _groupLabel('服务'),
                                 _navigation('引擎管理', Icons.memory_outlined, 3),
                                 _navigation('实例', Icons.layers_outlined, 11),
+                                _navigation(
+                                  '运行监控',
+                                  Icons.monitor_heart_outlined,
+                                  12,
+                                ),
                                 _navigation('委员会配置', Icons.groups_outlined, 5),
                                 _navigation('MCP', Icons.cable_outlined, 6),
                               ] else ...[
@@ -777,6 +783,13 @@ class _ManagerShellState extends State<_ManagerShell>
                                   );
                                 }
                               },
+                            )
+                          else
+                            const SizedBox.shrink(),
+                          if (_openedPages.contains(12))
+                            RuntimeMonitorPage(
+                              instances: _instances,
+                              active: _workspaceTabs.index == 0 && _page == 12,
                             )
                           else
                             const SizedBox.shrink(),

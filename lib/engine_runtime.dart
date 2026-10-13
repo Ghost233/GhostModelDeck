@@ -15,6 +15,20 @@ enum RuntimeCapability {
   embeddings,
 }
 
+enum DecisionFailureKind {
+  notReady,
+  timedOut,
+  cancelled,
+  invalidResponse,
+  failed,
+}
+
+abstract interface class DecisionCallFailure implements Exception {
+  String get message;
+  DecisionFailureKind get kind;
+  String? get rawResponse;
+}
+
 class RuntimeCapacity {
   const RuntimeCapacity({
     required this.contextPerSlot,
