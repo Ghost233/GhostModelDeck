@@ -54,6 +54,10 @@ void main() {
       final before = await catalog.registryFile.readAsBytes();
       final runtime = catalog.runtimeFor(registration.id) as SplashEngine;
       final peer = await runtime.startRuntime(fixture.asset.id);
+      expect(
+        fixture.io.httpPaths.where((p) => p == '/v1/chat/completions'),
+        isEmpty,
+      );
       final routes = PublicModelRoutes(
         library: fixture.library,
         runtimes: [runtime],
@@ -103,7 +107,7 @@ void main() {
       );
       expect(
         fixture.io.httpPaths.where((p) => p == '/v1/chat/completions').length,
-        greaterThanOrEqualTo(3),
+        1,
       );
       // Cancellation during real cold startup must leave the peer intact.
       fixture.io.identityEntered = Completer<void>();

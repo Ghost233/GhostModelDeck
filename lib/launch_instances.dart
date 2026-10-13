@@ -9,6 +9,7 @@ import 'engine_runtime.dart';
 import 'llama_engine.dart';
 import 'model_library.dart';
 import 'splash_engine.dart';
+import 'omlx_engine.dart';
 import 'public_model_names.dart';
 
 class LaunchInstance {
@@ -88,9 +89,72 @@ class LaunchInstances {
   List<LaunchInstance> _definitions = [];
   List<LaunchInstance> get definitions => List.unmodifiable(_definitions);
   Stream<void> get changes => _changes.stream;
+  Future<({String summary, String path})> recordFailure(
+    Object error,
+    StackTrace stack,
+  ) async {
+    final details = '$error';
+    final lines = details
+        .split('\n')
+        .where((line) => line.trim().isNotEmpty)
+        .toList();
+    final cause =
+        lines.where((line) => line.contains(': error:')).firstOrNull ??
+        lines.firstOrNull ??
+        '操作失败';
+    final summary = cause.length > 360 ? '${cause.substring(0, 360)}…' : cause;
+    final directory = await Directory('${file.parent.path}/instance-errors')
+        .create(recursive: true);
+    final log = File(
+      '${directory.path}/failure-${DateTime.now().microsecondsSinceEpoch}.log',
+    );
+    await log.writeAsString('$details\n\n$stack\n', flush: true);
+    return (summary: summary, path: log.absolute.path);
+  }
+
   Future<void> _operations = Future.value();
   final _starts = <String, Future<RuntimeInstance>>{};
   final _startCancellations = <String, DecisionCancellation>{};
+  final _runOrigins = <String, EngineRegistration>{};
+  EngineRegistration? runningOrigin(String id) => _runOrigins[id];
+  String? runningVersion(String id) {
+    for (final runtime in catalog.runtimes) {
+      final run = runtime.runtimeInstances
+          .where((run) => run.launchInstanceId == id && run.hasLiveProcess)
+          .singleOrNull;
+      if (run == null) continue;
+      if (runtime is LlamaEngine) {
+        final version = runtime.state.instances
+            .singleWhere((instance) => instance.id == run.id)
+            .binaryVersion;
+        if (version != null) {
+          return '${version.semanticVersion} · ${version.commit}';
+        }
+      }
+      if (runtime is SplashEngine) return runtime.actualVersionFor(run.id);
+      if (runtime is OmlxEngine) return runtime.actualVersionFor(run.id);
+      return _runOrigins[id]?.version;
+    }
+    return null;
+  }
+
+  EngineLaunchCommand? actualCommand(String id) {
+    for (final runtime in catalog.runtimes) {
+      final run = runtime.runtimeInstances
+          .where((run) => run.launchInstanceId == id && run.hasLiveProcess)
+          .singleOrNull;
+      if (run == null) continue;
+      if (runtime is LlamaEngine) {
+        return runtime.state.instances
+            .singleWhere((instance) => instance.id == run.id)
+            .launchCommand;
+      }
+      if (runtime is SplashEngine) return runtime.actualCommandFor(run.id);
+      if (runtime is OmlxEngine) return runtime.actualCommandFor(run.id);
+    }
+    return null;
+  }
+
   bool isStarting(String id) => _starts.containsKey(id);
   void cancelPendingStarts() {
     for (final token in _startCancellations.values) {
@@ -158,12 +222,18 @@ class LaunchInstances {
     if (engine == null || engine.status != LlamaInstallationStatus.installed) {
       return '引擎缺失或未安装';
     }
-    if (!catalog.library.state.scanning &&
-        catalog.library.state.rootPath != null &&
-        !catalog.library.state.artifacts.any(
-          (a) => a.id == definition.artifactId,
-        )) {
-      return '模型缺失';
+    if (!catalog.library.state.scanning) {
+      final asset = catalog.library.state.artifacts
+          .where((asset) => asset.id == definition.artifactId)
+          .firstOrNull;
+      if (asset == null) return '模型缺失';
+      if (asset.files.any((file) => !File(file.path).existsSync())) {
+        return '模型文件缺失';
+      }
+      if (asset.integrity == AssetIntegrity.corrupt ||
+          asset.integrity == AssetIntegrity.incomplete) {
+        return '模型文件损坏或不完整';
+      }
     }
     return null;
   }
@@ -360,8 +430,6 @@ class LaunchInstances {
     if (_closed) throw StateError('实例管理已关闭');
     final definition = find(id);
     if (definition == null) throw StateError('实例已删除');
-    final reason = missingReason(definition);
-    if (reason != null) throw StateError(reason);
     final ready = runsFor(id)
         .where(
           (run) =>
@@ -371,6 +439,8 @@ class LaunchInstances {
         )
         .toList();
     if (ready.length == 1) return ready.single;
+    final reason = missingReason(definition);
+    if (reason != null) throw StateError(reason);
     if (runsFor(id).any((r) => r.hasLiveProcess)) {
       throw StateError('实例已在运行，请先停止');
     }
@@ -378,6 +448,9 @@ class LaunchInstances {
     await catalog.library.verify([definition.artifactId]);
     if (_closed || cancellation.isCancelled) throw StateError('实例启动已取消');
     final runtime = catalog.runtimeFor(definition.engineId);
+    _runOrigins[id] = catalog.state.entries.singleWhere(
+      (entry) => entry.id == definition.engineId,
+    );
     if (runtime is LlamaEngine) {
       final run = await runtime.start(
         definition.artifactId,
@@ -398,6 +471,20 @@ class LaunchInstances {
         assembly: definition.splashAssembly == null
             ? null
             : Directory(definition.splashAssembly!),
+      );
+    }
+    if (runtime is OmlxEngine) {
+      final entry = catalog.state.entries.singleWhere(
+        (entry) => entry.id == definition.engineId,
+      );
+      return runtime.startWithConfiguration(
+        definition.artifactId,
+        definition.configuration,
+        launchInstanceId: id,
+        launchRevision: definition.revision,
+        sourceBundle: Directory(entry.path!),
+        sourceReceipt: entry.omlxReceipt,
+        cancellation: cancellation,
       );
     }
     throw StateError('此引擎尚未接通模型运行');

@@ -9,10 +9,95 @@ import 'package:ghost_model_deck/llama_engine.dart';
 import 'package:ghost_model_deck/model_library.dart';
 import 'package:ghost_model_deck/model_use_registry.dart';
 import 'package:ghost_model_deck/engine_runtime.dart';
+import 'package:ghost_model_deck/chat_protocol.dart';
 
 import 'splash_engine_test.dart' show SplashRuntimeFixture;
+import 'fixtures/council_runtime.dart';
 
 void main() {
+  test('engine resource failure preserves the already loaded run and actual command until explicit stop', () async {
+    final runtime = await CouncilRuntime.create(
+      modelCount: 1,
+      sourceSystemone: true,
+    );
+    addTearDown(runtime.close);
+    final store = LaunchInstances(
+      catalog: runtime.catalog,
+      file: File('${runtime.root.path}/instances.json'),
+    );
+    addTearDown(store.close);
+    final definition = await store.save(
+      name: 'Saved',
+      artifactId: runtime.library.state.artifacts.single.id,
+      engineId: EngineCatalog.officialId,
+      configuration: EngineLaunchConfiguration(),
+    );
+    final run = await store.start(definition.id);
+    final actual = runtime.engine.state.instances
+        .singleWhere((instance) => instance.id == run.id)
+        .launchCommand;
+    await File(runtime.engine.executablePath!)
+        .writeAsString('changed engine at original path');
+    await runtime.catalog.refresh();
+    expect(store.missingReason(definition), contains('引擎缺失'));
+    final retained = store.runsFor(definition.id).single;
+    expect(retained.status, RuntimeInstanceStatus.ready);
+    expect(retained.hasLiveProcess, isTrue);
+    expect(
+      runtime.engine.state.instances
+          .singleWhere((instance) => instance.id == run.id)
+          .launchCommand,
+      same(actual),
+    );
+    expect(
+      (await runtime.engine.generateText(
+        run.id,
+        TextRequest(prompt: 'Hi'),
+      )).text,
+      isNotEmpty,
+    );
+    await store.stop(definition.id);
+    await expectLater(store.start(definition.id), throwsStateError);
+  });
+  test('unlinked roots preserve an owned run and references while blocking new starts until recovery', () async {
+    final runtime = await CouncilRuntime.create(
+      modelCount: 1,
+      sourceSystemone: true,
+    );
+    addTearDown(runtime.close);
+    final store = LaunchInstances(
+      catalog: runtime.catalog,
+      file: File('${runtime.root.path}/instances.json'),
+    );
+    addTearDown(store.close);
+    final asset = runtime.library.state.artifacts.single;
+    final roots = runtime.library.state.rootPaths.map(Directory.new).toList();
+    final definition = await store.save(
+      name: 'Saved',
+      artifactId: asset.id,
+      engineId: EngineCatalog.officialId,
+      configuration: EngineLaunchConfiguration(),
+    );
+    final first = await store.start(definition.id);
+    await runtime.library.scanDirectories([]);
+    expect(store.missingReason(definition), '模型缺失');
+    expect(store.runsFor(definition.id).single.id, first.id);
+    expect(store.runsFor(definition.id).single.hasLiveProcess, isTrue);
+    expect(store.definitions.single.publicName, definition.publicName);
+    await store.stop(definition.id);
+    await expectLater(store.start(definition.id), throwsStateError);
+    expect(
+      store.runsFor(definition.id).where((run) => run.hasLiveProcess),
+      isEmpty,
+    );
+    await runtime.library.scanDirectories(roots);
+    expect(store.missingReason(definition), isNull);
+    final restarted = await store.start(definition.id);
+    expect(restarted.id, isNot(first.id));
+    expect(store.definitions.single.id, definition.id);
+    expect(store.definitions.single.publicName, definition.publicName);
+    await store.stop(definition.id);
+  });
   test(
     'saved copies keep independent parameter snapshots across reopen',
     () async {

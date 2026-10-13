@@ -8,6 +8,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/chat_protocol.dart';
 import 'package:ghost_model_deck/engine_catalog.dart';
 import 'package:ghost_model_deck/engine_runtime.dart';
+import 'package:ghost_model_deck/engine_launch_configuration.dart';
+import 'package:ghost_model_deck/launch_instances.dart';
+import 'package:ghost_model_deck/public_gateway.dart';
+import 'package:ghost_model_deck/model_launch_test.dart';
 import 'package:ghost_model_deck/llama_engine.dart';
 import 'package:ghost_model_deck/model_library.dart';
 import 'package:ghost_model_deck/model_use_registry.dart';
@@ -186,6 +190,8 @@ class _FakeServer {
   Completer<void> chatStarted = Completer<void>();
   Completer<void>? streamGate;
   Completer<void> streamStarted = Completer<void>();
+  Completer<void>? loadGate;
+  Completer<void> loadStarted = Completer<void>();
   Completer<void>? unloadGate;
   Completer<void> unloadStarted = Completer<void>();
   HttpServer? _http;
@@ -384,6 +390,8 @@ class _FakeServer {
           await _json(request, 404, {'error': 'unknown model'});
           return;
         }
+        _signal(loadStarted);
+        await loadGate?.future;
         final failures = loadFailures[model.id] ?? 0;
         if (failures > 0) {
           loadFailures[model.id] = failures - 1;
@@ -670,6 +678,7 @@ class _FakePoolIO implements OmlxPoolIO {
   final List<_FakePoolChild> children = [];
   Set<String> preloaded = const {};
   void Function(_FakeServer server)? onServerCreated;
+  void Function(_FakePoolChild child)? onChildStarted;
 
   _FakeServer get server => children.last.server;
 
@@ -703,6 +712,7 @@ class _FakePoolIO implements OmlxPoolIO {
     await server.start(int.parse(arguments[arguments.indexOf('--port') + 1]));
     final child = _FakePoolChild(server);
     children.add(child);
+    onChildStarted?.call(child);
     return child;
   }
 }
@@ -815,6 +825,385 @@ Matcher _requestKind(OmlxRequestKind kind) =>
     isA<OmlxRequestException>().having((e) => e.kind, 'kind', kind);
 
 void main() {
+  test('recognized unknown architecture remains eligible for an explicit private oMLX test', () async {
+    final fixture = await _PoolFixture.create();
+    addTearDown(fixture.dispose);
+    final config = File('${fixture.modelsRoot.path}/model-a/config.json');
+    final value = jsonDecode(await config.readAsString()) as Map;
+    value['architectures'] = ['FutureArchitecture'];
+    value['model_type'] = 'future';
+    await config.writeAsString(jsonEncode(value));
+    fixture.artifacts = await fixture.library.scan(
+      fixture.modelsRoot,
+      verifyFiles: true,
+    );
+    final artifact = fixture.artifact('model-a');
+    expect(artifact.kind, isNot(AssetKind.chat));
+    final cpp = LlamaEngine(
+      library: fixture.library,
+      installationDirectory: Directory('${fixture.root.path}/cpp'),
+    );
+    final catalog = EngineCatalog(
+      library: fixture.library,
+      officialEngine: cpp,
+      omlxEngine: fixture.engine,
+      useRegistry: fixture.useRegistry,
+      registryFile: File('${fixture.root.path}/engines.json'),
+    );
+    addTearDown(() async {
+      await catalog.shutdown();
+      catalog.close();
+      cpp.close();
+    });
+    final result = await testModelLaunch(
+      catalog: catalog,
+      engineId: EngineCatalog.omlxId,
+      artifact: artifact,
+      configuration: EngineLaunchConfiguration(family: EngineFamily.omlx),
+      cancellation: DecisionCancellation(),
+    );
+    expect(result, contains('HTTP 200'));
+    expect(
+      fixture.engine.runtimeInstances.where((run) => run.hasLiveProcess),
+      isEmpty,
+    );
+    expect(fixture.poolIo.children.single._exit.isCompleted, isTrue);
+  });
+
+  test('oMLX unsaved parameter test uses private public HTTP and leaves saved configuration and peer untouched', () async {
+    final fixture = await _PoolFixture.create();
+    addTearDown(fixture.dispose);
+    final cpp = LlamaEngine(
+      library: fixture.library,
+      installationDirectory: Directory('${fixture.root.path}/cpp'),
+    );
+    final catalog = EngineCatalog(
+      library: fixture.library,
+      officialEngine: cpp,
+      omlxEngine: fixture.engine,
+      useRegistry: fixture.useRegistry,
+      registryFile: File('${fixture.root.path}/engines.json'),
+    );
+    addTearDown(() async {
+      await catalog.shutdown();
+      catalog.close();
+      cpp.close();
+    });
+    final file = File('${fixture.root.path}/instances.json');
+    final instances = LaunchInstances(catalog: catalog, file: file);
+    addTearDown(instances.close);
+    final definition = await instances.save(
+      name: 'Saved',
+      artifactId: fixture.artifact('model-a').id,
+      engineId: EngineCatalog.omlxId,
+      configuration: EngineLaunchConfiguration(
+        family: EngineFamily.omlx,
+        formValues: {'--max-concurrent-requests': '1'},
+      ),
+    );
+    final peer = await instances.start(definition.id);
+    final before = await file.readAsBytes();
+    final result = await testModelLaunch(
+      catalog: catalog,
+      engineId: EngineCatalog.omlxId,
+      artifact: fixture.artifact('model-a'),
+      configuration: EngineLaunchConfiguration(
+        family: EngineFamily.omlx,
+        formValues: {'--max-concurrent-requests': '2'},
+      ),
+      cancellation: DecisionCancellation(),
+    );
+    expect(result, contains('测试通过'));
+    expect(await file.readAsBytes(), before);
+    expect(
+      fixture.poolIo.launches.last,
+      containsAllInOrder(['--max-concurrent-requests', '2']),
+    );
+    expect(fixture.poolIo.children.first._exit.isCompleted, isFalse);
+    expect(fixture.poolIo.children.last._exit.isCompleted, isTrue);
+    expect(instances.runsFor(definition.id).single.id, peer.id);
+    expect(
+      instances.runsFor(definition.id).single.status,
+      RuntimeInstanceStatus.ready,
+    );
+    expect(
+      fixture.engine.runtimeInstances.where(
+        (run) => run.temporaryTest && run.hasLiveProcess,
+      ),
+      isEmpty,
+    );
+    final routes = PublicModelRoutes(
+      library: fixture.library,
+      runtimes: catalog.runtimes.toList(),
+      instances: instances,
+    );
+    await routes.load();
+    expect(routes.listModels().map((model) => model.publicId), [
+      definition.publicName,
+    ]);
+    routes.close();
+    await instances.stop(definition.id);
+  });
+  test('native oMLX exit before health fails promptly without an orphan or a Ready row', () async {
+    final fixture = await _PoolFixture.create();
+    addTearDown(fixture.dispose);
+    fixture.poolIo.onChildStarted = (child) => child.die(17);
+    await expectLater(
+      fixture.engine
+          .startWithConfiguration(
+            fixture.artifact('model-a').id,
+            EngineLaunchConfiguration(family: EngineFamily.omlx),
+            launchInstanceId: 'early-exit',
+            launchRevision: 1,
+          )
+          .timeout(const Duration(seconds: 2)),
+      throwsA(isA<OmlxException>()),
+    );
+    expect(fixture.poolIo.children.single._exit.isCompleted, isTrue);
+    expect(
+      fixture.engine.runtimeInstances.where(
+        (run) => run.status == RuntimeInstanceStatus.ready,
+      ),
+      isEmpty,
+    );
+    expect(
+      (await fixture.library.prepareDeletion([fixture.artifact('model-a').id]))
+          .files,
+      isNotEmpty,
+    );
+  });
+  test('cancelled saved oMLX loading protects files and releases only its own pool', () async {
+    final fixture = await _PoolFixture.create();
+    addTearDown(fixture.dispose);
+    final peer = await fixture.engine.startWithConfiguration(
+      fixture.artifact('model-b').id,
+      EngineLaunchConfiguration(family: EngineFamily.omlx),
+      launchInstanceId: 'peer',
+      launchRevision: 1,
+    );
+    final release = Completer<void>();
+    addTearDown(() {
+      if (!release.isCompleted) release.complete();
+    });
+    final created = Completer<_FakeServer>();
+    fixture.poolIo.onServerCreated = (server) {
+      server.loadGate = release;
+      created.complete(server);
+    };
+    final token = DecisionCancellation();
+    final start = fixture.engine.startWithConfiguration(
+      fixture.artifact('model-a').id,
+      EngineLaunchConfiguration(family: EngineFamily.omlx),
+      launchInstanceId: 'cancelled',
+      launchRevision: 1,
+      cancellation: token,
+    );
+    final outcome = start.then<Object>(
+      (run) => run,
+      onError: (Object error) => error,
+    );
+    final server = await created.future.timeout(const Duration(seconds: 5));
+    await server.loadStarted.future.timeout(const Duration(seconds: 5));
+    await expectLater(
+      fixture.library.prepareDeletion([fixture.artifact('model-a').id]),
+      throwsA(isA<LibraryException>()),
+    );
+    token.cancel();
+    expect(
+      await outcome.timeout(const Duration(seconds: 5)),
+      isA<OmlxException>(),
+    );
+    expect(fixture.poolIo.children.last._exit.isCompleted, isTrue);
+    expect(fixture.poolIo.children.first._exit.isCompleted, isFalse);
+    expect(
+      fixture.engine.runtimeInstances
+          .singleWhere((run) => run.id == peer.id)
+          .status,
+      RuntimeInstanceStatus.ready,
+    );
+    expect(server.requestsTo('/v1/chat/completions'), isEmpty);
+    expect(
+      (await fixture.library.prepareDeletion([fixture.artifact('model-a').id]))
+          .files,
+      isNotEmpty,
+    );
+    release.complete();
+    await fixture.engine.stop(peer.id);
+  });
+  test('recognized Safetensors architecture is passed to the engine without a manager allowlist', () async {
+    final fixture = await _PoolFixture.create();
+    addTearDown(fixture.dispose);
+    final config = File('${fixture.modelsRoot.path}/model-a/config.json');
+    final data = jsonDecode(await config.readAsString()) as Map;
+    data['model_type'] = 'new_arch';
+    data['architectures'] = ['NewArch'];
+    await config.writeAsString(jsonEncode(data));
+    final asset =
+        (await fixture.library.scan(
+          fixture.modelsRoot,
+          verifyFiles: true,
+        )).singleWhere(
+          (asset) => asset.files.any((file) => file.path.contains('/model-a/')),
+        );
+    expect(asset.format, 'Safetensors');
+    expect(asset.kind, AssetKind.unknown);
+    final run = await fixture.engine.startRuntime(asset.id);
+    expect(run.status, RuntimeInstanceStatus.ready);
+    expect(fixture.server.requestsTo('/v1/models/model-a/load'), hasLength(1));
+    expect(fixture.server.requestsTo('/v1/chat/completions'), isEmpty);
+    await fixture.engine.stop(run.id);
+  });
+  test(
+    'saved oMLX configurations own distinct pools and use exact public routes',
+    () async {
+      final fixture = await _PoolFixture.create();
+      addTearDown(fixture.dispose);
+      final cpp = LlamaEngine(
+        library: fixture.library,
+        installationDirectory: Directory('${fixture.root.path}/cpp'),
+      );
+      final catalog = EngineCatalog(
+        library: fixture.library,
+        officialEngine: cpp,
+        omlxEngine: fixture.engine,
+        useRegistry: fixture.useRegistry,
+        registryFile: File('${fixture.root.path}/engines.json'),
+      );
+      addTearDown(() async {
+        await catalog.shutdown();
+        catalog.close();
+        cpp.close();
+      });
+      final instances = LaunchInstances(
+        catalog: catalog,
+        file: File('${fixture.root.path}/instances.json'),
+      );
+      addTearDown(instances.close);
+      final first = await instances.save(
+        name: 'First',
+        artifactId: fixture.artifact('model-a').id,
+        engineId: EngineCatalog.omlxId,
+        configuration: EngineLaunchConfiguration(
+          family: EngineFamily.omlx,
+          formValues: {'--max-concurrent-requests': '1'},
+        ),
+      );
+      final second = await instances.copy(first.id);
+      await instances.save(
+        id: second.id,
+        name: 'Second',
+        artifactId: second.artifactId,
+        engineId: second.engineId,
+        configuration: EngineLaunchConfiguration(
+          family: EngineFamily.omlx,
+          formValues: {'--max-concurrent-requests': '2'},
+        ),
+      );
+      final run1 = await instances.start(first.id);
+      final run2 = await instances.start(second.id);
+      expect(run1.id, isNot(run2.id));
+      expect(run1.launchInstanceId, first.id);
+      expect(run2.launchInstanceId, second.id);
+      expect(fixture.poolIo.children, hasLength(2));
+      expect(
+        fixture.poolIo.launches.first,
+        containsAllInOrder(['--max-concurrent-requests', '1']),
+      );
+      expect(
+        fixture.poolIo.launches.last,
+        containsAllInOrder(['--max-concurrent-requests', '2']),
+      );
+      for (final child in fixture.poolIo.children) {
+        expect(child.server.requestsTo('/v1/chat/completions'), isEmpty);
+        expect(child.server.models.keys, ['model-a']);
+      }
+      await expectLater(
+        catalog.prepareRemoval(EngineCatalog.omlxId),
+        throwsA(isA<OmlxException>()),
+      );
+      await fixture.library.scanDirectories([]);
+      expect(instances.missingReason(first), '模型缺失');
+      expect(instances.runsFor(first.id).single.hasLiveProcess, isTrue);
+      final routes = PublicModelRoutes(
+        library: fixture.library,
+        runtimes: catalog.runtimes.toList(),
+        instances: instances,
+      );
+      final gateway = PublicGatewayServer(routes: routes, port: 0);
+      await gateway.start();
+      addTearDown(() async {
+        await gateway.stop();
+        gateway.close();
+        routes.close();
+      });
+      final client = HttpClient();
+      addTearDown(() => client.close(force: true));
+      for (final definition in [first, second]) {
+        final request = await client.postUrl(
+          gateway.baseUrl!.resolve('/v1/chat/completions'),
+        );
+        request.headers.contentType = ContentType.json;
+        request.write(
+          jsonEncode({
+            'model': definition.publicName,
+            'messages': [
+              {'role': 'user', 'content': 'Hello'},
+            ],
+            'max_tokens': 8,
+          }),
+        );
+        final response = await request.close();
+        final body =
+            jsonDecode(await utf8.decoder.bind(response).join()) as Map;
+        expect(response.statusCode, 200);
+        expect(body['model'], definition.publicName);
+        expect(
+          (body['choices'] as List).single['message']['content'],
+          isNotEmpty,
+        );
+      }
+      await instances.stop(first.id);
+      expect(instances.runsFor(first.id).single.hasLiveProcess, isFalse);
+      expect(fixture.poolIo.children.first._exit.isCompleted, isTrue);
+      await expectLater(
+        fixture.library.prepareDeletion([first.artifactId]),
+        throwsA(isA<LibraryException>()),
+      );
+      expect(
+        instances.runsFor(second.id).single.status,
+        RuntimeInstanceStatus.ready,
+      );
+      expect(fixture.poolIo.children.last._exit.isCompleted, isFalse);
+      await instances.stop(second.id);
+      await expectLater(instances.start(first.id), throwsStateError);
+      await fixture.library.scanDirectories([
+        Directory('${fixture.root.path}/models'),
+      ], verifyFiles: true);
+      expect(instances.missingReason(first), isNull);
+      final recovered = await instances.start(first.id);
+      expect(recovered.id, isNot(run1.id));
+      expect(recovered.launchInstanceId, first.id);
+      await instances.stop(first.id);
+    },
+  );
+  test(
+    'oMLX normal startup physically loads the selected model without inference',
+    () async {
+      final fixture = await _PoolFixture.create();
+      addTearDown(fixture.dispose);
+      final run = await fixture.engine.startRuntime(
+        fixture.artifact('model-a').id,
+      );
+      expect(run.status, RuntimeInstanceStatus.ready);
+      expect(run.hasLiveProcess, isTrue);
+      expect(fixture.server.models['model-a']!.loaded, isTrue);
+      expect(fixture.server.models['model-a']!.pinned, isTrue);
+      expect(fixture.server.fallbackDisabled, isTrue);
+      expect(fixture.server.requestsTo('/v1/chat/completions'), isEmpty);
+      await fixture.engine.stop(run.id);
+      expect(fixture.engine.runtimeInstances.single.hasLiveProcess, isFalse);
+    },
+  );
   test(
     'pool refuses work before verified installation or without a library',
     () async {
@@ -1113,7 +1502,7 @@ void main() {
   );
 
   test(
-    'unloaded, loading, failed or non-chat models never become ready',
+    'unloaded, loading, failed or engine-rejected models never become ready',
     () async {
       final fixture = await _PoolFixture.create();
       addTearDown(fixture.dispose);
@@ -1121,16 +1510,24 @@ void main() {
       final b = fixture.artifact('model-b');
       final c = fixture.artifact('model-c');
 
-      // Non-chat assets are rejected before any native pool exists.
+      fixture.poolIo.onServerCreated = (server) {
+        server.loadFailures['model-c'] = 1;
+      };
+      // Compatibility comes from the real load response, not an architecture list.
       await expectLater(
         fixture.engine.startRuntime(c.id),
         throwsA(isA<OmlxException>()),
       );
       expect(
         fixture.poolIo.launches,
-        isEmpty,
-        reason: 'no pool for rejected kinds',
+        hasLength(1),
+        reason: 'the selected engine actually attempted the load',
       );
+      expect(
+        fixture.server.requestsTo('/v1/models/model-c/load'),
+        hasLength(1),
+      );
+      expect(fixture.server.models['model-c']!.loaded, isFalse);
 
       await fixture.engine.startRuntime(a.id);
       final server = fixture.server;
@@ -1174,12 +1571,19 @@ void main() {
       );
       server.statusLoadingForever.remove('model-b');
 
-      // Probe refusal keeps the instance out of ready and rolls back the load.
+      // A request refusal is a real explicit failure, not an automatic probe.
       server.chatRefusals.add('model-b');
+      final requestRefused = await fixture.engine.startRuntime(b.id);
+      expect(requestRefused.status, RuntimeInstanceStatus.ready);
       await expectLater(
-        fixture.engine.startRuntime(b.id),
-        throwsA(isA<OmlxException>()),
+        fixture.engine.generateText(
+          requestRefused.id,
+          TextRequest(prompt: 'x'),
+        ),
+        throwsA(_requestKind(OmlxRequestKind.serviceFailed)),
       );
+      expect(server.models['model-b']!.loaded, isTrue);
+      await fixture.engine.stop(requestRefused.id);
       expect(server.models['model-b']!.loaded, isFalse);
       expect(
         fixture.engine.runtimeInstances

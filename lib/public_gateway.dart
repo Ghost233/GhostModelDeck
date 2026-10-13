@@ -215,7 +215,8 @@ class PublicModelRoutes {
     if (artifact == null) {
       throw StateError('公开模型不存在于模型库：$artifactId');
     }
-    if (artifact.kind != AssetKind.chat &&
+    if (_instanceIds == null &&
+        artifact.kind != AssetKind.chat &&
         artifact.kind != AssetKind.embedding) {
       throw StateError('仅标准文本或嵌入模型可登记公开访问：$artifactId');
     }

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'decision_protocol.dart';
 import 'engine_catalog.dart';
@@ -8,6 +9,7 @@ import 'llama_engine.dart';
 import 'model_library.dart';
 import 'public_gateway.dart';
 import 'splash_engine.dart';
+import 'omlx_engine.dart';
 
 /// Owns only the temporary instance and its ephemeral public HTTP listener.
 /// Saved configuration, public registrations and existing instances are untouched.
@@ -30,7 +32,8 @@ Future<String> testModelLaunch({
   try {
     if (cancellation.isCancelled) throw StateError('测试已取消');
     final verified = (await catalog.library.verify([artifact.id])).single;
-    if (verified.integrity != AssetIntegrity.complete ||
+    if (verified.integrity == AssetIntegrity.corrupt ||
+        verified.integrity == AssetIntegrity.incomplete ||
         verified.kind != artifact.kind) {
       throw StateError('测试模型文件不完整或已变化');
     }
@@ -70,6 +73,25 @@ Future<String> testModelLaunch({
         cancellation: cancellation,
         temporaryTest: true,
         assembly: splashAssembly,
+      );
+      instanceId = instance.id;
+      model = '';
+      endpoint = Uri();
+      body = {};
+    } else if (runtime is OmlxEngine) {
+      final entry = catalog.state.entries.singleWhere(
+        (entry) => entry.id == engineId,
+      );
+      final instance = await runtime.startWithConfiguration(
+        artifact.id,
+        configuration,
+        launchInstanceId:
+            'temporary-${DateTime.now().microsecondsSinceEpoch}-${Random.secure().nextInt(1 << 32)}',
+        launchRevision: 0,
+        sourceBundle: Directory(entry.path!),
+        sourceReceipt: entry.omlxReceipt,
+        cancellation: cancellation,
+        temporaryTest: true,
       );
       instanceId = instance.id;
       model = '';

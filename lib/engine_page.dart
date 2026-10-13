@@ -319,7 +319,6 @@ class _EnginePageState extends State<EnginePage> {
                   '构建日志 ${sourceBuild['log_path']}',
                 ],
                 if (entry.family == EngineFamily.omlx) ...[
-                  '生产模型运行尚未接通',
                   OmlxEngine.artifactUrl,
                   if (entry.omlxReceipt != null) ...[
                     '发行标签 ${entry.omlxReceipt!.releaseLabel} · app 构建 ${entry.omlxReceipt!.build}',
@@ -521,9 +520,7 @@ class _EnginePageState extends State<EnginePage> {
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
-                                      entry.family == EngineFamily.omlx
-                                          ? '生产模型运行尚未接通'
-                                          : entry.version == null
+                                      entry.version == null
                                           ? '${entry.release?.tag ?? '未知版本'} · macOS arm64'
                                           : engineVersionLabel(entry.version),
                                       style: theme.textTheme.bodySmall,

@@ -303,7 +303,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('oMLX'), findsOneWidget);
     expect(find.text('jundot/omlx'), findsOneWidget);
-    expect(find.text('生产模型运行尚未接通'), findsOneWidget);
+    expect(find.text('生产模型运行尚未接通'), findsNothing);
+    expect(find.text('未安装'), findsNWidgets(2));
     expect(find.text('Splash'), findsOneWidget);
     expect(find.text('incoai/splash'), findsOneWidget);
     expect(find.text('安装'), findsNWidgets(2));

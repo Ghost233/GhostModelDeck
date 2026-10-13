@@ -27,6 +27,161 @@ import 'fixtures/engine_archive.dart';
 
 void main() {
   testWidgets(
+    'instance resource preparation is pending rather than a missing resource and blocks configuration edits',
+    (tester) async {
+      final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
+      addTearDown(() => tester.runAsync(fixture.close));
+      final store = LaunchInstances(
+        catalog: fixture.catalog,
+        file: File('${fixture.root.path}/instances.json'),
+      );
+      addTearDown(() => tester.runAsync(store.close));
+      final gate = Completer<void>();
+      await tester.runAsync(() async {
+        await store.save(
+          name: 'Saved',
+          artifactId: fixture.asset.id,
+          engineId: EngineCatalog.officialId,
+          configuration: EngineLaunchConfiguration(),
+        );
+        await fixture.library.scanDirectories([]);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: InstancesPage(instances: store, prepare: () => gate.future),
+            ),
+          ),
+        );
+        await tester.pump();
+        expect(find.text('模型缺失'), findsNothing);
+        expect(find.textContaining('模型缺失 ·'), findsNothing);
+        expect(
+          tester
+              .widget<TextButton>(find.widgetWithText(TextButton, '编辑参数'))
+              .onPressed,
+          isNull,
+        );
+        expect(
+          tester
+              .widget<TextButton>(find.widgetWithText(TextButton, '删除配置'))
+              .onPressed,
+          isNull,
+        );
+        gate.complete();
+        await tester.pump();
+        await tester.pump();
+        expect(find.text('模型缺失'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+    },
+  );
+
+  test('linked engine original path refresh accepts verified updates and retains the running binary snapshot', () async {
+    await HttpOverrides.runWithHttpOverrides(() async {
+      final fixture = await _LaunchTextFixture.create();
+      addTearDown(fixture.close);
+      final binary = await File('${fixture.root.path}/linked/llama-server')
+          .create(recursive: true);
+      await binary.writeAsString('server fixture');
+      expect(
+        (await Process.run('/bin/chmod', ['+x', binary.path])).exitCode,
+        0,
+      );
+      final registration = await fixture.catalog.link(binary.path);
+      final provider = fixture.catalog.providerFor(registration.id);
+      final first = await provider.start(fixture.asset.id);
+      final oldFingerprint = first.binarySha256;
+      await binary.writeAsString('verified new contents at the same path');
+      await fixture.catalog.refresh();
+      expect(
+        fixture.catalog.state.entries
+            .singleWhere((entry) => entry.id == registration.id)
+            .status,
+        LlamaInstallationStatus.installed,
+      );
+      expect(
+        provider.state.instances
+            .singleWhere((instance) => instance.id == first.id)
+            .binarySha256,
+        oldFingerprint,
+      );
+      expect(
+        provider.state.instances
+            .singleWhere((instance) => instance.id == first.id)
+            .status,
+        LlamaInstanceStatus.ready,
+      );
+      await provider.stop(first.id);
+      final second = await provider.start(fixture.asset.id);
+      expect(second.binarySha256, isNot(oldFingerprint));
+      expect(second.launchCommand!.executable, binary.path);
+      final saved =
+          jsonDecode(await fixture.catalog.registryFile.readAsString()) as Map;
+      final row = (saved['linked'] as List).singleWhere(
+        (row) => row['id'] == registration.id,
+      );
+      expect(row['fingerprints'][binary.path], second.binarySha256);
+      await provider.stop(second.id);
+    }, _NetworkBoundary());
+  });
+  testWidgets(
+    'instance failure shows a bounded summary and file entry while controls remain usable',
+    (tester) async {
+      final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
+      addTearDown(() => tester.runAsync(fixture.close));
+      await tester.runAsync(() async {
+        final store = LaunchInstances(
+          catalog: fixture.catalog,
+          file: File('${fixture.root.path}/instances.json'),
+        );
+        try {
+          await store.save(
+            name: 'Saved',
+            artifactId: fixture.asset.id,
+            engineId: EngineCatalog.officialId,
+            configuration: EngineLaunchConfiguration(),
+          );
+          final original =
+              'startup failed\n${List.filled(200, 'usage and full runtime details').join('\n')}\nserver: error: invalid --kv-format';
+          await tester.pumpWidget(
+            MaterialApp(
+              home: Scaffold(
+                body: InstancesPage(
+                  instances: store,
+                  prepare: () async {
+                    throw StateError(original);
+                  },
+                ),
+              ),
+            ),
+          );
+          await _settleFilesystemFrames(tester);
+          expect(find.textContaining('invalid --kv-format'), findsWidgets);
+          expect(
+            find.textContaining('usage and full runtime details'),
+            findsNothing,
+          );
+          expect(
+            find.widgetWithText(TextButton, '编辑参数').hitTestable(),
+            findsOneWidget,
+          );
+          expect(find.text('完整错误文件'), findsOneWidget);
+          final path = tester
+              .widget<SelectableText>(
+                find.byKey(const Key('instance-error-file')),
+              )
+              .data!;
+          expect(await File(path).readAsString(), contains(original));
+          expect(tester.takeException(), isNull);
+        } finally {
+          await tester.pumpWidget(const SizedBox.shrink());
+          await store.close();
+        }
+      });
+    },
+  );
+  testWidgets(
     'saved instance editor reopens the same model without rescanning engines',
     (tester) async {
       final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
@@ -1980,9 +2135,11 @@ void main() {
       await standardBinary.writeAsString('foreign replacement');
       await catalog.refresh();
       expect(all[1].state.installation, LlamaInstallationStatus.failed);
-      expect(all[1].state.instances.last.capabilities, isEmpty);
-      expect(all[1].state.instances.last.acceptingRequests, isFalse);
-      expect(all[1].state.instances.last.nativeAlias, isNull);
+      expect(all[1].state.instances.last.capabilities, {
+        LlamaCapability.textGeneration,
+      });
+      expect(all[1].state.instances.last.acceptingRequests, isTrue);
+      expect(all[1].state.instances.last.nativeAlias, restarted[1].id);
       expect(all[1].state.instances.last.hasLiveProcess, isTrue);
       expect(all[0].state.instances.last.status, LlamaInstanceStatus.ready);
       expect(all[2].state.instances.last.status, LlamaInstanceStatus.ready);
@@ -1990,8 +2147,9 @@ void main() {
       await catalog.refresh();
       expect(
         all[1].state.instances.last.capabilities,
-        isEmpty,
-        reason: 'repair must not resurrect old generation evidence',
+        {LlamaCapability.textGeneration},
+        reason:
+            'resource repair leaves the admitted running snapshot unchanged',
       );
       await all[1].stop(restarted[1].id);
       final removal = await catalog.prepareRemoval(EngineCatalog.standardId);

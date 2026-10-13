@@ -536,7 +536,7 @@ print(json.dumps(vars(p.parse_args())))
     'fingerprint',
   ]) {
     test(
-      'linked timestamp normalization still rejects changed $change identity',
+      'linked refresh verifies current $change identity without discarding saved parameters',
       () async {
         final fixture = await _RecognitionFixture.create(
           linkedVersion: _standardVersion,
@@ -559,27 +559,53 @@ print(json.dumps(vars(p.parse_args())))
         }
         await fixture.catalog.refresh();
         expect(
-          fixture.engine.state.installation,
-          LlamaInstallationStatus.failed,
-        );
-        expect(
-          fixture.engine.parameterRecognition.recognizes('--context-tokens'),
-          isFalse,
-        );
-        expect(
           fixture.catalog.launchDefaultsFor(fixture.id).argumentText,
           '--context-tokens 1024',
         );
-        await expectLater(
-          fixture.engine.start(fixture.asset.id),
-          throwsA(isA<LlamaEngineException>()),
-        );
         expect(fixture.io.started, isEmpty);
+        if (change == 'platform') {
+          expect(
+            fixture.engine.state.installation,
+            LlamaInstallationStatus.failed,
+          );
+          expect(
+            fixture.engine.parameterRecognition.recognizes('--context-tokens'),
+            isFalse,
+          );
+          await expectLater(
+            fixture.engine.start(fixture.asset.id),
+            throwsA(isA<LlamaEngineException>()),
+          );
+          expect(fixture.io.started, isEmpty);
+        } else {
+          expect(
+            fixture.engine.state.installation,
+            LlamaInstallationStatus.installed,
+          );
+          expect(
+            fixture.engine.parameterRecognition.recognizes('--context-tokens'),
+            isTrue,
+          );
+          expect(
+            fixture.engine.linkedInstallation!.version,
+            fixture.io.versionOutput.trim(),
+          );
+          await HttpOverrides.runWithHttpOverrides(() async {
+            final run = await fixture.engine.start(fixture.asset.id);
+            expect(run.status, LlamaInstanceStatus.ready);
+            expect(
+              run.launchCommand!.arguments,
+              containsAllInOrder(['--context-tokens', '1024']),
+            );
+            expect(run.launchCommand!.arguments, isNot(contains('--ctx-size')));
+            await fixture.engine.stop(run.id);
+          }, _NetworkBoundary());
+        }
       },
     );
   }
   test(
-    'unparseable linked versions retain strict raw equality fallback',
+    'opaque linked versions retain the current verified raw observation',
     () async {
       const opaque = 'version: vendor opaque\nbuilt for Darwin arm64';
       final fixture = await _RecognitionFixture.create(linkedVersion: opaque);
@@ -591,7 +617,14 @@ print(json.dumps(vars(p.parse_args())))
       );
       fixture.io.versionOutput = 'diagnostic changed\n$opaque';
       await fixture.catalog.refresh();
-      expect(fixture.engine.state.installation, LlamaInstallationStatus.failed);
+      expect(
+        fixture.engine.state.installation,
+        LlamaInstallationStatus.installed,
+      );
+      expect(
+        fixture.engine.linkedInstallation!.version,
+        fixture.io.versionOutput,
+      );
       expect(fixture.io.started, isEmpty);
     },
   );

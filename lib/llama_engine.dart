@@ -563,7 +563,7 @@ class LlamaEngine implements EmbeddingRuntime {
   ) => _readLaunchConfiguration = readConfiguration;
   final ModelUseRegistry useRegistry;
   final Duration loadTimeout;
-  final LinkedLlamaInstallation? linkedInstallation;
+  LinkedLlamaInstallation? linkedInstallation;
   final String? installationId;
   final StartluxReadoutStarter? startStartluxReadout;
   final Map<String, Object?>? sourceBuild;
@@ -2406,18 +2406,6 @@ class LlamaEngine implements EmbeddingRuntime {
     executablePath = null;
     observedVersion = null;
     _binarySha256 = null;
-    for (final running in _running.values.toList()) {
-      if (!running.hasLiveOwnedProcess) continue;
-      _seal(running);
-      running.instance = _copy(
-        running.instance,
-        status: LlamaInstanceStatus.failed,
-        properties: const {},
-        capabilities: const {},
-        error: '$reason；请停止旧实例后重新启动',
-      );
-      _publishRun(running);
-    }
   }
 
   bool _discardUnverifiedParameters() {
@@ -2483,19 +2471,11 @@ class LlamaEngine implements EmbeddingRuntime {
     try {
       final expected = linkedInstallation!;
       final actual = await inspectLinkedLlama(File(expected.path), io);
-      final recordedIdentity = LlamaBinaryVersion.parse(expected.version);
-      final observedIdentity = LlamaBinaryVersion.parse(actual.version);
-      final sameVersion = recordedIdentity != null && observedIdentity != null
-          ? recordedIdentity.semanticVersion ==
-                    observedIdentity.semanticVersion &&
-                recordedIdentity.build == observedIdentity.build &&
-                recordedIdentity.commit == observedIdentity.commit &&
-                recordedIdentity.platform == observedIdentity.platform
-          : actual.version == expected.version;
-      if (!sameVersion ||
-          jsonEncode(actual.fingerprints) !=
-              jsonEncode(expected.fingerprints)) {
-        return _discardUnverifiedParameters();
+      if (actual.path != expected.path) return _discardUnverifiedParameters();
+      if (jsonEncode(actual.fingerprints) !=
+              jsonEncode(expected.fingerprints) ||
+          actual.version != expected.version) {
+        linkedInstallation = actual;
       }
       executablePath = actual.path;
       _binarySha256 = actual.sha256;

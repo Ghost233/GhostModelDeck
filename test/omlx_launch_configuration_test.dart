@@ -20,6 +20,30 @@ import 'package:ghost_model_deck/omlx_engine.dart';
 import 'fixtures/qwen2_mlx_layout.dart';
 
 void main() {
+  test('linked oMLX original path update records matching current CLI and package version', () async {
+    final fixture = await _OmlxConfigurationFixture.create();
+    addTearDown(fixture.close);
+    fixture.io.version = '0.7.1';
+    fixture.io.packageVersion = '0.7.1';
+    fixture.io.plistVersion = '0.7.1';
+    await File('${fixture.app.path}/Contents/MacOS/omlx-cli')
+        .writeAsString('new linked executable');
+    await fixture.catalog.refresh();
+    final updated = fixture.catalog.state.entries.singleWhere(
+      (entry) => entry.id == fixture.id,
+    );
+    expect(updated.status, LlamaInstallationStatus.installed);
+    expect(updated.version, '0.7.1');
+    expect(
+      fixture.catalog.parameterRecognitionFor(fixture.id).version,
+      '0.7.1',
+    );
+    final restored =
+        jsonDecode(await fixture.catalog.registryFile.readAsString()) as Map;
+    expect(jsonEncode(restored), contains('0.7.1'));
+    expect(fixture.pool.starts, 0);
+  });
+
   test('current oMLX help belongs to verified registration and saved configuration', () async {
     final fixture = await _OmlxConfigurationFixture.create();
     addTearDown(fixture.close);
@@ -553,7 +577,7 @@ void main() {
   });
 
   testWidgets(
-    'oMLX model configuration persists through restart while production run stays disabled',
+    'oMLX parameter save persists through restart without starting a model',
     (tester) async {
       final fixture = (await tester.runAsync(
         _OmlxConfigurationFixture.create,
@@ -601,12 +625,13 @@ void main() {
       }
 
       await openDialog();
-      expect(find.textContaining('生产模型运行尚未接通'), findsWidgets);
+      expect(find.textContaining('生产模型运行尚未接通'), findsNothing);
+      expect(find.textContaining('完整启动命令'), findsOneWidget);
       expect(
         tester
             .widget<OutlinedButton>(find.widgetWithText(OutlinedButton, '测试运行'))
             .onPressed,
-        isNull,
+        isNotNull,
       );
       expect(find.text('模型独立'), findsNothing);
       expect(find.text('引擎默认'), findsNothing);
@@ -723,7 +748,8 @@ void main() {
         tester.widget<TextField>(requests).decoration!.errorText,
         '已被文本覆盖',
       );
-      expect(find.textContaining('生产模型运行尚未接通'), findsWidgets);
+      expect(find.textContaining('生产模型运行尚未接通'), findsNothing);
+      expect(find.textContaining('默认参数'), findsWidgets);
       expect(find.text('完整启动命令'), findsNothing);
       expect(find.byTooltip('复制命令'), findsNothing);
       await tester.runAsync(() async {
@@ -872,6 +898,8 @@ class _ConfigurationBundleIO implements OmlxProcessIO {
   _ConfigurationBundleIO();
   final calls = <(String, List<String>)>[];
   String version = '0.7.0';
+  String packageVersion = '0.7.0';
+  String plistVersion = '0.7.0';
   Object? helpFailure;
   int helpExit = 0;
   final helpByApp = <String, String>{};
@@ -948,7 +976,7 @@ options:
         0,
         jsonEncode({
           'CFBundleIdentifier': 'app.omlx',
-          'CFBundleShortVersionString': '0.7.0',
+          'CFBundleShortVersionString': plistVersion,
           'CFBundleVersion': '2987',
         }),
         '',
@@ -990,7 +1018,7 @@ options:
           'paths': [app.path, OmlxEngine.builderPath, workingDirectory],
           'origins': ['${app.path}/Contents/Resources/omlx/__init__.py'],
           'versions': {
-            'omlx': '0.7.0',
+            'omlx': packageVersion,
             'mlx': '0.32.2',
             'mlx-lm': '0.31.4.dev132+g94cdcae13',
             'fastapi': '0.142.2',
