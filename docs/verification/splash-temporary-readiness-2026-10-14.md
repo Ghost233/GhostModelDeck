@@ -2,7 +2,7 @@
 
 ## 当前结果与范围
 
-源码修复、受影响检查及 0.2.0 发布前完整门禁已通过，q14 的 JEV 阶段定点重试通过。用户已选择 0.2.0，提交与正式发布正在收尾。当前运行的正式 GMD 仍是原已编译版本；其已保存的 failed 状态没有被本轮清除。没有重启 GMD、Qwen、Kev 或独立 27B 模型，也没有重新执行完整 36 条。
+源码修复、受影响检查及 0.2.0 发布前完整门禁已通过，q14 的 JEV 阶段定点重试通过。修复已随 0.2.0 提交并正式发布，资产与分支验收见[发布记录](release-0.2.0.md)。当前运行的正式 GMD 仍是原已编译版本；其已保存的 failed 状态没有被本轮清除。没有重启 GMD、Qwen、Kev 或独立 27B 模型，也没有重新执行完整 36 条。
 
 源码基点为 `c30cd3c75a1f4c99e10087dbbbb0122ca251aab4`。本次只修改 `lib/splash_engine.dart`、`test/splash_engine_test.dart` 和 `test/splash_decision_routes_test.dart`。最终文件摘要及检查回执在 `.scratch/gmd-splash-config-20261014/repair-verification.json`。
 
