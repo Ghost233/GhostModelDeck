@@ -860,6 +860,12 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
           kind: DecisionFailureKind.cancelled,
         );
       }
+      if (error is _SplashLoading) {
+        throw const SplashRequestException(
+          'Splash暂时未就绪，请稍后重试',
+          kind: DecisionFailureKind.notReady,
+        );
+      }
       if (!run.cancellation.isCancelled) {
         run.status = RuntimeInstanceStatus.failed;
         run.error = 'Splash Ready身份失效：$error';
@@ -1342,12 +1348,6 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
     final status = await _json(run, '/status', budget: budget);
     final instance = _object(status['instance'], 'Splash instance');
     final transport = _object(status['transport'], 'Splash transport');
-    if (status['ready'] != true ||
-        transport['ready'] != true ||
-        transport['recovering'] != false ||
-        transport['stopped'] != false) {
-      throw const _SplashLoading();
-    }
     if (instance['pid'] != run.child!.pid ||
         instance['model'] != run.binding.nativeModel ||
         instance['host'] != '127.0.0.1' ||
@@ -1360,6 +1360,12 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
         (instance['id'] != run.serverId ||
             transport['restarts'] != run.transportEpoch)) {
       throw const SplashEngineException('Splash运行代次已变化');
+    }
+    if (status['ready'] != true ||
+        transport['ready'] != true ||
+        transport['recovering'] != false ||
+        transport['stopped'] != false) {
+      throw const _SplashLoading();
     }
     final models = await _json(run, '/v1/models', budget: budget);
     final data = models['data'];

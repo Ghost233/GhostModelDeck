@@ -15,6 +15,50 @@ import 'package:ghost_model_deck/chat_protocol.dart';
 import 'fixtures/decision_gguf.dart';
 
 void main() {
+  for (final stream in [false, true]) {
+    test(
+      '${stream ? 'SSE' : 'JSON'} transient Splash unready keeps the same text instance callable',
+      () async {
+        final fixture = await SplashRuntimeFixture.create();
+        addTearDown(fixture.close);
+        final engine = fixture.engine();
+        addTearDown(() async {
+          await engine.shutdown();
+          await engine.close();
+        });
+        await engine.bindModel(fixture.asset.id, fixture.assembly);
+        final run = await engine.startRuntime(fixture.asset.id);
+        Future<Object> request() async => stream
+            ? await engine
+                  .streamText(run.id, TextRequest(prompt: 'OK'))
+                  .toList()
+            : await engine.generateText(run.id, TextRequest(prompt: 'OK'));
+        fixture.io.readyStatus = 503;
+        await expectLater(
+          request(),
+          throwsA(
+            isA<SplashRequestException>().having(
+              (e) => e.kind,
+              'kind',
+              DecisionFailureKind.notReady,
+            ),
+          ),
+        );
+        expect(
+          engine.runtimeInstances.single.status,
+          RuntimeInstanceStatus.ready,
+        );
+        expect(engine.runtimeInstances.single.activeRequests, 0);
+        expect(engine.runtimeInstances.single.acceptingRequests, isTrue);
+        expect(fixture.io.chatModels, isEmpty);
+        fixture.io.readyStatus = 200;
+        await request();
+        expect(fixture.io.chatModels, hasLength(1));
+        expect(fixture.io.starts, 1);
+        expect(fixture.io.groupSignals, isEmpty);
+      },
+    );
+  }
   test('Splash starts two instances concurrently and cancels only the selected startup', () async {
     final fixture = await SplashRuntimeFixture.create();
     final engine = fixture.engine();
@@ -1438,6 +1482,11 @@ class SplashTestProcessIO implements SplashProcessIO {
   bool helpFailure = false;
   bool omitDone = false;
   bool wrongPid = false;
+  int readyStatus = 200;
+  bool statusReady = true;
+  String? statusModel;
+  String? statusServerId;
+  int transportRestarts = 0;
   bool emptyText = false;
   bool unknownGroup = false;
   final groupSignals = <int>[];
@@ -1524,6 +1573,12 @@ class SplashTestProcessIO implements SplashProcessIO {
         httpPaths.add(request.uri.path);
         switch (request.uri.path) {
           case '/ready':
+            if (readyStatus != 200) {
+              request.response.statusCode = readyStatus;
+              request.response.write('{"status":"unavailable"}');
+              await request.response.close();
+              return;
+            }
             if (identityDelay > Duration.zero || identityRelease != null) {
               final delay = identityDelay;
               identityDelay = Duration.zero;
@@ -1573,11 +1628,11 @@ class SplashTestProcessIO implements SplashProcessIO {
           case '/status':
             response = {
               ...?monitorStatus,
-              'ready': true,
+              'ready': statusReady,
               'instance': {
-                'id': 'source-${child.pid}',
+                'id': statusServerId ?? 'source-${child.pid}',
                 'pid': child.pid + (wrongPid ? 1 : 0),
-                'model': model,
+                'model': statusModel ?? model,
                 'host': '127.0.0.1',
                 'port': server.port,
               },
@@ -1585,7 +1640,7 @@ class SplashTestProcessIO implements SplashProcessIO {
                 'ready': true,
                 'recovering': false,
                 'stopped': false,
-                'restarts': 0,
+                'restarts': transportRestarts,
               },
             };
           case '/v1/models':

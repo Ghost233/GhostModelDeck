@@ -21,6 +21,129 @@ import 'splash_engine_test.dart' show SplashRuntimeFixture;
 import 'runtime_monitor_test.dart' show splashStatus;
 
 void main() {
+  for (final probe in ['ready', 'status']) {
+    for (final phase in ['before', 'after']) {
+      test(
+        'Splash transient $probe unready $phase JEV preserves public retry without restart',
+        () async {
+          final fixture = await DecisionRouteFixture.create();
+          addTearDown(fixture.close);
+          final saved = await fixture.save('retry');
+          final run = await fixture.instances.start(saved.id);
+          final runtime =
+              fixture.catalog.runtimeFor(fixture.engineId) as SplashEngine;
+          final pid = runtime.pidFor(run.id);
+          void unavailable() {
+            if (probe == 'ready') {
+              fixture.native.io.readyStatus = 503;
+            } else {
+              fixture.native.io.statusReady = false;
+            }
+          }
+
+          if (phase == 'before') {
+            unavailable();
+          } else {
+            fixture.native.io.afterDecision = unavailable;
+          }
+          final playground = JevPlayground(
+            gateway: fixture.gateway,
+            mcp: fixture.mcp,
+          );
+          final failed = await playground.run(
+            JevPlaygroundMode.http,
+            jsonEncode(document(saved.publicName)),
+          );
+          expect(failed.status, isNot(JevPlaygroundStatus.success));
+          expect(failed.rawResponse, contains('model_not_ready'));
+          expect(
+            runtime.runtimeInstances.single.status,
+            RuntimeInstanceStatus.ready,
+          );
+          expect(failed.rawResponse, contains('暂时未就绪'));
+          expect(runtime.runtimeInstances.single.acceptingRequests, isTrue);
+          expect(runtime.runtimeInstances.single.activeRequests, 0);
+          expect(fixture.native.io.starts, 1);
+          expect(
+            fixture.native.io.decisionBodies,
+            hasLength(phase == 'before' ? 0 : 1),
+          );
+          fixture.native.io.readyStatus = 200;
+          fixture.native.io.statusReady = true;
+          fixture.native.io.afterDecision = null;
+          for (final mode in JevPlaygroundMode.values) {
+            final recovered = await playground.run(
+              mode,
+              jsonEncode(document(saved.publicName)),
+            );
+            expect(
+              recovered.status,
+              JevPlaygroundStatus.success,
+              reason: recovered.rawResponse,
+            );
+            expect(recovered.output!['model'], saved.publicName);
+          }
+          expect(runtime.pidFor(run.id), pid);
+          expect(fixture.native.io.starts, 1);
+          expect(fixture.native.io.groupSignals, isEmpty);
+        },
+      );
+    }
+  }
+  for (final changed in ['pid', 'model', 'server-id', 'epoch']) {
+    for (final ready in [true, false]) {
+      test(
+        'Splash actual $changed identity loss ready=$ready remains failed after later matching probes',
+        () async {
+          final fixture = await DecisionRouteFixture.create();
+          addTearDown(fixture.close);
+          final saved = await fixture.save('identity');
+          final run = await fixture.instances.start(saved.id);
+          fixture.native.io.statusReady = ready;
+          switch (changed) {
+            case 'pid':
+              fixture.native.io.wrongPid = true;
+            case 'model':
+              fixture.native.io.statusModel = 'another/model';
+            case 'server-id':
+              fixture.native.io.statusServerId = 'another-generation';
+            case 'epoch':
+              fixture.native.io.transportRestarts = 1;
+          }
+          final playground = JevPlayground(
+            gateway: fixture.gateway,
+            mcp: fixture.mcp,
+          );
+          final failed = await playground.run(
+            JevPlaygroundMode.http,
+            jsonEncode(document(saved.publicName)),
+          );
+          expect(failed.status, isNot(JevPlaygroundStatus.success));
+          expect(failed.rawResponse, contains('Ready身份失效'));
+          final runtime =
+              fixture.catalog.runtimeFor(fixture.engineId) as SplashEngine;
+          expect(
+            runtime.runtimeInstances.single.status,
+            RuntimeInstanceStatus.failed,
+          );
+          expect(runtime.runtimeInstances.single.acceptingRequests, isFalse);
+          fixture.native.io.wrongPid = false;
+          fixture.native.io.statusModel = null;
+          fixture.native.io.statusServerId = null;
+          fixture.native.io.transportRestarts = 0;
+          fixture.native.io.statusReady = true;
+          final stillFailed = await playground.run(
+            JevPlaygroundMode.http,
+            jsonEncode(document(saved.publicName)),
+          );
+          expect(stillFailed.status, isNot(JevPlaygroundStatus.success));
+          expect(runtime.runtimeInstances.single.id, run.id);
+          expect(fixture.native.io.decisionBodies, isEmpty);
+          expect(fixture.native.io.starts, 1);
+        },
+      );
+    }
+  }
   test('council retains Splash native HTTP failure bodies', () async {
     final fixture = await DecisionRouteFixture.create();
     addTearDown(fixture.close);
