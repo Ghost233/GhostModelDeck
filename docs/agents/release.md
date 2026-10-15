@@ -35,15 +35,25 @@ scripts/release.sh
 
 ## 完成验证
 
+发布完成以 GitHub Actions 和 GitHub Release 的远端证据为准。发布前的本地门禁、Mac 构建和打包预检仍按“发布前”执行。
+
 每个认证 gh 命令前按 AGENTS.md 切换并核验 Ghost233；业务命令显式指定本仓库。
 
 ```sh
 gh run list -R Ghost233/GhostModelDeck --workflow release.yml --commit <发布提交>
 gh run watch <run-id> -R Ghost233/GhostModelDeck --exit-status
-gh release view vX.Y.Z -R Ghost233/GhostModelDeck
-gh release download vX.Y.Z -R Ghost233/GhostModelDeck --dir <本次验证目录>
+gh release view vX.Y.Z -R Ghost233/GhostModelDeck --json tagName,isDraft,isPrerelease,assets,url
 ```
 
-选择与发布 tag/完整提交匹配的 run。网络瞬态故障重试同一读取，不创建第二次发布。验收：对应管线成功，Release 是正式版本，tag/root pubspec/manifest/.app 版本一致，三件套名称、大小与 SHA 校验通过，本地 main/tag 与实际远端一致。下载目录内运行 `shasum -a 256 -c SHA256SUMS` 并核对 manifest 中 DMG 的大小和 sha256。
+完成前核对：
+
+- Actions：选择发布 tag 和完整提交对应的 `release.yml` run，确认已完成且结论为 `success`。
+- Release：对应版本已正式发布，非草稿、非预发布，tag 与发布提交中根 `pubspec.yaml` 的版本一致。
+- 远端资产：Release 列表含 `GhostModelDeck-<版本>.dmg`、`manifest.json` 和 `SHA256SUMS`，大小均大于零。应用版本与 arm64 架构检查、清单生成以成功的 Actions 构建记录为依据。
+- Git 同步：本地 main、origin/main 与实际远端 main 一致；本地 tag 与实际远端 tag 指向同一发布提交。
+
+以上条件满足即完成发布，报告版本、发布提交、Release 和 Actions 链接。网络瞬态故障重试同一读取，不创建第二次发布；失败或缺少证据时保持未完成。
+
+发布后默认只读取远端状态和资产元数据。下载资产到本地、重新计算哈希、安装或运行应用，仅在用户另行明确要求时执行，不作为默认发布完成条件。
 
 本地流程回归：`python3 -B scripts/test_release.py` 使用临时 Git 仓库与本地裸仓库，在外部 Git/gh CLI 接缝模拟身份；不访问 GitHub，不发正式版。Shell 入口需通过 `bash -n scripts/release.sh scripts/build-release.sh`。真实包预检可用 `scripts/build-release.sh --app-path <本次已构建的.app> --output-dir .tooling/release-precheck`，只产出忽略的本地文件，避免覆盖既有 dist。

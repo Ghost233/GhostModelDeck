@@ -19,4 +19,4 @@ disable-model-invocation: true
    gh run list -R Ghost233/GhostModelDeck --workflow release.yml --commit <发布提交>
    ```
 
-5. 按仓库 Ghost233 护栏核验每个认证命令。完成条件：对应管线成功，正式 Release/tag/根 `pubspec.yaml` 版本一致，DMG、manifest.json、SHA256SUMS 完整且校验通过，本地 main 与 tag 同实际远端；缺少证据保持未完成。
+5. 按仓库 Ghost233 护栏核验每个认证命令，依照 `docs/agents/release.md` 的“完成验证”核对远端发布结果。通过后给出 Release 与 Actions 链接并结束发布；缺少远端证据时保持未完成。发布后的本地资产下载、哈希校验、安装和运行仅在用户另行明确要求时执行。

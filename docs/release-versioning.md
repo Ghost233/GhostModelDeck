@@ -38,7 +38,7 @@
 1. 在发布工单中按上方规则由人手动修改 `pubspec.yaml`，完成本地门禁与发布包预检，随已审查内容合入 main，并同步本地 main。
 2. 明确要求正式发布时执行 `scripts/release.sh --dry-run`，核对当前手动版本与 tag/完整提交，再执行 `scripts/release.sh`。
 3. 脚本仅创建并推送 `v<x.y.z>` 附注 tag，不自动 bump、不提交、不推送 main。tag 触发 workflow 构建并创建正式 Release。
-4. 发布后核对三件套资产、manifest 版本/大小/哈希、SHA256SUMS 与应用版本；失败恢复见 [标准发布流程](agents/release.md)。
+4. 发布后按 [完成验证](agents/release.md#完成验证) 核对 Actions、正式 Release 和远端资产，并同步本地 main/tag。默认以远端证据完成验收；发布后的本地资产下载、校验、安装或运行仅在用户另行明确要求时执行。失败恢复见 [标准发布流程](agents/release.md)。
 
 ## 平台产物
 
