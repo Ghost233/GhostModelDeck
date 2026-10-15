@@ -974,6 +974,19 @@ void main() {
     );
     await _writeGguf(
       root,
+      'julia-default-temperatures.weights',
+      metadata: Map<String, Object>.of(metadata)
+        ..removeWhere((key, _) => key.contains('.decision.temperature.')),
+      tensors: tensors,
+    );
+    await _writeGguf(
+      root,
+      'invalid-temperature.weights',
+      metadata: {...metadata, 'modern-bert.decision.temperature.choice': 0.0},
+      tensors: tensors,
+    );
+    await _writeGguf(
+      root,
       'wrong-output-width.weights',
       metadata: metadata,
       tensors: {
@@ -985,10 +998,12 @@ void main() {
 
     final assets = await ModelLibrary().scan(root, verifyFiles: true);
     final valid = assets.where(
-      (asset) => !asset.name.startsWith('wrong-output-width'),
+      (asset) =>
+          !asset.name.startsWith('wrong-output-width') &&
+          !asset.name.startsWith('invalid-temperature'),
     );
 
-    expect(valid, hasLength(2));
+    expect(valid, hasLength(3));
     for (final asset in valid) {
       expect(asset.kind, AssetKind.decision);
       expect(asset.decisionType, 'laya');
@@ -1000,6 +1015,11 @@ void main() {
     );
     expect(invalid.integrity, AssetIntegrity.incomplete);
     expect(invalid.diagnostics, contains('决策 head 或 scorer 尺寸不符'));
+    final invalidTemperature = assets.singleWhere(
+      (asset) => asset.name.startsWith('invalid-temperature'),
+    );
+    expect(invalidTemperature.integrity, AssetIntegrity.incomplete);
+    expect(invalidTemperature.diagnostics, contains('缺少有效 choice 温度'));
   });
 
   test('Safetensors content and actual config/index links distinguish complete, adapter, missing and damaged bundles', () async {

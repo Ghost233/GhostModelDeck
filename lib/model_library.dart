@@ -2002,7 +2002,11 @@ LibraryArtifact _ggufArtifact(List<_ScannedFile> files) {
       for (final type in ['choice', 'score', 'noul']) {
         final temperature =
             metadata['$architecture.decision.temperature.$type'];
-        if (temperature is! num || !temperature.isFinite || temperature <= 0) {
+        // llama.cpp defaults omitted decision temperatures to 1 (Julia-1).
+        if (temperature != null &&
+            (temperature is! num ||
+                !temperature.isFinite ||
+                temperature <= 0)) {
           missing('缺少有效 $type 温度');
         }
       }
