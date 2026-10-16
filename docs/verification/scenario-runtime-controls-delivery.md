@@ -10,7 +10,7 @@
 - 负责人：主线程，不启动子代理。
 - 有效作业：无。隔离原生窗口验收壳构建、签名和 arm64 核对均通过，尚未启动；没有受管原生实例或真实模型题集运行。
 - 未关闭事项：Mac 锁屏导致 #111 原生窗口无法验收，已请求解锁。解锁后核对窗口流程及退出收尾，完成阶段 D 集成与总 PR ready；没有已知未关闭 P0／P1／P2 代码缺陷。
-- 下一动作：Mac 手动解锁后启动隔离验收应用，继续窗口与退出收尾。复用最终生产产物及 1071 项组合证据，不重复完整规模测试。
+- 下一动作：Mac 手动解锁后启动隔离验收应用，继续窗口与退出收尾。复用最终生产产物及当前 1072 项组合证据，不重复完整规模测试。
 - PR：前置 #112、A #114、B #115、C [#116](https://github.com/Ghost233/GhostModelDeck/pull/116) 已合入 dev；[总 PR #113](https://github.com/Ghost233/GhostModelDeck/pull/113) 保持 dev → main 草稿，全部验收后才标 ready，不合并 main。
 - 同步：本地和实际远端 dev 均为 `88180ba5dec4121c596dc0a1f67c7dbb8017ae48`，main 均为 `20410147e8186c44910eb8f50e41ccfd0c26d5c8`；前置及 A／B／C 阶段分支也分别对应一致。阶段 D 仅提交交付文档，独立同步记录为 stage-d-sync.json；用户／其他会话文件无备份搬移。
 
@@ -41,7 +41,38 @@
 
 ## 已验证待提交
 
-阶段 D 只有本记录与[总代码审查](scenario-runtime-controls-final-review.md) 文档，随当前阶段分支提交；生产代码没有额外待提交修改。完整门禁 1070 项与审查增量组合覆盖 1071 项，最终格式、静态分析及 arm64 构建已验证。原生 HTTP／MCP、取消与 owned PID／端口收尾通过；未受影响证据直接复用。
+阶段 D 新增一条草稿 HTTP 执行中关闭总开关的集成回归，并为既有外部 I/O 替身增加默认关闭的等待门闸；没有修改生产代码。新增用例、两个受影响模块 41 项、两文件分析与只读格式通过，当前组合覆盖 1072 项。测试和本记录、[总代码审查](scenario-runtime-controls-final-review.md) 随当前阶段分支提交；未受影响的生产产物、协议和规模检查直接复用。
+
+## A01～A22 逐项验收映射
+
+表内“通过”只对应明确列出的业务、Widget、公开协议或原生数据范围，不能代替 A22 的完整真实窗口。A17 的窗口可操作、A21 的正常退出，以及场景／表格／监控的最终原生目视均仍归 A22，当前不记通过。
+
+完整宿主证据为 run-JTZMOa；审查增量为 run-xJrwYw 与 stage-c-verification-bundle.json。草稿 HTTP 执行中总关闭新增回归 run-8Kqaw4：通过真实回环 HTTP 和原生 I/O 替身，未直接取消草稿按钮 token，仍获得 HTTP 499，普通及临时实例全部停止，保存配置和资产保留。随后 run-cBPv5b 两个受影响模块共 41 项、run-Zy4Vqq 分析与 run-knMMJQ 只读格式通过，当前为 1072 项组合覆盖，见 stage-d-verification-bundle.json。run-ftADsN 的新增测试花括号诊断原记录保留。未对真实模型执行题集。
+
+| 条目 | 范围 | 当前证据 | 结论 |
+| --- | --- | --- | --- |
+| A01 | 四槽／编辑／持久化 | [model_scenarios_test.dart](../../test/model_scenarios_test.dart)、[mcp_page_test.dart](../../test/mcp_page_test.dart)；run-JTZMOa | 业务和 Widget 通过；原生编辑归 A22 |
+| A02 | 默认发现范围 | [council_mcp_test.dart](../../test/council_mcp_test.dart)；run-JTZMOa；native-105-63887/result.json；native-c-28409/result.json | 接口通过；关闭后实际列表为空 |
+| A03 | 统一模型名字 | [council_mcp_test.dart](../../test/council_mcp_test.dart)、[instance_public_http_test.dart](../../test/instance_public_http_test.dart)；run-JTZMOa；native-105-63887/result.json | HTTP／MCP 解析和原生短调用通过 |
+| A04 | 绑定与在途快照 | [council_mcp_test.dart](../../test/council_mcp_test.dart)、[council_scenarios_test.dart](../../test/council_scenarios_test.dart)；run-JTZMOa | 在途换绑不换实例、改名重开绑定通过 |
+| A05 | 委员会可用性 | [council_scenarios_test.dart](../../test/council_scenarios_test.dart)；run-JTZMOa；native-105-63887/result.json | 全部成员固定容量及至少一成员可用的 partial 通过 |
+| A06 | 场景文字边界 | [mcp_page_test.dart](../../test/mcp_page_test.dart)；run-JTZMOa | 编辑说明只保存，不启动／探测模型；业务和 Widget 通过 |
+| A07 | 固定模板说明 | [council_scenarios_test.dart](../../test/council_scenarios_test.dart)、[council_mcp_test.dart](../../test/council_mcp_test.dart)；run-JTZMOa；native-105-63887/result.json | 刷新和重连说明、名字与容量通过 |
+| A08 | 上下文与预览 | [council_scenarios_test.dart](../../test/council_scenarios_test.dart)、[model_run_dialog_test.dart](../../test/model_run_dialog_test.dart)；run-JTZMOa；native-105-63887/result.json | 全部成员最小值、影响预览、取消通过；原生窗口归 A22 |
+| A09 | 参数重启生效 | [launch_instances_test.dart](../../test/launch_instances_test.dart)；run-JTZMOa；run-xJrwYw；native-105-63887/result.json | 保存仍 4096、成功重启更新 8192；失败及旧代次不应用 |
+| A10 | 三表行与列 | [library_page_test.dart](../../test/library_page_test.dart)、[engine_page_test.dart](../../test/engine_page_test.dart)、[instances_page_test.dart](../../test/instances_page_test.dart)；run-JTZMOa；run-xJrwYw | 变体／登记／保存配置独立成行及列完整；原生目视归 A22 |
+| A11 | 搜索排序分页 | [management_table_test.dart](../../test/management_table_test.dart)、[instances_page_test.dart](../../test/instances_page_test.dart)；run-JTZMOa；run-xJrwYw | 全数据查询后分页、稳定身份和大字号操作可达通过 |
+| A12 | 两行与并发格子 | [runtime_monitor_page_test.dart](../../test/runtime_monitor_page_test.dart)、[runtime_monitor_test.dart](../../test/runtime_monitor_test.dart)；run-JTZMOa；existing-monitor-native-result.json | 两行／四槽／终态复用及不重复实例通过；原生目视归 A22 |
+| A13 | 阶段与排队 | [runtime_monitor_test.dart](../../test/runtime_monitor_test.dart)；run-JTZMOa；existing-monitor-native-result.json | 原生槽位与 HTTP 容量区分、阶段／排队解析通过；原生目视归 A22 |
+| A14 | 缺失监控数据 | [runtime_monitor_test.dart](../../test/runtime_monitor_test.dart)；run-JTZMOa | 零与未知分开、错误隔离通过；原生目视归 A22 |
+| A15 | 一分钟速度 | [runtime_monitor_minute_test.dart](../../test/runtime_monitor_minute_test.dart)；run-JTZMOa；existing-monitor-native-result.json | 60 秒边界、阶段耗时增量和实例／代次隔离通过 |
+| A16 | 移除曲线详情 | [runtime_monitor_page_test.dart](../../test/runtime_monitor_page_test.dart)、[runtime_monitor_test.dart](../../test/runtime_monitor_test.dart)；run-JTZMOa | 无曲线／详情、采样与可见构建有界、隐藏迟到不发布通过 |
+| A17 | 总开关关闭 | [engine_master_switch_test.dart](../../test/engine_master_switch_test.dart)、[model_launch_test_test.dart](../../test/model_launch_test_test.dart)、[benchmark_lifecycle_test.dart](../../test/benchmark_lifecycle_test.dart)；run-JTZMOa；run-8Kqaw4；native-c-28409/result.json | 执行／启动／批次及草稿 HTTP 取消通过；窗口可操作归 A22 |
+| A18 | 准入与关闭竞态 | [engine_master_switch_test.dart](../../test/engine_master_switch_test.dart)、[sdk_service_test.dart](../../test/sdk_service_test.dart)、[omlx_pool_test.dart](../../test/omlx_pool_test.dart)、[engine_catalog_splash_test.dart](../../test/engine_catalog_splash_test.dart)；run-JTZMOa；native-c-28409/result.json | 三引擎／SDK 准入、关开关代次及真实重开只选中实例通过 |
+| A19 | 独立自启动配置 | [runtime_autostart_test.dart](../../test/runtime_autostart_test.dart)、[instances_page_test.dart](../../test/instances_page_test.dart)；run-JTZMOa；run-xJrwYw | 两类配置独立、不持久化当前状态、默认关闭、保存回滚通过 |
+| A20 | 开启与并发启动 | [runtime_autostart_test.dart](../../test/runtime_autostart_test.dart)；run-xJrwYw；native-c-28409/result.json | 并发／幂等／失败隔离和手动重试通过，未选项不启动 |
+| A21 | 配置与资源保留 | [engine_master_switch_test.dart](../../test/engine_master_switch_test.dart)、[runtime_autostart_test.dart](../../test/runtime_autostart_test.dart)、[launch_instances_test.dart](../../test/launch_instances_test.dart)；run-JTZMOa；run-xJrwYw；native-c-28409/result.json | 开关不改选择、不删资产／历史、不停正式服务通过；正常退出归 A22 |
+| A22 | 完整原生窗口短流程 | native-window-build.json；原生工具锁屏结果 | 未完成：构建／签名通过但未启动；需真实窗口配置、监控、总开关、重开和退出收尾 |
 
 ## 阶段 D 原生窗口准备
 

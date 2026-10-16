@@ -1484,6 +1484,7 @@ class SplashTestProcessIO implements SplashProcessIO {
   bool wrongPid = false;
   int readyStatus = 200;
   bool statusReady = true;
+  bool holdChatResponses = false;
   String? statusModel;
   String? statusServerId;
   int transportRestarts = 0;
@@ -1730,7 +1731,8 @@ class SplashTestProcessIO implements SplashProcessIO {
               await request.cast<List<int>>().transform(utf8.decoder).join(),
             ) as Map;
             chatModels.add(body['model'] as String);
-            if ((body['messages'] as List).last['content'] == 'hold') {
+            if (holdChatResponses ||
+                (body['messages'] as List).last['content'] == 'hold') {
               if (!holdReached.isCompleted) holdReached.complete();
               await releaseHeld.future;
             }
