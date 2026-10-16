@@ -7,6 +7,7 @@ import 'package:ghost_model_deck/council.dart';
 import 'package:ghost_model_deck/council_mcp.dart';
 import 'package:ghost_model_deck/jev_models.dart';
 import 'package:ghost_model_deck/launch_instances.dart';
+import 'package:ghost_model_deck/model_scenarios.dart';
 import 'package:ghost_model_deck/public_gateway.dart';
 import 'package:ghost_model_deck/engine_catalog.dart';
 import 'package:ghost_model_deck/engine_launch_configuration.dart';
@@ -60,6 +61,322 @@ Future<(int, dynamic)> _http(
 }
 
 void main() {
+  test('unconfigured scenarios stay out of default discovery without blocking a known instance name', () async {
+    final runtime = await CouncilRuntime.create(
+      modelCount: 1,
+      sourceSystemone: true,
+    );
+    addTearDown(runtime.close);
+    final instances = LaunchInstances(
+      catalog: runtime.catalog,
+      file: File('${runtime.root.path}/instances.json'),
+    );
+    addTearDown(instances.close);
+    final definition = await instances.save(
+      name: 'Existing instance',
+      artifactId: runtime.library.state.artifacts.single.id,
+      engineId: EngineCatalog.officialId,
+      configuration: EngineLaunchConfiguration(),
+    );
+    await instances.start(definition.id);
+    final controller = CouncilController(
+      catalog: runtime.catalog,
+      launchInstances: instances,
+    );
+    addTearDown(controller.close);
+    final server = CouncilMcpServer(controller: controller, port: 0);
+    addTearDown(server.close);
+    await server.start();
+    final client = await _connect(server.endpoint!);
+    addTearDown(client.close);
+    final response = await client.callTool(
+      CallToolRequest(
+        name: CouncilMcpServer.batchToolName,
+        arguments: {
+          'model': definition.publicName,
+          'state': 'A choice',
+          'questions': {
+            'pick': {
+              'type': 'choice',
+              'instructions': 'Choose an action.',
+              'criteria': {'accept': 'Accept', 'reject': 'Reject'},
+            },
+          },
+        },
+      ),
+    );
+    expect(response.isError, isNot(true));
+    expect(response.structuredContent!['model'], definition.publicName);
+    final discovery = await client.callTool(
+      CallToolRequest(name: CouncilMcpServer.discoveryToolName, arguments: {}),
+    );
+    expect(discovery.structuredContent!['data'], isEmpty);
+  });
+  test(
+    'configured scenario uses the same model name for public HTTP and MCP',
+    () async {
+      final runtime = await CouncilRuntime.create(
+        modelCount: 1,
+        sourceSystemone: true,
+      );
+      addTearDown(runtime.close);
+      final instances = LaunchInstances(
+        catalog: runtime.catalog,
+        file: File('${runtime.root.path}/instances.json'),
+      );
+      addTearDown(instances.close);
+      final definition = await instances.save(
+        name: 'Selected instance',
+        artifactId: runtime.library.state.artifacts.single.id,
+        engineId: EngineCatalog.officialId,
+        configuration: EngineLaunchConfiguration(
+          formValues: {'--ctx-size': '8192'},
+        ),
+        jevRequestTimeoutSeconds: 90,
+      );
+      await instances.start(definition.id);
+      final controller = CouncilController(
+        catalog: runtime.catalog,
+        launchInstances: instances,
+        scenarioRegistryFile: File('${runtime.root.path}/scenarios.json'),
+      );
+      addTearDown(controller.close);
+      await controller.scenarios.save(
+        0,
+        ModelScenario(
+          displayName: '4k上线+视觉',
+          modelName: 'fast-v',
+          instanceId: definition.id,
+        ),
+      );
+      final server = CouncilMcpServer(controller: controller, port: 0);
+      addTearDown(server.close);
+      await server.start();
+      expect(server.codexConfig, contains('tool_timeout_sec = 100'));
+      final client = await _connect(server.endpoint!);
+      addTearDown(client.close);
+      expect(
+        client.getInstructions(),
+        allOf(contains('4k上线+视觉'), contains('fast-v'), contains('8192')),
+      );
+      final legacyClient = await _connect(
+        server.endpoint!,
+        protocol: McpProtocol.legacy,
+        protocolVersion: '2025-06-18',
+      );
+      addTearDown(legacyClient.close);
+      expect(
+        (await legacyClient.listTools()).tools.every(
+          (tool) => tool.description!.contains('4k上线+视觉'),
+        ),
+        isTrue,
+      );
+      await controller.scenarios.save(
+        0,
+        ModelScenario(
+          displayName: '新场景说明',
+          modelName: 'fast-v',
+          instanceId: definition.id,
+        ),
+      );
+      expect(
+        (await legacyClient.listTools()).tools.every(
+          (tool) =>
+              tool.description!.contains('新场景说明') &&
+              !tool.description!.contains('4k上线+视觉'),
+        ),
+        isTrue,
+      );
+      final reconnected = await _connect(server.endpoint!);
+      addTearDown(reconnected.close);
+      expect(reconnected.getInstructions(), contains('新场景说明'));
+      final discovery = await client.callTool(
+        CallToolRequest(
+          name: CouncilMcpServer.discoveryToolName,
+          arguments: {},
+        ),
+      );
+      expect(
+        (discovery.structuredContent!['data'] as List).map((row) => row['id']),
+        ['fast-v'],
+      );
+      final request = {
+        'model': 'fast-v',
+        'state': 'A choice',
+        'questions': {
+          'pick': {
+            'type': 'choice',
+            'instructions': 'Choose an action.',
+            'criteria': {'accept': 'Accept', 'reject': 'Reject'},
+          },
+        },
+      };
+      final mcpResult = await client.callTool(
+        CallToolRequest(
+          name: CouncilMcpServer.batchToolName,
+          arguments: request,
+        ),
+      );
+      expect(mcpResult.isError, isNot(true));
+      expect(mcpResult.structuredContent!['model'], 'fast-v');
+      final routes = PublicModelRoutes(
+        library: runtime.library,
+        runtimes: runtime.catalog.runtimes.toList(),
+        instances: instances,
+      );
+      final gateway = PublicGatewayServer(
+        routes: routes,
+        jevModels: controller.models,
+        port: 0,
+      );
+      addTearDown(() async {
+        await gateway.stop();
+        gateway.close();
+        routes.close();
+      });
+      await gateway.start();
+      final (status, result) = await _http(
+        gateway.baseUrl!.resolve('/v1/systemone'),
+        request,
+      );
+      expect(status, 200);
+      expect(result['model'], 'fast-v');
+      expect(result['answers'], mcpResult.structuredContent!['answers']);
+      final (listStatus, listing) = await _http(
+        gateway.baseUrl!.resolve('/v1/models'),
+        null,
+        method: 'GET',
+      );
+      expect(listStatus, 200);
+      expect(
+        (listing['data'] as List).map((row) => row['id']),
+        containsAll([definition.publicName, 'fast-v']),
+      );
+      await instances.stop(definition.id);
+      final coldMcp = await client.callTool(
+        CallToolRequest(
+          name: CouncilMcpServer.batchToolName,
+          arguments: request,
+        ),
+      );
+      expect(coldMcp.structuredContent!['error']['code'], 'model_not_ready');
+      expect(
+        (await _http(gateway.baseUrl!.resolve('/v1/systemone'), request)).$1,
+        503,
+      );
+      final coldList = await client.callTool(
+        CallToolRequest(
+          name: CouncilMcpServer.discoveryToolName,
+          arguments: {},
+        ),
+      );
+      expect(coldList.structuredContent!['data'], isEmpty);
+      expect(
+        instances.runsFor(definition.id).any((run) => run.hasLiveProcess),
+        isFalse,
+      );
+      await instances.delete(definition.id);
+      final missing = await client.callTool(
+        CallToolRequest(
+          name: CouncilMcpServer.batchToolName,
+          arguments: request,
+        ),
+      );
+      expect(missing.structuredContent!['error']['code'], 'model_not_found');
+      expect(
+        (await _http(gateway.baseUrl!.resolve('/v1/systemone'), request)).$1,
+        404,
+      );
+    },
+  );
+  test(
+    'in-flight scenario decisions keep their instance when the binding changes',
+    () async {
+      final runtime = await CouncilRuntime.create(
+        modelCount: 1,
+        sourceSystemone: true,
+      );
+      addTearDown(runtime.close);
+      final instances = LaunchInstances(
+        catalog: runtime.catalog,
+        file: File('${runtime.root.path}/instances.json'),
+      );
+      addTearDown(instances.close);
+      final first = await instances.save(
+        name: 'First',
+        artifactId: runtime.library.state.artifacts.single.id,
+        engineId: EngineCatalog.officialId,
+        configuration: EngineLaunchConfiguration(),
+      );
+      final second = await instances.copy(first.id);
+      final firstRun = await instances.start(first.id);
+      final secondRun = await instances.start(second.id);
+      final controller = CouncilController(
+        catalog: runtime.catalog,
+        launchInstances: instances,
+      );
+      addTearDown(controller.close);
+      await controller.scenarios.save(
+        0,
+        ModelScenario(
+          displayName: 'Selected',
+          modelName: 'fast-v',
+          instanceId: first.id,
+        ),
+      );
+      final server = CouncilMcpServer(controller: controller, port: 0);
+      addTearDown(server.close);
+      await server.start();
+      final client = await _connect(server.endpoint!);
+      addTearDown(client.close);
+      final arrived = Completer<void>();
+      final release = Completer<void>();
+      addTearDown(() {
+        if (!release.isCompleted) release.complete();
+      });
+      runtime.io.requests.clear();
+      runtime.io.respond = (request, response) async {
+        if (!arrived.isCompleted) arrived.complete();
+        await release.future;
+        return response;
+      };
+      Future<CallToolResult> call() => client.callTool(
+        CallToolRequest(
+          name: CouncilMcpServer.batchToolName,
+          arguments: {
+            'model': 'fast-v',
+            'state': 'A choice',
+            'questions': {
+              'pick': {
+                'type': 'choice',
+                'instructions': 'Choose.',
+                'criteria': {'a': 'Accept', 'b': 'Reject'},
+              },
+            },
+          },
+        ),
+      );
+      final pending = call();
+      await arrived.future.timeout(const Duration(seconds: 2));
+      await controller.scenarios.save(
+        0,
+        ModelScenario(
+          displayName: 'Changed',
+          modelName: 'fast-v',
+          instanceId: second.id,
+        ),
+      );
+      release.complete();
+      final original = await pending;
+      expect(original.isError, isNot(true));
+      expect(runtime.io.requests.single['model'], firstRun.id);
+      expect((await call()).isError, isNot(true));
+      expect(runtime.io.requests.map((request) => request['model']), [
+        firstRun.id,
+        secondRun.id,
+      ]);
+    },
+  );
   for (final protocol in [McpProtocol.stable, McpProtocol.legacy]) {
     test(
       'MCP $protocol publishes usage guidance and local decision boundaries',
@@ -220,7 +537,7 @@ void main() {
     });
     await instances.stop(first.id);
   });
-  test('MCP discovers and calls the saved instance, not an unbound peer of the same model', () async {
+  test('MCP direct instance calls remain available outside unconfigured scenario discovery', () async {
     final runtime = await CouncilRuntime.create(
       modelCount: 1,
       sourceSystemone: true,
@@ -299,10 +616,7 @@ void main() {
     final discovery = await client.callTool(
       CallToolRequest(name: CouncilMcpServer.discoveryToolName, arguments: {}),
     );
-    expect(
-      (discovery.structuredContent!['data'] as List).map((row) => row['id']),
-      contains('kev-q8-0'),
-    );
+    expect(discovery.structuredContent!['data'], isEmpty);
     final response = await call(definition.publicName);
     expect(response.isError, isNot(true));
     expect(response.structuredContent!['model'], 'kev-q8-0');

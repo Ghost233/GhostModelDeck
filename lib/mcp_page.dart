@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import 'app_theme.dart';
 import 'council_mcp.dart';
+import 'model_scenarios_panel.dart';
 
 class McpPage extends StatefulWidget {
   const McpPage({super.key, required this.server});
@@ -53,7 +54,7 @@ class _McpPageState extends State<McpPage> {
           Expanded(
             child: SingleChildScrollView(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 720),
+                constraints: const BoxConstraints(),
                 child: JevSurface(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -153,6 +154,7 @@ class _McpPageState extends State<McpPage> {
                             ),
                           ),
                         ),
+                      ModelScenariosPanel(controller: widget.server.controller),
                     ],
                   ),
                 ),

@@ -501,7 +501,12 @@ class _JevPlaygroundPageState extends State<JevPlaygroundPage> {
         : _playground.modelsFromDiscovery(_discovery!);
     final names = models.map((entry) => entry.id).toList();
     final selected = names.contains(model) ? model as String : null;
-    if (selected == null) {
+    final directMcpName =
+        _mode == JevPlaygroundMode.mcp &&
+        _discovery != null &&
+        model is String &&
+        model.trim().isNotEmpty;
+    if (selected == null && !directMcpName) {
       validation ??= '请通过所选公开入口发现并选择可调用的 Ready 模型。测试场不会加载模型。';
     }
     final deadline = _clientDeadline;
@@ -557,6 +562,8 @@ class _JevPlaygroundPageState extends State<JevPlaygroundPage> {
             ],
             onChanged: document == null || _active != null ? null : _select,
           ),
+          if (selected == null && directMcpName)
+            Text('当前请求使用模型名字 $model；调用时由公开 MCP 接口校验可用性。'),
           const SizedBox(height: 8),
           for (final source in models)
             Text(source.label, style: Theme.of(context).textTheme.bodySmall),

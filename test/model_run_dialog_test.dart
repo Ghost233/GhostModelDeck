@@ -21,11 +21,91 @@ import 'package:ghost_model_deck/instances_page.dart';
 import 'package:ghost_model_deck/public_gateway.dart';
 import 'package:ghost_model_deck/chat_protocol.dart';
 import 'package:ghost_model_deck/decision_protocol.dart';
+import 'package:ghost_model_deck/council.dart';
 
 import 'fixtures/decision_gguf.dart';
 import 'fixtures/engine_archive.dart';
 
 void main() {
+  testWidgets(
+    'instance capacity preview cancels without saving and save remains pending',
+    (tester) async {
+      final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
+      final store = LaunchInstances(
+        catalog: fixture.catalog,
+        file: File('${fixture.root.path}/instances.json'),
+      );
+      final controller = CouncilController(
+        catalog: fixture.catalog,
+        launchInstances: store,
+        modelRegistryFile: File('${fixture.root.path}/committees.json'),
+        scenarioRegistryFile: File('${fixture.root.path}/scenarios.json'),
+      );
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        final closed = await tester.runAsync(() async {
+          await controller.close();
+          await store.close();
+          await fixture.close();
+          return true;
+        });
+        expect(closed, isTrue);
+      });
+      final definition = (await tester.runAsync(() async {
+        final value = await store.save(
+          name: 'Capacity',
+          artifactId: fixture.asset.id,
+          engineId: EngineCatalog.officialId,
+          configuration: EngineLaunchConfiguration(
+            formValues: {'--ctx-size': '8192'},
+          ),
+        );
+        await controller.models.load();
+        return value;
+      }))!;
+      final original = (await tester.runAsync(store.file.readAsString))!;
+      final exercised = await tester.runAsync(() async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: InstancesPage(instances: store, models: controller.models),
+            ),
+          ),
+        );
+        await _settleFilesystemFrames(tester);
+        Future<void> edit() async {
+          await tester.tap(find.text('编辑参数'));
+          await _settleFilesystemFrames(tester);
+          final field = find.byKey(
+            const ValueKey('model-parameter:--ctx-size'),
+          );
+          await tester.ensureVisible(field);
+          await tester.enterText(field, '16384');
+          await _settleFilesystemFrames(tester);
+          expect(find.text('实例 Capacity：8192 → 16384'), findsOneWidget);
+        }
+
+        await edit();
+        await tester.tap(find.widgetWithText(TextButton, '取消'));
+        await tester.pumpAndSettle();
+        expect(await store.file.readAsString(), original);
+        await edit();
+        final saved = store.changes.firstWhere(
+          (_) =>
+              store.find(definition.id)!.configuration.contextLength == 16384,
+        );
+        await tester.tap(find.widgetWithText(FilledButton, '保存'));
+        await saved.timeout(const Duration(seconds: 5));
+        await _settleFilesystemFrames(tester);
+        expect(store.contextLengthFor(definition.id), 8192);
+        expect(store.find(definition.id)!.configuration.contextLength, 16384);
+        expect(store.runsFor(definition.id), isEmpty);
+        expect(tester.takeException(), isNull);
+        return true;
+      });
+      expect(exercised, isTrue);
+    },
+  );
   testWidgets(
     'instance JEV budget saves without changing launch arguments or starting a model',
     (tester) async {

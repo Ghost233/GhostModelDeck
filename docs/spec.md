@@ -8,6 +8,15 @@ Stage: ready-for-agent
 Source: [GhostModelDeck：从 JevManager 扩展为多引擎模型管理器的首期决策地图](https://github.com/Ghost233/GhostModelDeck/issues/1)。
 Tracker: [GhostModelDeck 首期规格](https://github.com/Ghost233/GhostModelDeck/issues/12)。
 
+## 2026-10-16 场景配置与实例运行控制修订
+
+用户已整体确认本轮 Q1～Q27。新增行为以 [场景配置、表格管理与实例运行控制规格](requirements/mcp-scenario-aliases-and-runtime-controls-spec.md) 及规范工单 [场景配置、表格管理与实例运行控制规格 #102](https://github.com/Ghost233/GhostModelDeck/issues/102) 为准，分类为 ready-for-agent。
+
+本轮固定四个可编辑场景，HTTP／MCP 统一模型名字，按已运行实例与委员会的现有可用性发现；场景文字不触发视觉能力判断。模型、引擎和实例改为表格，运行监控每实例两行，移除曲线和详情，速度改为最近一分钟平均。引擎总开关关闭时取消全部工作并停止受管实例；自启动总开关与实例列表分别保存，不恢复上次开关状态。
+
+需求、规格及工单拆分已经确认，9 个实现子工单已发布，见 [实施工单索引](requirements/mcp-scenario-aliases-and-runtime-controls-implementation-plan.md)。用户已启动完整交付，当前实施状态和验收以本轮交付记录为准。既有功能、成功证据及其他会话改动保留，评测集不作为每个模型的必跑验收。
+用户已启动 spec-delivery，当前阶段、候选、证据和下一动作统一记录在 [本轮交付记录](verification/scenario-runtime-controls-delivery.md)。
+
 ## 2026-10-12 产品职责修订
 
 以本节及用户最新确认作为本次新增工作的范围。历史首期规格和已通过证据继续保留。

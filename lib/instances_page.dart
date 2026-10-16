@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'app_theme.dart';
 import 'engine_labels.dart';
 import 'launch_instances.dart';
+import 'jev_models.dart';
 import 'local_model_package.dart';
 import 'model_run_dialog.dart';
 import 'sdk_service.dart';
@@ -19,12 +20,14 @@ class InstancesPage extends StatefulWidget {
     this.onInitialArtifactHandled,
     this.prepare,
     this.startupSet,
+    this.models,
   });
   final LaunchInstances instances;
   final String? initialArtifactId;
   final VoidCallback? onInitialArtifactHandled;
   final Future<void> Function()? prepare;
   final StartupModelSet? startupSet;
+  final JevModels? models;
   @override
   State<InstancesPage> createState() => _InstancesPageState();
 }
@@ -133,6 +136,12 @@ class _InstancesPageState extends State<InstancesPage> {
         initialEngineId: existing?.engineId,
         initialConfiguration: existing?.configuration,
         initialName: existing?.name,
+        contextPreview: existing == null || widget.models == null
+            ? null
+            : (configuration) => widget.models!.previewContextChange(
+                existing.id,
+                configuration,
+              ),
         onSaveInstance: (name, engine, model, configuration) async {
           await store.save(
             id: existing?.id,
@@ -338,6 +347,12 @@ class _InstancesPageState extends State<InstancesPage> {
           ),
           const Text('保存模型、引擎与参数的组合；同一组合可保存多份配置。保存不启动模型。'),
           if (_preparing) const LinearProgressIndicator(),
+          if (widget.instances.persistenceError case final error?)
+            Text(
+              error,
+              style: Theme.of(context).textTheme.bodyMedium
+                  ?.copyWith(color: Theme.of(context).colorScheme.error),
+            ),
           if (_error != null)
             Text(
               _error!,

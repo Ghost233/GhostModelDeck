@@ -55,6 +55,36 @@ class EngineLaunchConfiguration {
   final String argumentText;
   void validateArgumentText() => parseLaunchArgumentText(argumentText);
 
+  int? get contextLength {
+    if (family == EngineFamily.omlx) return null;
+    final name = family == EngineFamily.splash ? '--max-context' : '--ctx-size';
+    final rules = EngineParameterRecognition.builtIn(family: family);
+    final List<String> arguments;
+    try {
+      arguments = command(executable: '', modelPath: '').arguments;
+    } on LaunchArgumentTextException {
+      return null;
+    }
+    String? value;
+    for (var i = 0; i < arguments.length; i++) {
+      final pieces = arguments[i].split('=');
+      if (rules.canonicalName(pieces.first) != name) continue;
+      value = pieces.length > 1
+          ? pieces.skip(1).join('=')
+          : i + 1 < arguments.length
+          ? arguments[++i]
+          : null;
+    }
+    final normalized = value?.trim().toUpperCase();
+    final match = RegExp(
+      family == EngineFamily.splash ? r'^(\d+)(K)?$' : r'^(\d+)$',
+    ).firstMatch(normalized ?? '');
+    if (match == null) return null;
+    final count = int.tryParse(match[1]!);
+    if (count == null || count <= 0) return null;
+    return count * (match.groupCount > 1 && match[2] == 'K' ? 1024 : 1);
+  }
+
   EngineLaunchCommand command({
     required String executable,
     required String modelPath,

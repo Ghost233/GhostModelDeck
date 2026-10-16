@@ -15,6 +15,196 @@ import 'splash_engine_test.dart' show SplashRuntimeFixture;
 import 'fixtures/council_runtime.dart';
 
 void main() {
+  test('successful startup reports capacity persistence failure and a later save repairs it', () async {
+    final runtime = await CouncilRuntime.create(
+      modelCount: 1,
+      sourceSystemone: true,
+    );
+    addTearDown(runtime.close);
+    final store = LaunchInstances(
+      catalog: runtime.catalog,
+      file: File('${runtime.root.path}/instances.json'),
+    );
+    addTearDown(store.close);
+    final initial = await store.save(
+      name: 'Capacity',
+      artifactId: runtime.library.state.artifacts.single.id,
+      engineId: EngineCatalog.officialId,
+      configuration: EngineLaunchConfiguration(
+        formValues: {'--ctx-size': '8192'},
+      ),
+    );
+    final pending = await store.save(
+      id: initial.id,
+      name: initial.name,
+      artifactId: initial.artifactId,
+      engineId: initial.engineId,
+      configuration: EngineLaunchConfiguration(
+        formValues: {'--ctx-size': '16384'},
+      ),
+    );
+    final obstruction = await Directory('${store.file.path}.tmp').create();
+    addTearDown(() async {
+      if (await obstruction.exists()) await obstruction.delete();
+    });
+    final run = await store.start(initial.id);
+    expect(run.status, RuntimeInstanceStatus.ready);
+    expect(store.contextLengthFor(initial.id), 16384);
+    expect(store.persistenceError, contains('生效容量保存失败'));
+    expect(
+      (jsonDecode(await store.file.readAsString())['instances'] as List)
+          .single['applied_context_length'],
+      8192,
+    );
+    await obstruction.delete();
+    await store.save(
+      id: pending.id,
+      name: pending.name,
+      artifactId: pending.artifactId,
+      engineId: pending.engineId,
+      configuration: pending.configuration,
+    );
+    expect(store.persistenceError, isNull);
+    expect(
+      (jsonDecode(await store.file.readAsString())['instances'] as List)
+          .single['applied_context_length'],
+      16384,
+    );
+    expect(store.runsFor(initial.id).single.id, run.id);
+    await store.stop(initial.id);
+  });
+  test('cancelled startup never applies pending capacity even when identity arrives late', () async {
+    final runtime = await CouncilRuntime.create(
+      modelCount: 1,
+      sourceSystemone: true,
+    );
+    addTearDown(runtime.close);
+    final store = LaunchInstances(
+      catalog: runtime.catalog,
+      file: File('${runtime.root.path}/instances.json'),
+    );
+    addTearDown(store.close);
+    final initial = await store.save(
+      name: 'Capacity',
+      artifactId: runtime.library.state.artifacts.single.id,
+      engineId: EngineCatalog.officialId,
+      configuration: EngineLaunchConfiguration(
+        formValues: {'--ctx-size': '8192'},
+      ),
+    );
+    await store.save(
+      id: initial.id,
+      name: initial.name,
+      artifactId: initial.artifactId,
+      engineId: initial.engineId,
+      configuration: EngineLaunchConfiguration(
+        formValues: {'--ctx-size': '16384'},
+      ),
+    );
+    runtime.io.holdIdentity(expected: 1);
+    final starting = store
+        .start(initial.id)
+        .then<Object>((run) => run, onError: (Object error) => error);
+    await runtime.io.identityArrived!.future.timeout(
+      const Duration(seconds: 5),
+    );
+    final stopping = store.stop(initial.id);
+    runtime.io.identityRelease!.complete();
+    await starting;
+    await stopping;
+    expect(store.contextLengthFor(initial.id), 8192);
+    expect(store.runsFor(initial.id).any((run) => run.hasLiveProcess), isFalse);
+    expect(
+      (jsonDecode(await store.file.readAsString())['instances'] as List)
+          .single['applied_context_length'],
+      8192,
+    );
+  });
+  test('cold edits preserve applied capacity through reopen without starting the instance', () async {
+    final runtime = await CouncilRuntime.create(
+      modelCount: 1,
+      sourceSystemone: true,
+    );
+    addTearDown(runtime.close);
+    final file = File('${runtime.root.path}/instances.json');
+    var store = LaunchInstances(catalog: runtime.catalog, file: file);
+    addTearDown(() => store.close());
+    final original = await store.save(
+      name: 'Cold configuration',
+      artifactId: runtime.library.state.artifacts.single.id,
+      engineId: EngineCatalog.officialId,
+      configuration: EngineLaunchConfiguration(
+        formValues: {'--ctx-size': '8192'},
+      ),
+    );
+    expect(store.contextLengthFor(original.id), 8192);
+    await store.save(
+      id: original.id,
+      name: original.name,
+      artifactId: original.artifactId,
+      engineId: original.engineId,
+      configuration: EngineLaunchConfiguration(
+        formValues: {'--ctx-size': '16384'},
+      ),
+    );
+    expect(store.find(original.id)!.configuration.contextLength, 16384);
+    expect(store.contextLengthFor(original.id), 8192);
+    expect(store.runsFor(original.id), isEmpty);
+    await store.close();
+    store = LaunchInstances(catalog: runtime.catalog, file: file);
+    await store.load();
+    expect(store.find(original.id)!.configuration.contextLength, 16384);
+    expect(store.contextLengthFor(original.id), 8192);
+    final copied = await store.copy(original.id);
+    expect(store.contextLengthFor(copied.id), 16384);
+    expect(store.runsFor(copied.id), isEmpty);
+  });
+  test('configured context follows text overrides and changes only after a successful restart', () async {
+    final runtime = await CouncilRuntime.create(
+      modelCount: 1,
+      sourceSystemone: true,
+    );
+    addTearDown(runtime.close);
+    final store = LaunchInstances(
+      catalog: runtime.catalog,
+      file: File('${runtime.root.path}/instances.json'),
+    );
+    addTearDown(store.close);
+    final definition = await store.save(
+      name: 'Context instance',
+      artifactId: runtime.library.state.artifacts.single.id,
+      engineId: EngineCatalog.officialId,
+      configuration: EngineLaunchConfiguration(
+        formValues: {'--ctx-size': '4096'},
+        argumentText: '-c 8192',
+      ),
+    );
+    expect(store.contextLengthFor(definition.id), 8192);
+    final first = await store.start(definition.id);
+    await store.save(
+      id: definition.id,
+      name: definition.name,
+      artifactId: definition.artifactId,
+      engineId: definition.engineId,
+      configuration: EngineLaunchConfiguration(
+        formValues: {'--ctx-size': '32768'},
+        argumentText: '--ctx-size=16384',
+      ),
+    );
+    expect(store.contextLengthFor(definition.id), 8192);
+    expect((await store.start(definition.id)).id, first.id);
+    await store.stop(definition.id);
+    expect(store.contextLengthFor(definition.id), 8192);
+    final restarted = await store.start(definition.id);
+    expect(restarted.id, isNot(first.id));
+    expect(store.contextLengthFor(definition.id), 16384);
+    final copy = await store.copy(definition.id);
+    expect(store.contextLengthFor(copy.id), 16384);
+    expect(store.runsFor(copy.id), isEmpty);
+    await store.stop(definition.id);
+    await store.delete(definition.id);
+    expect(store.contextLengthFor(definition.id), isNull);
+  });
   test(
     'per-instance JEV budget persists independently and rejects invalid values',
     () async {

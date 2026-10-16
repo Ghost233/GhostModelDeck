@@ -230,9 +230,13 @@ void main() {
     }
     for (final mode in [JevPlaygroundMode.http, JevPlaygroundMode.mcp]) {
       final discovery = await playground.discover(mode);
-      expect(jsonEncode(discovery), contains('quick'));
-      expect(jsonEncode(discovery), contains('hard'));
-      expect(jsonEncode(discovery), contains('native-kev'));
+      if (mode == JevPlaygroundMode.http) {
+        expect(jsonEncode(discovery), contains('quick'));
+        expect(jsonEncode(discovery), contains('hard'));
+        expect(jsonEncode(discovery), contains('native-kev'));
+      } else {
+        expect(discovery, {'object': 'list', 'data': []});
+      }
     }
     for (final body in fixture.runtime.io.requests) {
       expect((body['questions'] as Map).keys.toList(), [
@@ -492,8 +496,12 @@ void main() {
             .map((row) => row['id'] as String)
             .toList();
         final names = [...headerNamedNativeModels, ...headerNamedCouncilModels];
-        expect(ids, containsAll(names));
-        for (final name in ids.where(names.contains)) {
+        if (mode == JevPlaygroundMode.http) {
+          expect(ids, containsAll(names));
+        } else {
+          expect(ids, isEmpty);
+        }
+        for (final name in names) {
           final document = headerNamedJevDocument(name);
           final result = await fixture.playground.run(
             mode,

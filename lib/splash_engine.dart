@@ -363,6 +363,7 @@ class _SplashRun {
     temporaryTest: temporaryTest,
     launchInstanceId: launchInstanceId,
     launchRevision: launchRevision,
+    capacity: status == RuntimeInstanceStatus.ready ? capacity : null,
     capabilities: status == RuntimeInstanceStatus.ready
         ? {
             RuntimeCapability.textGeneration,

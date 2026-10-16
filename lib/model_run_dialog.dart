@@ -43,6 +43,7 @@ class ModelRunDialog extends StatefulWidget {
     this.initialConfiguration,
     this.initialName,
     this.onSaveInstance,
+    this.contextPreview,
   });
   final EngineCatalog catalog;
   final ModelLibrary library;
@@ -52,6 +53,10 @@ class ModelRunDialog extends StatefulWidget {
   final String? initialEngineId;
   final EngineLaunchConfiguration? initialConfiguration;
   final String? initialName;
+  final List<({String label, int? before, int? after})> Function(
+    EngineLaunchConfiguration,
+  )?
+  contextPreview;
   final Future<void> Function(
     String name,
     String engineId,
@@ -74,6 +79,7 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
   String? _error;
   bool _working = false;
   bool _loading = true;
+  int _impactPage = 0;
   EngineLaunchCommand? _preview;
   bool _previewBlocked = false;
   final _fields = <String, TextEditingController>{};
@@ -318,6 +324,15 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
         .where((value) => value.status == LlamaInstallationStatus.installed)
         .toList();
     final asset = _configurationAsset;
+    final impact = _draft == null || _previewBlocked
+        ? const <({String label, int? before, int? after})>[]
+        : widget.contextPreview?.call(_draft!) ??
+              const <({String label, int? before, int? after})>[];
+    final impactPages = (impact.length / 5).ceil();
+    final impactPage = _impactPage.clamp(
+      0,
+      impactPages == 0 ? 0 : impactPages - 1,
+    );
     return PopScope(
       canPop: !_working,
       child: AlertDialog(
@@ -447,6 +462,43 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
                         ),
                         if (_defaults != null) ...[
                           const SizedBox(height: 20),
+                          if (impact.isNotEmpty) ...[
+                            const Text('容量预览（重启生效）'),
+                            for (final change
+                                in impact.skip(impactPage * 5).take(5))
+                              Text(
+                                '${change.label}：${change.before ?? '未指定'} → ${change.after ?? '未指定'}',
+                                key: ValueKey(
+                                  'context-preview:${change.label}',
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            if (impactPages > 1)
+                              Row(
+                                children: [
+                                  TextButton(
+                                    onPressed: impactPage == 0
+                                        ? null
+                                        : () => setState(
+                                            () => _impactPage = impactPage - 1,
+                                          ),
+                                    child: const Text('上一页'),
+                                  ),
+                                  Text('${impactPage + 1} / $impactPages'),
+                                  TextButton(
+                                    onPressed: impactPage + 1 == impactPages
+                                        ? null
+                                        : () => setState(
+                                            () => _impactPage = impactPage + 1,
+                                          ),
+                                    child: const Text('下一页'),
+                                  ),
+                                ],
+                              ),
+                            const Text('保存只更新待应用参数；成功重启后更新关联容量。'),
+                            const SizedBox(height: 12),
+                          ],
                           for (final field
                               in EngineLaunchConfiguration.labelsFor(
                                 _defaults!.family,

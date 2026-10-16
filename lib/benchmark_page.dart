@@ -274,10 +274,11 @@ class _BenchmarkPageState extends State<BenchmarkPage> {
             ? found
             : targets
                   .where(
-                    (target) => found.any(
-                      (other) =>
-                          other.id == target.id &&
-                          other.source == target.source,
+                    (target) => !widget.runner.client.discoveryExcludesTarget(
+                      channel,
+                      found,
+                      target.id,
+                      source: target.source,
                     ),
                   )
                   .toList();

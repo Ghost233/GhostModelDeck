@@ -23,6 +23,8 @@ class LaunchInstance {
     this.revision = 1,
     this.splashAssembly,
     this.jevRequestTimeoutSeconds = 60,
+    this.hasAppliedContext = false,
+    this.appliedContextLength,
   });
   final String id;
   final String name;
@@ -33,6 +35,22 @@ class LaunchInstance {
   final int revision;
   final String? splashAssembly;
   final int jevRequestTimeoutSeconds;
+  final bool hasAppliedContext;
+  final int? appliedContextLength;
+
+  LaunchInstance _withAppliedContext(int? context) => LaunchInstance(
+    id: id,
+    name: name,
+    publicName: publicName,
+    artifactId: artifactId,
+    engineId: engineId,
+    configuration: configuration,
+    revision: revision,
+    splashAssembly: splashAssembly,
+    jevRequestTimeoutSeconds: jevRequestTimeoutSeconds,
+    hasAppliedContext: true,
+    appliedContextLength: context,
+  );
   Map<String, Object?> toJson() => {
     'id': id,
     'name': name,
@@ -43,6 +61,7 @@ class LaunchInstance {
     'revision': revision,
     'splash_assembly': splashAssembly,
     'jev_request_timeout_seconds': jevRequestTimeoutSeconds,
+    if (hasAppliedContext) 'applied_context_length': appliedContextLength,
   };
   factory LaunchInstance.fromJson(Object? value) {
     if (value is! Map ||
@@ -54,6 +73,9 @@ class LaunchInstance {
           value['engine_id'],
         ].any((v) => v is! String || v.trim().isEmpty) ||
         !PublicModelNames.isValid(value['public_name'] as String) ||
+        (value['applied_context_length'] != null &&
+            (value['applied_context_length'] is! int ||
+                value['applied_context_length'] < 1)) ||
         (value['jev_request_timeout_seconds'] != null &&
             (value['jev_request_timeout_seconds'] is! int ||
                 value['jev_request_timeout_seconds'] < 1)) ||
@@ -74,6 +96,8 @@ class LaunchInstance {
       revision: value['revision'],
       splashAssembly: value['splash_assembly'],
       jevRequestTimeoutSeconds: value['jev_request_timeout_seconds'] ?? 60,
+      hasAppliedContext: value.containsKey('applied_context_length'),
+      appliedContextLength: value['applied_context_length'],
     );
   }
 }
@@ -123,6 +147,21 @@ class LaunchInstances {
   final _starts = <String, Future<RuntimeInstance>>{};
   final _startCancellations = <String, DecisionCancellation>{};
   final _runOrigins = <String, EngineRegistration>{};
+  final _appliedContexts = <String, int?>{};
+  ({Object error, StackTrace stack})? _persistenceFailure;
+  String? get persistenceError => _persistenceFailure == null
+      ? null
+      : '生效容量保存失败：${_persistenceFailure!.error}';
+  int? contextLengthFor(String id) {
+    final definition = find(id);
+    if (definition == null) return null;
+    return _appliedContexts.containsKey(id)
+        ? _appliedContexts[id]
+        : definition.hasAppliedContext
+        ? definition.appliedContextLength
+        : definition.configuration.contextLength;
+  }
+
   EngineRegistration? runningOrigin(String id) => _runOrigins[id];
   String? runningVersion(String id) {
     for (final runtime in catalog.runtimes) {
@@ -310,6 +349,10 @@ class LaunchInstances {
       configuration: configuration,
       revision: (previous?.revision ?? 0) + 1,
       jevRequestTimeoutSeconds: budget,
+      hasAppliedContext: true,
+      appliedContextLength: previous == null
+          ? configuration.contextLength
+          : contextLengthFor(identity),
       splashAssembly: splashAssembly?.trim().isEmpty == true
           ? null
           : splashAssembly,
@@ -333,6 +376,7 @@ class LaunchInstances {
     }
     final previous = find(id);
     await _write(definitions.where((v) => v.id != id).toList());
+    _appliedContexts.remove(id);
     if (previous != null) names.release('instance:$id', previous.publicName);
   });
 
@@ -355,6 +399,8 @@ class LaunchInstances {
       configuration: original.configuration,
       splashAssembly: original.splashAssembly,
       jevRequestTimeoutSeconds: original.jevRequestTimeoutSeconds,
+      hasAppliedContext: true,
+      appliedContextLength: original.configuration.contextLength,
     );
     names.claim('instance:${copied.id}', copied.publicName);
     try {
@@ -385,6 +431,8 @@ class LaunchInstances {
           revision: previous.revision,
           splashAssembly: previous.splashAssembly,
           jevRequestTimeoutSeconds: previous.jevRequestTimeoutSeconds,
+          hasAppliedContext: previous.hasAppliedContext,
+          appliedContextLength: previous.appliedContextLength,
         );
         try {
           await _write([
@@ -399,6 +447,13 @@ class LaunchInstances {
         return renamed;
       });
   Future<void> _write(List<LaunchInstance> definitions) async {
+    definitions = [
+      for (final definition in definitions)
+        if (_appliedContexts.containsKey(definition.id))
+          definition._withAppliedContext(_appliedContexts[definition.id])
+        else
+          definition,
+    ];
     await file.parent.create(recursive: true);
     final temporary = File('${file.path}.tmp');
     await temporary.writeAsString(
@@ -410,6 +465,7 @@ class LaunchInstances {
     );
     await temporary.rename(file.path);
     _definitions = definitions;
+    _persistenceFailure = null;
     _publish();
   }
 
@@ -464,18 +520,18 @@ class LaunchInstances {
     _runOrigins[id] = catalog.state.entries.singleWhere(
       (entry) => entry.id == definition.engineId,
     );
+    final RuntimeInstance run;
     if (runtime is LlamaEngine) {
-      final run = await runtime.start(
+      final started = await runtime.start(
         definition.artifactId,
         configuration: definition.configuration,
         cancellation: cancellation,
         launchInstanceId: id,
         launchRevision: definition.revision,
       );
-      return runtime.runtimeInstances.singleWhere((r) => r.id == run.id);
-    }
-    if (runtime is SplashEngine) {
-      return runtime.startWithConfiguration(
+      run = runtime.runtimeInstances.singleWhere((r) => r.id == started.id);
+    } else if (runtime is SplashEngine) {
+      run = await runtime.startWithConfiguration(
         definition.artifactId,
         definition.configuration,
         cancellation: cancellation,
@@ -485,12 +541,11 @@ class LaunchInstances {
             ? null
             : Directory(definition.splashAssembly!),
       );
-    }
-    if (runtime is OmlxEngine) {
+    } else if (runtime is OmlxEngine) {
       final entry = catalog.state.entries.singleWhere(
         (entry) => entry.id == definition.engineId,
       );
-      return runtime.startWithConfiguration(
+      run = await runtime.startWithConfiguration(
         definition.artifactId,
         definition.configuration,
         launchInstanceId: id,
@@ -499,8 +554,24 @@ class LaunchInstances {
         sourceReceipt: entry.omlxReceipt,
         cancellation: cancellation,
       );
+    } else {
+      throw StateError('此引擎尚未接通模型运行');
     }
-    throw StateError('此引擎尚未接通模型运行');
+    if (!cancellation.isCancelled &&
+        run.hasLiveProcess &&
+        run.acceptingRequests &&
+        run.status == RuntimeInstanceStatus.ready) {
+      _appliedContexts[id] =
+          definition.configuration.contextLength ??
+          run.capacity?.contextPerSlot;
+      try {
+        await _serial(() => _write(_definitions));
+      } catch (error, stack) {
+        _persistenceFailure = (error: error, stack: stack);
+        _publish();
+      }
+    }
+    return run;
   }
 
   Future<void> stop(String id) async {
@@ -535,5 +606,9 @@ class LaunchInstances {
     await _catalogChanges.cancel();
     await _libraryChanges.cancel();
     await _changes.close();
+    final failure = _persistenceFailure;
+    if (failure != null) {
+      Error.throwWithStackTrace(failure.error, failure.stack);
+    }
   }
 }
