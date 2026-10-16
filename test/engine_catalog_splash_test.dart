@@ -13,6 +13,114 @@ import 'package:ghost_model_deck/splash_engine.dart';
 import 'splash_engine_test.dart' show SplashRuntimeFixture;
 
 void main() {
+  for (final stream in [false, true]) {
+    test(
+      'master cancellation returns explicit Splash HTTP error before first frame (stream=$stream)',
+      () async {
+        final fixture = await SplashRuntimeFixture.create();
+        addTearDown(fixture.close);
+        final cpp = LlamaEngine(
+          library: fixture.library,
+          installationDirectory: Directory('${fixture.root.path}/cpp'),
+        );
+        addTearDown(cpp.close);
+        final catalog = EngineCatalog(
+          library: fixture.library,
+          officialEngine: cpp,
+          useRegistry: ModelUseRegistry(fixture.library),
+          registryFile: File('${fixture.root.path}/engines.json'),
+          splashIO: fixture.io,
+        );
+        addTearDown(catalog.close);
+        addTearDown(catalog.shutdown);
+        final entry = await catalog.link(fixture.source.path);
+        final engine = catalog.runtimeFor(entry.id) as SplashEngine;
+        final routes = PublicModelRoutes(
+          library: fixture.library,
+          runtimes: [engine],
+        );
+        addTearDown(routes.close);
+        await routes.enable(fixture.asset.id);
+        final gateway = PublicGatewayServer(routes: routes, port: 0);
+        addTearDown(gateway.close);
+        addTearDown(gateway.stop);
+        await gateway.start();
+        await engine.startRuntime(fixture.asset.id);
+        final client = HttpClient();
+        addTearDown(() => client.close(force: true));
+        final request = await client.postUrl(
+          gateway.baseUrl!.resolve('/v1/chat/completions'),
+        );
+        request.headers.contentType = ContentType.json;
+        request.write(
+          jsonEncode({
+            'model': routes.publicIdFor(fixture.asset.id),
+            'messages': [
+              {'role': 'user', 'content': 'hold'},
+            ],
+            'stream': stream,
+          }),
+        );
+        final outcome = request.close().then(
+          (response) async => (
+            status: response.statusCode,
+            body: jsonDecode(await utf8.decoder.bind(response).join()),
+          ),
+        );
+        await fixture.io.holdReached.future.timeout(const Duration(seconds: 5));
+        await catalog
+            .setRuntimeEnabled(false)
+            .timeout(const Duration(seconds: 5));
+        final response = await outcome.timeout(const Duration(seconds: 5));
+        expect(response.status, 499);
+        expect(response.body['error']['type'], 'cancelled');
+        expect(engine.hasLiveInstances, isFalse);
+        final list = await (await client.getUrl(
+          gateway.baseUrl!.resolve('/v1/models'),
+        )).close();
+        expect(list.statusCode, 200);
+        await list.drain<void>();
+        fixture.io.releaseHeld.complete();
+      },
+    );
+  }
+
+  test('Splash linked while master is off inherits admission and can run only after opening', () async {
+    final fixture = await SplashRuntimeFixture.create();
+    addTearDown(fixture.close);
+    final cpp = LlamaEngine(
+      library: fixture.library,
+      installationDirectory: Directory('${fixture.root.path}/cpp'),
+    );
+    addTearDown(cpp.close);
+    final catalog = EngineCatalog(
+      library: fixture.library,
+      officialEngine: cpp,
+      useRegistry: ModelUseRegistry(fixture.library),
+      registryFile: File('${fixture.root.path}/engines.json'),
+      splashIO: fixture.io,
+      runtimeEnabled: false,
+    );
+    addTearDown(catalog.close);
+    addTearDown(catalog.shutdown);
+    final entry = await catalog.link(fixture.source.path);
+    final engine = catalog.runtimeFor(entry.id) as SplashEngine;
+    await expectLater(
+      engine.startRuntime(fixture.asset.id),
+      throwsA(isA<SplashEngineException>()),
+    );
+    await catalog.setRuntimeEnabled(true);
+    final run = await engine.startRuntime(fixture.asset.id);
+    expect(run.status, RuntimeInstanceStatus.ready);
+    await catalog.setRuntimeEnabled(false);
+    expect(engine.hasLiveInstances, isFalse);
+    await expectLater(
+      engine.startRuntime(fixture.asset.id),
+      throwsA(isA<SplashEngineException>()),
+    );
+    expect(await fixture.source.exists(), isTrue);
+  });
+
   test('Splash automatically prepares and persists a model without a manual binding', () async {
     final fixture = await SplashRuntimeFixture.create();
     addTearDown(fixture.close);

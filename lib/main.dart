@@ -22,6 +22,8 @@ import 'application_configuration.dart';
 import 'download_preferences.dart';
 import 'download_tasks_page.dart';
 import 'engine_catalog.dart';
+import 'engine_runtime_switch.dart';
+import 'runtime_autostart.dart';
 import 'launch_instances.dart';
 import 'desktop_home_route.dart';
 import 'instances_page.dart';
@@ -103,6 +105,7 @@ class _ManagerShellState extends State<_ManagerShell>
   late final BenchmarkGameWork _benchmarkGameWork;
   late final BenchmarkRunner _benchmarks;
   final _startupSet = StartupModelSet.user();
+  late final RuntimeAutostart _autostart;
   late final LauncherInferenceService _launcherService;
   late final ManagerLifecycle _lifecycle;
   late final VersionStatusBridge _versionStatusBridge;
@@ -167,6 +170,9 @@ class _ManagerShellState extends State<_ManagerShell>
       ),
     );
     _engines = EngineCatalog(
+      runtimeEnabled: false,
+      onRuntimeOpened: () => _autostart.startSelected(),
+      onRuntimeClosing: () => _benchmarks.cancel(),
       library: _library,
       officialEngine: _officialEngine,
       standardEngine: _standardEngine,
@@ -183,6 +189,11 @@ class _ManagerShellState extends State<_ManagerShell>
       catalog: _engines,
       file: File('${_settings.file.parent.path}/launch-instances.json'),
       names: _publicNames,
+    );
+    _autostart = RuntimeAutostart(
+      instances: _instances,
+      settings: _startupSet,
+      prepare: _prepareInstanceResources,
     );
     _council = CouncilController(
       catalog: _engines,
@@ -218,6 +229,7 @@ class _ManagerShellState extends State<_ManagerShell>
       Directory('${_settings.file.parent.path}/benchmark-game-cache'),
     );
     _benchmarks = BenchmarkRunner(
+      requireRuntimeEnabled: _engines.requireRuntimeEnabled,
       client: JevPlayground(gateway: _publicGateway, mcp: _mcp),
       store: BenchmarkRunStore(
         directory: Directory('${_settings.file.parent.path}/benchmark-runs'),
@@ -375,10 +387,18 @@ class _ManagerShellState extends State<_ManagerShell>
           _libraryPaths = directories.libraryPaths;
         });
       }
+      unawaited(
+        _autostart.initialize().catchError((Object error) {
+          if (mounted) setState(() => _settingsError = '自启动失败：$error');
+        }),
+      );
     } catch (error) {
       if (mounted) setState(() => _settingsError = '设置读取失败：$error');
     }
   }
+
+  Future<void> _prepareInstanceResources() =>
+      _instances.prepareResources(_libraryPaths.map(Directory.new).toList());
 
   Future<String?> _pickDirectory() =>
       _native.invokeMethod<String>('pickLibraryDirectory');
@@ -480,6 +500,7 @@ class _ManagerShellState extends State<_ManagerShell>
     _publicGateway.close();
     _publicRoutes.close();
     unawaited(_instances.close().catchError((Object _) {}));
+    unawaited(_startupSet.close().catchError((Object _) {}));
     unawaited(_council.close().catchError((Object _) {}));
     _engines.close();
     _officialEngine.close();
@@ -627,6 +648,7 @@ class _ManagerShellState extends State<_ManagerShell>
                             padding: EdgeInsets.zero,
                             children: [
                               if (_workspaceTabs.index == 0) ...[
+                                EngineRuntimeSwitch(catalog: _engines),
                                 _groupLabel('模型'),
                                 _navigation('发现模型', Icons.search_rounded, 0),
                                 _navigation('模型库', Icons.folder_outlined, 2),
@@ -720,6 +742,8 @@ class _ManagerShellState extends State<_ManagerShell>
                           if (_openedPages.contains(4))
                             SettingsPage(
                               preferences: _preferences,
+                              startupSet: _startupSet,
+                              instances: _instances,
                               libraryPath: path,
                               onLibraryPathChanged: _saveDirectory,
                               libraryPaths: _libraryPaths,
@@ -779,15 +803,7 @@ class _ManagerShellState extends State<_ManagerShell>
                               onInitialArtifactHandled: () {
                                 setState(() => _instanceArtifact = null);
                               },
-                              prepare: () async {
-                                await _engines.refresh();
-                                if (!_library.state.scanning &&
-                                    _library.state.rootPaths.isEmpty) {
-                                  await _library.scanDirectories(
-                                    _libraryPaths.map(Directory.new).toList(),
-                                  );
-                                }
-                              },
+                              prepare: _prepareInstanceResources,
                             )
                           else
                             const SizedBox.shrink(),

@@ -25,6 +25,8 @@ class CouncilRuntime {
     int modelCount = 2,
     CouncilRuntimeIO? processIO,
     bool sourceSystemone = false,
+    Future<void> Function()? onRuntimeOpened,
+    void Function()? onRuntimeClosing,
   }) async {
     final root = await Directory.systemTemp.createTemp('jev-council-');
     final models = Directory('${root.path}/models');
@@ -71,6 +73,8 @@ class CouncilRuntime {
       loadTimeout: const Duration(seconds: 3),
     );
     final catalog = EngineCatalog(
+      onRuntimeOpened: onRuntimeOpened,
+      onRuntimeClosing: onRuntimeClosing,
       library: library,
       officialEngine: engine,
       useRegistry: use,

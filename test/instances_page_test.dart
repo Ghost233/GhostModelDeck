@@ -7,6 +7,8 @@ import 'package:ghost_model_deck/engine_catalog.dart';
 import 'package:ghost_model_deck/engine_launch_configuration.dart';
 import 'package:ghost_model_deck/engine_runtime.dart';
 import 'package:ghost_model_deck/instances_page.dart';
+import 'package:ghost_model_deck/settings_page.dart';
+import 'package:ghost_model_deck/download_preferences.dart';
 import 'package:ghost_model_deck/launch_instances.dart';
 import 'package:ghost_model_deck/sdk_service.dart';
 
@@ -122,6 +124,128 @@ void main() {
       );
     }
   }
+  for (final brightness in Brightness.values) {
+    testWidgets(
+      'startup settings and instance choices stay synchronized at $brightness with large real fonts',
+      (tester) async {
+        tester.view.physicalSize = const Size(1800, 1000);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final verified = await tester.runAsync(
+          () => HttpOverrides.runWithHttpOverrides(() async {
+            final runtime = await CouncilRuntime.create(modelCount: 1);
+            await runtime.catalog.setRuntimeEnabled(false);
+            final store = LaunchInstances(
+              catalog: runtime.catalog,
+              file: File('${runtime.root.path}/instances.json'),
+            );
+            final startup = StartupModelSet(
+              file: File('${runtime.root.path}/startup.json'),
+            );
+            final preferences = DownloadPreferences(
+              file: File('${runtime.root.path}/preferences.json'),
+            );
+            try {
+              await startup.load();
+              final original = await store.save(
+                name: '自启动实例配置',
+                artifactId: runtime.library.state.artifacts.single.id,
+                engineId: EngineCatalog.officialId,
+                configuration: EngineLaunchConfiguration(),
+              );
+              await startup.add('missing-retained');
+              await tester.pumpWidget(
+                MaterialApp(
+                  theme: ThemeData(
+                    brightness: brightness,
+                    fontFamily: 'Layout Noto CJK',
+                  ),
+                  home: Builder(
+                    builder: (context) => MediaQuery(
+                      data: MediaQuery.of(context)
+                          .copyWith(textScaler: TextScaler.linear(2)),
+                      child: Scaffold(
+                        body: Row(
+                          children: [
+                            Expanded(
+                              child: SettingsPage(
+                                preferences: preferences,
+                                libraryPath: runtime.root.path,
+                                onLibraryPathChanged: (path) async => path,
+                                pickLibraryDirectory: () async => null,
+                                startupSet: startup,
+                                instances: store,
+                              ),
+                            ),
+                            Expanded(
+                              child: InstancesPage(
+                                instances: store,
+                                startupSet: startup,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+              await tester.pumpAndSettle();
+              await tester.tap(find.byKey(const Key('settings-nav-startup')));
+              await tester.pumpAndSettle();
+              expect(find.byType(DataTable), findsNWidgets(2));
+              final settingsChoice = find.byKey(
+                ValueKey('settings-autostart:${original.id}'),
+              );
+              await tester.ensureVisible(settingsChoice);
+              final selected = startup.changes.firstWhere(
+                (_) => startup.contains(original.id),
+              );
+              await tester.tap(settingsChoice);
+              await selected.timeout(const Duration(seconds: 5));
+              await tester.pumpAndSettle();
+              final instanceChoice = find.byKey(
+                ValueKey('instance-autostart:${original.id}'),
+              );
+              expect(tester.widget<Checkbox>(instanceChoice).value, isTrue);
+              await startup.saveAutoOpenEngines(true);
+              await tester.pumpAndSettle();
+              expect(
+                tester
+                    .widget<SwitchListTile>(
+                      find.byKey(const Key('autostart-master')),
+                    )
+                    .value,
+                isTrue,
+              );
+              await tester.ensureVisible(instanceChoice);
+              final removed = startup.changes.firstWhere(
+                (_) => !startup.contains(original.id),
+              );
+              await tester.tap(instanceChoice);
+              await removed.timeout(const Duration(seconds: 5));
+              await tester.pumpAndSettle();
+              expect(tester.widget<Checkbox>(settingsChoice).value, isFalse);
+              expect(startup.contains('missing-retained'), isTrue);
+              expect(runtime.catalog.runtimeEnabled, isFalse);
+              expect(runtime.engine.hasLiveInstances, isFalse);
+              expect(tester.takeException(), isNull);
+              return true;
+            } finally {
+              await tester.pumpWidget(const SizedBox());
+              await startup.close();
+              await store.close();
+              await runtime.close();
+              preferences.dispose();
+            }
+          }, _NetworkBoundary()),
+        );
+        expect(verified, isTrue);
+      },
+    );
+  }
+
   test('configured inference concurrency uses text overrides without treating a request queue as inference slots', () {
     expect(EngineLaunchConfiguration().inferenceConcurrency, 1);
     expect(

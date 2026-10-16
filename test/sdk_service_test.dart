@@ -33,6 +33,30 @@ import 'fixtures/decision_gguf.dart';
 import 'fixtures/engine_archive.dart';
 
 void main() {
+  _realNet(
+    'SDK start keeps listeners but cannot bypass the engine master switch',
+    () async {
+      final fixture = await _SdkFixture.create(useAssetEntry: true);
+      addTearDown(fixture.close);
+      await fixture.catalog.setRuntimeEnabled(false);
+      await fixture.connect();
+      await fixture.peer.call('start');
+      expect(fixture.io.startCount, 0);
+      expect(fixture.catalog.runtimeEnabled, isFalse);
+      expect(fixture.gateway.baseUrl, isNotNull);
+      expect(fixture.mcp.endpoint, isNotNull);
+      final logs = await fixture.peer.call('logs');
+      expect(jsonEncode(logs), contains('总开关已关闭'));
+      await fixture.catalog.setRuntimeEnabled(true);
+      await fixture.peer.call('start');
+      expect(fixture.io.startCount, 1);
+      await fixture.catalog.setRuntimeEnabled(false);
+      await fixture.peer.call('start');
+      expect(fixture.io.startCount, 1);
+      expect(fixture.liveInstances, isEmpty);
+    },
+  );
+
   _realNet('SDK startup reuses saved instance snapshot and applies changes only after recycle', () async {
     final fixture = await _SdkFixture.create(useAssetEntry: true);
     addTearDown(fixture.close);

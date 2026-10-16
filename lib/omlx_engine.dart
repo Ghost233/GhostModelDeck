@@ -410,6 +410,7 @@ class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
   int _runtimeIds = 0;
   int _poolGeneration = 0;
   int _startHolds = 0;
+  final _runtimeStarts = <Future<RuntimeInstance>>{};
   void Function() holdInstallationAdmission() {
     cancelInstallation();
     _admissionHolds++;
@@ -1289,13 +1290,19 @@ class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
     }
   }
 
+  bool get hasLiveInstances =>
+      _configuredStarts.isNotEmpty ||
+      _runtimeStarts.isNotEmpty ||
+      _startingPool != null ||
+      _pool?.dead == false ||
+      _configured.values.any((engine) => engine.hasLiveInstances) ||
+      runtimeInstances.any(
+        (run) =>
+            run.hasLiveProcess || run.status == RuntimeInstanceStatus.starting,
+      );
+
   void assertRemovable() {
-    if (_configuredStarts.isNotEmpty ||
-        runtimeInstances.any(
-          (run) =>
-              run.hasLiveProcess ||
-              run.status == RuntimeInstanceStatus.starting,
-        )) {
+    if (hasLiveInstances) {
       throw const OmlxException('请先停止该引擎的模型实例');
     }
   }
@@ -1606,7 +1613,10 @@ class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
         .singleOrNull;
     if (artifact == null) throw const OmlxException('oMLX 模型引用缺失');
     final directory = await _modelDirectory(artifact);
-    if (_closed || cancellation?.isCancelled == true) {
+    if (_closed ||
+        _held ||
+        _startHolds != 0 ||
+        cancellation?.isCancelled == true) {
       throw const OmlxException('oMLX 启动已取消');
     }
     final child =
@@ -1653,9 +1663,6 @@ class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
 
   @override
   void Function() holdStartAdmission() {
-    if (_closed || _held || _admissionHolds != 0) {
-      throw const OmlxException('oMLX 安装管理正在退出或回收');
-    }
     _startHolds++;
     var released = false;
     return () {
@@ -1675,10 +1682,20 @@ class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
         _startHolds != 0) {
       return Future.error(const OmlxException('oMLX 安装管理正在退出或回收'));
     }
-    return _poolSerial(() => _startRuntime(artifactId));
+    final epoch = _epoch;
+    final operation = _poolSerial(() => _startRuntime(artifactId, epoch));
+    _runtimeStarts.add(operation);
+    unawaited(
+      operation.then<void>(
+        (_) => _runtimeStarts.remove(operation),
+        onError: (Object _) => _runtimeStarts.remove(operation),
+      ),
+    );
+    return operation;
   }
 
-  Future<RuntimeInstance> _startRuntime(String artifactId) async {
+  Future<RuntimeInstance> _startRuntime(String artifactId, int epoch) async {
+    _checkRuntimeStart(epoch);
     if (_state.status != OmlxInstallationStatus.installed ||
         _state.receipt == null) {
       throw const OmlxException('oMLX 尚未通过安装核验，模型池不可用');
@@ -1699,6 +1716,7 @@ class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
       throw const OmlxException('oMLX 需要未损坏且文件完整的 Safetensors 模型');
     }
     final directory = await _modelDirectory(artifact);
+    _checkRuntimeStart(epoch);
     final modelId = _baseName(directory);
     for (final run in _runs.toList()) {
       if (run.artifactId != artifactId) continue;
@@ -1715,6 +1733,7 @@ class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
       throw const OmlxException('oMLX 实例正在停止或回收，请稍后重试');
     }
     final pool = await _ensurePool();
+    _checkRuntimeStart(epoch);
     final run = _OmlxRun(
       id: '${_runtimePrefix ?? 'omlx'}-${++_runtimeIds}',
       launchInstanceId: _launchInstanceId,
@@ -1734,6 +1753,7 @@ class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
       await _load(pool, modelId);
       loaded = true;
       await _checkPhysicalRow(pool, run);
+      _checkRuntimeStart(epoch);
       run.status = RuntimeInstanceStatus.ready;
       run.acceptingRequests = true;
       await _syncUseRegistration();
@@ -1755,6 +1775,13 @@ class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
       );
       await _syncUseRegistration();
       throw OmlxException(run.error!);
+    }
+  }
+
+  void _checkRuntimeStart(int epoch) {
+    _check(epoch);
+    if (_held || _startHolds != 0) {
+      throw const OmlxException('oMLX 启动已取消');
     }
   }
 
@@ -2585,6 +2612,10 @@ class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
   Future<void> stopManaged() async {
     _held = true;
     _epoch++;
+    _startingPool?.client.close(force: true);
+    if (_runs.any((run) => run.status == RuntimeInstanceStatus.starting)) {
+      _pool?.client.close(force: true);
+    }
     try {
       for (final child in _configured.values) {
         child.beginShutdown();
