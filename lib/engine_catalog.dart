@@ -88,10 +88,16 @@ class EngineCatalogState {
   const EngineCatalogState({
     this.entries = const [],
     this.busy = false,
+    this.runtimeEnabled = true,
+    this.runtimeTransition = false,
+    this.runtimeError,
     this.error,
   });
   final List<EngineRegistration> entries;
   final bool busy;
+  final bool runtimeEnabled;
+  final bool runtimeTransition;
+  final String? runtimeError;
   final String? error;
 }
 
@@ -140,7 +146,16 @@ class EngineCatalog {
     required this.useRegistry,
     required this.registryFile,
     EngineProcessIO? io,
-  }) : io = io ?? NativeEngineProcessIO() {
+    bool runtimeEnabled = true,
+    this.onRuntimeOpened,
+    this.onRuntimeClosing,
+  }) : io = io ?? NativeEngineProcessIO(),
+       _runtimeEnabled = runtimeEnabled {
+    if (!runtimeEnabled) {
+      for (final runtime in runtimes) {
+        _holdRuntime(runtime);
+      }
+    }
     for (final entry in _managed.entries) {
       entry.value.readLaunchConfigurationFrom(
         (artifactId) => launchConfigurationFor(entry.key, artifactId),
@@ -206,6 +221,103 @@ class EngineCatalog {
   final _configurationVersions = <String, String?>{};
   final _subscriptions = <StreamSubscription<LlamaEngineState>>[];
   Future<void> _operations = Future.value();
+  final Future<void> Function()? onRuntimeOpened;
+  final void Function()? onRuntimeClosing;
+  bool _runtimeEnabled;
+  int get runtimeGeneration => _runtimeIntent;
+  bool get runtimeEnabled => _runtimeEnabled && !_shuttingDown;
+  int _runtimeIntent = 0;
+  Future<void>? _runtimeStopping;
+  Future<void>? _runtimeOpening;
+  String? _runtimeError;
+  final _runtimeAdmissions = Map<EngineRuntime, void Function()>.identity();
+
+  void requireRuntimeEnabled() {
+    if (!runtimeEnabled) throw StateError('引擎总开关已关闭');
+  }
+
+  void _holdRuntime(EngineRuntime runtime) {
+    _runtimeAdmissions.putIfAbsent(runtime, runtime.holdStartAdmission);
+  }
+
+  /// Runtime admission is independent of installation/configuration management.
+  /// Off seals immediately; opening waits for the previous generation to drain.
+  Future<void> setRuntimeEnabled(bool enabled) {
+    if (_shuttingDown) return Future.error(StateError('引擎管理已退出'));
+    if (enabled) {
+      if (_runtimeEnabled) return Future.value();
+      if (_runtimeOpening != null) return _runtimeOpening!;
+      final intent = ++_runtimeIntent;
+      final operation = () async {
+        await _runtimeStopping;
+        if (intent != _runtimeIntent || _shuttingDown) return;
+        if (_runtimeError != null) throw StateError(_runtimeError!);
+        for (final release in _runtimeAdmissions.values) {
+          release();
+        }
+        _runtimeAdmissions.clear();
+        _runtimeEnabled = true;
+        _publish();
+        try {
+          await onRuntimeOpened?.call();
+        } catch (error) {
+          if (intent == _runtimeIntent && !_shuttingDown) {
+            _runtimeError = '自启动准备失败：$error';
+            _publish();
+          }
+          rethrow;
+        }
+      }();
+      late final Future<void> opening;
+      opening = operation.whenComplete(() {
+        if (identical(_runtimeOpening, opening)) _runtimeOpening = null;
+        _publish();
+      });
+      _runtimeOpening = opening;
+      _publish();
+      return opening;
+    }
+    ++_runtimeIntent;
+    // A later open must not reuse an earlier, now superseded open operation.
+    _runtimeOpening = null;
+    _runtimeEnabled = false;
+    for (final runtime in runtimes) {
+      _holdRuntime(runtime);
+    }
+    onRuntimeClosing?.call();
+    _publish();
+    if (_runtimeStopping != null) return _runtimeStopping!;
+    _runtimeError = null;
+    // Do not cancel unrelated downloads, builds or catalog edits. All providers,
+    // including registrations arriving later, remain held until explicit on.
+    final work = runtimes
+        .where(
+          (runtime) => switch (runtime) {
+            LlamaEngine engine => engine.hasLiveInstances,
+            SplashEngine engine => engine.hasLiveInstances,
+            OmlxEngine engine => engine.hasLiveInstances,
+            _ => runtime.runtimeInstances.any((run) => run.hasLiveProcess),
+          },
+        )
+        .toList();
+    final operation = Future.wait(work.map((runtime) => runtime.stopManaged()))
+        .then<void>(
+          (_) {},
+          onError: (Object error, StackTrace stack) {
+            _runtimeError = '引擎停止未完成：$error';
+            Error.throwWithStackTrace(error, stack);
+          },
+        );
+    late final Future<void> stopping;
+    stopping = operation.whenComplete(() {
+      if (identical(_runtimeStopping, stopping)) _runtimeStopping = null;
+      _publish();
+    });
+    _runtimeStopping = stopping;
+    _publish();
+    return stopping;
+  }
+
   bool _loaded = false;
   bool _shuttingDown = false;
   Future<void>? _shutdown;
@@ -245,6 +357,9 @@ class EngineCatalog {
   Stream<EngineCatalogState> get changes => _changes.stream;
   EngineCatalogState get state => EngineCatalogState(
     busy: _busy,
+    runtimeEnabled: runtimeEnabled,
+    runtimeTransition: _runtimeStopping != null || _runtimeOpening != null,
+    runtimeError: _runtimeError,
     error: _error,
     entries: List.unmodifiable([
       if (omlxEngine != null)
@@ -629,6 +744,7 @@ class EngineCatalog {
     provider.readLaunchConfigurationFrom(
       (artifactId) => launchConfigurationFor(id, artifactId),
     );
+    if (!runtimeEnabled) _holdRuntime(provider);
     if (_shuttingDown) provider.beginShutdown();
     if (_recycling) {
       _admissionReleases[provider] = provider.holdStartAdmission();
@@ -657,6 +773,7 @@ class EngineCatalog {
       saveBinding: (binding) => _save(splashBinding: (id, binding)),
     );
     _splash[id] = provider;
+    if (!runtimeEnabled) _holdRuntime(provider);
     if (_shuttingDown) provider.beginShutdown();
     if (_recycling) _splashAdmissions[provider] = provider.holdStartAdmission();
     _splashSubscriptions.add(provider.changes.listen((_) => _publish()));
@@ -1488,6 +1605,7 @@ class EngineCatalog {
   }
 
   void beginShutdown() {
+    ++_runtimeIntent;
     _shuttingDown = true;
     cancelSourceBuild();
     sourceBuilder?.cancelBuild();

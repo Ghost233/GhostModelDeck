@@ -864,6 +864,74 @@ Matcher _requestKind(OmlxRequestKind kind) =>
     isA<OmlxRequestException>().having((e) => e.kind, 'kind', kind);
 
 void main() {
+  test('master off cancels pending native and configured oMLX loads and keeps later starts sealed', () async {
+    for (final configured in [false, true]) {
+      final fixture = await _PoolFixture.create();
+      addTearDown(fixture.dispose);
+      final cpp = LlamaEngine(
+        library: fixture.library,
+        installationDirectory: Directory('${fixture.root.path}/cpp'),
+      );
+      addTearDown(cpp.close);
+      final catalog = EngineCatalog(
+        library: fixture.library,
+        officialEngine: cpp,
+        omlxEngine: fixture.engine,
+        useRegistry: fixture.useRegistry,
+        registryFile: File('${fixture.root.path}/registry.json'),
+      );
+      addTearDown(catalog.close);
+      addTearDown(catalog.shutdown);
+      final release = Completer<void>();
+      addTearDown(() {
+        if (!release.isCompleted) release.complete();
+      });
+      final created = Completer<_FakeServer>();
+      fixture.poolIo.onServerCreated = (server) {
+        server.loadGate = release;
+        created.complete(server);
+      };
+      final start = configured
+          ? fixture.engine.startWithConfiguration(
+              fixture.artifact('model-a').id,
+              EngineLaunchConfiguration(family: EngineFamily.omlx),
+              launchInstanceId: 'owned',
+              launchRevision: 1,
+            )
+          : fixture.engine.startRuntime(fixture.artifact('model-a').id);
+      final outcome = start.then<Object>(
+        (run) => run,
+        onError: (Object error) => error,
+      );
+      final server = await created.future.timeout(const Duration(seconds: 5));
+      await server.loadStarted.future.timeout(const Duration(seconds: 5));
+      await catalog
+          .setRuntimeEnabled(false)
+          .timeout(const Duration(seconds: 5));
+      expect(await outcome, isA<OmlxException>());
+      expect(
+        fixture.engine.runtimeInstances.where((run) => run.hasLiveProcess),
+        isEmpty,
+      );
+      expect(
+        fixture.poolIo.children.every((child) => child._exit.isCompleted),
+        isTrue,
+      );
+      await expectLater(
+        fixture.engine.startRuntime(fixture.artifact('model-b').id),
+        throwsA(isA<OmlxException>()),
+      );
+      release.complete();
+      fixture.poolIo.onServerCreated = null;
+      await catalog.setRuntimeEnabled(true);
+      final next = await fixture.engine.startRuntime(
+        fixture.artifact('model-b').id,
+      );
+      expect(next.status, RuntimeInstanceStatus.ready);
+      await catalog.setRuntimeEnabled(false);
+    }
+  });
+
   test('owned monitor requests session stats for the exact model and never borrows its loaded peer totals', () async {
     final fixture = await _PoolFixture.create();
     addTearDown(fixture.dispose);

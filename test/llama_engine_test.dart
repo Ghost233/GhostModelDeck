@@ -9,6 +9,7 @@ import 'package:ghost_model_deck/chat_protocol.dart';
 import 'package:ghost_model_deck/council.dart';
 import 'package:ghost_model_deck/decision_protocol.dart';
 import 'package:ghost_model_deck/engine_catalog.dart';
+import 'package:ghost_model_deck/model_use_registry.dart';
 import 'package:ghost_model_deck/llama_engine.dart';
 import 'package:ghost_model_deck/model_library.dart';
 
@@ -366,6 +367,41 @@ void main() {
     expect(result.model, instance.id);
     expect(fixture.engine.state.instances.single.activeRequests, 0);
     expect(fixture.io.children, hasLength(1));
+  });
+
+  test('master reports owned cleanup failure, stays sealed and retries without deleting assets', () async {
+    final fixture = await _Fixture.create(ordinaryChat: true);
+    addTearDown(fixture.close);
+    final catalog = EngineCatalog(
+      library: fixture.library,
+      officialEngine: fixture.engine,
+      useRegistry: ModelUseRegistry(fixture.library),
+      registryFile: File('${fixture.root.path}/registry.json'),
+    );
+    addTearDown(catalog.close);
+    await fixture.engine.start(fixture.asset.id);
+    fixture.io.children.single.onKill = () {
+      throw StateError('owned child refuses stop');
+    };
+    await expectLater(
+      catalog.setRuntimeEnabled(false),
+      throwsA(isA<LlamaEngineException>()),
+    );
+    expect(catalog.runtimeEnabled, isFalse);
+    expect(catalog.state.runtimeError, contains('owned child refuses stop'));
+    expect(fixture.engine.runtimeInstances.single.hasLiveProcess, isTrue);
+    await expectLater(
+      catalog.setRuntimeEnabled(true),
+      throwsA(isA<StateError>()),
+    );
+    expect(catalog.runtimeEnabled, isFalse);
+    fixture.io.children.single.onKill = null;
+    await catalog.setRuntimeEnabled(false);
+    expect(catalog.state.runtimeError, isNull);
+    expect(fixture.engine.runtimeInstances.single.hasLiveProcess, isFalse);
+    expect(await File(fixture.asset.files.single.path).exists(), isTrue);
+    await catalog.setRuntimeEnabled(true);
+    expect(catalog.runtimeEnabled, isTrue);
   });
 
   test('managed recycle attempts every owned child after a stop failure and exposes a retryable residual', () async {

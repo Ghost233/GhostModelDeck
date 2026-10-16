@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -129,6 +130,7 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
 
   @override
   void dispose() {
+    unawaited(_catalogChanges?.cancel());
     _testCancellation?.cancel();
     _instanceName.dispose();
     _argumentText.dispose();
@@ -141,9 +143,14 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
   LibraryArtifact? get _configurationAsset => _variant.artifacts
       .where((asset) => ['GGUF', 'Safetensors'].contains(asset.format))
       .singleOrNull;
+  StreamSubscription<EngineCatalogState>? _catalogChanges;
+
   @override
   void initState() {
     super.initState();
+    _catalogChanges = widget.catalog.changes.listen((_) {
+      if (mounted) setState(() {});
+    });
     _refresh();
   }
 
@@ -639,7 +646,11 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
           ),
           OutlinedButton(
             onPressed:
-                _working || _loading || _engineId == null || _previewBlocked
+                _working ||
+                    _loading ||
+                    _engineId == null ||
+                    _previewBlocked ||
+                    !widget.catalog.runtimeEnabled
                 ? null
                 : () => _submit(test: true),
             child: const Text('测试运行'),

@@ -946,7 +946,7 @@ class PublicGatewayServer {
             'model': target.publicId,
           }, projection: JevDebugProjection.embeddingResponse),
         );
-      } on LlamaRequestException catch (error) {
+      } on DecisionCallFailure catch (error) {
         return _upstreamError(error.kind.name);
       } on LlamaEngineException {
         // Identity failures retain their original error and cleanup in the
@@ -1152,7 +1152,7 @@ class PublicGatewayServer {
             'usage': result.usage,
           }, projection: JevDebugProjection.llmResponse),
         );
-      } on LlamaRequestException catch (error) {
+      } on DecisionCallFailure catch (error) {
         return _upstreamError(error.kind.name);
       } on OmlxRequestException catch (error) {
         return _upstreamError(error.kind.name);
@@ -1237,7 +1237,7 @@ class PublicGatewayServer {
     } catch (error) {
       if (!started) {
         // Headers are unsent until the first frame: reply truthfully.
-        if (error is LlamaRequestException) {
+        if (error is DecisionCallFailure) {
           _sendUpstreamError(response, error.kind.name);
         } else if (error is OmlxRequestException) {
           _sendUpstreamError(response, error.kind.name);

@@ -39,9 +39,13 @@ class _InstancesPageState extends State<InstancesPage> {
   String? _error;
   String? _errorFile;
   bool _preparing = true;
+  StreamSubscription<void>? _startupChanges;
   @override
   void initState() {
     super.initState();
+    _startupChanges = widget.startupSet?.changes.listen((_) {
+      if (mounted) setState(() {});
+    });
     unawaited(_prepare());
   }
 
@@ -84,6 +88,12 @@ class _InstancesPageState extends State<InstancesPage> {
         });
       }
     }
+  }
+
+  @override
+  void dispose() {
+    unawaited(_startupChanges?.cancel());
+    super.dispose();
   }
 
   @override
@@ -349,7 +359,8 @@ class _InstancesPageState extends State<InstancesPage> {
     )) {
       return '运行中';
     }
-    if (runs.any((run) => run.status == RuntimeInstanceStatus.failed)) {
+    if (widget.instances.startErrorFor(definition.id) != null ||
+        runs.any((run) => run.status == RuntimeInstanceStatus.failed)) {
       return '失败';
     }
     return runs.isEmpty ? '已保存' : '已停止';
@@ -426,7 +437,10 @@ class _InstancesPageState extends State<InstancesPage> {
           )
         else
           TextButton(
-            onPressed: busy || missing != null
+            onPressed:
+                busy ||
+                    missing != null ||
+                    !widget.instances.catalog.runtimeEnabled
                 ? null
                 : () => _operate(definition.id, () async {
                     await widget.instances.start(definition.id);
@@ -670,10 +684,14 @@ class _InstancesPageState extends State<InstancesPage> {
                   minWidth: 140,
                   flex: 0,
                   compare: (a, b) => _stateLabel(a).compareTo(_stateLabel(b)),
-                  cell: (value) => Text(
-                    _stateLabel(value),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                  cell: (value) => Tooltip(
+                    message:
+                        store.startErrorFor(value.id) ?? _stateLabel(value),
+                    child: Text(
+                      _stateLabel(value),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ),
                 ManagementColumn(

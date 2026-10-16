@@ -21,6 +21,7 @@ Future<String> testModelLaunch({
   required DecisionCancellation cancellation,
   Directory? splashAssembly,
 }) async {
+  catalog.requireRuntimeEnabled();
   configuration.validateArgumentText();
   final runtime = catalog.runtimeFor(engineId);
   String? instanceId;

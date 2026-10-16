@@ -143,8 +143,27 @@ class LaunchInstances {
     return (summary: summary, path: log.absolute.path);
   }
 
+  Future<void>? _preparation;
+  Future<void> prepareResources(List<Directory> roots) =>
+      _preparation ??= _prepareResources(roots)
+          .whenComplete(() => _preparation = null);
+
+  Future<void> _prepareResources(List<Directory> roots) async {
+    await catalog.refresh();
+    final library = catalog.library;
+    if (library.state.scanning) {
+      await library.changes.firstWhere((state) => !state.scanning);
+    }
+    if (library.state.rootPaths.isEmpty) await library.scanDirectories(roots);
+    // Keep partial scan diagnostics in the library. Each selected instance
+    // reports its own missing resources without blocking available peers.
+  }
+
   Future<void> _operations = Future.value();
   final _starts = <String, Future<RuntimeInstance>>{};
+  final _startGenerations = <String, int>{};
+  final _startErrors = <String, String>{};
+  String? startErrorFor(String id) => _startErrors[id];
   final _startCancellations = <String, DecisionCancellation>{};
   final _runOrigins = <String, EngineRegistration>{};
   final _appliedContexts = <String, int?>{};
@@ -377,6 +396,8 @@ class LaunchInstances {
     final previous = find(id);
     await _write(definitions.where((v) => v.id != id).toList());
     _appliedContexts.remove(id);
+    _startErrors.remove(id);
+    _startGenerations.remove(id);
     if (previous != null) names.release('instance:$id', previous.publicName);
   });
 
@@ -470,11 +491,18 @@ class LaunchInstances {
   }
 
   Future<RuntimeInstance> start(String id) {
+    if (!catalog.runtimeEnabled) return Future.error(StateError('引擎总开关已关闭'));
+    final generation = catalog.runtimeGeneration;
     final current = _starts[id];
-    if (current != null) return current;
+    if (current != null) {
+      if (_startGenerations[id] == generation) return current;
+      return current.then((_) => start(id), onError: (Object _) => start(id));
+    }
+    _startErrors.remove(id);
+    _startGenerations[id] = generation;
     final token = DecisionCancellation();
     _startCancellations[id] = token;
-    final operation = _start(id, token);
+    final operation = _start(id, token, generation);
     _starts[id] = operation;
     unawaited(
       operation.then<void>(
@@ -483,7 +511,11 @@ class LaunchInstances {
           _startCancellations.remove(id);
           _publish();
         },
-        onError: (Object _) {
+        onError: (Object error) {
+          if (catalog.runtimeEnabled &&
+              catalog.runtimeGeneration == generation) {
+            _startErrors[id] = '$error';
+          }
           _starts.remove(id);
           _startCancellations.remove(id);
           _publish();
@@ -496,8 +528,10 @@ class LaunchInstances {
   Future<RuntimeInstance> _start(
     String id,
     DecisionCancellation cancellation,
+    int generation,
   ) async {
     if (_closed) throw StateError('实例管理已关闭');
+    catalog.requireRuntimeEnabled();
     final definition = find(id);
     if (definition == null) throw StateError('实例已删除');
     final ready = runsFor(id)
@@ -557,6 +591,15 @@ class LaunchInstances {
     } else {
       throw StateError('此引擎尚未接通模型运行');
     }
+    void checkCurrent() {
+      if (!catalog.runtimeEnabled ||
+          catalog.runtimeGeneration != generation ||
+          cancellation.isCancelled) {
+        throw StateError('实例启动已取消');
+      }
+    }
+
+    checkCurrent();
     if (!cancellation.isCancelled &&
         run.hasLiveProcess &&
         run.acceptingRequests &&
@@ -571,6 +614,7 @@ class LaunchInstances {
         _publish();
       }
     }
+    checkCurrent();
     return run;
   }
 

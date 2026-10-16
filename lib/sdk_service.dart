@@ -29,11 +29,18 @@ class StartupModelSet {
   static const int schema = 1;
   final File file;
   List<StartupModelEntry> _entries = const [];
+  bool _autoOpenEngines = false;
+  bool get autoOpenEngines => _autoOpenEngines;
+  final _changes = StreamController<void>.broadcast();
+  Stream<void> get changes => _changes.stream;
+  bool _closed = false;
+  Future<void>? _closing;
   bool _loaded = false;
   Future<void> _operations = Future.value();
   List<StartupModelEntry> get entries => List.unmodifiable(_entries);
   bool contains(String id) => _entries.any((entry) => entry.instanceId == id);
   Future<void> _serial(Future<void> Function() action) {
+    if (_closed) return Future.error(StateError('自启动设置已关闭'));
     final operation = _operations.then((_) => action());
     _operations = operation.then<void>((_) {}, onError: (Object _) {});
     return operation;
@@ -49,6 +56,10 @@ class StartupModelSet {
     final value = jsonDecode(await file.readAsString());
     if (value is! Map || value['schema'] != schema) {
       throw const FormatException('启动模型集合配置版本不受支持');
+    }
+    if (value.containsKey('auto_open_engines') &&
+        value['auto_open_engines'] is! bool) {
+      throw const FormatException('总开关自启动配置需要布尔值');
     }
     if (value['entries'] is! List) {
       throw const FormatException('启动模型集合配置缺少 entries');
@@ -67,7 +78,9 @@ class StartupModelSet {
       throw const FormatException('启动集合实例重复');
     }
     _entries = List.unmodifiable(parsed);
+    _autoOpenEngines = value['auto_open_engines'] == true;
     _loaded = true;
+    _changes.add(null);
   }
 
   Future<void> add(String id) => _serial(() async {
@@ -83,18 +96,34 @@ class StartupModelSet {
       await _write(_entries.where((entry) => entry.instanceId != id).toList());
     }
   });
-  Future<void> _write(List<StartupModelEntry> next) async {
+  Future<void> saveAutoOpenEngines(bool enabled) => _serial(() async {
+    await _load();
+    await _write(_entries, autoOpenEngines: enabled);
+  });
+
+  Future<void> close() {
+    _closed = true;
+    return _closing ??= _operations.then((_) => _changes.close());
+  }
+
+  Future<void> _write(
+    List<StartupModelEntry> next, {
+    bool? autoOpenEngines,
+  }) async {
     await file.parent.create(recursive: true);
     final temporary = File('${file.path}.tmp');
     await temporary.writeAsString(
       jsonEncode({
         'schema': schema,
         'entries': next.map((entry) => entry.toJson()).toList(),
+        'auto_open_engines': autoOpenEngines ?? _autoOpenEngines,
       }),
       flush: true,
     );
     await temporary.rename(file.path);
     _entries = List.unmodifiable(next);
+    _autoOpenEngines = autoOpenEngines ?? _autoOpenEngines;
+    _changes.add(null);
   }
 
   static String _home() {

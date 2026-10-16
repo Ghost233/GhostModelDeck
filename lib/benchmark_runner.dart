@@ -16,10 +16,12 @@ class BenchmarkRunner {
     required this.client,
     required this.store,
     required this.models,
+    this.requireRuntimeEnabled,
   });
   final JevPlayground client;
   final BenchmarkRunStore store;
   final JevModels models;
+  final void Function()? requireRuntimeEnabled;
   final _changes = StreamController<BenchmarkRun>.broadcast();
   BenchmarkRun? current;
   List<String> _selectedSuiteIds = const [];
@@ -186,6 +188,7 @@ class BenchmarkRunner {
     List<String>? preparingSuiteIds,
   }) {
     if (_closed) throw StateError('评测执行器已关闭');
+    requireRuntimeEnabled?.call();
     final previousFailure = _terminalFailure;
     if (previousFailure != null) {
       Error.throwWithStackTrace(previousFailure.error, previousFailure.stack);

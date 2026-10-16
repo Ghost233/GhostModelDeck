@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
+import 'autostart_settings.dart';
+import 'launch_instances.dart';
+import 'sdk_service.dart';
 import 'download_preferences.dart';
 import 'model_downloader.dart';
 import 'software_update_pane.dart';
@@ -17,8 +20,12 @@ class SettingsPage extends StatefulWidget {
     this.libraryPaths,
     this.onLibraryPathsChanged,
     this.softwareUpdate,
+    this.startupSet,
+    this.instances,
   });
 
+  final StartupModelSet? startupSet;
+  final LaunchInstances? instances;
   final DownloadPreferences preferences;
   final String libraryPath;
   final List<String>? libraryPaths;
@@ -135,6 +142,13 @@ class _SettingsPageState extends State<SettingsPage> {
                 0,
                 const ValueKey('settings-nav-general'),
               ),
+              if (widget.startupSet != null && widget.instances != null)
+                _navItem(
+                  '启动',
+                  Icons.power_settings_new,
+                  2,
+                  const ValueKey('settings-nav-startup'),
+                ),
               _navItem(
                 '软件更新',
                 Icons.system_update_alt_rounded,
@@ -147,9 +161,14 @@ class _SettingsPageState extends State<SettingsPage> {
         VerticalDivider(width: 1, color: scheme.outlineVariant),
         const SizedBox(width: 24),
         Expanded(
-          child: _pane == 0
-              ? _buildGeneralPane(context)
-              : SoftwareUpdatePane(config: widget.softwareUpdate),
+          child: switch (_pane) {
+            0 => _buildGeneralPane(context),
+            2 => AutostartSettings(
+              settings: widget.startupSet!,
+              instances: widget.instances!,
+            ),
+            _ => SoftwareUpdatePane(config: widget.softwareUpdate),
+          },
         ),
       ],
     );

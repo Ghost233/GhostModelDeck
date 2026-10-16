@@ -13,6 +13,55 @@ import 'package:ghost_model_deck/model_downloader.dart';
 import 'fixtures/playground_runtime.dart';
 
 void main() {
+  test('master off cancels its evaluation batch without consuming later questions or stopping HTTP/MCP', () async {
+    late BenchmarkRunner runner;
+    final fixture = await PlaygroundRuntime.create(
+      onRuntimeClosing: () => runner.cancel(),
+    );
+    final store = BenchmarkRunStore(
+      directory: Directory('${fixture.runtime.root.path}/history'),
+    );
+    runner = BenchmarkRunner(
+      client: fixture.playground,
+      store: store,
+      models: fixture.council.models,
+      requireRuntimeEnabled: fixture.runtime.catalog.requireRuntimeEnabled,
+    );
+    addTearDown(fixture.close);
+    addTearDown(store.close);
+    addTearDown(runner.close);
+    final arrived = Completer<void>(), held = Completer<void>();
+    addTearDown(() {
+      if (!held.isCompleted) held.complete();
+    });
+    fixture.runtime.io.respond = (body, raw) async {
+      if (!arrived.isCompleted) arrived.complete();
+      await held.future;
+      return raw;
+    };
+    final suite = await DecideBenchSuite.load(
+      Directory('benchmarks/sources/decidebench'),
+    );
+    final operation = runner.run(suite: suite, model: 'native-kev');
+    await arrived.future.timeout(const Duration(seconds: 5));
+    await fixture.runtime.catalog
+        .setRuntimeEnabled(false)
+        .timeout(const Duration(seconds: 5));
+    final result = await operation.timeout(const Duration(seconds: 5));
+    expect(result.status, BenchmarkRunStatus.cancelled);
+    expect(result.summary['complete'], isFalse);
+    expect(fixture.runtime.io.requests, hasLength(1));
+    expect(fixture.gateway.baseUrl, isNotNull);
+    expect(fixture.mcp.endpoint, isNotNull);
+    expect(
+      () => runner.run(suite: suite, model: 'native-kev'),
+      throwsStateError,
+    );
+    final persisted = await store.load(result.id);
+    expect(persisted.status, BenchmarkRunStatus.cancelled);
+    held.complete();
+  });
+
   test('explicit application shutdown seals and flushes its benchmark before releasing services', () async {
     final fixture = await PlaygroundRuntime.create();
     final resources = BenchmarkResources(
