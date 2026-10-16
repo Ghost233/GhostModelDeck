@@ -282,11 +282,42 @@ class CouncilMcpServer {
   McpServer _createProtocol() {
     final mcp = McpServer(
       const Implementation(name: 'ghostmodeldeck', version: '0.1.0'),
-      options: const McpServerOptions(protocol: McpProtocol.stable),
+      options: const McpServerOptions(
+        protocol: McpProtocol.stable,
+        instructions: '''
+本服务提供用于程序内部的局部语义判断。
+
+当调用者已有明确状态和有限候选项，需要进行分类、语义匹配、
+路由或下一步动作选择时，优先使用本服务。
+确定性的计算、精确匹配和排序使用代码；复杂规划和开放式生成由主模型完成。
+
+单个选择使用 decide_jev；共享同一 state 的多个独立判断
+使用 decide_jev_batch。model 必填，使用已配置的调用名称；
+已有有效模型名称时直接复用，无需每步重新列出模型。
+
+当宿主允许从 JavaScript 编排环境调用相关工具时，
+可以在同一循环中连续观察、判断、执行和验证。
+Kev 返回结构化判断，实际操作由宿主工具执行。
+
+调用端应设置步数和时间上限。缺少有效候选、连续操作无进展、
+执行失败或需要重新规划时，携带当前状态和操作记录交回主模型。
+若需要 Kev 主动选择交回，应在候选项中显式提供 handoff。
+
+confidence 描述分布形状，不代表正确率。
+任务完成应依据实际状态和验收条件验证。
+''',
+      ),
     );
     mcp.registerTool(
       toolName,
-      description: '按必填 model 调用已配置的原生 JEV 或委员会，返回标准 JEV choice 结果。用 list_jev_models 发现当前可调用名称。',
+      description: '''
+根据已有状态，从有限候选项中完成一次局部语义选择，
+适用于分类、匹配、路由和下一步动作选择。
+model 必填，state 提供判断依据，options 提供候选项，
+instructions 指定本次判断目标。
+返回 choice、probabilities 和 confidence。
+共享同一状态的多个判断使用 decide_jev_batch。
+''',
       inputSchema: JsonObject.fromJson(_inputSchema),
       outputSchema: JsonObject.fromJson(_outputSchema),
       annotations: const ToolAnnotations(
@@ -297,7 +328,13 @@ class CouncilMcpServer {
     );
     mcp.registerTool(
       batchToolName,
-      description: '按必填 model 批量调用 choice、score、noul，返回 model/answers/usage。confidence 描述分布形状，不表示正确率。',
+      description: '''
+针对共享同一 state 的多个独立问题，在一次请求中返回结构化判断。
+支持的题型包括 choice、score、noul，具体以所选模型的能力验证为准。
+适用于同时进行多个分类、评分或条件判断，减少重复请求。
+各问题独立判断；有前后依赖的问题应分步调用。
+confidence 描述分布形状，不代表正确率。
+''',
       inputSchema: JsonObject.fromJson(_batchInputSchema),
       outputSchema: JsonObject.fromJson(_batchOutputSchema),
       annotations: const ToolAnnotations(
@@ -308,7 +345,12 @@ class CouncilMcpServer {
     );
     mcp.registerTool(
       discoveryToolName,
-      description: '列出当前具有唯一可用绑定的 JEV 调用名称和来源类型；实际请求还需题型能力验证。',
+      description: '''
+列出当前具有唯一可用绑定的模型调用名称及来源类型。
+在首次选择模型、模型名称未知或调用提示模型不可用时使用；
+已有有效名称时直接复用。
+列出模型不代表该模型支持所有题型，实际请求仍需能力验证。
+''',
       inputSchema: JsonObject.fromJson(const {
         'type': 'object',
         'additionalProperties': false,

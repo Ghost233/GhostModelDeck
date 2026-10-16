@@ -6,10 +6,10 @@
 
 <!-- 每次发布前人工更新本节；workflow 不自动推导变更内容。 -->
 
-- 修复 Julia-1 等决策 GGUF 省略可选温度字段时，被 GMD 误判为模型不完整、无法启动的问题。缺省温度交给 llama.cpp 使用默认值 1。
-- 显式非法温度仍会报错，scorer 尺寸等原有检查继续保留。回归覆盖缺省温度、零温度和错误 scorer。
-- 真实 Julia-1、Laya、Kev-0.8B 已通过 llama.cpp 的短公开 JEV 调用；修复后的 GMD 三成员委员会返回全部席位成功。未运行模型评测题集。
-- 固定 SDK 的 macOS 宿主完整门禁 1003 项通过，版本修改另做相关检查、arm64 构建和本地打包预检。
+- MCP 服务器新增用法说明，指导局部语义判断、模型调用名复用、循环上限和交回主模型。
+- 更新 decide_jev、decide_jev_batch 和 list_jev_models 的工具描述，保留现有接口和参数结构。
+- 明确批量判断共享同一 state，有前后依赖的问题分步调用。JavaScript 编排和实际操作取决于宿主支持及权限。
+- 明确 confidence 描述分布形状，不代表正确率；任务完成仍需根据实际状态和验收条件验证。
 - 只提供 macOS arm64（Apple Silicon）应用及配套运行时，不提供 Intel/x64、Linux、Windows 或通用双架构包。
 
 ## 资产

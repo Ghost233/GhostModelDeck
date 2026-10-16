@@ -60,6 +60,70 @@ Future<(int, dynamic)> _http(
 }
 
 void main() {
+  for (final protocol in [McpProtocol.stable, McpProtocol.legacy]) {
+    test(
+      'MCP $protocol publishes usage guidance and local decision boundaries',
+      () async {
+        final runtime = await CouncilRuntime.create(modelCount: 0);
+        addTearDown(runtime.close);
+        final council = CouncilController(catalog: runtime.catalog);
+        addTearDown(council.close);
+        final server = CouncilMcpServer(controller: council, port: 0);
+        addTearDown(server.close);
+        await server.start();
+        final client = await _connect(
+          server.endpoint!,
+          protocol: protocol,
+          protocolVersion: protocol == McpProtocol.legacy ? '2025-06-18' : null,
+        );
+        addTearDown(client.close);
+        expect(
+          client.getInstructions(),
+          allOf([
+            contains('局部语义判断'),
+            contains('确定性的计算、精确匹配和排序使用代码'),
+            contains('已有有效模型名称时直接复用'),
+            contains('当宿主允许从 JavaScript 编排环境调用相关工具时'),
+            contains('实际操作由宿主工具执行'),
+            contains('步数和时间上限'),
+            contains('携带当前状态和操作记录交回主模型'),
+            contains('在候选项中显式提供 handoff'),
+            contains('confidence 描述分布形状，不代表正确率'),
+            contains('任务完成应依据实际状态和验收条件验证'),
+          ]),
+        );
+        final tools = {
+          for (final tool in (await client.listTools()).tools) tool.name: tool,
+        };
+        expect(
+          tools[CouncilMcpServer.toolName]!.description,
+          allOf(
+            contains('有限候选项'),
+            contains('model 必填'),
+            contains('共享同一状态的多个判断使用 decide_jev_batch'),
+          ),
+        );
+        expect(
+          tools[CouncilMcpServer.batchToolName]!.description,
+          allOf(
+            contains('共享同一 state 的多个独立问题'),
+            contains('有前后依赖的问题应分步调用'),
+            contains('具体以所选模型的能力验证为准'),
+            contains('confidence 描述分布形状，不代表正确率'),
+          ),
+        );
+        expect(
+          tools[CouncilMcpServer.discoveryToolName]!.description,
+          allOf(
+            contains('首次选择模型、模型名称未知或调用提示模型不可用时使用'),
+            contains('已有有效名称时直接复用'),
+            contains('不代表该模型支持所有题型'),
+          ),
+        );
+        expect(runtime.engine.state.instances, isEmpty);
+      },
+    );
+  }
   test('HTTP and MCP report saved member partial results without borrowing an unbound peer', () async {
     final runtime = await CouncilRuntime.create(
       modelCount: 1,
