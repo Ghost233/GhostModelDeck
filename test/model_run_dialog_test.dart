@@ -74,6 +74,7 @@ void main() {
         );
         await _settleFilesystemFrames(tester);
         Future<void> edit() async {
+          await tester.ensureVisible(find.text('编辑参数'));
           await tester.tap(find.text('编辑参数'));
           await _settleFilesystemFrames(tester);
           final field = find.byKey(
@@ -130,6 +131,7 @@ void main() {
         ),
       );
       await _settleFilesystemFrames(tester);
+      await tester.runAsync(() => _openInstanceMore(tester, definition.id));
       final budget = find.text('JEV 预算 60 秒');
       await tester.ensureVisible(budget);
       await tester.runAsync(() => tester.tap(budget));
@@ -151,7 +153,10 @@ void main() {
         await saved.timeout(const Duration(seconds: 5));
       });
       await _settleFilesystemFrames(tester);
+      await tester.runAsync(() => _openInstanceMore(tester, definition.id));
       expect(find.text('JEV 预算 17 秒'), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
       expect(
         store.find(definition.id)!.configuration.toJson(),
         definition.configuration.toJson(),
@@ -199,9 +204,13 @@ void main() {
         );
         expect(
           tester
-              .widget<TextButton>(find.widgetWithText(TextButton, '删除配置'))
-              .onPressed,
-          isNull,
+              .widget<PopupMenuButton<String>>(
+                find.byKey(
+                  ValueKey('instance-more:${store.definitions.single.id}'),
+                ),
+              )
+              .enabled,
+          isFalse,
         );
         gate.complete();
         await tester.pump();
@@ -300,6 +309,7 @@ void main() {
             find.textContaining('usage and full runtime details'),
             findsNothing,
           );
+          await tester.ensureVisible(find.widgetWithText(TextButton, '编辑参数'));
           expect(
             find.widgetWithText(TextButton, '编辑参数').hitTestable(),
             findsOneWidget,
@@ -431,6 +441,7 @@ void main() {
           expect(store.definitions.single.artifactId, asset.id);
           expect(fixture.engine.runtimeInstances, isEmpty);
           final displayName = store.definitions.single.name;
+          await _openInstanceMore(tester, store.definitions.single.id);
           await tester.tap(find.text('修改调用名'));
           await _settleFilesystemFrames(tester);
           await tester.enterText(
@@ -455,7 +466,7 @@ void main() {
           await tester.pump(const Duration(milliseconds: 300));
           expect(store.definitions.single.publicName, 'fast-model');
           expect(store.definitions.single.name, displayName);
-          expect(find.textContaining('公开模型 ID  fast-model'), findsOneWidget);
+          expect(find.text('fast-model'), findsOneWidget);
           expect(tester.takeException(), isNull);
         } finally {
           await tester.pumpWidget(const SizedBox.shrink());
@@ -832,6 +843,7 @@ void main() {
           ),
         );
         await _settleFilesystemFrames(tester);
+        await tester.ensureVisible(find.byTooltip('模型参数'));
         await tester.tap(find.byTooltip('模型参数'));
         await tester.pump();
         await fixture.catalog.refresh();
@@ -879,6 +891,7 @@ void main() {
         isFalse,
       );
       await tester.runAsync(() async {
+        await tester.ensureVisible(find.byTooltip('模型参数'));
         await tester.tap(find.byTooltip('模型参数'));
         await tester.pump();
         await fixture.catalog.refresh();
@@ -906,6 +919,7 @@ void main() {
       );
       await tester.runAsync(
         () => HttpOverrides.runWithHttpOverrides(() async {
+          await tester.ensureVisible(find.widgetWithText(TextButton, '运行'));
           await tester.tap(find.widgetWithText(TextButton, '运行'));
           final ready = fixture.engine.changes.firstWhere(
             (state) => state.instances.any(
@@ -1172,6 +1186,7 @@ void main() {
                   (instance.error?.contains(diagnostic) ?? false),
             ),
           );
+          await tester.ensureVisible(find.widgetWithText(TextButton, '运行'));
           await tester.tap(find.widgetWithText(TextButton, '运行'));
           await failed.timeout(const Duration(seconds: 5));
           await fixture.catalog.refresh();
@@ -1738,6 +1753,7 @@ void main() {
       });
       await tester.pumpAndSettle();
       await tester.runAsync(() async {
+        await tester.ensureVisible(find.byTooltip('启动参数'));
         await tester.tap(find.byTooltip('启动参数'));
         await catalog.readParameters(EngineCatalog.officialId);
       });
@@ -1866,6 +1882,7 @@ void main() {
       });
       await tester.pumpAndSettle();
       await tester.runAsync(() async {
+        await tester.ensureVisible(find.byTooltip('启动参数'));
         await tester.tap(find.byTooltip('启动参数'));
         await catalog.readParameters(EngineCatalog.officialId);
       });
@@ -1897,6 +1914,7 @@ void main() {
         await _settleFilesystemFrames(tester);
       });
       await tester.runAsync(() async {
+        await tester.ensureVisible(find.byTooltip('模型参数'));
         await tester.tap(find.byTooltip('模型参数'));
         // Build the real dialog in the I/O zone before queuing a refresh behind
         // its own refresh. Leaving this zone earlier strands its loading state.
@@ -1935,6 +1953,7 @@ void main() {
               (instance) => instance.status == LlamaInstanceStatus.ready,
             ),
           );
+          await tester.ensureVisible(find.widgetWithText(TextButton, '运行'));
           await tester.tap(find.widgetWithText(TextButton, '运行'));
           await ready.timeout(const Duration(seconds: 5));
         }, _NetworkBoundary()),
@@ -1963,6 +1982,8 @@ void main() {
         '--device',
         'MTL0',
       ]);
+      await _openLibraryDetails(tester, instance.asset.id);
+      await tester.ensureVisible(find.byTooltip('实际启动命令'));
       await tester.tap(find.byTooltip('实际启动命令'));
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('复制命令'));
@@ -2437,6 +2458,7 @@ void main() {
             }
             await Future<void>.delayed(const Duration(milliseconds: 10));
           }
+          await tester.ensureVisible(find.byTooltip('模型参数'));
           await tester.tap(find.byTooltip('模型参数'));
           for (var n = 0; n < 100; n++) {
             await tester.pump();
@@ -2486,11 +2508,16 @@ void main() {
                 (instance) => instance.status == LlamaInstanceStatus.ready,
               ),
             );
+            await tester.ensureVisible(find.widgetWithText(TextButton, '运行'));
             await tester.tap(find.widgetWithText(TextButton, '运行'));
             await completed.timeout(const Duration(seconds: 5));
           }, _NetworkBoundary()),
         );
         await tester.runAsync(() => _settleFilesystemFrames(tester));
+        await _openLibraryDetails(
+          tester,
+          fresh.state.instances.single.asset.id,
+        );
         expect(find.text('运行中'), findsOneWidget);
         expect(find.text('运行模型'), findsNothing);
         expect(find.widgetWithText(TextButton, '停止'), findsOneWidget);
@@ -2727,6 +2754,7 @@ Future<void> _openTextEditor(
   });
   await tester.pumpAndSettle();
   await tester.runAsync(() async {
+    await tester.ensureVisible(find.byTooltip('启动参数'));
     await tester.tap(find.byTooltip('启动参数'));
     await fixture.catalog.readParameters(EngineCatalog.officialId);
   });
@@ -2932,4 +2960,22 @@ class _RejectedRuntimeChild implements EngineChild {
   Stream<List<int>> get stderr => Stream.value(utf8.encode('$diagnostic\n'));
   @override
   bool kill(ProcessSignal signal) => true;
+}
+
+Future<void> _openLibraryDetails(WidgetTester tester, String artifactId) async {
+  await tester.runAsync(() async {
+    final more = find.byKey(ValueKey('model-more:$artifactId'));
+    await tester.ensureVisible(more);
+    await tester.tap(more);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('文件详情').last);
+    await tester.pumpAndSettle();
+  });
+}
+
+Future<void> _openInstanceMore(WidgetTester tester, String instanceId) async {
+  final more = find.byKey(ValueKey('instance-more:$instanceId'));
+  await tester.ensureVisible(more);
+  await tester.tap(more);
+  await tester.pumpAndSettle();
 }

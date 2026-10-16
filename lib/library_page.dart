@@ -13,6 +13,9 @@ import 'engine_launch_editor.dart';
 import 'llama_engine.dart';
 import 'model_run_dialog.dart';
 import 'public_gateway.dart';
+import 'management_table.dart';
+
+typedef _ModelRow = ({LocalModelPackage package, LocalModelVariant variant});
 
 class LibraryPage extends StatefulWidget {
   const LibraryPage({
@@ -43,11 +46,8 @@ class LibraryPage extends StatefulWidget {
 
 class _LibraryPageState extends State<LibraryPage> {
   final _selected = <String>{};
-  final _variantIds = <String, String>{};
-  final _expanded = <String>{};
   final _stopping = <String>{};
   final _starting = <String>{};
-  final _filter = TextEditingController();
   LibraryState? _packageState;
   String? _packagePath;
   Future<LocalModelPackages>? _packageFuture;
@@ -88,8 +88,6 @@ class _LibraryPageState extends State<LibraryPage> {
     if (oldWidget.roots.join('\n') != widget.roots.join('\n') ||
         oldWidget.library != widget.library) {
       _selected.clear();
-      _variantIds.clear();
-      _expanded.clear();
       _scan();
     }
   }
@@ -211,7 +209,6 @@ class _LibraryPageState extends State<LibraryPage> {
   void dispose() {
     _engineChanges?.cancel();
     _routeChanges?.cancel();
-    _filter.dispose();
     super.dispose();
   }
 
@@ -258,417 +255,322 @@ class _LibraryPageState extends State<LibraryPage> {
     );
   }
 
-  LocalModelVariant _variant(LocalModelPackage package) =>
-      package.variants.firstWhere(
-        (variant) => variant.id == _variantIds[package.id],
-        orElse: () => package.variants.first,
-      );
+  List<String> _deletableIds(
+    List<_ModelRow> rows,
+    Iterable<_ModelRow> selected,
+  ) {
+    final chosen = selected.toList();
+    final ids = chosen.map((row) => row.variant.id).toSet();
+    final retained = rows
+        .where((row) => !ids.contains(row.variant.id))
+        .expand((row) => row.variant.artifactIds)
+        .toSet();
+    return chosen
+        .expand((row) => row.variant.artifactIds)
+        .where((id) => !retained.contains(id))
+        .toSet()
+        .toList();
+  }
+
+  Future<void> _revealModelDirectory(String path) async {
+    try {
+      await const MethodChannel('com.ghost233.ghostmodeldeck/native')
+          .invokeMethod<void>('revealInFinder', {'path': path});
+    } catch (error) {
+      if (mounted) setState(() => _operationError = 'Finder 打开失败：$error');
+    }
+  }
+
+  Future<void> _showModelDetails(_ModelRow row) => showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(row.package.name),
+      content: SizedBox(
+        width: MediaQuery.sizeOf(context).width,
+        height: MediaQuery.sizeOf(context).height * .6,
+        child: StreamBuilder<EngineCatalogState>(
+          stream: widget.engines?.changes,
+          initialData: widget.engines?.state,
+          builder: (context, _) => StreamBuilder<void>(
+            stream: widget.publicRoutes?.changes,
+            builder: (context, _) => ListView(
+              children: [
+                Text('${row.variant.label} · ${_size(row.variant.sizeBytes)}'),
+                const SizedBox(height: 12),
+                for (final file in row.variant.files.take(20))
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: SelectableText(
+                      '${file.path} · ${_size(file.sizeBytes)}',
+                    ),
+                  ),
+                if (row.variant.files.length > 20)
+                  Text('共 ${row.variant.files.length} 个文件；完整目录可在 Finder 查看。'),
+                if (widget.onCreateInstance == null) ...[
+                  for (final run
+                      in widget.engines
+                              ?.runsFor(row.variant.artifactIds)
+                              .take(20) ??
+                          <EngineRun>[])
+                    _runRow(run, _deleting),
+                  if (widget.publicRoutes != null &&
+                      row.variant.artifacts.length == 1 &&
+                      [
+                        AssetKind.chat,
+                        AssetKind.embedding,
+                      ].contains(row.variant.artifacts.single.kind))
+                    _publicApiRow(row.variant.artifacts.single),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => _revealModelDirectory(row.package.directoryPath),
+          child: const Text('在 Finder 中显示'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('关闭'),
+        ),
+      ],
+    ),
+  );
+
+  Widget _tableActions(_ModelRow row, List<_ModelRow> all, bool busy) => Wrap(
+    crossAxisAlignment: WrapCrossAlignment.center,
+    children: [
+      TextButton(
+        key: ValueKey('model-start:${row.variant.id}'),
+        onPressed: busy
+            ? null
+            : widget.onCreateInstance != null
+            ? () => widget.onCreateInstance!(row.variant.artifactIds.first)
+            : widget.engines == null || _starting.contains(row.variant.id)
+            ? null
+            : () => _startModel(row.variant),
+        child: Text(widget.onCreateInstance == null ? '运行' : '创建实例'),
+      ),
+      if (widget.onCreateInstance == null)
+        IconButton(
+          key: ValueKey('model-parameters:${row.variant.id}'),
+          tooltip: '模型参数',
+          icon: const Icon(Icons.tune, size: 18),
+          onPressed: busy || widget.engines == null
+              ? null
+              : () => showModelRunDialog(
+                  context,
+                  catalog: widget.engines!,
+                  library: widget.library,
+                  modelPackage: row.package,
+                  variant: row.variant,
+                ),
+        ),
+      PopupMenuButton<String>(
+        key: ValueKey('model-more:${row.variant.id}'),
+        tooltip: '更多',
+        enabled: !busy,
+        onSelected: (action) async {
+          if (action == 'details') {
+            await _showModelDetails(row);
+          } else if (action == 'folder') {
+            await _revealModelDirectory(row.package.directoryPath);
+          } else {
+            await _delete(_deletableIds(all, [row]));
+          }
+        },
+        itemBuilder: (_) => const [
+          PopupMenuItem(value: 'details', child: Text('文件详情')),
+          PopupMenuItem(value: 'folder', child: Text('在 Finder 中显示')),
+          PopupMenuItem(value: 'delete', child: Text('删除模型')),
+        ],
+      ),
+    ],
+  );
 
   @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<LibraryState>(
-      stream: widget.library.changes,
-      initialData: widget.library.state,
-      builder: (context, snapshot) {
-        final state = snapshot.data!;
-        return FutureBuilder<LocalModelPackages>(
-          future: _packagesFor(state),
-          builder: (context, grouped) {
-            final busy = _deleting;
-            final scanning =
-                widget.libraryPath.isNotEmpty &&
-                (_awaitingScan ||
-                    state.scanning ||
-                    grouped.connectionState != ConnectionState.done);
-            final catalog = scanning ? null : grouped.data;
-            final all = catalog?.packages ?? <LocalModelPackage>[];
-            final filter = _filter.text.trim().toLowerCase();
-            final packages = all
-                .where((package) => package.name.toLowerCase().contains(filter))
-                .toList();
-            final chosen = all
-                .where((package) => _selected.contains(package.id))
-                .toList();
-            final deleteIds = chosen
-                .expand((package) => package.artifactIds)
-                .toSet()
-                .toList();
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      '模型库',
-                      style: Theme.of(context).textTheme.headlineSmall,
-                    ),
-                    const Spacer(),
-                    IconButton(
-                      tooltip: '扫描',
-                      onPressed: scanning || busy || widget.libraryPath.isEmpty
-                          ? null
-                          : () => setState(_scan),
-                      icon: const Icon(Icons.refresh, size: 20),
-                    ),
-                    const SizedBox(width: 6),
-                    OutlinedButton.icon(
-                      onPressed: deleteIds.isEmpty || scanning || busy
-                          ? null
-                          : () => _delete(deleteIds),
-                      icon: const Icon(Icons.delete_outline, size: 18),
-                      label: const Text('删除模型'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-                if ((!_awaitingScan && state.error != null) ||
-                    _operationError != null ||
-                    widget.publicRoutes?.error != null ||
-                    grouped.hasError)
-                  Padding(
-                    key: const Key('library-operation-error'),
-                    padding: const EdgeInsets.only(top: 10),
-                    child: Text(
-                      _operationError ??
-                          state.error ??
-                          widget.publicRoutes?.error ??
-                          grouped.error.toString(),
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
+  Widget build(BuildContext context) => StreamBuilder<LibraryState>(
+    stream: widget.library.changes,
+    initialData: widget.library.state,
+    builder: (context, snapshot) {
+      final state = snapshot.data!;
+      return FutureBuilder<LocalModelPackages>(
+        future: _packagesFor(state),
+        builder: (context, grouped) {
+          final busy = _deleting;
+          final scanning =
+              widget.libraryPath.isNotEmpty &&
+              (_awaitingScan ||
+                  state.scanning ||
+                  grouped.connectionState != ConnectionState.done);
+          final rows = <_ModelRow>[
+            for (final package
+                in scanning
+                    ? <LocalModelPackage>[]
+                    : grouped.data?.packages ?? <LocalModelPackage>[])
+              for (final variant in package.variants)
+                (package: package, variant: variant),
+          ];
+          final chosen = rows
+              .where((row) => _selected.contains(row.variant.id))
+              .toList();
+          final deleteIds = _deletableIds(rows, chosen);
+          final error =
+              _operationError ??
+              state.error ??
+              widget.publicRoutes?.error ??
+              (grouped.hasError ? grouped.error.toString() : null);
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text('模型库', style: Theme.of(context).textTheme.headlineSmall),
+                  const Spacer(),
+                  IconButton(
+                    tooltip: '扫描',
+                    onPressed: scanning || busy || widget.libraryPath.isEmpty
+                        ? null
+                        : () => setState(_scan),
+                    icon: const Icon(Icons.refresh, size: 20),
                   ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _filter,
-                  onChanged: (_) => setState(() {}),
-                  decoration: const InputDecoration(
-                    hintText: '筛选模型',
-                    prefixIcon: Icon(Icons.search, size: 18),
+                  const SizedBox(width: 6),
+                  OutlinedButton.icon(
+                    onPressed: deleteIds.isEmpty || scanning || busy
+                        ? null
+                        : () => _delete(deleteIds),
+                    icon: const Icon(Icons.delete_outline, size: 18),
+                    label: const Text('删除模型'),
                   ),
-                ),
-                const SizedBox(height: 12),
+                ],
+              ),
+              if (error != null)
                 Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                  child: Row(
-                    children: [
-                      SizedBox(width: 36),
-                      Expanded(
-                        child: Text(
-                          '模型',
-                          style: Theme.of(context).textTheme.labelSmall,
-                        ),
-                      ),
-                      SizedBox(
-                        width: 120,
-                        child: Text(
-                          '变体',
-                          style: Theme.of(context).textTheme.labelSmall,
-                        ),
-                      ),
-                      SizedBox(
-                        width: 130,
-                        child: Text(
-                          '状态',
-                          style: Theme.of(context).textTheme.labelSmall,
-                        ),
-                      ),
-                      SizedBox(
-                        width: 80,
-                        child: Text(
-                          '大小',
-                          textAlign: TextAlign.right,
-                          style: Theme.of(context).textTheme.labelSmall,
-                        ),
-                      ),
-                      SizedBox(width: 64),
-                      SizedBox(width: 40),
-                      SizedBox(width: 28),
-                    ],
-                  ),
-                ),
-                const Divider(),
-                Expanded(
-                  child: scanning
-                      ? const Center(
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : packages.isEmpty
-                      ? const Center(child: Text('没有匹配的模型包'))
-                      : ListView.separated(
-                          itemCount: packages.length,
-                          separatorBuilder: (_, _) => const Divider(),
-                          itemBuilder: (context, index) {
-                            final package = packages[index];
-                            final variant = _variant(package);
-                            return Column(
-                              children: [
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 12,
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      SizedBox(
-                                        width: 36,
-                                        child: Checkbox(
-                                          value: _selected.contains(package.id),
-                                          onChanged: busy
-                                              ? null
-                                              : (_) => _toggle(package.id),
-                                        ),
-                                      ),
-                                      Expanded(
-                                        child: Tooltip(
-                                          message: package.directoryPath,
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                package.name.split('/').last,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: Theme.of(context)
-                                                    .textTheme
-                                                    .titleSmall,
-                                              ),
-                                              if (package.name.contains(
-                                                '/',
-                                              )) ...[
-                                                const SizedBox(height: 3),
-                                                Text(
-                                                  package.name.substring(
-                                                    0,
-                                                    package.name.lastIndexOf(
-                                                      '/',
-                                                    ),
-                                                  ),
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                  style: Theme.of(context)
-                                                      .textTheme
-                                                      .bodySmall,
-                                                ),
-                                              ],
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                      SizedBox(
-                                        width: 120,
-                                        child: package.variants.length == 1
-                                            ? Text(
-                                                variant.label,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: Theme.of(context)
-                                                    .textTheme
-                                                    .bodySmall,
-                                              )
-                                            : DropdownButton<String>(
-                                                value: variant.id,
-                                                isExpanded: true,
-                                                underline: const SizedBox(),
-                                                style: Theme.of(context)
-                                                    .textTheme
-                                                    .bodySmall,
-                                                items: package.variants
-                                                    .map(
-                                                      (item) =>
-                                                          DropdownMenuItem(
-                                                            value: item.id,
-                                                            child: Text(
-                                                              item.label,
-                                                              overflow:
-                                                                  TextOverflow
-                                                                      .ellipsis,
-                                                            ),
-                                                          ),
-                                                    )
-                                                    .toList(),
-                                                onChanged: busy
-                                                    ? null
-                                                    : (value) => setState(
-                                                        () =>
-                                                            _variantIds[package
-                                                                    .id] =
-                                                                value!,
-                                                      ),
-                                              ),
-                                      ),
-                                      SizedBox(
-                                        width: 130,
-                                        child: Align(
-                                          alignment: Alignment.centerLeft,
-                                          child: JevStatusChip(
-                                            label: _variantStatus(variant),
-                                            tone:
-                                                variant.artifacts.any(
-                                                  (asset) =>
-                                                      asset.integrity ==
-                                                      AssetIntegrity.corrupt,
-                                                )
-                                                ? JevStatusTone.error
-                                                : JevStatusTone.neutral,
-                                          ),
-                                        ),
-                                      ),
-                                      SizedBox(
-                                        width: 80,
-                                        child: Tooltip(
-                                          message:
-                                              '当前变体 ${_size(variant.sizeBytes)}',
-                                          child: Text(
-                                            _size(package.sizeBytes),
-                                            textAlign: TextAlign.right,
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .bodySmall,
-                                          ),
-                                        ),
-                                      ),
-                                      SizedBox(
-                                        width: widget.onCreateInstance == null
-                                            ? 64
-                                            : 88,
-                                        child: TextButton(
-                                          onPressed:
-                                              widget.onCreateInstance != null
-                                              ? busy
-                                                    ? null
-                                                    : () =>
-                                                          widget
-                                                              .onCreateInstance!(
-                                                            variant
-                                                                .artifactIds
-                                                                .first,
-                                                          )
-                                              : busy ||
-                                                    widget.engines == null ||
-                                                    !variant.artifacts.any(
-                                                      (asset) =>
-                                                          [
-                                                            AssetKind.decision,
-                                                            AssetKind.chat,
-                                                            AssetKind.embedding,
-                                                          ].contains(
-                                                            asset.kind,
-                                                          ) &&
-                                                          asset.integrity ==
-                                                              AssetIntegrity
-                                                                  .complete,
-                                                    )
-                                              ? null
-                                              : _starting.contains(variant.id)
-                                              ? null
-                                              : () => _startModel(variant),
-                                          child: Text(
-                                            widget.onCreateInstance == null
-                                                ? '运行'
-                                                : '创建实例',
-                                          ),
-                                        ),
-                                      ),
-                                      if (widget.onCreateInstance == null)
-                                        SizedBox(
-                                          width: 40,
-                                          child: IconButton(
-                                            tooltip: '模型参数',
-                                            icon: const Icon(
-                                              Icons.tune,
-                                              size: 18,
-                                            ),
-                                            onPressed:
-                                                busy ||
-                                                    widget.engines == null ||
-                                                    widget.onCreateInstance !=
-                                                        null
-                                                ? null
-                                                : () => showModelRunDialog(
-                                                    context,
-                                                    catalog: widget.engines!,
-                                                    library: widget.library,
-                                                    modelPackage: package,
-                                                    variant: variant,
-                                                  ),
-                                          ),
-                                        ),
-                                      SizedBox(
-                                        width: 28,
-                                        child: IconButton(
-                                          tooltip: '文件详情',
-                                          padding: EdgeInsets.zero,
-                                          onPressed: () => setState(() {
-                                            if (!_expanded.add(package.id)) {
-                                              _expanded.remove(package.id);
-                                            }
-                                          }),
-                                          icon: Icon(
-                                            _expanded.contains(package.id)
-                                                ? Icons.expand_less
-                                                : Icons.expand_more,
-                                            size: 18,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                for (final run
-                                    in widget.engines?.runsFor(
-                                          variant.artifactIds,
-                                        ) ??
-                                        <EngineRun>[])
-                                  if (widget.onCreateInstance == null)
-                                    _runRow(run, busy),
-                                if (widget.onCreateInstance == null &&
-                                    widget.publicRoutes != null &&
-                                    variant.artifacts.length == 1 &&
-                                    [
-                                      AssetKind.chat,
-                                      AssetKind.embedding,
-                                    ].contains(variant.artifacts.single.kind))
-                                  _publicApiRow(variant.artifacts.single),
-                                if (_expanded.contains(package.id))
-                                  Padding(
-                                    padding: const EdgeInsets.fromLTRB(
-                                      44,
-                                      4,
-                                      12,
-                                      12,
-                                    ),
-                                    child: Align(
-                                      alignment: Alignment.centerLeft,
-                                      child: SelectableText(
-                                        package.details
-                                            .map(_details)
-                                            .join('\n\n'),
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodyMedium
-                                            ?.copyWith(fontSize: 11),
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            );
-                          },
-                        ),
-                ),
-                Padding(
+                  key: const Key('library-operation-error'),
                   padding: const EdgeInsets.only(top: 10),
                   child: Text(
-                    '${packages.length} / ${all.length} 个模型包 · 已选 ${chosen.length} 个',
-                    style: Theme.of(context).textTheme.bodySmall,
+                    error,
+                    style: Theme.of(context).textTheme.bodyMedium
+                        ?.copyWith(color: Theme.of(context).colorScheme.error),
                   ),
                 ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
+              const SizedBox(height: 12),
+              Expanded(
+                child: scanning
+                    ? const Center(
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : ManagementTable<_ModelRow>(
+                        id: 'models',
+                        items: rows,
+                        rowKey: (row) => row.variant.id,
+                        searchText: (row) =>
+                            '${row.package.name} ${row.variant.label} ${row.package.directoryPath} ${row.variant.files.map((file) => file.path).join(' ')}',
+                        emptyLabel: '没有匹配的模型包',
+                        columns: [
+                          ManagementColumn(
+                            label: '模型名',
+                            minWidth: 230,
+                            flex: 2,
+                            compare: (a, b) =>
+                                a.package.name.compareTo(b.package.name),
+                            cell: (row) => Row(
+                              children: [
+                                Checkbox(
+                                  value: _selected.contains(row.variant.id),
+                                  onChanged: busy
+                                      ? null
+                                      : (_) => _toggle(row.variant.id),
+                                ),
+                                Expanded(
+                                  child: Text(
+                                    row.package.name,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          ManagementColumn(
+                            label: '格式',
+                            minWidth: 110,
+                            flex: 0,
+                            compare: (a, b) => a.variant.artifacts.first.format
+                                .compareTo(b.variant.artifacts.first.format),
+                            cell: (row) => Text(
+                              row.variant.artifacts
+                                  .map((asset) => asset.format)
+                                  .toSet()
+                                  .join(' / '),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          ManagementColumn(
+                            label: '量化',
+                            minWidth: 110,
+                            flex: 0,
+                            compare: (a, b) =>
+                                (a.variant.artifacts.first.quantization ?? '')
+                                    .compareTo(
+                                      b.variant.artifacts.first.quantization ??
+                                          '',
+                                    ),
+                            cell: (row) => Text(
+                              row.variant.artifacts.first.quantization ?? '—',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          ManagementColumn(
+                            label: '大小',
+                            minWidth: 100,
+                            flex: 0,
+                            compare: (a, b) => a.variant.sizeBytes.compareTo(
+                              b.variant.sizeBytes,
+                            ),
+                            cell: (row) => Text(_size(row.variant.sizeBytes)),
+                          ),
+                          ManagementColumn(
+                            label: '所在目录',
+                            minWidth: 230,
+                            flex: 3,
+                            compare: (a, b) => a.package.directoryPath
+                                .compareTo(b.package.directoryPath),
+                            cell: (row) => Tooltip(
+                              message: row.package.directoryPath,
+                              child: Text(
+                                row.package.directoryPath,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ),
+                          ManagementColumn(
+                            label: '操作',
+                            minWidth: 200,
+                            flex: 0,
+                            cell: (row) => _tableActions(row, rows, busy),
+                          ),
+                        ],
+                      ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  '${rows.length} 个模型变体 · 已选 ${chosen.length} 个',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
 
   void _toggle(String id) => setState(() {
     if (!_selected.add(id)) _selected.remove(id);
@@ -899,52 +801,6 @@ class _LibraryPageState extends State<LibraryPage> {
     ),
   );
 }
-
-String _variantStatus(LocalModelVariant variant) {
-  if (variant.artifacts.length == 1) return _status(variant.artifacts.single);
-  if (variant.artifacts.any(
-    (artifact) => artifact.integrity == AssetIntegrity.corrupt,
-  )) {
-    return '完整性不符';
-  }
-  return '模型文件组';
-}
-
-String _status(LibraryArtifact artifact) {
-  if (artifact.integrity == AssetIntegrity.corrupt) return '文件损坏';
-  if (artifact.kind == AssetKind.adapter) return 'Adapter · 不完整';
-  if (artifact.kind == AssetKind.encoder) return 'Encoder · 待配套';
-  if (artifact.integrity == AssetIntegrity.incomplete) return '缺文件 / Metadata';
-  if (artifact.kind == AssetKind.chat) return '聊天模型';
-  if (artifact.kind == AssetKind.unknown) return '${artifact.format} 模型';
-  if (artifact.kind == AssetKind.embedding) {
-    return artifact.embeddingDimensions == null
-        ? '嵌入模型'
-        : '嵌入模型 · ${artifact.embeddingDimensions} 维';
-  }
-  return '决策模型';
-}
-
-String _details(LibraryArtifact artifact) => [
-  if (artifact.repoId != null) '仓库  ${artifact.repoId}',
-  if (artifact.revision != null) 'Revision  ${artifact.revision}',
-  if (artifact.license != null) '许可证  ${artifact.license}',
-  if (artifact.architecture != null) '架构  ${artifact.architecture}',
-  if (artifact.decisionType != null) '决策类型  ${artifact.decisionType}',
-  '来源  ${artifact.sourceVerified ? '上游校验通过' : '未验证'}',
-  ...artifact.diagnostics,
-  ...artifact.files.map(
-    (file) => [
-      file.path,
-      if (file.sha256 != null)
-        'SHA-256 本地全量内容  ${file.sha256}'
-      else
-        '基础清单 · ${file.sizeBytes} bytes · ${file.modifiedAtUtc?.toIso8601String() ?? '时间未知'}',
-      if (file.sha256 == null && file.prefixSha256 != null)
-        '前缀 ${file.prefixBytes} bytes SHA-256  ${file.prefixSha256}',
-    ].join('\n'),
-  ),
-].join('\n');
 
 String _size(int bytes) {
   if (bytes < 1024) return '$bytes B';

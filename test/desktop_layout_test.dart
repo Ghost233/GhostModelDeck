@@ -16,6 +16,7 @@ import 'package:ghost_model_deck/download_panel.dart';
 import 'package:ghost_model_deck/download_preferences.dart';
 import 'package:ghost_model_deck/download_tasks_page.dart';
 import 'package:ghost_model_deck/engine_page.dart';
+import 'package:ghost_model_deck/engine_catalog.dart';
 import 'package:ghost_model_deck/engine_labels.dart';
 import 'package:ghost_model_deck/hf_model_browser.dart';
 import 'package:ghost_model_deck/library_page.dart';
@@ -242,7 +243,7 @@ void main() {
                           child: Padding(
                             padding: const EdgeInsets.all(12),
                             child: Text(
-                              'Widget fixture\nContainer renderer\n900 × 560\n'
+                              'Widget fixture\nmacOS arm64 widget test\n900 × 560\n'
                               'Content 647 × 502\n$mode\n\n'
                               'Sidebar allocation only\n'
                               'HF / engine I/O fixtures\nNot a Mac screenshot',
@@ -388,11 +389,37 @@ void main() {
             await tester.pumpAndSettle();
             expect(find.text('运行模型'), findsNothing);
           } else {
+            if (page == 'library' || page == 'engines') {
+              final tableTheme = Theme.of(
+                tester.element(find.byType(DataTable)),
+              ).dataTableTheme;
+              expect(tableTheme.dataTextStyle?.fontFamily, 'Layout Noto CJK');
+              expect(
+                tableTheme.headingTextStyle?.fontFamily,
+                'Layout Noto CJK',
+              );
+            }
             await _capture(tester, '$page-$mode');
             for (final operation in fixture.operations(page)) {
               await tester.ensureVisible(operation);
               await tester.pumpAndSettle();
               _expectVisible(tester, operation);
+            }
+            if (page == 'library') {
+              await _capture(tester, '$page-actions-$mode');
+            }
+            if (page == 'engines') {
+              final entry = fixture.runtime.catalog.state.entries.singleWhere(
+                (entry) => entry.source == EngineSource.linked,
+              );
+              final more = find.byKey(ValueKey('engine-more:${entry.id}'));
+              await tester.ensureVisible(more);
+              await tester.tap(more);
+              await tester.pumpAndSettle();
+              _expectVisible(tester, find.text('解除关联').last);
+              await _capture(tester, '$page-menu-$mode');
+              await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+              await tester.pumpAndSettle();
             }
             if (page == 'settings') {
               await tester.tap(find.byType(DropdownButton<DownloadSource>));
@@ -504,6 +531,10 @@ ButtonStyle? _readableButton(ButtonStyle? style) => style?.copyWith(
 ThemeData _readableTheme(ThemeData theme) => theme.copyWith(
   textTheme: theme.textTheme.apply(fontFamily: 'Layout Noto CJK'),
   primaryTextTheme: theme.primaryTextTheme.apply(fontFamily: 'Layout Noto CJK'),
+  dataTableTheme: theme.dataTableTheme.copyWith(
+    dataTextStyle: _readableText(theme.dataTableTheme.dataTextStyle),
+    headingTextStyle: _readableText(theme.dataTableTheme.headingTextStyle),
+  ),
   inputDecorationTheme: theme.inputDecorationTheme.copyWith(
     hintStyle: _readableText(theme.inputDecorationTheme.hintStyle),
     labelStyle: _readableText(theme.inputDecorationTheme.labelStyle),
@@ -753,7 +784,14 @@ class _LayoutFixture {
     'search' => [_action('搜索'), _action('下载')],
     'library' => [find.byTooltip('扫描'), _action('删除模型'), _action('运行')],
     'downloads' => [_action('重试')],
-    'engines' => [_action('关联引擎'), _action('解除关联')],
+    'engines' => [
+      _action('关联引擎'),
+      find.byKey(
+        ValueKey(
+          'engine-more:${runtime.catalog.state.entries.singleWhere((entry) => entry.source == EngineSource.linked).id}',
+        ),
+      ),
+    ],
     'settings' => [
       find.byType(DropdownButton<DownloadSource>),
       _action('选择目录'),

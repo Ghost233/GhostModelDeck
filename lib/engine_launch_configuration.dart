@@ -58,6 +58,24 @@ class EngineLaunchConfiguration {
   int? get contextLength {
     if (family == EngineFamily.omlx) return null;
     final name = family == EngineFamily.splash ? '--max-context' : '--ctx-size';
+    final normalized = _argumentValue(name)?.trim().toUpperCase();
+    final match = RegExp(
+      family == EngineFamily.splash ? r'^(\d+)(K)?$' : r'^(\d+)$',
+    ).firstMatch(normalized ?? '');
+    if (match == null) return null;
+    final count = int.tryParse(match[1]!);
+    if (count == null || count <= 0) return null;
+    return count * (match.groupCount > 1 && match[2] == 'K' ? 1024 : 1);
+  }
+
+  /// Native inference parallelism; HTTP admission and queue sizes are separate.
+  int? get inferenceConcurrency {
+    if (family != EngineFamily.llamaCpp) return null;
+    final value = int.tryParse(_argumentValue('--parallel') ?? '');
+    return value != null && value > 0 ? value : null;
+  }
+
+  String? _argumentValue(String name) {
     final rules = EngineParameterRecognition.builtIn(family: family);
     final List<String> arguments;
     try {
@@ -75,14 +93,7 @@ class EngineLaunchConfiguration {
           ? arguments[++i]
           : null;
     }
-    final normalized = value?.trim().toUpperCase();
-    final match = RegExp(
-      family == EngineFamily.splash ? r'^(\d+)(K)?$' : r'^(\d+)$',
-    ).firstMatch(normalized ?? '');
-    if (match == null) return null;
-    final count = int.tryParse(match[1]!);
-    if (count == null || count <= 0) return null;
-    return count * (match.groupCount > 1 && match[2] == 'K' ? 1024 : 1);
+    return value;
   }
 
   EngineLaunchCommand command({

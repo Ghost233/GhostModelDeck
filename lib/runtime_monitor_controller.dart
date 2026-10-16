@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'engine_runtime.dart';
 import 'launch_instances.dart';
 import 'runtime_monitor.dart';
+import 'engine_labels.dart';
 
 class MonitorTarget {
   const MonitorTarget({
@@ -14,6 +15,8 @@ class MonitorTarget {
     required this.status,
     this.run,
     this.source,
+    this.engineName = '—',
+    this.configuredConcurrency,
   });
   final String id;
   final String name;
@@ -21,14 +24,9 @@ class MonitorTarget {
   final String status;
   final RuntimeInstance? run;
   final RuntimeMonitorSource? source;
+  final String engineName;
+  final int? configuredConcurrency;
   String get identity => '$id/${run?.id}/${run?.generation}';
-}
-
-class SpeedSample {
-  const SpeedSample(this.time, this.prefill, this.decode);
-  final DateTime time;
-  final double? prefill;
-  final double? decode;
 }
 
 class MonitorReading {
@@ -37,20 +35,23 @@ class MonitorReading {
     this.telemetry,
     this.error,
     this.updatedAt,
-    List<SpeedSample> history = const [],
-  }) : history = List.unmodifiable(history);
+    this.minutePrefillPerSecond,
+    this.minuteDecodePerSecond,
+  });
   final MonitorTarget target;
   final RuntimeTelemetry? telemetry;
   final String? error;
   final DateTime? updatedAt;
-  final List<SpeedSample> history;
+  final double? minutePrefillPerSecond;
+  final double? minuteDecodePerSecond;
 }
 
 class RuntimeMonitorController extends ChangeNotifier {
   RuntimeMonitorController({
     required this.targets,
     this.interval = const Duration(seconds: 1),
-  });
+    DateTime Function()? now,
+  }) : now = now ?? DateTime.now;
   factory RuntimeMonitorController.forInstances(LaunchInstances instances) =>
       RuntimeMonitorController(
         targets: () {
@@ -67,39 +68,57 @@ class RuntimeMonitorController extends ChangeNotifier {
           }
           return [
             for (final definition in instances.definitions)
-              (() {
-                final owner = running[definition.id]?.$1;
-                final run = running[definition.id]?.$2;
-                final status = run == null
-                    ? instances.isStarting(definition.id)
-                          ? '启动中'
-                          : instances.missingReason(definition) ?? '已保存'
-                    : switch (run.status) {
-                        RuntimeInstanceStatus.starting => '启动中',
-                        RuntimeInstanceStatus.ready => '运行中',
-                        RuntimeInstanceStatus.stopping => '停止中',
-                        RuntimeInstanceStatus.stopped => '已停止',
-                        RuntimeInstanceStatus.failed => '失败',
-                      };
-                return MonitorTarget(
-                  id: definition.id,
-                  name: definition.name,
-                  publicName: definition.publicName,
-                  status: status,
-                  run: run,
-                  source: owner is RuntimeMonitorSource
-                      ? owner as RuntimeMonitorSource
-                      : null,
-                );
-              })(),
+              if (running.containsKey(definition.id) ||
+                  instances.isStarting(definition.id))
+                (() {
+                  final owner = running[definition.id]?.$1;
+                  final run = running[definition.id]?.$2;
+                  final status = run == null
+                      ? instances.isStarting(definition.id)
+                            ? '启动中'
+                            : instances.missingReason(definition) ?? '已保存'
+                      : switch (run.status) {
+                          RuntimeInstanceStatus.starting => '启动中',
+                          RuntimeInstanceStatus.ready => '运行中',
+                          RuntimeInstanceStatus.stopping => '停止中',
+                          RuntimeInstanceStatus.stopped => '已停止',
+                          RuntimeInstanceStatus.failed => '失败',
+                        };
+                  return MonitorTarget(
+                    id: definition.id,
+                    name: definition.name,
+                    publicName: definition.publicName,
+                    status: status,
+                    run: run,
+                    engineName: instances.runningOrigin(definition.id) == null
+                        ? '—'
+                        : engineDisplayName(
+                            instances.runningOrigin(definition.id)!,
+                          ),
+                    configuredConcurrency:
+                        run?.launchRevision == definition.revision
+                        ? definition.configuration.inferenceConcurrency
+                        : null,
+                    source: owner is RuntimeMonitorSource
+                        ? owner as RuntimeMonitorSource
+                        : null,
+                  );
+                })(),
           ];
         },
       );
 
   static const pageSize = 20;
-  static const historyLimit = 120;
+  static const minuteSampleLimit = 64;
   final List<MonitorTarget> Function() targets;
   final Duration interval;
+  final DateTime Function() now;
+  final _windows = <String, _MinuteWindows>{};
+  int get bufferedSampleCount => _windows.values.fold(
+    0,
+    (sum, window) =>
+        sum + window.prefill.sampleCount + window.decode.sampleCount,
+  );
   final _readings = <String, MonitorReading>{};
   List<MonitorTarget> _targets = [];
   List<MonitorTarget> get allTargets => List.unmodifiable(_targets);
@@ -147,6 +166,7 @@ class RuntimeMonitorController extends ChangeNotifier {
       _targets = targets();
       _page = _page.clamp(0, pageCount - 1);
       _readings.removeWhere((id, _) => !_targets.any((t) => t.id == id));
+      _windows.removeWhere((id, _) => !_targets.any((t) => t.id == id));
       final visible = _targets.skip(_page * pageSize).take(pageSize).toList();
       for (final target in visible) {
         final previous = _readings[target.id];
@@ -154,6 +174,7 @@ class RuntimeMonitorController extends ChangeNotifier {
             previous.target.identity != target.identity ||
             target.run?.status != RuntimeInstanceStatus.ready) {
           _readings[target.id] = MonitorReading(target);
+          _windows.remove(target.id);
         }
       }
       notifyListeners();
@@ -193,26 +214,28 @@ class RuntimeMonitorController extends ChangeNotifier {
                 current.identity != target.identity ||
                 current.run?.status != RuntimeInstanceStatus.ready) {
               _readings.remove(target.id);
+              _windows.remove(target.id);
               return;
             }
-            final time = DateTime.now();
-            final history = <SpeedSample>[
-              ...?_readings[target.id]?.history,
-              SpeedSample(
-                time,
-                telemetry?.prefillPerSecond,
-                telemetry?.decodePerSecond,
-              ),
-            ];
-            if (history.length > historyLimit) {
-              history.removeRange(0, history.length - historyLimit);
-            }
+            final time = now();
+            final windows = _windows.putIfAbsent(target.id, _MinuteWindows.new);
+            final prefill = windows.prefill.observe(
+              time,
+              telemetry?.promptTokens,
+              telemetry?.prefillSeconds,
+            );
+            final decode = windows.decode.observe(
+              time,
+              telemetry?.generatedTokens,
+              telemetry?.decodeSeconds,
+            );
             _readings[target.id] = MonitorReading(
               current,
               telemetry: telemetry,
               error: error,
               updatedAt: time,
-              history: history,
+              minutePrefillPerSecond: prefill,
+              minuteDecodePerSecond: decode,
             );
           }),
         );
@@ -231,6 +254,89 @@ class RuntimeMonitorController extends ChangeNotifier {
     _epoch++;
     _timer?.cancel();
     _cancellation?.cancel();
+    _windows.clear();
     super.dispose();
+  }
+}
+
+class _MinuteWindows {
+  final prefill = _StageWindow();
+  final decode = _StageWindow();
+}
+
+class _StagePoint {
+  const _StagePoint(this.time, this.tokens, this.seconds);
+  final DateTime time;
+  final int tokens;
+  final double seconds;
+}
+
+/// Bounded native counter observations, never averages of session speed gauges.
+class _StageWindow {
+  static const duration = Duration(seconds: 60);
+  final _points = <_StagePoint>[];
+  int get sampleCount => _points.length;
+
+  void _prune(DateTime time) {
+    final cutoff = time.subtract(duration);
+    while (_points.length > 2 && !_points[1].time.isAfter(cutoff)) {
+      _points.removeAt(0);
+    }
+    if (_points.length > RuntimeMonitorController.minuteSampleLimit) {
+      _points.removeRange(
+        0,
+        _points.length - RuntimeMonitorController.minuteSampleLimit,
+      );
+    }
+  }
+
+  double? observe(DateTime time, int? tokens, double? seconds) {
+    if (_points.isNotEmpty) {
+      final previous = _points.last;
+      if (time.isBefore(previous.time) ||
+          time.difference(previous.time) > duration ||
+          tokens != null && tokens < previous.tokens ||
+          seconds != null && seconds < previous.seconds) {
+        _points.clear();
+      }
+    }
+    if (tokens == null ||
+        tokens < 0 ||
+        seconds == null ||
+        !seconds.isFinite ||
+        seconds < 0) {
+      _prune(time);
+      return null;
+    }
+    final point = _StagePoint(time, tokens, seconds);
+    // Keep the first baseline and the latest observation in a one-second bucket.
+    // Extra refreshes cannot grow the minute window without bound.
+    if (_points.isNotEmpty && _points.last.time == time ||
+        _points.length > 1 &&
+            _points.last.time.microsecondsSinceEpoch ~/
+                    Duration.microsecondsPerSecond ==
+                time.microsecondsSinceEpoch ~/ Duration.microsecondsPerSecond) {
+      _points[_points.length - 1] = point;
+    } else {
+      _points.add(point);
+    }
+    _prune(time);
+    if (_points.length < 2) return null;
+    final first = _points.first;
+    var baselineTokens = first.tokens.toDouble();
+    var baselineSeconds = first.seconds;
+    final cutoff = time.subtract(duration);
+    if (first.time.isBefore(cutoff)) {
+      final next = _points[1];
+      final fraction =
+          cutoff.difference(first.time).inMicroseconds /
+          next.time.difference(first.time).inMicroseconds;
+      baselineTokens += (next.tokens - first.tokens) * fraction;
+      baselineSeconds += (next.seconds - first.seconds) * fraction;
+    }
+    final elapsed = seconds - baselineSeconds;
+    if (elapsed <= 0) return null;
+    final rate = (tokens - baselineTokens) / elapsed;
+    return rate.isFinite && rate >= 0 ? rate : null;
   }
 }

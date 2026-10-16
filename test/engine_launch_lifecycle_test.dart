@@ -630,7 +630,9 @@ void main() {
       ))!;
       await _showPage(tester, fixture);
       await tester.runAsync(() async {
-        await tester.tap(find.byTooltip('启动参数').last);
+        final action = find.byKey(ValueKey('engine-parameters:${entry.id}'));
+        await tester.ensureVisible(action);
+        await tester.tap(action);
         await fixture.catalog.readParameters(entry.id);
       });
       await tester.pumpAndSettle();
@@ -657,7 +659,11 @@ void main() {
         final prepared = fixture.catalog.changes.firstWhere(
           (state) => !state.busy,
         );
-        await tester.tap(find.widgetWithText(TextButton, '解除关联'));
+        final more = find.byKey(ValueKey('engine-more:${entry.id}'));
+        await tester.ensureVisible(more);
+        await tester.tap(more);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('解除关联').last);
         await prepared.timeout(const Duration(seconds: 5));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 300));

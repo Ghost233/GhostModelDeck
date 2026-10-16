@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'app_theme.dart';
 import 'engine_catalog.dart';
 import 'engine_labels.dart';
+import 'management_table.dart';
 import 'engine_launch_editor.dart';
 import 'engine_runtime.dart';
 import 'engine_source_dialog.dart';
@@ -215,6 +216,66 @@ class _EnginePageState extends State<EnginePage> {
     );
   }
 
+  Widget _tableActions(EngineRegistration entry, bool busy) {
+    final linked = entry.source == EngineSource.linked;
+    final installed = entry.status == LlamaInstallationStatus.installed;
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        IconButton(
+          key: ValueKey('engine-details:${entry.id}'),
+          tooltip: '引擎详情',
+          onPressed: () => _details(entry),
+          icon: const Icon(Icons.info_outline, size: 18),
+        ),
+        IconButton(
+          key: ValueKey('engine-parameters:${entry.id}'),
+          tooltip: '启动参数',
+          onPressed: busy ? null : () => _configure(entry),
+          icon: const Icon(Icons.tune, size: 18),
+        ),
+        if (entry.status == LlamaInstallationStatus.installing &&
+            widget.onDownloadStarted != null)
+          OutlinedButton(
+            onPressed: widget.onDownloadStarted,
+            child: const Text('查看下载'),
+          )
+        else if (!linked && !installed)
+          FilledButton(
+            onPressed:
+                busy || entry.status == LlamaInstallationStatus.installing
+                ? null
+                : () => _install(entry),
+            child: Text(
+              entry.status == LlamaInstallationStatus.installing ? '安装中' : '安装',
+            ),
+          ),
+        if (!linked &&
+            (installed || entry.status == LlamaInstallationStatus.failed))
+          TextButton(
+            onPressed:
+                busy || entry.status == LlamaInstallationStatus.installing
+                ? null
+                : () => _redownload(entry),
+            child: const Text('重新下载'),
+          ),
+        if (linked || installed)
+          PopupMenuButton<String>(
+            key: ValueKey('engine-more:${entry.id}'),
+            tooltip: '更多',
+            enabled: !busy,
+            onSelected: (_) => _remove(entry),
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                value: 'remove',
+                child: Text(linked ? '解除关联' : '删除'),
+              ),
+            ],
+          ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) => StreamBuilder<EngineCatalogState>(
     stream: widget.catalog.changes,
@@ -281,184 +342,48 @@ class _EnginePageState extends State<EnginePage> {
             ),
           if (busy) const LinearProgressIndicator(minHeight: 2),
           Expanded(
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: JevSurface(
-                padding: EdgeInsets.zero,
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  itemCount: entries.length + (showSplash ? 1 : 0),
-                  separatorBuilder: (_, _) => const Divider(),
-                  itemBuilder: (context, index) {
-                    if (index == entries.length) {
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 18,
-                          vertical: 16,
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.memory_outlined, size: 20),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Splash',
-                                    style: theme.textTheme.titleMedium,
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'incoai/splash',
-                                    style: theme.textTheme.bodySmall,
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const JevStatusChip(
-                              label: '未关联',
-                              tone: JevStatusTone.neutral,
-                            ),
-                            const SizedBox(width: 12),
-                            OutlinedButton(
-                              onPressed: busy ? null : _link,
-                              child: const Text('关联'),
-                            ),
-                          ],
-                        ),
-                      );
-                    }
-                    final entry = entries[index];
-                    final configurationNotice = widget.catalog
-                        .configurationVersionNoticeFor(entry.id);
-                    final linked = entry.source == EngineSource.linked;
-                    final installed =
-                        entry.status == LlamaInstallationStatus.installed;
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 18,
-                        vertical: 16,
+            child: ManagementTable<EngineRegistration?>(
+              id: 'engines',
+              items: [...entries, if (showSplash) null],
+              rowKey: (entry) => entry?.id ?? 'splash-unlinked',
+              searchText: (entry) => entry == null
+                  ? 'Splash incoai/splash'
+                  : '${engineDisplayName(entry)} ${engineSourceLabel(entry)} ${entry.version ?? entry.release?.tag ?? ''}',
+              status: (entry) => entry == null ? '未关联' : _statusLabel(entry),
+              columns: [
+                ManagementColumn(
+                  label: '引擎名',
+                  minWidth: 170,
+                  flex: 2,
+                  compare: (a, b) =>
+                      (a == null ? 'Splash' : engineDisplayName(a)).compareTo(
+                        b == null ? 'Splash' : engineDisplayName(b),
                       ),
+                  cell: (entry) {
+                    if (entry == null) return const Text('Splash');
+                    final notice =
+                        entry.error ??
+                        widget.catalog.configurationVersionNoticeFor(entry.id);
+                    return Tooltip(
+                      message: notice ?? engineDisplayName(entry),
                       child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            children: [
-                              Container(
-                                width: 36,
-                                height: 36,
-                                decoration: BoxDecoration(
-                                  color: theme.colorScheme.surfaceContainerLow,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: const Icon(
-                                  Icons.memory_outlined,
-                                  size: 20,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      engineDisplayName(entry),
-                                      style: theme.textTheme.titleMedium,
-                                    ),
-                                    const SizedBox(height: 4),
-                                    SelectableText(
-                                      engineSourceLabel(entry),
-                                      style: theme.textTheme.bodySmall,
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      entry.version == null
-                                          ? '${entry.release?.tag ?? '未知版本'} · macOS arm64'
-                                          : engineVersionLabel(entry.version),
-                                      style: theme.textTheme.bodySmall,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              _status(context, entry),
-                              const SizedBox(width: 12),
-                              IconButton(
-                                tooltip: '引擎详情',
-                                onPressed: () => _details(entry),
-                                icon: const Icon(Icons.info_outline, size: 18),
-                              ),
-                              const SizedBox(width: 8),
-                              IconButton(
-                                tooltip: '启动参数',
-                                onPressed: busy
-                                    ? null
-                                    : () => _configure(entry),
-                                icon: const Icon(Icons.tune, size: 18),
-                              ),
-                              if (entry.status ==
-                                      LlamaInstallationStatus.installing &&
-                                  widget.onDownloadStarted != null)
-                                OutlinedButton(
-                                  onPressed: widget.onDownloadStarted,
-                                  child: const Text('查看下载'),
-                                )
-                              else if (!linked && !installed)
-                                FilledButton(
-                                  onPressed:
-                                      busy ||
-                                          entry.status ==
-                                              LlamaInstallationStatus.installing
-                                      ? null
-                                      : () => _install(entry),
-                                  child: Text(
-                                    entry.status ==
-                                            LlamaInstallationStatus.installing
-                                        ? '安装中'
-                                        : '安装',
-                                  ),
-                                ),
-                              if (!linked &&
-                                  (installed ||
-                                      entry.status ==
-                                          LlamaInstallationStatus.failed))
-                                TextButton(
-                                  onPressed:
-                                      busy ||
-                                          entry.status ==
-                                              LlamaInstallationStatus.installing
-                                      ? null
-                                      : () => _redownload(entry),
-                                  child: const Text('重新下载'),
-                                ),
-                              if (linked || installed)
-                                TextButton(
-                                  style: TextButton.styleFrom(
-                                    foregroundColor: linked
-                                        ? theme.colorScheme.onSurfaceVariant
-                                        : theme.colorScheme.error,
-                                  ),
-                                  onPressed: busy ? null : () => _remove(entry),
-                                  child: Text(linked ? '解除关联' : '删除'),
-                                ),
-                            ],
+                          Text(
+                            engineDisplayName(entry),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          if (entry.error != null)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 12),
-                              child: Text(
-                                entry.error!,
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: theme.colorScheme.error,
-                                ),
-                              ),
-                            ),
-                          if (configurationNotice != null)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 12),
-                              child: Text(
-                                configurationNotice,
-                                style: theme.textTheme.bodySmall,
+                          if (notice != null)
+                            Text(
+                              notice,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: entry.error == null
+                                    ? null
+                                    : theme.colorScheme.error,
                               ),
                             ),
                         ],
@@ -466,7 +391,69 @@ class _EnginePageState extends State<EnginePage> {
                     );
                   },
                 ),
-              ),
+                ManagementColumn(
+                  label: '仓库或本地路径',
+                  minWidth: 220,
+                  flex: 3,
+                  compare: (a, b) =>
+                      (a == null ? 'incoai/splash' : engineSourceLabel(a))
+                          .compareTo(
+                            b == null ? 'incoai/splash' : engineSourceLabel(b),
+                          ),
+                  cell: (entry) {
+                    final source = entry == null
+                        ? 'incoai/splash'
+                        : engineSourceLabel(entry);
+                    return Tooltip(
+                      message: source,
+                      child: Text(
+                        source,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    );
+                  },
+                ),
+                ManagementColumn(
+                  label: '版本',
+                  minWidth: 160,
+                  compare: (a, b) => (a?.version ?? a?.release?.tag ?? '')
+                      .compareTo(b?.version ?? b?.release?.tag ?? ''),
+                  cell: (entry) => Text(
+                    entry == null
+                        ? '—'
+                        : entry.version == null
+                        ? '${entry.release?.tag ?? '未知版本'} · macOS arm64'
+                        : engineVersionLabel(entry.version),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                ManagementColumn(
+                  label: '状态',
+                  minWidth: 150,
+                  flex: 0,
+                  compare: (a, b) => (a == null ? '未关联' : _statusLabel(a))
+                      .compareTo(b == null ? '未关联' : _statusLabel(b)),
+                  cell: (entry) => entry == null
+                      ? const JevStatusChip(
+                          label: '未关联',
+                          tone: JevStatusTone.neutral,
+                        )
+                      : _status(context, entry),
+                ),
+                ManagementColumn(
+                  label: '操作',
+                  minWidth: 280,
+                  flex: 0,
+                  cell: (entry) => entry == null
+                      ? OutlinedButton(
+                          onPressed: busy ? null : _link,
+                          child: const Text('关联'),
+                        )
+                      : _tableActions(entry, busy),
+                ),
+              ],
             ),
           ),
         ],
@@ -477,18 +464,20 @@ class _EnginePageState extends State<EnginePage> {
 
 Widget _status(BuildContext context, EngineRegistration entry) {
   final error = entry.status == LlamaInstallationStatus.failed;
-  final text = switch (entry.status) {
-    LlamaInstallationStatus.absent => '未安装',
-    LlamaInstallationStatus.installing => '安装中',
-    LlamaInstallationStatus.installed =>
-      entry.source == EngineSource.linked ? '已关联' : '已安装',
-    LlamaInstallationStatus.failed => '需要检查',
-  };
+  final text = _statusLabel(entry);
   return JevStatusChip(
     label: text,
     tone: error ? JevStatusTone.error : JevStatusTone.neutral,
   );
 }
+
+String _statusLabel(EngineRegistration entry) => switch (entry.status) {
+  LlamaInstallationStatus.absent => '未安装',
+  LlamaInstallationStatus.installing => '安装中',
+  LlamaInstallationStatus.installed =>
+    entry.source == EngineSource.linked ? '已关联' : '已安装',
+  LlamaInstallationStatus.failed => '需要检查',
+};
 
 String _size(int value) => value < 1024 * 1024
     ? '${(value / 1024).toStringAsFixed(1)} KiB'

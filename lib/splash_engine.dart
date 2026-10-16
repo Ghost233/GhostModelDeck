@@ -335,6 +335,7 @@ class _SplashRun {
   final bool supportsSystemone;
   final String? binarySha256;
   RuntimeCapacity? capacity;
+  int? inferenceConcurrency;
   final SplashModelBinding binding;
   final EngineLaunchCommand command;
   final int generation;
@@ -364,6 +365,7 @@ class _SplashRun {
     launchInstanceId: launchInstanceId,
     launchRevision: launchRevision,
     capacity: status == RuntimeInstanceStatus.ready ? capacity : null,
+    inferenceConcurrency: inferenceConcurrency,
     capabilities: status == RuntimeInstanceStatus.ready
         ? {
             RuntimeCapability.textGeneration,
@@ -579,7 +581,11 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
         row['ready'] != true) {
       throw StateError('实例身份已变化');
     }
-    return RuntimeTelemetry.splash(row);
+    final telemetry = RuntimeTelemetry.splash(row);
+    if (telemetry.capacity != null) {
+      run.inferenceConcurrency = telemetry.capacity;
+    }
+    return telemetry;
   }
 
   EngineLaunchCommand? actualCommandFor(String id) => _runs[id]?.command;
@@ -1399,6 +1405,14 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
     final http = status['http'];
     final requests = http is Map ? http['requests'] : null;
     final slots = requests is Map ? requests['capacity'] : null;
+    final plan = status['memory_plan'];
+    final nativeBudget = plan is Map ? plan['budget'] : null;
+    final nativeSlots = nativeBudget is Map
+        ? nativeBudget['maximum_batch_width']
+        : null;
+    run.inferenceConcurrency = nativeSlots is int && nativeSlots > 0
+        ? nativeSlots
+        : null;
     run.capacity = context is int && context > 0 && slots is int && slots > 0
         ? RuntimeCapacity(contextPerSlot: context, slotCount: slots)
         : null;

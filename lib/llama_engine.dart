@@ -662,6 +662,9 @@ class LlamaEngine
     temporaryTest: _temporaryTestIds.contains(instance.id),
     launchInstanceId: _launchIdentities[instance.id]?.$1,
     launchRevision: _launchIdentities[instance.id]?.$2,
+    inferenceConcurrency: RuntimeCapacity.fromLlamaProperties(
+      instance.properties,
+    )?.slotCount,
     capabilities: {
       for (final capability in instance.capabilities)
         switch (capability) {
