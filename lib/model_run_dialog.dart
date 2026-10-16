@@ -42,7 +42,6 @@ class ModelRunDialog extends StatefulWidget {
     this.initialEngineId,
     this.initialConfiguration,
     this.initialName,
-    this.initialAssembly,
     this.onSaveInstance,
   });
   final EngineCatalog catalog;
@@ -53,13 +52,11 @@ class ModelRunDialog extends StatefulWidget {
   final String? initialEngineId;
   final EngineLaunchConfiguration? initialConfiguration;
   final String? initialName;
-  final String? initialAssembly;
   final Future<void> Function(
     String name,
     String engineId,
     LibraryArtifact artifact,
     EngineLaunchConfiguration configuration,
-    String? assembly,
   )?
   onSaveInstance;
   @override
@@ -79,7 +76,6 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
   bool _loading = true;
   EngineLaunchCommand? _preview;
   bool _previewBlocked = false;
-  final _splashAssembly = TextEditingController();
   final _fields = <String, TextEditingController>{};
   final _argumentText = TextEditingController();
   EngineLaunchConfiguration? _defaults;
@@ -133,7 +129,6 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
     for (final field in _fields.values) {
       field.dispose();
     }
-    _splashAssembly.dispose();
     super.dispose();
   }
 
@@ -143,7 +138,6 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
   @override
   void initState() {
     super.initState();
-    _splashAssembly.text = widget.initialAssembly ?? '';
     _refresh();
   }
 
@@ -257,21 +251,10 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
           artifact: asset,
           configuration: draft,
           cancellation: _testCancellation!,
-          splashAssembly: _splashAssembly.text.trim().isEmpty
-              ? null
-              : Directory(_splashAssembly.text.trim()),
         );
         if (mounted) setState(() => _result = result);
       } else if (widget.onSaveInstance != null) {
-        await widget.onSaveInstance!(
-          _instanceName.text,
-          id,
-          asset,
-          draft,
-          _splashAssembly.text.trim().isEmpty
-              ? null
-              : _splashAssembly.text.trim(),
-        );
+        await widget.onSaveInstance!(_instanceName.text, id, asset, draft);
         if (mounted) Navigator.pop(context);
       } else {
         if (_defaults!.argumentText == draft.argumentText &&
@@ -293,11 +276,6 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
             draft,
             preferEngine: true,
           );
-        }
-        final runtime = widget.catalog.runtimeFor(id);
-        final path = _splashAssembly.text.trim();
-        if (runtime is SplashEngine && path.isNotEmpty) {
-          await widget.catalog.bindSplashModel(id, asset.id, Directory(path));
         }
         if (mounted) Navigator.pop(context);
       }
@@ -339,9 +317,6 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
     final entries = widget.catalog.state.entries
         .where((value) => value.status == LlamaInstallationStatus.installed)
         .toList();
-    final selectedEntry = entries
-        .where((entry) => entry.id == _engineId)
-        .singleOrNull;
     final asset = _configurationAsset;
     return PopScope(
       canPop: !_working,
@@ -470,19 +445,6 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
                               ? null
                               : _selectEngine,
                         ),
-                        if (selectedEntry?.family == EngineFamily.splash) ...[
-                          const SizedBox(height: 16),
-                          TextField(
-                            key: const Key('splash-model-assembly'),
-                            controller: _splashAssembly,
-                            enabled: !_working,
-                            decoration: const InputDecoration(
-                              labelText: 'Splash 本地模型目录（包含 model.json）',
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          const Text('填写已准备的本地目录；启动前核对模型与文件。留空沿用此引擎已保存的绑定。'),
-                        ],
                         if (_defaults != null) ...[
                           const SizedBox(height: 20),
                           for (final field

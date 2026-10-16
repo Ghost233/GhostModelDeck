@@ -481,7 +481,7 @@ class LaunchInstances {
         cancellation: cancellation,
         launchInstanceId: id,
         launchRevision: definition.revision,
-        assembly: definition.splashAssembly == null
+        preparationHint: definition.splashAssembly == null
             ? null
             : Directory(definition.splashAssembly!),
       );

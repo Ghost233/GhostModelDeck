@@ -189,7 +189,7 @@ void main() {
     expect(fixture.pool.starts, 0);
   });
 
-  test('oMLX cached version metadata and configuration provenance survive history without admission matching', () async {
+  test('oMLX cached metadata survives reopen while relink discards detached tuning', () async {
     final fixture = await _OmlxConfigurationFixture.create();
     addTearDown(fixture.close);
     final managed = fixture.engine.bundle;
@@ -244,53 +244,22 @@ void main() {
       confirmed: true,
     );
     await fixture.reopen();
-    final history = fixture.catalog.unlinkedConfigurations.singleWhere(
-      (entry) => entry.registrationId == sourceId,
-    );
-    expect(history.version, '0.7.0');
-    expect(history.defaults!.argumentText, sourceText);
     fixture.id = (await fixture.catalog.link(fixture.app.path)).id;
-    await fixture.catalog.restoreUnlinkedConfiguration(sourceId, fixture.id);
+    expect(fixture.id, isNot(sourceId));
     expect(registration(fixture.id).version, '0.7.0');
+    expect(fixture.catalog.launchDefaultsFor(fixture.id).argumentText, isEmpty);
+    final relinked =
+        jsonDecode(await fixture.catalog.registryFile.readAsString()) as Map;
+    expect(relinked.containsKey('unlinkedConfigurations'), isFalse);
     expect(
-      fixture.catalog.launchDefaultsFor(fixture.id).argumentText,
-      sourceText,
+      (relinked['launchDefaults'] as Map?)?.containsKey(sourceId) ?? false,
+      isFalse,
     );
-    final restored =
-        jsonDecode(await fixture.catalog.registryFile.readAsString()) as Map;
-    expect((restored['configurationVersions'] as Map?)?[fixture.id], '0.7.0');
-    // A legal older history may know neither a parameter origin nor an engine
-    // version. A fresh target's verified CLI is not that parameter provenance.
-    ((restored['unlinkedConfigurations'] as Map)[sourceId] as Map)['version'] =
-        null;
-    (restored['configurationVersions'] as Map).remove(sourceId);
-    await fixture.catalog.registryFile.writeAsString(jsonEncode(restored));
-    await fixture.reopen();
-    await fixture.catalog.restoreUnlinkedConfiguration(sourceId, fixture.id);
-    expect(registration(fixture.id).version, '0.7.0');
-    final unknownRestored =
-        jsonDecode(await fixture.catalog.registryFile.readAsString()) as Map;
-    final unknownOrigins = unknownRestored['configurationVersions'] as Map;
-    expect(unknownOrigins.containsKey(fixture.id), isTrue);
-    expect(unknownOrigins[fixture.id], isNull);
-    final relayId = fixture.id;
-    await fixture.catalog.remove(
-      await fixture.catalog.prepareRemoval(relayId),
-      confirmed: true,
-    );
-    await fixture.reopen();
-    fixture.id = (await fixture.catalog.link(fixture.app.path)).id;
-    await fixture.catalog.restoreUnlinkedConfiguration(relayId, fixture.id);
-    expect(registration(fixture.id).version, '0.7.0');
     expect(
-      fixture.catalog.launchDefaultsFor(fixture.id).argumentText,
-      sourceText,
+      (relinked['configurationVersions'] as Map?)?.containsKey(sourceId) ??
+          false,
+      isFalse,
     );
-    final relayed =
-        jsonDecode(await fixture.catalog.registryFile.readAsString()) as Map;
-    final relayedOrigins = relayed['configurationVersions'] as Map;
-    expect(relayedOrigins.containsKey(fixture.id), isTrue);
-    expect(relayedOrigins[fixture.id], isNull);
     const targetText = '--max-concurrent-requests 1';
     final targetConfiguration = EngineLaunchConfiguration(
       family: EngineFamily.omlx,
@@ -316,11 +285,6 @@ void main() {
       fixture.catalog.launchDefaultsFor(fixture.id).argumentText,
       targetText,
     );
-    await fixture.catalog.restoreUnlinkedConfiguration(sourceId, fixture.id);
-    expect(
-      fixture.catalog.launchDefaultsFor(fixture.id).argumentText,
-      sourceText,
-    );
     expect(fixture.pool.starts, 0);
     final invalidShape =
         jsonDecode(await fixture.catalog.registryFile.readAsString()) as Map;
@@ -337,70 +301,73 @@ void main() {
     expect(await fixture.catalog.registryFile.readAsString(), invalidText);
   });
 
-  test('oMLX history restore publishes fresh help and closes metadata on required failure', () async {
-    final fixture = await _OmlxConfigurationFixture.create();
-    addTearDown(fixture.close);
-    fixture.io.help +=
-        '  --source-requests, --max-concurrent-requests COUNT  source help\n';
-    await fixture.catalog.readParameters(fixture.id);
-    final sourceId = fixture.id;
-    const sourceText = ' --source-requests 8\n';
-    await fixture.catalog.saveLaunchDefaults(
-      sourceId,
-      EngineLaunchConfiguration(
-        family: EngineFamily.omlx,
-        formValues: {'--max-concurrent-requests': '4'},
-        argumentText: sourceText,
-      ),
-    );
-    await fixture.catalog.remove(
-      await fixture.catalog.prepareRemoval(sourceId),
-      confirmed: true,
-    );
-    expect(await fixture.app.exists(), isTrue);
-    fixture.id = (await fixture.catalog.link(fixture.app.path)).id;
-    expect(fixture.id, isNot(sourceId));
-    expect(fixture.catalog.launchDefaultsFor(fixture.id).argumentText, isEmpty);
-    fixture.io.help += '  --fresh-requests, --max-concurrent-requests COUNT  fresh restore help\n';
-    await fixture.catalog.restoreUnlinkedConfiguration(sourceId, fixture.id);
-    expect(
-      fixture.catalog
-          .parameterRecognitionFor(fixture.id)
-          .recognizes('--fresh-requests'),
-      isTrue,
-    );
-    expect(
-      fixture.catalog.launchDefaultsFor(fixture.id).argumentText,
-      sourceText,
-    );
-    const targetText = '--max-concurrent-requests 2';
-    await fixture.catalog.saveLaunchDefaults(
-      fixture.id,
-      EngineLaunchConfiguration(
-        family: EngineFamily.omlx,
-        argumentText: targetText,
-      ),
-    );
-    fixture.io.version = '0.7.1';
-    await fixture.catalog.restoreUnlinkedConfiguration(sourceId, fixture.id);
-    expect(
-      fixture.catalog.state.entries
-          .singleWhere((entry) => entry.id == fixture.id)
-          .status,
-      LlamaInstallationStatus.installed,
-    );
-    expect(
-      fixture.catalog
-          .parameterRecognitionFor(fixture.id)
-          .recognizes('--fresh-requests'),
-      isTrue,
-    );
-    expect(
-      fixture.catalog.launchDefaultsFor(fixture.id).argumentText,
-      sourceText,
-    );
-    expect(fixture.pool.starts, 0);
-  });
+  test(
+    'oMLX relink reads fresh help without restoring detached tuning',
+    () async {
+      final fixture = await _OmlxConfigurationFixture.create();
+      addTearDown(fixture.close);
+      fixture.io.help +=
+          '  --source-requests, --max-concurrent-requests COUNT  source help\n';
+      await fixture.catalog.readParameters(fixture.id);
+      final sourceId = fixture.id;
+      const sourceText = ' --source-requests 8\n';
+      await fixture.catalog.saveLaunchDefaults(
+        sourceId,
+        EngineLaunchConfiguration(
+          family: EngineFamily.omlx,
+          formValues: {'--max-concurrent-requests': '4'},
+          argumentText: sourceText,
+        ),
+      );
+      await fixture.catalog.remove(
+        await fixture.catalog.prepareRemoval(sourceId),
+        confirmed: true,
+      );
+      expect(await fixture.app.exists(), isTrue);
+      fixture.id = (await fixture.catalog.link(fixture.app.path)).id;
+      expect(fixture.id, isNot(sourceId));
+      expect(
+        fixture.catalog.launchDefaultsFor(fixture.id).argumentText,
+        isEmpty,
+      );
+      fixture.io.help += '  --fresh-requests, --max-concurrent-requests COUNT  fresh restore help\n';
+      await fixture.catalog.readParameters(fixture.id);
+      expect(
+        fixture.catalog
+            .parameterRecognitionFor(fixture.id)
+            .recognizes('--fresh-requests'),
+        isTrue,
+      );
+      expect(fixture.catalog.launchDefaultsFor(fixture.id).argumentText, '');
+      const targetText = '--max-concurrent-requests 2';
+      await fixture.catalog.saveLaunchDefaults(
+        fixture.id,
+        EngineLaunchConfiguration(
+          family: EngineFamily.omlx,
+          argumentText: targetText,
+        ),
+      );
+      fixture.io.version = '0.7.1';
+      await fixture.catalog.readParameters(fixture.id);
+      expect(
+        fixture.catalog.state.entries
+            .singleWhere((entry) => entry.id == fixture.id)
+            .status,
+        LlamaInstallationStatus.installed,
+      );
+      expect(
+        fixture.catalog
+            .parameterRecognitionFor(fixture.id)
+            .recognizes('--fresh-requests'),
+        isTrue,
+      );
+      expect(
+        fixture.catalog.launchDefaultsFor(fixture.id).argumentText,
+        targetText,
+      );
+      expect(fixture.pool.starts, 0);
+    },
+  );
 
   test(
     'late oMLX help cannot publish rules after admission cancellation',
