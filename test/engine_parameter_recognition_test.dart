@@ -638,7 +638,9 @@ print(json.dumps(vars(p.parse_args())))
       });
       await tester.pumpAndSettle();
       await tester.runAsync(() async {
-        await tester.tap(find.byTooltip('启动参数').last);
+        final action = find.byKey(ValueKey('engine-parameters:${fixture.id}'));
+        await tester.ensureVisible(action);
+        await tester.tap(action);
         await fixture.catalog.readParameters(fixture.id);
       });
       await tester.pumpAndSettle();
@@ -948,7 +950,9 @@ print(json.dumps(vars(p.parse_args())))
       });
       await tester.pumpAndSettle();
       await tester.runAsync(() async {
-        await tester.tap(find.byTooltip('启动参数').last);
+        final action = find.byKey(ValueKey('engine-parameters:${fixture.id}'));
+        await tester.ensureVisible(action);
+        await tester.tap(action);
         await fixture.catalog.readParameters(fixture.id);
       });
       await tester.pumpAndSettle();

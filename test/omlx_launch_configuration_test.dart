@@ -701,7 +701,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byTooltip('启动参数'), findsNWidgets(3));
       await tester.runAsync(() async {
-        await tester.tap(find.byTooltip('启动参数').at(1));
+        final action = find.byKey(ValueKey('engine-parameters:${fixture.id}'));
+        await tester.ensureVisible(action);
+        await tester.tap(action);
         await fixture.catalog
             .readParameters(fixture.id)
             .timeout(const Duration(seconds: 5));
@@ -741,7 +743,9 @@ void main() {
         '4',
       );
       await tester.runAsync(() async {
-        await tester.tap(find.byTooltip('启动参数').at(1));
+        final action = find.byKey(ValueKey('engine-parameters:${fixture.id}'));
+        await tester.ensureVisible(action);
+        await tester.tap(action);
         await fixture.catalog.readParameters(fixture.id);
       });
       await tester.pumpAndSettle();
@@ -765,7 +769,9 @@ void main() {
       });
       await tester.pumpAndSettle();
       await tester.runAsync(() async {
-        await tester.tap(find.byTooltip('启动参数').at(1));
+        final action = find.byKey(ValueKey('engine-parameters:${fixture.id}'));
+        await tester.ensureVisible(action);
+        await tester.tap(action);
         await fixture.catalog.readParameters(fixture.id);
       });
       await tester.pumpAndSettle();

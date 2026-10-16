@@ -15,6 +15,7 @@ class RequestProgress {
     this.generatedTokens,
     this.maxTokens,
     this.tokensPerSecond,
+    this.slotIndex,
   });
   final String id;
   final RequestPhase phase;
@@ -23,6 +24,7 @@ class RequestProgress {
   final int? generatedTokens;
   final int? maxTokens;
   final double? tokensPerSecond;
+  final int? slotIndex;
 }
 
 /// A read-only engine observation. Null means the engine did not supply it.
@@ -38,6 +40,8 @@ class RuntimeTelemetry {
     this.generatedTokens,
     this.prefillPerSecond,
     this.decodePerSecond,
+    this.prefillSeconds,
+    this.decodeSeconds,
     List<RequestProgress> requests = const [],
     this.notice,
   }) : requests = List.unmodifiable(requests);
@@ -51,6 +55,8 @@ class RuntimeTelemetry {
   final int? generatedTokens;
   final double? prefillPerSecond;
   final double? decodePerSecond;
+  final double? prefillSeconds;
+  final double? decodeSeconds;
   final List<RequestProgress> requests;
   final String? notice;
 
@@ -63,12 +69,21 @@ class RuntimeTelemetry {
     final scheduler = _map(row['scheduler']);
     final metrics = _map(row['metrics']);
     final totals = _map(row['requests']);
-    final http = _map(_map(row['http'])['requests']);
-    if (scheduler.isEmpty || metrics.isEmpty) {
+    final plan = _map(_map(row['memory_plan'])['budget']);
+    if (scheduler.isEmpty &&
+        metrics.isEmpty &&
+        row['active_requests'] is! int &&
+        row['active_requests'] is! List) {
       throw const FormatException('Splash 未提供监控数据');
     }
     final progress = [
-      for (final request in _rows(row['active_requests']))
+      for (final request in _rows(row['active_requests']).where(
+        (request) => !const [
+          'completed',
+          'cancelled',
+          'failed',
+        ].contains(request['phase']),
+      ))
         RequestProgress(
           id: '${request['id']}',
           phase: _phase(request['phase']),
@@ -81,13 +96,17 @@ class RuntimeTelemetry {
     final prefill = _int(scheduler['prefilling']);
     final decode = _int(scheduler['decoding']);
     return RuntimeTelemetry(
-      capacity: _int(http['capacity']),
-      running: progress.where((p) => p.phase != RequestPhase.queued).length,
+      capacity: _int(plan['maximum_batch_width']),
+      running: row['active_requests'] is List
+          ? progress.where((p) => p.phase != RequestPhase.queued).length
+          : _int(row['active_requests']),
       queued: _sum([
         scheduler['queued'],
         scheduler['waiting_resources'],
         scheduler['waiting_prefix'],
         scheduler['waiting_mask'],
+        if (_map(row['frontend']).containsKey('waiting'))
+          _map(row['frontend'])['waiting'],
       ]),
       prefilling: prefill,
       decoding: decode,
@@ -96,6 +115,8 @@ class RuntimeTelemetry {
       generatedTokens: _int(metrics['decode_output_tokens']),
       prefillPerSecond: _number(metrics['prefill_tokens_per_second']),
       decodePerSecond: _number(metrics['decode_tokens_per_second']),
+      prefillSeconds: _seconds(metrics['prefill_wall_ms']),
+      decodeSeconds: _seconds(metrics['decode_wall_ms']),
       requests: progress,
     );
   }
@@ -122,18 +143,27 @@ class RuntimeTelemetry {
       throw const FormatException('引擎未开放 /slots 或 /metrics');
     }
     final progress = <RequestProgress>[];
-    for (final slot in _rows(slots).where((s) => s['is_processing'] == true)) {
+    final nativeSlots = _rows(slots).toList();
+    for (var index = 0; index < nativeSlots.length; index++) {
+      final slot = nativeSlots[index];
+      if (slot['is_processing'] != true) continue;
       final next =
           _rows(slot['next_token']).firstOrNull ?? const <String, Object?>{};
       final generated = _int(next['n_decoded']);
       progress.add(
         RequestProgress(
           id: 'slot-${slot['id']}',
+          slotIndex: index,
           phase: generated == null
               ? RequestPhase.running
               : generated > 0
               ? RequestPhase.decode
-              : RequestPhase.prefill,
+              : _int(slot['n_prompt_tokens_processed']) != null &&
+                    _int(slot['n_prompt_tokens']) != null &&
+                    _int(slot['n_prompt_tokens_processed'])! <
+                        _int(slot['n_prompt_tokens'])!
+              ? RequestPhase.prefill
+              : RequestPhase.running,
           promptTokens: _int(slot['n_prompt_tokens']),
           processedTokens: _int(slot['n_prompt_tokens_processed']),
           generatedTokens: generated,
@@ -145,7 +175,10 @@ class RuntimeTelemetry {
       capacity: slots is List ? slots.length : capacity,
       running:
           _int(values['llamacpp:requests_processing']) ??
-          (slots is List ? progress.length : null),
+          (slots is List &&
+                  nativeSlots.every((slot) => slot['is_processing'] is bool)
+              ? progress.length
+              : null),
       queued: _int(values['llamacpp:requests_deferred']),
       prefilling: slots is List
           ? progress.where((p) => p.phase == RequestPhase.prefill).length
@@ -157,6 +190,8 @@ class RuntimeTelemetry {
       generatedTokens: _int(values['llamacpp:tokens_predicted_total']),
       prefillPerSecond: values['llamacpp:prompt_tokens_seconds'],
       decodePerSecond: values['llamacpp:predicted_tokens_seconds'],
+      prefillSeconds: values['llamacpp:prompt_seconds_total'],
+      decodeSeconds: values['llamacpp:tokens_predicted_seconds_total'],
       requests: progress,
       notice: values.isEmpty
           ? '引擎未提供 /metrics；启用 --metrics 后可读取累计 token 和平均速度。'
@@ -166,7 +201,12 @@ class RuntimeTelemetry {
     );
   }
 
-  factory RuntimeTelemetry.omlx(Object? value, String model, {int? capacity}) {
+  factory RuntimeTelemetry.omlx(
+    Object? value,
+    String model, {
+    int? capacity,
+    bool modelScoped = false,
+  }) {
     final row = _map(value);
     final models = _rows(_map(row['active_models'])['models']);
     final status = models.where((m) => m['id'] == model).singleOrNull;
@@ -226,11 +266,13 @@ class RuntimeTelemetry {
       decoding: status['generating'] is List
           ? (status['generating'] as List).length
           : null,
-      totalRequests: _int(row['total_requests']),
-      promptTokens: _int(row['total_prompt_tokens']),
-      generatedTokens: _int(row['total_completion_tokens']),
-      prefillPerSecond: _number(row['avg_prefill_tps']),
-      decodePerSecond: _number(row['avg_generation_tps']),
+      // The admin endpoint can filter its root snapshot by model. Unscoped
+      // callers must not copy a global aggregate into each instance.
+      totalRequests: modelScoped ? _int(row['total_requests']) : null,
+      promptTokens: modelScoped ? _int(row['total_prompt_tokens']) : null,
+      generatedTokens: modelScoped
+          ? _int(row['total_completion_tokens'])
+          : null,
       requests: progress,
     );
   }
@@ -290,6 +332,11 @@ int? _int(Object? value) =>
     : null;
 double? _number(Object? value) =>
     value is num && value.isFinite && value >= 0 ? value.toDouble() : null;
+double? _seconds(Object? milliseconds) {
+  final value = _number(milliseconds);
+  return value == null ? null : value / 1000;
+}
+
 int? _sum(List<Object?> values) => values.any((v) => _int(v) == null)
     ? null
     : values.fold<int>(0, (sum, v) => sum + _int(v)!);
