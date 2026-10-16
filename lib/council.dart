@@ -7,6 +7,7 @@ import 'decision_runtime.dart';
 import 'engine_catalog.dart';
 import 'engine_runtime.dart';
 import 'jev_models.dart';
+import 'model_scenarios.dart';
 import 'public_model_names.dart';
 import 'launch_instances.dart';
 import 'jev_debug.dart';
@@ -250,6 +251,7 @@ class CouncilController {
   CouncilController({
     required this.catalog,
     this.modelRegistryFile,
+    this.scenarioRegistryFile,
     this.modelRegistryIO,
     this.publicNames,
     this.launchInstances,
@@ -258,9 +260,19 @@ class CouncilController {
   }
   final EngineCatalog catalog;
   final File? modelRegistryFile;
+  final File? scenarioRegistryFile;
   final JevRegistryIO? modelRegistryIO;
   final PublicModelNames? publicNames;
   final LaunchInstances? launchInstances;
+  late final ModelScenarios scenarios = ModelScenarios(
+    file: scenarioRegistryFile,
+    names: publicNames ?? launchInstances?.names ?? PublicModelNames(),
+    instances: launchInstances,
+    councilExists: (id) => models.definitions.any(
+      (model) => model.source == JevModelSource.council && model.id == id,
+    ),
+    isModelLocked: (name) => models.isEvaluationLocked(name),
+  );
   late final JevModels models = JevModels(
     controller: this,
     registryFile: modelRegistryFile,
@@ -689,6 +701,7 @@ class CouncilController {
     try {
       await models.close();
     } finally {
+      await scenarios.close();
       await _subscription.cancel();
       await _changes.close();
     }

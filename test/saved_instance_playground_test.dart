@@ -128,14 +128,29 @@ void main() {
               ...JevPlaygroundMode.values.where((mode) => mode != firstChannel),
             ],
           );
-          await arrived.future.timeout(const Duration(seconds: 5));
+          await arrived.future.timeout(
+            const Duration(seconds: 5),
+            onTimeout: () {
+              throw StateError(
+                'planned request did not reach engine; requests=${runtime.io.requests.length}; '
+                'status=${runner.current?.status}; evaluations=${runner.current?.evaluations.map((e) => '${e.model}/${e.channel}/${e.status}').toList()}',
+              );
+            },
+          );
           expect(
             council.models.isEvaluationLocked(definition.publicName),
             isTrue,
           );
           expect(council.models.isEvaluationLocked('committee'), isTrue);
           runner.cancel();
-          final result = await pending.timeout(const Duration(seconds: 5));
+          final result = await pending.timeout(
+            const Duration(seconds: 5),
+            onTimeout: () {
+              throw StateError(
+                'cancel did not complete; status=${runner.current?.status}',
+              );
+            },
+          );
           expect(result.status, BenchmarkRunStatus.cancelled);
           expect(result.evaluations, hasLength(4));
           expect(result.evaluations.map((entry) => entry.model).toSet(), {

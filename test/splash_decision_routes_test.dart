@@ -167,6 +167,11 @@ void main() {
     final saved = await fixture.save('first');
     expect(fixture.council.models.definitionFor(saved.publicName), isNotNull);
     final run = await fixture.instances.start(saved.id);
+    expect(run.capacity, isNotNull);
+    expect(
+      fixture.instances.contextLengthFor(saved.id),
+      run.capacity!.contextPerSlot,
+    );
     expect(
       run.capabilities,
       containsAll([

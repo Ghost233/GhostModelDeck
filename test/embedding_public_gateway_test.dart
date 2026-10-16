@@ -3,10 +3,94 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/engine_runtime.dart';
+import 'package:ghost_model_deck/engine_catalog.dart';
+import 'package:ghost_model_deck/engine_launch_configuration.dart';
+import 'package:ghost_model_deck/launch_instances.dart';
+import 'package:ghost_model_deck/model_scenarios.dart';
+import 'package:ghost_model_deck/public_gateway.dart';
 
 import 'fixtures/embedding_runtime.dart';
 
 void main() {
+  test('场景模型名字沿用保存嵌入实例的公开向量协议', () async {
+    final fixture = await EmbeddingTestRuntime.create();
+    addTearDown(fixture.close);
+    final instances = LaunchInstances(
+      catalog: fixture.catalog,
+      file: File('${fixture.root.path}/instances.json'),
+    );
+    addTearDown(instances.close);
+    final definition = await instances.save(
+      name: 'Embedding instance',
+      artifactId: fixture.asset.id,
+      engineId: EngineCatalog.officialId,
+      configuration: EngineLaunchConfiguration(),
+    );
+    final scenarios = ModelScenarios(
+      names: instances.names,
+      instances: instances,
+    );
+    addTearDown(scenarios.close);
+    await scenarios.save(
+      0,
+      ModelScenario(
+        displayName: '文字嵌入',
+        modelName: 'embedding-fast',
+        instanceId: definition.id,
+      ),
+    );
+    final routes = PublicModelRoutes(
+      library: fixture.library,
+      runtimes: fixture.catalog.runtimes.toList(),
+      instances: instances,
+      scenarios: scenarios,
+    );
+    final gateway = PublicGatewayServer(routes: routes, port: 0);
+    await gateway.start();
+    addTearDown(() async {
+      await gateway.stop();
+      gateway.close();
+      routes.close();
+    });
+    final client = HttpClient();
+    addTearDown(() => client.close(force: true));
+    Future<(int, Map)> post() async {
+      final request = await client.postUrl(
+        gateway.baseUrl!.resolve('/v1/embeddings'),
+      );
+      request.headers.contentType = ContentType.json;
+      request.write(
+        jsonEncode({
+          'model': 'embedding-fast',
+          'input': ['first', 'second'],
+        }),
+      );
+      final response = await request.close();
+      return (
+        response.statusCode,
+        jsonDecode(await utf8.decoder.bind(response).join()) as Map,
+      );
+    }
+
+    expect((await post()).$1, 503);
+    expect(fixture.io.bodies, isEmpty);
+    final run = await instances.start(definition.id);
+    final result = await post();
+    expect(result.$1, 200);
+    expect(result.$2['model'], 'embedding-fast');
+    expect((result.$2['data'] as List).map((row) => row['embedding']), [
+      [3.0, 0.0],
+      [0.0, 4.0],
+    ]);
+    expect(fixture.io.bodies.single['model'], run.id);
+    final request = await client.getUrl(gateway.baseUrl!.resolve('/v1/models'));
+    final response = await request.close();
+    final listing = jsonDecode(await utf8.decoder.bind(response).join()) as Map;
+    expect(
+      (listing['data'] as List).map((row) => row['id']),
+      containsAll([definition.publicName, 'embedding-fast']),
+    );
+  });
   test('同源公开发现报告实际每槽容量，embedding不宣称文本或typed决策能力', () async {
     final fixture = await EmbeddingTestRuntime.create();
     addTearDown(fixture.close);

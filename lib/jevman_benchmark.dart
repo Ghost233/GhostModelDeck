@@ -115,9 +115,11 @@ class JevmanGameBridge {
         if (!isCurrent()) invalidTarget();
         if (token.isCancelled) return;
         final discovery = await client.discover(channel, cancellation: call);
-        if (!client
-            .modelsFromDiscovery(discovery)
-            .any((entry) => entry.id == model)) {
+        if (client.discoveryExcludesTarget(
+          channel,
+          client.modelsFromDiscovery(discovery),
+          model,
+        )) {
           invalidTarget();
           return;
         }

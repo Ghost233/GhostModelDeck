@@ -187,6 +187,9 @@ class _ManagerShellState extends State<_ManagerShell>
     _council = CouncilController(
       catalog: _engines,
       modelRegistryFile: File('${_settings.file.parent.path}/jev_models.json'),
+      scenarioRegistryFile: File(
+        '${_settings.file.parent.path}/model-scenarios.json',
+      ),
       publicNames: _publicNames,
       launchInstances: _instances,
     );
@@ -194,6 +197,7 @@ class _ManagerShellState extends State<_ManagerShell>
     _publicRoutes = PublicModelRoutes(
       library: _library,
       instances: _instances,
+      scenarios: _council.scenarios,
       runtimes: [
         _officialEngine,
         _standardEngine,
@@ -769,6 +773,7 @@ class _ManagerShellState extends State<_ManagerShell>
                           if (_openedPages.contains(11))
                             InstancesPage(
                               instances: _instances,
+                              models: _council.models,
                               startupSet: _startupSet,
                               initialArtifactId: _instanceArtifact,
                               onInitialArtifactHandled: () {

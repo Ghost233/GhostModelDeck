@@ -391,10 +391,11 @@ class BenchmarkRunner {
           for (final evaluation in evaluations.where(
             (entry) => entry.channel == channel,
           )) {
-            if (!available.any(
-              (entry) =>
-                  entry.id == evaluation.model &&
-                  entry.source == evaluation.source,
+            if (client.discoveryExcludesTarget(
+              channel,
+              available,
+              evaluation.model,
+              source: evaluation.source,
             )) {
               throw StateError(
                 '${evaluation.model} 未在公开 ${channel.name.toUpperCase()} 入口中可调用',
@@ -447,10 +448,11 @@ class BenchmarkRunner {
                 channel: evaluation.channel,
                 cancellation: cancellation,
               );
-              if (!available.any(
-                (entry) =>
-                    entry.id == evaluation.model &&
-                    entry.source == evaluation.source,
+              if (client.discoveryExcludesTarget(
+                evaluation.channel,
+                available,
+                evaluation.model,
+                source: evaluation.source,
               )) {
                 throw StateError('参赛对象已不在公开发现中');
               }

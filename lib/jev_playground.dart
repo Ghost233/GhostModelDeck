@@ -175,6 +175,19 @@ class JevPlayground {
     return List.unmodifiable(models);
   }
 
+  /// HTTP publishes all callable models; MCP publishes only a scene shortlist.
+  /// Absence from that shortlist does not forbid a known model's tool call.
+  bool discoveryExcludesTarget(
+    JevPlaygroundMode mode,
+    List<JevDiscoveredModel> discovered,
+    String model, {
+    String? source,
+  }) {
+    final listed = discovered.where((entry) => entry.id == model).toList();
+    if (listed.isEmpty) return mode == JevPlaygroundMode.http;
+    return source != null && listed.every((entry) => entry.source != source);
+  }
+
   /// Discovery traverses the selected real protocol entry, not registry preview.
   Future<Map<String, Object?>> discover(
     JevPlaygroundMode mode, {
