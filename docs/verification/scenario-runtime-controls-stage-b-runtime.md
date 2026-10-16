@@ -10,7 +10,7 @@ Splash 的阶段累计 token 与 `prefill_wall_ms`、`decode_wall_ms` 来自 req
 
 llama.cpp 使用原生 slots 数量和阶段计数。分钟窗口读取累计处理 token 与阶段累计秒数，不使用全会话速度 gauge。[llama.cpp 原生 metrics 文档](https://github.com/ggml-org/llama.cpp/blob/b11381/tools/server/README.md#get-metrics-prometheus-compatible-metrics-exporter) 明确区分这些计数、耗时和全会话均速字段。该链接是字段依据，不作为引擎版本或 commit 的启动限制。
 
-oMLX 的全池累计量不能赋给池中的每个模型；现有响应未提供可信实例累计或阶段耗时时，相应值保持 —。已知的所选模型请求阶段仍按实例显示，不伪造零值或借用其他模型的数据。
+oMLX 的全池累计量不能赋给池中的每个模型。生产读取入口已发送 model 选择器和 session 范围，按[原生统计路由](https://github.com/jundot/omlx/blob/main/omlx/admin/routes.py#L6146)的模型筛选语义恢复对应累计量；未筛选调用保持未知。原生响应没有阶段累计耗时，分钟速度保持 —，不从经过舍入的全会话均速倒算时间。
 
 ## 统计语义
 

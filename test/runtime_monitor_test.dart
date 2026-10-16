@@ -16,6 +16,30 @@ import 'package:ghost_model_deck/model_scenarios.dart';
 import 'fixtures/council_runtime.dart';
 
 void main() {
+  test('a model-scoped oMLX response restores its own totals without using session speed as a minute rate', () {
+    final data = RuntimeTelemetry.omlx(
+      {
+        'total_requests': 3,
+        'total_prompt_tokens': 1200,
+        'total_completion_tokens': 600,
+        'avg_prefill_tps': 200,
+        'avg_generation_tps': 50,
+        'active_models': {
+          'models': [
+            {'id': 'selected', 'active_requests': 0},
+            {'id': 'other', 'active_requests': 7},
+          ],
+        },
+      },
+      'selected',
+      modelScoped: true,
+    );
+    expect(data.totalRequests, 3);
+    expect(data.promptTokens, 1200);
+    expect(data.generatedTokens, 600);
+    expect(data.prefillSeconds, isNull);
+    expect(data.decodeSeconds, isNull);
+  });
   test('finished Splash requests awaiting finalization do not occupy inference slots', () {
     final status = splashStatus();
     status['active_requests'] = [

@@ -1458,7 +1458,11 @@ class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
     if (cancellation.isCancelled || !identical(_admitRun(instanceId), run)) {
       throw StateError('实例已变化');
     }
-    return RuntimeTelemetry.omlx(jsonDecode(raw), run.modelId);
+    return RuntimeTelemetry.omlx(
+      jsonDecode(raw),
+      run.modelId,
+      modelScoped: true,
+    );
   }
 
   EngineLaunchCommand? actualCommandFor(String id) {

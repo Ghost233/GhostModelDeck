@@ -201,7 +201,12 @@ class RuntimeTelemetry {
     );
   }
 
-  factory RuntimeTelemetry.omlx(Object? value, String model, {int? capacity}) {
+  factory RuntimeTelemetry.omlx(
+    Object? value,
+    String model, {
+    int? capacity,
+    bool modelScoped = false,
+  }) {
     final row = _map(value);
     final models = _rows(_map(row['active_models'])['models']);
     final status = models.where((m) => m['id'] == model).singleOrNull;
@@ -261,8 +266,13 @@ class RuntimeTelemetry {
       decoding: status['generating'] is List
           ? (status['generating'] as List).length
           : null,
-      // These root totals cover the whole oMLX pool, not this selected model.
-      // Do not duplicate them across saved instances sharing a pool.
+      // The admin endpoint can filter its root snapshot by model. Unscoped
+      // callers must not copy a global aggregate into each instance.
+      totalRequests: modelScoped ? _int(row['total_requests']) : null,
+      promptTokens: modelScoped ? _int(row['total_prompt_tokens']) : null,
+      generatedTokens: modelScoped
+          ? _int(row['total_completion_tokens'])
+          : null,
       requests: progress,
     );
   }
