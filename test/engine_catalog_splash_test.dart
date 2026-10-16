@@ -13,6 +13,25 @@ import 'package:ghost_model_deck/splash_engine.dart';
 import 'splash_engine_test.dart' show SplashRuntimeFixture;
 
 void main() {
+  test('Splash automatically prepares and persists a model without a manual binding', () async {
+    final fixture = await SplashRuntimeFixture.create();
+    addTearDown(fixture.close);
+    final engine = fixture.engine();
+    addTearDown(engine.close);
+    final first = await engine.startRuntime(fixture.asset.id);
+    final binding = engine.bindingFor(fixture.asset.id)!;
+    expect(binding.assembly.path, startsWith('${engine.modelDirectory.path}/'));
+    expect(binding.assembly.path, isNot(fixture.assembly.path));
+    expect(first.status, RuntimeInstanceStatus.ready);
+    await engine.stop(first.id);
+    final second = await engine.startRuntime(fixture.asset.id);
+    expect(
+      engine.bindingFor(fixture.asset.id)!.assembly.path,
+      binding.assembly.path,
+    );
+    await engine.stop(second.id);
+    expect(await File('${binding.assembly.path}/model.json').exists(), isTrue);
+  });
   test('Splash catalog persists bindings and config, routes public HTTP and preserves external files on unlink', () async {
     final fixture = await SplashRuntimeFixture.create();
     addTearDown(fixture.close);
@@ -120,13 +139,28 @@ void main() {
       confirmed: true,
     );
     expect(reopened.state.entries.any((e) => e.id == registration.id), isFalse);
-    expect(reopened.unlinkedConfigurations.single.family, EngineFamily.splash);
+    final saved = jsonDecode(await reopened.registryFile.readAsString()) as Map;
+    expect(saved.containsKey('unlinkedConfigurations'), isFalse);
+    expect(
+      (saved['launchDefaults'] as Map?)?.containsKey(registration.id) ?? false,
+      isFalse,
+    );
+    expect(
+      (saved['modelLaunchOverrides'] as Map?)?.containsKey(registration.id) ??
+          false,
+      isFalse,
+    );
     expect(await fixture.source.exists(), isTrue);
     expect(await fixture.assembly.exists(), isTrue);
     final again = catalog();
     addTearDown(again.close);
     await again.refresh();
-    expect(again.unlinkedConfigurations.single.family, EngineFamily.splash);
+    expect(
+      (jsonDecode(await again.registryFile.readAsString()) as Map).containsKey(
+        'unlinkedConfigurations',
+      ),
+      isFalse,
+    );
     expect(
       again.state.entries.any((e) => e.family == EngineFamily.splash),
       isFalse,

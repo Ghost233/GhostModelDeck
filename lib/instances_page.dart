@@ -133,15 +133,13 @@ class _InstancesPageState extends State<InstancesPage> {
         initialEngineId: existing?.engineId,
         initialConfiguration: existing?.configuration,
         initialName: existing?.name,
-        initialAssembly: existing?.splashAssembly,
-        onSaveInstance: (name, engine, model, configuration, assembly) async {
+        onSaveInstance: (name, engine, model, configuration) async {
           await store.save(
             id: existing?.id,
             name: name,
             artifactId: model.id,
             engineId: engine,
             configuration: configuration,
-            splashAssembly: assembly,
           );
         },
       ),
