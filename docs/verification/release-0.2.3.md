@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-发布前检查已通过，尚未推送 tag。已验收的总 PR #113 将在本次发布授权下合入 main，再同步本地分支。版本修改、打包预检与发布记录不改变已验收的应用功能。
+正式发布已完成。总 PR [#113](https://github.com/Ghost233/GhostModelDeck/pull/113) 已在本次发布授权下合入 main，发布提交为 `b7ea928c9ba02e5fc23ada9cd477dc7141961158`。Actions 成功，正式 Release 和三份非空资产均已核对；当前 GMD 及模型服务没有切换。
 
 ## 本次范围与审查
 
@@ -27,7 +27,28 @@
 
 ## 正式结果
 
-待完成总 PR 合并、main 同步、发布入口 dry-run 和正式 tag 推送，再记录匹配提交的 Actions 与正式 Release。缺少远端证据不记发布完成。
+- 正式 Release：[v0.2.3](https://github.com/Ghost233/GhostModelDeck/releases/tag/v0.2.3)，非草稿、非预发布。
+- 发布时间：北京时间 2026-10-17 08:34:15。
+- 发布 tag 与源码提交：`b7ea928c9ba02e5fc23ada9cd477dc7141961158`。
+- [Actions 38986792791](https://github.com/Ghost233/GhostModelDeck/actions/runs/38986792791) 匹配 v0.2.3 及上述完整提交，状态 completed、结论 success，执行一次，CI 构建号为 18。
+- tag 校验、依赖解析、DMG 和清单构建、Release 创建均成功；应用版本与 arm64 架构检查依据同一成功构建步骤及其执行脚本。
+- 远端三份资产均为 uploaded，名称符合约定且大小大于零；发布后没有下载正式资产或重新计算正式包哈希。
+
+| 远端资产 | bytes |
+| --- | --- |
+| GhostModelDeck-0.2.3.dmg | 23292860 |
+| manifest.json | 174 |
+| SHA256SUMS | 171 |
+
+## Git 同步与服务
+
+版本及发布前核对提交为 `6bbdbb872a18a1d792abd51a2f0747b62a576f64`，Standards／Spec 增量复审无未关闭 P0／P1／P2。#113 合并树与该候选完全一致。合并前先快进本地 main，合并后再快进同步本地 main 和 dev，并更新实际远端 dev；两分支均为同一发布提交。
+
+发布入口 dry-run 与正式执行均退出 0，仅创建并推送一次 v0.2.3。本地和实际远端 tag 对象一致，剥离后的发布提交均为 `b7ea928c9ba02e5fc23ada9cd477dc7141961158`。未创建额外分支或 worktree，未 stash、reset、移动或覆盖其他会话文件。
+
+本记录的最终结果另以文档提交同步 main／dev，不改变发布 tag、应用代码或版本。最终同步见 final-sync.json；发布源提交和文档提交分别记录。正式 GMD PID 9547，以及已有模型 PID 76193、78333、78337、85046、95457 保留。发布成功不代表本机已安装或运行新版本。
+
+身份核验出现过瞬时 TLS handshake timeout，保留错误并重试同一读取，没有创建第二次发布。唯一发布管线没有失败或重跑。
 
 ## 证据
 
