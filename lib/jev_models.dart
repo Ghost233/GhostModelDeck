@@ -1,17 +1,20 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'council.dart';
 import 'decision_protocol.dart';
 import 'decision_runtime.dart';
 import 'engine_catalog.dart';
+import 'engine_launch_configuration.dart';
 import 'engine_runtime.dart';
 import 'llama_engine.dart';
 import 'jev_debug.dart';
 import 'model_library.dart';
 import 'public_model_names.dart';
 import 'launch_instances.dart';
+import 'model_scenarios.dart';
 
 enum JevModelSource { council, native }
 
@@ -53,9 +56,11 @@ class JevModelBinding {
 class JevModelDefinition {
   JevModelDefinition.council({
     required this.name,
+    String? id,
     required List<JevModelBinding> seats,
     required this.timeout,
-  }) : source = JevModelSource.council,
+  }) : id = id ?? _newIdentity(),
+       source = JevModelSource.council,
        bindings = List.unmodifiable(seats) {
     _validate();
   }
@@ -63,15 +68,18 @@ class JevModelDefinition {
     required this.name,
     required JevModelBinding binding,
     this.timeout = const Duration(seconds: 60),
-  }) : source = JevModelSource.native,
+  }) : id = binding.id,
+       source = JevModelSource.native,
        bindings = List.unmodifiable([binding]) {
     _validate();
   }
   final String name;
+  final String id;
   final JevModelSource source;
   final List<JevModelBinding> bindings;
   final Duration timeout;
   void _validate() {
+    if (id.trim().isEmpty) throw const DecisionProtocolException('委员会身份不能为空');
     if (name.trim().isEmpty || name != name.trim()) {
       throw const DecisionProtocolException('调用名必须是非空且无首尾空白的名称');
     }
@@ -86,10 +94,16 @@ class JevModelDefinition {
 
   Map<String, Object> toJson() => {
     'name': name,
+    if (source == JevModelSource.council) 'id': id,
     'source': source.name,
     'bindings': [for (final b in bindings) b.toJson()],
     'timeout_us': timeout.inMicroseconds,
   };
+
+  static String _newIdentity() {
+    final random = Random.secure();
+    return 'council-${List.generate(16, (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0')).join()}';
+  }
 }
 
 class JevModelAvailability {
@@ -162,6 +176,9 @@ class JevModels {
   }) : registryIO = registryIO ?? NativeJevRegistryIO() {
     _subscription = controller.catalog.changes.listen((_) => _publish());
     _instanceSubscription = instances?.changes.listen((_) => _publish());
+    _scenarioSubscription = controller.scenarios.changes.listen(
+      (_) => _publish(),
+    );
   }
   final CouncilController controller;
   final File? registryFile;
@@ -171,6 +188,7 @@ class JevModels {
   final _changes = StreamController<void>.broadcast();
   late final StreamSubscription<EngineCatalogState> _subscription;
   StreamSubscription<void>? _instanceSubscription;
+  StreamSubscription<void>? _scenarioSubscription;
   List<JevModelDefinition> _definitions = const [];
   bool _loaded = false;
   Future<void>? _loading;
@@ -182,10 +200,14 @@ class JevModels {
   final Map<String, JevEvaluationLock> _evaluationLocks = {};
   Stream<void> get changes => _changes.stream;
   List<JevModelDefinition> get definitions => _definitions;
-  JevModelDefinition? definitionFor(String name) => [
-    ..._definitions,
-    ..._instanceModels,
-  ].where((model) => model.name == name).firstOrNull;
+  Iterable<JevModelDefinition> get allDefinitions sync* {
+    yield* _definitions;
+    yield* _instanceModels;
+    yield* _scenarioModels;
+  }
+
+  JevModelDefinition? definitionFor(String name) =>
+      allDefinitions.where((model) => model.name == name).firstOrNull;
   Iterable<JevModelDefinition> get _instanceModels sync* {
     for (final definition in instances?.definitions ?? <LaunchInstance>[]) {
       final actual = instances!
@@ -229,12 +251,72 @@ class JevModels {
     }
   }
 
-  bool isEvaluationLocked(String name) => _evaluationLocks.containsKey(name);
+  Iterable<JevModelDefinition> get _scenarioModels sync* {
+    for (final scenario in controller.scenarios.entries) {
+      if (!scenario.enabled || scenario.modelName.isEmpty) continue;
+      if (scenario.councilId != null) {
+        final council = _definitions
+            .where(
+              (model) =>
+                  model.source == JevModelSource.council &&
+                  model.id == scenario.councilId,
+            )
+            .firstOrNull;
+        if (council != null) {
+          yield JevModelDefinition.council(
+            id: council.id,
+            name: scenario.modelName,
+            seats: council.bindings,
+            timeout: council.timeout,
+          );
+        }
+        continue;
+      }
+      final source = _instanceModels
+          .where(
+            (model) => model.bindings.single.instanceId == scenario.instanceId,
+          )
+          .firstOrNull;
+      if (source != null) {
+        yield JevModelDefinition.native(
+          name: scenario.modelName,
+          binding: source.bindings.single,
+          timeout: source.timeout,
+        );
+      }
+    }
+  }
+
+  bool isEvaluationLocked(String name) {
+    if (_evaluationLocks.containsKey(name)) return true;
+    final stored = _definitions
+        .where(
+          (model) =>
+              model.name == name && model.source == JevModelSource.council,
+        )
+        .firstOrNull;
+    if (stored == null) return false;
+    for (final lockedName in _evaluationLocks.keys) {
+      final selected = definitionFor(lockedName);
+      if (selected != null &&
+          selected.source == JevModelSource.council &&
+          selected.id == stored.id) {
+        return true;
+      }
+    }
+    return false;
+  }
 
   Future<JevEvaluationLock> lockForEvaluation(String name) async {
+    if (controller.scenarios.isSaving) {
+      throw const DecisionProtocolException('场景配置正在保存，请稍后开始评测');
+    }
     late JevEvaluationLock selection;
     await _serial(() async {
       await _restore();
+      if (controller.scenarios.isSaving) {
+        throw const DecisionProtocolException('场景配置正在保存，请稍后开始评测');
+      }
       if (isEvaluationLocked(name)) {
         throw const DecisionProtocolException('模型正在参与评测');
       }
@@ -415,11 +497,104 @@ class JevModels {
   List<JevModelAvailability> get configuredModels => List.unmodifiable([
     for (final definition in _definitions) _availability(definition),
   ]);
-  List<JevModelAvailability> get callableModels => List.unmodifiable([
-    ...configuredModels.where((m) => m.available),
-    for (final model in _instanceModels)
-      if (_availability(model).available) _availability(model),
-  ]);
+  List<JevModelAvailability> get callableModels => List.unmodifiable(
+    allDefinitions.map(_availability).where((model) => model.available),
+  );
+
+  List<JevModelAvailability> get discoverableScenarios => [
+    for (final scenario in controller.scenarios.entries)
+      if (scenario.enabled && scenario.modelName.isNotEmpty)
+        for (final model in callableModels)
+          if (model.definition.name == scenario.modelName) model,
+  ];
+
+  String get scenarioInstructions => [
+    '场景使用统一模型名字；默认发现只返回已启用且可用的场景。',
+    '场景文字由用户定义，不用于能力判断。已知有效模型名字可以直接调用。',
+    for (final scenario in controller.scenarios.entries)
+      '${scenario.displayName}：model=${scenario.modelName.isEmpty ? '未配置' : scenario.modelName}；'
+          '${scenario.enabled ? '启用' : '关闭'}；上下文='
+          '${scenarioContextLength(scenario) ?? '未指定'}',
+  ].join('\n');
+
+  int? scenarioContextLength(ModelScenario scenario) {
+    if (scenario.instanceId != null) {
+      return instances?.contextLengthFor(scenario.instanceId!);
+    }
+    final council = _definitions
+        .where(
+          (model) =>
+              model.source == JevModelSource.council &&
+              model.id == scenario.councilId,
+        )
+        .firstOrNull;
+    return council == null ? null : _configuredContext(council);
+  }
+
+  List<({String label, int? before, int? after})> previewContextChange(
+    String instanceId,
+    EngineLaunchConfiguration configuration,
+  ) {
+    final instance = instances?.find(instanceId);
+    if (instance == null) return const [];
+    final context = configuration.contextLength;
+    final councils = _definitions.where(
+      (model) =>
+          model.source == JevModelSource.council &&
+          model.bindings.any((binding) => binding.instanceId == instanceId),
+    );
+    return [
+      (
+        label: '实例 ${instance.name}',
+        before: instances!.contextLengthFor(instanceId),
+        after: context,
+      ),
+      for (final council in councils)
+        (
+          label: '委员会 ${council.name}',
+          before: _configuredContext(council),
+          after: _configuredContext(
+            council,
+            editedInstanceId: instanceId,
+            context: context,
+          ),
+        ),
+      for (final scenario in controller.scenarios.entries)
+        if (scenario.instanceId == instanceId ||
+            councils.any((model) => model.id == scenario.councilId))
+          (
+            label: '场景 ${scenario.displayName}（${scenario.modelName}）',
+            before: scenarioContextLength(scenario),
+            after: scenario.instanceId == instanceId
+                ? context
+                : _configuredContext(
+                    councils.singleWhere(
+                      (model) => model.id == scenario.councilId,
+                    ),
+                    editedInstanceId: instanceId,
+                    context: context,
+                  ),
+          ),
+    ];
+  }
+
+  int? _configuredContext(
+    JevModelDefinition definition, {
+    String? editedInstanceId,
+    int? context,
+  }) {
+    if (instances == null) return null;
+    final contexts = [
+      for (final binding in definition.bindings)
+        binding.instanceId != null && binding.instanceId == editedInstanceId
+            ? context
+            : binding.instanceId == null
+            ? null
+            : instances!.contextLengthFor(binding.instanceId!),
+    ];
+    if (contexts.isEmpty || contexts.any((value) => value == null)) return null;
+    return contexts.whereType<int>().reduce(min);
+  }
 
   /// Current, identity-bound capacity of callable decision routes. Virtual
   /// councils share their seats' processes; their capacities are never added.
@@ -427,6 +602,8 @@ class JevModels {
     final models = <Map<String, Object?>>[];
     for (final availability in callableModels) {
       final definition = availability.definition;
+      final configuredContext = _configuredContext(definition);
+      if (instances != null && configuredContext == null) continue;
       final capacities = <RuntimeCapacity>[];
       for (final binding in definition.bindings) {
         try {
@@ -448,9 +625,11 @@ class JevModels {
         }
       }
       if (capacities.isEmpty) continue;
-      final context = capacities
-          .map((c) => c.contextPerSlot)
-          .reduce((a, b) => a < b ? a : b);
+      final context =
+          configuredContext ??
+          capacities
+              .map((c) => c.contextPerSlot)
+              .reduce((a, b) => a < b ? a : b);
       final concurrency = capacities
           .map((c) => c.slotCount)
           .reduce((a, b) => a < b ? a : b);
@@ -518,6 +697,9 @@ class JevModels {
       final definition = instances!.find(binding.instanceId!);
       if (definition == null) {
         throw const JevRequestException(503, 'model_not_ready', '实例配置已删除');
+      }
+      if (instances!.isStarting(binding.instanceId!)) {
+        throw const JevRequestException(503, 'model_not_ready', '实例正在启动');
       }
       final found = <CouncilSeat>[];
       for (final runtime
@@ -596,6 +778,7 @@ class JevModels {
 
   Future<void> _load() async {
     await instances?.load();
+    await controller.scenarios.load();
     final file = registryFile;
     final contents = file == null ? null : await registryIO.read(file);
     if (contents == null) {
@@ -636,6 +819,11 @@ class JevModels {
         models.add(switch (entry['source']) {
           'council' => JevModelDefinition.council(
             name: entry['name'] as String,
+            id: entry['id'] == null
+                ? 'legacy:${entry['name']}'
+                : entry['id'] is String
+                ? entry['id'] as String
+                : throw const FormatException('委员会身份格式无效'),
             seats: bindings,
             timeout: Duration(microseconds: entry['timeout_us'] as int),
           ),
@@ -653,6 +841,13 @@ class JevModels {
       }
       if (models.map((m) => m.name).toSet().length != models.length) {
         throw const FormatException('调用名重复');
+      }
+      final councilIds = models
+          .where((model) => model.source == JevModelSource.council)
+          .map((model) => model.id)
+          .toList();
+      if (councilIds.toSet().length != councilIds.length) {
+        throw const FormatException('委员会身份重复');
       }
       publicNames?.claimAll({
         for (final model in models) 'jev:${model.name}': model.name,
@@ -675,10 +870,7 @@ class JevModels {
     if (controller.isShuttingDown) {
       throw const JevRequestException(503, 'service_stopping', '应用正在退出');
     }
-    final definition = [
-      ..._definitions,
-      ..._instanceModels,
-    ].where((m) => m.name == name).firstOrNull;
+    final definition = definitionFor(name);
     if (definition == null) {
       throw const JevRequestException(404, 'model_not_found', '调用模型名不存在');
     }
@@ -986,6 +1178,24 @@ class JevModels {
     if (replacing != null && !_definitions.any((m) => m.name == replacing)) {
       throw const DecisionProtocolException('待编辑的模型配置不存在');
     }
+    if (definition.source == JevModelSource.council) {
+      final previous = _definitions
+          .where((model) => model.name == replacing)
+          .firstOrNull;
+      if (previous != null) {
+        definition = JevModelDefinition.council(
+          id: previous.id,
+          name: definition.name,
+          seats: definition.bindings,
+          timeout: definition.timeout,
+        );
+      }
+      if (_definitions.any(
+        (model) => model.name != replacing && model.id == definition.id,
+      )) {
+        throw const DecisionProtocolException('委员会身份已存在');
+      }
+    }
     if (_definitions.any(
       (m) => m.name == definition.name && m.name != replacing,
     )) {
@@ -1100,6 +1310,7 @@ class JevModels {
       }
       await _subscription.cancel();
       await _instanceSubscription?.cancel();
+      await _scenarioSubscription?.cancel();
       await _changes.close();
     }
   }

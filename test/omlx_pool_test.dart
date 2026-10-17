@@ -134,13 +134,15 @@ class _RecordedRequest {
     this.path,
     this.body,
     this.authorization,
-    this.cookie,
-  );
+    this.cookie, {
+    this.query = const {},
+  });
   final String method;
   final String path;
   final String? body;
   final String? authorization;
   final String? cookie;
+  final Map<String, String> query;
 }
 
 class _ServerModel {
@@ -250,12 +252,49 @@ class _FakeServer {
       body.isEmpty ? null : body,
       request.headers.value('authorization'),
       request.headers.value('cookie'),
+      query: request.uri.queryParameters,
     );
     requests.add(recorded);
     final segments = request.uri.pathSegments;
     try {
       if (segments.length == 1 && segments[0] == 'health') {
         await _json(request, 200, {'status': 'healthy'});
+        return;
+      }
+      if (segments.length == 3 &&
+          segments[0] == 'admin' &&
+          segments[1] == 'api' &&
+          segments[2] == 'stats') {
+        if (!_adminOk(recorded)) {
+          await _json(request, 401, {'error': 'unauthorized'});
+          return;
+        }
+        final selected = request.uri.queryParameters['model'];
+        final multiplier = selected == 'model-a'
+            ? 1
+            : selected == 'model-b'
+            ? 2
+            : 99;
+        await _json(request, 200, {
+          'total_requests': 3 * multiplier,
+          'total_prompt_tokens': 1200 * multiplier,
+          'total_completion_tokens': 600 * multiplier,
+          'avg_prefill_tps': 9999,
+          'avg_generation_tps': 8888,
+          'active_models': {
+            'models': [
+              for (final model in models.values.where((model) => model.loaded))
+                {
+                  'id': model.id,
+                  'active_requests': 0,
+                  'waiting_requests': 0,
+                  'waiting': [],
+                  'prefilling': [],
+                  'generating': [],
+                },
+            ],
+          },
+        });
         return;
       }
       if (segments.length == 3 &&
@@ -825,6 +864,114 @@ Matcher _requestKind(OmlxRequestKind kind) =>
     isA<OmlxRequestException>().having((e) => e.kind, 'kind', kind);
 
 void main() {
+  test('master off cancels pending native and configured oMLX loads and keeps later starts sealed', () async {
+    for (final configured in [false, true]) {
+      final fixture = await _PoolFixture.create();
+      addTearDown(fixture.dispose);
+      final cpp = LlamaEngine(
+        library: fixture.library,
+        installationDirectory: Directory('${fixture.root.path}/cpp'),
+      );
+      addTearDown(cpp.close);
+      final catalog = EngineCatalog(
+        library: fixture.library,
+        officialEngine: cpp,
+        omlxEngine: fixture.engine,
+        useRegistry: fixture.useRegistry,
+        registryFile: File('${fixture.root.path}/registry.json'),
+      );
+      addTearDown(catalog.close);
+      addTearDown(catalog.shutdown);
+      final release = Completer<void>();
+      addTearDown(() {
+        if (!release.isCompleted) release.complete();
+      });
+      final created = Completer<_FakeServer>();
+      fixture.poolIo.onServerCreated = (server) {
+        server.loadGate = release;
+        created.complete(server);
+      };
+      final start = configured
+          ? fixture.engine.startWithConfiguration(
+              fixture.artifact('model-a').id,
+              EngineLaunchConfiguration(family: EngineFamily.omlx),
+              launchInstanceId: 'owned',
+              launchRevision: 1,
+            )
+          : fixture.engine.startRuntime(fixture.artifact('model-a').id);
+      final outcome = start.then<Object>(
+        (run) => run,
+        onError: (Object error) => error,
+      );
+      final server = await created.future.timeout(const Duration(seconds: 5));
+      await server.loadStarted.future.timeout(const Duration(seconds: 5));
+      await catalog
+          .setRuntimeEnabled(false)
+          .timeout(const Duration(seconds: 5));
+      expect(await outcome, isA<OmlxException>());
+      expect(
+        fixture.engine.runtimeInstances.where((run) => run.hasLiveProcess),
+        isEmpty,
+      );
+      expect(
+        fixture.poolIo.children.every((child) => child._exit.isCompleted),
+        isTrue,
+      );
+      await expectLater(
+        fixture.engine.startRuntime(fixture.artifact('model-b').id),
+        throwsA(isA<OmlxException>()),
+      );
+      release.complete();
+      fixture.poolIo.onServerCreated = null;
+      await catalog.setRuntimeEnabled(true);
+      final next = await fixture.engine.startRuntime(
+        fixture.artifact('model-b').id,
+      );
+      expect(next.status, RuntimeInstanceStatus.ready);
+      await catalog.setRuntimeEnabled(false);
+    }
+  });
+
+  test('owned monitor requests session stats for the exact model and never borrows its loaded peer totals', () async {
+    final fixture = await _PoolFixture.create();
+    addTearDown(fixture.dispose);
+    addTearDown(fixture.engine.shutdown);
+    final first = await fixture.engine.startRuntime(
+      fixture.artifact('model-a').id,
+    );
+    final second = await fixture.engine.startRuntime(
+      fixture.artifact('model-b').id,
+    );
+    final a = await fixture.engine.readTelemetry(
+      first.id,
+      cancellation: DecisionCancellation(),
+    );
+    final b = await fixture.engine.readTelemetry(
+      second.id,
+      cancellation: DecisionCancellation(),
+    );
+    expect(a.promptTokens, 1200);
+    expect(a.generatedTokens, 600);
+    expect(a.totalRequests, 3);
+    expect(b.promptTokens, 2400);
+    expect(b.generatedTokens, 1200);
+    expect(b.totalRequests, 6);
+    expect(a.prefillSeconds, isNull);
+    expect(a.decodeSeconds, isNull);
+    final reads = fixture.server.requests
+        .where((request) => request.path == '/admin/api/stats')
+        .toList();
+    expect(reads.map((request) => request.query), [
+      {'model': 'model-a', 'scope': 'session'},
+      {'model': 'model-b', 'scope': 'session'},
+    ]);
+    expect(
+      reads.every(
+        (request) => request.cookie?.contains('omlx_admin_session=') == true,
+      ),
+      isTrue,
+    );
+  });
   test('recognized unknown architecture remains eligible for an explicit private oMLX test', () async {
     final fixture = await _PoolFixture.create();
     addTearDown(fixture.dispose);

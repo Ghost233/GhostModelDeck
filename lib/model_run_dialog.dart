@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -42,8 +43,8 @@ class ModelRunDialog extends StatefulWidget {
     this.initialEngineId,
     this.initialConfiguration,
     this.initialName,
-    this.initialAssembly,
     this.onSaveInstance,
+    this.contextPreview,
   });
   final EngineCatalog catalog;
   final ModelLibrary library;
@@ -53,13 +54,15 @@ class ModelRunDialog extends StatefulWidget {
   final String? initialEngineId;
   final EngineLaunchConfiguration? initialConfiguration;
   final String? initialName;
-  final String? initialAssembly;
+  final List<({String label, int? before, int? after})> Function(
+    EngineLaunchConfiguration,
+  )?
+  contextPreview;
   final Future<void> Function(
     String name,
     String engineId,
     LibraryArtifact artifact,
     EngineLaunchConfiguration configuration,
-    String? assembly,
   )?
   onSaveInstance;
   @override
@@ -77,9 +80,9 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
   String? _error;
   bool _working = false;
   bool _loading = true;
+  int _impactPage = 0;
   EngineLaunchCommand? _preview;
   bool _previewBlocked = false;
-  final _splashAssembly = TextEditingController();
   final _fields = <String, TextEditingController>{};
   final _argumentText = TextEditingController();
   EngineLaunchConfiguration? _defaults;
@@ -127,23 +130,27 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
 
   @override
   void dispose() {
+    unawaited(_catalogChanges?.cancel());
     _testCancellation?.cancel();
     _instanceName.dispose();
     _argumentText.dispose();
     for (final field in _fields.values) {
       field.dispose();
     }
-    _splashAssembly.dispose();
     super.dispose();
   }
 
   LibraryArtifact? get _configurationAsset => _variant.artifacts
       .where((asset) => ['GGUF', 'Safetensors'].contains(asset.format))
       .singleOrNull;
+  StreamSubscription<EngineCatalogState>? _catalogChanges;
+
   @override
   void initState() {
     super.initState();
-    _splashAssembly.text = widget.initialAssembly ?? '';
+    _catalogChanges = widget.catalog.changes.listen((_) {
+      if (mounted) setState(() {});
+    });
     _refresh();
   }
 
@@ -257,21 +264,10 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
           artifact: asset,
           configuration: draft,
           cancellation: _testCancellation!,
-          splashAssembly: _splashAssembly.text.trim().isEmpty
-              ? null
-              : Directory(_splashAssembly.text.trim()),
         );
         if (mounted) setState(() => _result = result);
       } else if (widget.onSaveInstance != null) {
-        await widget.onSaveInstance!(
-          _instanceName.text,
-          id,
-          asset,
-          draft,
-          _splashAssembly.text.trim().isEmpty
-              ? null
-              : _splashAssembly.text.trim(),
-        );
+        await widget.onSaveInstance!(_instanceName.text, id, asset, draft);
         if (mounted) Navigator.pop(context);
       } else {
         if (_defaults!.argumentText == draft.argumentText &&
@@ -293,11 +289,6 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
             draft,
             preferEngine: true,
           );
-        }
-        final runtime = widget.catalog.runtimeFor(id);
-        final path = _splashAssembly.text.trim();
-        if (runtime is SplashEngine && path.isNotEmpty) {
-          await widget.catalog.bindSplashModel(id, asset.id, Directory(path));
         }
         if (mounted) Navigator.pop(context);
       }
@@ -339,10 +330,16 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
     final entries = widget.catalog.state.entries
         .where((value) => value.status == LlamaInstallationStatus.installed)
         .toList();
-    final selectedEntry = entries
-        .where((entry) => entry.id == _engineId)
-        .singleOrNull;
     final asset = _configurationAsset;
+    final impact = _draft == null || _previewBlocked
+        ? const <({String label, int? before, int? after})>[]
+        : widget.contextPreview?.call(_draft!) ??
+              const <({String label, int? before, int? after})>[];
+    final impactPages = (impact.length / 5).ceil();
+    final impactPage = _impactPage.clamp(
+      0,
+      impactPages == 0 ? 0 : impactPages - 1,
+    );
     return PopScope(
       canPop: !_working,
       child: AlertDialog(
@@ -470,21 +467,45 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
                               ? null
                               : _selectEngine,
                         ),
-                        if (selectedEntry?.family == EngineFamily.splash) ...[
-                          const SizedBox(height: 16),
-                          TextField(
-                            key: const Key('splash-model-assembly'),
-                            controller: _splashAssembly,
-                            enabled: !_working,
-                            decoration: const InputDecoration(
-                              labelText: 'Splash 本地模型目录（包含 model.json）',
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          const Text('填写已准备的本地目录；启动前核对模型与文件。留空沿用此引擎已保存的绑定。'),
-                        ],
                         if (_defaults != null) ...[
                           const SizedBox(height: 20),
+                          if (impact.isNotEmpty) ...[
+                            const Text('容量预览（重启生效）'),
+                            for (final change
+                                in impact.skip(impactPage * 5).take(5))
+                              Text(
+                                '${change.label}：${change.before ?? '未指定'} → ${change.after ?? '未指定'}',
+                                key: ValueKey(
+                                  'context-preview:${change.label}',
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            if (impactPages > 1)
+                              Row(
+                                children: [
+                                  TextButton(
+                                    onPressed: impactPage == 0
+                                        ? null
+                                        : () => setState(
+                                            () => _impactPage = impactPage - 1,
+                                          ),
+                                    child: const Text('上一页'),
+                                  ),
+                                  Text('${impactPage + 1} / $impactPages'),
+                                  TextButton(
+                                    onPressed: impactPage + 1 == impactPages
+                                        ? null
+                                        : () => setState(
+                                            () => _impactPage = impactPage + 1,
+                                          ),
+                                    child: const Text('下一页'),
+                                  ),
+                                ],
+                              ),
+                            const Text('保存只更新待应用参数；成功重启后更新关联容量。'),
+                            const SizedBox(height: 12),
+                          ],
                           for (final field
                               in EngineLaunchConfiguration.labelsFor(
                                 _defaults!.family,
@@ -625,7 +646,11 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
           ),
           OutlinedButton(
             onPressed:
-                _working || _loading || _engineId == null || _previewBlocked
+                _working ||
+                    _loading ||
+                    _engineId == null ||
+                    _previewBlocked ||
+                    !widget.catalog.runtimeEnabled
                 ? null
                 : () => _submit(test: true),
             child: const Text('测试运行'),

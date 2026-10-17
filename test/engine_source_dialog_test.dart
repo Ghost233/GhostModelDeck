@@ -176,7 +176,11 @@ void main() {
         await fixture.catalog.refresh();
       });
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('引擎详情').last);
+      await tester.tap(find.text('引擎名'));
+      await tester.pump();
+      final details = find.byKey(ValueKey('engine-details:${entry.id}'));
+      await tester.ensureVisible(details);
+      await tester.tap(details);
       await tester.pumpAndSettle();
       expect(
         find.textContaining('来源地址 https://github.com/ggml-org/llama.cpp'),

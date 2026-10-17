@@ -12,6 +12,7 @@ import 'launch_argument_text.dart';
 import 'llama_engine.dart';
 import 'model_library.dart';
 import 'model_use_registry.dart';
+import 'splash_preparation.dart';
 import 'chat_protocol.dart';
 import 'decision_protocol.dart';
 import 'decision_runtime.dart';
@@ -214,12 +215,13 @@ class SplashModelBinding {
       roles[entry.key] = path;
     }
     if (!roles.containsKey('model.json') ||
-        !roles.containsKey('draft/config.json') ||
-        !roles.keys.any(
-          (p) =>
-              p.startsWith('draft/') &&
-              (p.endsWith('.safetensors') || p.endsWith('.gguf')),
-        ) ||
+        (roles.keys.any((p) => p.startsWith('draft/')) &&
+            (!roles.containsKey('draft/config.json') ||
+                !roles.keys.any(
+                  (p) =>
+                      p.startsWith('draft/') &&
+                      (p.endsWith('.safetensors') || p.endsWith('.gguf')),
+                ))) ||
         !roles.containsKey('config.json') ||
         !roles.keys.any((p) => p.startsWith('target/')) ||
         !roles.keys.any((p) => p.startsWith('tokenizer/'))) {
@@ -333,6 +335,7 @@ class _SplashRun {
   final bool supportsSystemone;
   final String? binarySha256;
   RuntimeCapacity? capacity;
+  int? inferenceConcurrency;
   final SplashModelBinding binding;
   final EngineLaunchCommand command;
   final int generation;
@@ -361,6 +364,8 @@ class _SplashRun {
     temporaryTest: temporaryTest,
     launchInstanceId: launchInstanceId,
     launchRevision: launchRevision,
+    capacity: status == RuntimeInstanceStatus.ready ? capacity : null,
+    inferenceConcurrency: inferenceConcurrency,
     capabilities: status == RuntimeInstanceStatus.ready
         ? {
             RuntimeCapability.textGeneration,
@@ -480,11 +485,14 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
     required this.library,
     required this.useRegistry,
     required this.runtimeDirectory,
+    Directory? modelDirectory,
     required this.configurationFor,
     required this.saveBinding,
     Iterable<SplashModelBinding> bindings = const [],
     SplashProcessIO? io,
-  }) : _installation = installation,
+  }) : modelDirectory =
+           modelDirectory ?? Directory('${runtimeDirectory.path}/models'),
+       _installation = installation,
        _installationVerified = installation.verified,
        io = io ?? NativeSplashProcessIO(),
        _bindings = {
@@ -497,12 +505,14 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
   final ModelLibrary library;
   final ModelUseRegistry useRegistry;
   final Directory runtimeDirectory;
+  final Directory modelDirectory;
   final EngineLaunchConfiguration Function(String artifactId) configurationFor;
   final Future<void> Function(SplashModelBinding binding) saveBinding;
   final SplashProcessIO io;
   final Map<String, SplashModelBinding> _bindings;
   Future<void> _operations = Future.value();
   final _startupJobs = <Future<RuntimeInstance>>{};
+  final _modelPreparations = <String, Future<SplashModelBinding>>{};
   final _runs = <String, _SplashRun>{};
   final _preparing = <SplashModelBinding>{};
   final _changes = StreamController<SplashEngineState>.broadcast();
@@ -571,7 +581,11 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
         row['ready'] != true) {
       throw StateError('实例身份已变化');
     }
-    return RuntimeTelemetry.splash(row);
+    final telemetry = RuntimeTelemetry.splash(row);
+    if (telemetry.capacity != null) {
+      run.inferenceConcurrency = telemetry.capacity;
+    }
+    return telemetry;
   }
 
   EngineLaunchCommand? actualCommandFor(String id) => _runs[id]?.command;
@@ -592,7 +606,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
     if (configuration.family != EngineFamily.splash) {
       throw const SplashEngineException('Splash配置family不符');
     }
-    final assembly = binding?.assembly.path ?? '<绑定的本地 assembly 目录>';
+    final assembly = binding?.assembly.path ?? '<由 GMD 自动准备的模型运行目录>';
     final persistentCache = parseLaunchArgumentText(configuration.argumentText)
         .any(
           (token) =>
@@ -651,6 +665,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
     String? launchInstanceId,
     int? launchRevision,
     Directory? assembly,
+    Directory? preparationHint,
   }) {
     if (_shuttingDown || _admissionHolds > 0) {
       return Future.error(const SplashEngineException('Splash启动准入已关闭'));
@@ -659,11 +674,12 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
     final operation = _operations.then((_) async {
       if (_shuttingDown) throw const SplashEngineException('Splash正在退出');
       final binding = assembly == null
-          ? _bindings[artifactId]
+          ? await prepareModelBinding(
+              artifactId,
+              previous: preparationHint ?? _bindings[artifactId]?.assembly,
+              cancellation: cancellation,
+            )
           : await _readBinding(artifactId, assembly);
-      if (binding == null) {
-        throw const SplashEngineException('请先绑定所选模型的完整Splash assembly');
-      }
       _preparing.add(binding);
       try {
         await _syncUses();
@@ -673,6 +689,9 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
             epoch != _startEpoch ||
             (cancellation?.isCancelled ?? false)) {
           throw const SplashEngineException('Splash启动已取消');
+        }
+        if (!temporaryTest) {
+          _bindings[artifactId] = binding;
         }
         final reservation = await ServerSocket.bind(
           InternetAddress.loopbackIPv4,
@@ -1386,6 +1405,14 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
     final http = status['http'];
     final requests = http is Map ? http['requests'] : null;
     final slots = requests is Map ? requests['capacity'] : null;
+    final plan = status['memory_plan'];
+    final nativeBudget = plan is Map ? plan['budget'] : null;
+    final nativeSlots = nativeBudget is Map
+        ? nativeBudget['maximum_batch_width']
+        : null;
+    run.inferenceConcurrency = nativeSlots is int && nativeSlots > 0
+        ? nativeSlots
+        : null;
     run.capacity = context is int && context > 0 && slots is int && slots > 0
         ? RuntimeCapacity(contextPerSlot: context, slotCount: slots)
         : null;
@@ -1549,6 +1576,73 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
     }
   });
 
+  Future<SplashModelBinding> prepareModelBinding(
+    String artifactId, {
+    Directory? previous,
+    DecisionCancellation? cancellation,
+  }) async {
+    if (cancellation?.isCancelled ?? false) {
+      throw const SplashEngineException('Splash 模型准备已取消');
+    }
+    final recorded = _bindings[artifactId];
+    if (recorded != null) {
+      final manifest = File('${recorded.assembly.path}/model.json');
+      if (await manifest.exists() &&
+          _object(
+                jsonDecode(await manifest.readAsString()),
+                'Splash assembly',
+              )['model'] !=
+              recorded.nativeModel) {
+        throw const SplashEngineException('Splash 模型身份已变化');
+      }
+      for (final role in recorded.roles.entries.where(
+        (entry) => entry.key.startsWith('target/'),
+      )) {
+        final target = File('${recorded.assembly.path}/${role.key}');
+        if (await target.exists() &&
+            await target.resolveSymbolicLinks() != role.value) {
+          throw const SplashEngineException('Splash 主模型引用已变化');
+        }
+      }
+    }
+    final pending = _modelPreparations.putIfAbsent(
+      artifactId,
+      () => _prepareModelBinding(artifactId, previous),
+    );
+    try {
+      final binding = await pending;
+      if (cancellation?.isCancelled ?? false) {
+        throw const SplashEngineException('Splash 模型准备已取消');
+      }
+      // Concurrent starts share metadata work, but own separate file-use leases.
+      return SplashModelBinding.fromJson(binding.toJson());
+    } finally {
+      if (identical(_modelPreparations[artifactId], pending)) {
+        _modelPreparations.remove(artifactId);
+      }
+    }
+  }
+
+  Future<SplashModelBinding> _prepareModelBinding(
+    String artifactId,
+    Directory? previous,
+  ) async {
+    final asset = library.state.artifacts
+        .where((asset) => asset.id == artifactId)
+        .singleOrNull;
+    if (asset == null) throw const SplashEngineException('模型不在当前模型库中');
+    await _assertInstallation();
+    final directory = await prepareSplashModel(
+      io: io,
+      python: _installation.python,
+      engine: _installation.root,
+      root: modelDirectory,
+      artifact: asset,
+      previous: previous,
+    );
+    return _readBinding(artifactId, directory);
+  }
+
   Future<SplashModelBinding> _readBinding(
     String artifactId,
     Directory candidate,
@@ -1636,7 +1730,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
         .toSet();
     if (weights.isEmpty ||
         targets.length != weights.length ||
-        weights.any((file) => !targets.contains(file.path))) {
+        weights.any((file) => !targets.contains(file.realPath))) {
       throw const SplashEngineException('Splash assembly target不是所选模型文件');
     }
     return binding;

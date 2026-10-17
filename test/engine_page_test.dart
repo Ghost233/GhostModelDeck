@@ -45,6 +45,7 @@ void main() {
       });
       await tester.pumpAndSettle();
       expect(find.widgetWithText(TextButton, '重新下载'), findsOneWidget);
+      await tester.ensureVisible(find.widgetWithText(TextButton, '重新下载'));
       await tester.tap(find.widgetWithText(TextButton, '重新下载'));
       await tester.pumpAndSettle();
       expect(find.textContaining('请先停止该引擎'), findsOneWidget);
@@ -193,6 +194,7 @@ void main() {
       });
       await tester.pumpAndSettle();
       await tester.runAsync(() async {
+        await tester.ensureVisible(find.byTooltip('启动参数'));
         await tester.tap(find.byTooltip('启动参数'));
         await catalog.readParameters(catalog.state.entries.single.id);
       });
@@ -270,6 +272,7 @@ void main() {
       await showEnginePage();
       expect(find.byTooltip('启动参数'), findsOneWidget);
       await tester.runAsync(() async {
+        await tester.ensureVisible(find.byTooltip('启动参数'));
         await tester.tap(find.byTooltip('启动参数'));
         await catalog.readParameters(catalog.state.entries.single.id);
       });
@@ -291,6 +294,7 @@ void main() {
       });
       await showEnginePage();
       await tester.runAsync(() async {
+        await tester.ensureVisible(find.byTooltip('启动参数'));
         await tester.tap(find.byTooltip('启动参数'));
         await catalog.readParameters(catalog.state.entries.single.id);
       });
@@ -348,6 +352,9 @@ void main() {
     });
     await tester.pumpAndSettle();
     expect(find.text('oMLX'), findsOneWidget);
+    expect(find.byType(DataTable), findsOneWidget);
+    expect(find.text('仓库或本地路径'), findsOneWidget);
+    expect(find.text('版本'), findsOneWidget);
     expect(find.text('jundot/omlx'), findsOneWidget);
     expect(find.text('生产模型运行尚未接通'), findsNothing);
     expect(find.text('未安装'), findsNWidgets(2));
@@ -408,8 +415,10 @@ void main() {
       expect(find.text('安装'), findsOneWidget);
       expect(find.text('运行'), findsNothing);
       expect(find.text('启动模型'), findsNothing);
-      expect(find.byType(DropdownButtonFormField<String>), findsNothing);
-      expect(find.byType(TextField), findsNothing);
+      expect(find.byType(DropdownButtonFormField<String>), findsOneWidget);
+      expect(find.byKey(const Key('engines-filter')), findsOneWidget);
+      expect(find.byType(TextField), findsOneWidget);
+      expect(find.byKey(const Key('engines-search')), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -516,6 +525,7 @@ void main() {
                 standard.state.installation ==
                 LlamaInstallationStatus.installed,
           );
+          await tester.ensureVisible(find.widgetWithText(FilledButton, '安装'));
           await tester.tap(find.widgetWithText(FilledButton, '安装'));
           await installed.timeout(const Duration(seconds: 5));
           await catalog.refresh();
@@ -528,7 +538,13 @@ void main() {
       expect(jev.state.installation, LlamaInstallationStatus.installed);
       expect(find.text('安装'), findsNothing);
       await tester.runAsync(() async {
-        await tester.tap(find.widgetWithText(TextButton, '删除').last);
+        final more = find.byKey(
+          const ValueKey('engine-more:${EngineCatalog.standardId}'),
+        );
+        await tester.ensureVisible(more);
+        await tester.tap(more);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('删除').last);
         for (
           var n = 0;
           n < 100 && find.text('删除受管引擎').evaluate().isEmpty;

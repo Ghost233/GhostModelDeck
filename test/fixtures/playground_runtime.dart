@@ -27,9 +27,11 @@ class PlaygroundRuntime {
   static Future<PlaygroundRuntime> create({
     CouncilRuntimeIO? io,
     bool sourceSystemone = false,
+    void Function()? onRuntimeClosing,
   }) async {
     final runtime = await CouncilRuntime.create(
       processIO: io,
+      onRuntimeClosing: onRuntimeClosing,
       sourceSystemone: sourceSystemone,
     );
     final council = CouncilController(catalog: runtime.catalog);

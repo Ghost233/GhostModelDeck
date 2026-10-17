@@ -16,10 +16,12 @@ class BenchmarkRunner {
     required this.client,
     required this.store,
     required this.models,
+    this.requireRuntimeEnabled,
   });
   final JevPlayground client;
   final BenchmarkRunStore store;
   final JevModels models;
+  final void Function()? requireRuntimeEnabled;
   final _changes = StreamController<BenchmarkRun>.broadcast();
   BenchmarkRun? current;
   List<String> _selectedSuiteIds = const [];
@@ -186,6 +188,7 @@ class BenchmarkRunner {
     List<String>? preparingSuiteIds,
   }) {
     if (_closed) throw StateError('评测执行器已关闭');
+    requireRuntimeEnabled?.call();
     final previousFailure = _terminalFailure;
     if (previousFailure != null) {
       Error.throwWithStackTrace(previousFailure.error, previousFailure.stack);
@@ -391,10 +394,11 @@ class BenchmarkRunner {
           for (final evaluation in evaluations.where(
             (entry) => entry.channel == channel,
           )) {
-            if (!available.any(
-              (entry) =>
-                  entry.id == evaluation.model &&
-                  entry.source == evaluation.source,
+            if (client.discoveryExcludesTarget(
+              channel,
+              available,
+              evaluation.model,
+              source: evaluation.source,
             )) {
               throw StateError(
                 '${evaluation.model} 未在公开 ${channel.name.toUpperCase()} 入口中可调用',
@@ -447,10 +451,11 @@ class BenchmarkRunner {
                 channel: evaluation.channel,
                 cancellation: cancellation,
               );
-              if (!available.any(
-                (entry) =>
-                    entry.id == evaluation.model &&
-                    entry.source == evaluation.source,
+              if (client.discoveryExcludesTarget(
+                evaluation.channel,
+                available,
+                evaluation.model,
+                source: evaluation.source,
               )) {
                 throw StateError('参赛对象已不在公开发现中');
               }

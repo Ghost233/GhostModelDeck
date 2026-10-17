@@ -167,6 +167,11 @@ void main() {
     final saved = await fixture.save('first');
     expect(fixture.council.models.definitionFor(saved.publicName), isNotNull);
     final run = await fixture.instances.start(saved.id);
+    expect(run.capacity, isNotNull);
+    expect(
+      fixture.instances.contextLengthFor(saved.id),
+      run.capacity!.contextPerSlot,
+    );
     expect(
       run.capabilities,
       containsAll([
@@ -367,11 +372,16 @@ void main() {
       await engine.bindModel(fixture.asset.id, fixture.assembly);
       final run = await engine.startRuntime(fixture.asset.id);
       fixture.io.monitorStatus = splashStatus();
+      fixture.io.monitorStatus!['http'] = {
+        'requests': {'capacity': 256},
+      };
       final data = await engine.readTelemetry(
         run.id,
         cancellation: DecisionCancellation(),
       );
       expect(data.running, 2);
+      expect(data.capacity, 4);
+      expect(engine.runtimeInstances.single.inferenceConcurrency, 4);
       expect(data.decodePerSecond, 50);
       expect(fixture.io.chatModels, isEmpty);
       expect(fixture.io.decisionBodies, isEmpty);

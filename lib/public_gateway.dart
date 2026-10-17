@@ -15,6 +15,7 @@ import 'model_library.dart';
 import 'omlx_engine.dart';
 import 'launch_instances.dart';
 import 'public_model_names.dart';
+import 'model_scenarios.dart';
 
 /// Public business rejection with an HTTP verdict, never a silent fallback.
 class PublicRequestException implements Exception {
@@ -59,6 +60,7 @@ class PublicModelRoutes {
     this._registryFile,
     Set<String>? instanceIds,
     LaunchInstances? instances,
+    this.scenarios,
   }) : _runtimes = List.unmodifiable(runtimes),
        _instances = instances,
        _instanceIds = instanceIds == null
@@ -70,6 +72,9 @@ class PublicModelRoutes {
     _instanceSubscription = instances?.changes.listen((_) {
       if (!_closed) _changes.add(null);
     });
+    _scenarioSubscription = scenarios?.changes.listen((_) {
+      if (!_closed) _changes.add(null);
+    });
   }
 
   static const _schema = 2;
@@ -78,9 +83,26 @@ class PublicModelRoutes {
   final List<EngineRuntime> _runtimes;
   final Set<String>? _instanceIds;
   final LaunchInstances? _instances;
+  final ModelScenarios? scenarios;
   StreamSubscription<void>? _instanceSubscription;
+  StreamSubscription<void>? _scenarioSubscription;
   Iterable<String> get _registeredIds =>
       _instances?.definitions.map((definition) => definition.id) ?? _enabled;
+  Iterable<({String id, String name})> get _registrations sync* {
+    for (final id in _registeredIds.toList()..sort()) {
+      yield (id: id, name: publicIdFor(id));
+    }
+    if (_instances != null && scenarios != null) {
+      for (final scenario in scenarios!.entries) {
+        if (scenario.enabled &&
+            scenario.modelName.isNotEmpty &&
+            scenario.instanceId != null) {
+          yield (id: scenario.instanceId!, name: scenario.modelName);
+        }
+      }
+    }
+  }
+
   final List<EngineRuntime> Function()? _runtimeSources;
   final File? _registryFile;
   final Set<String> _enabled = {};
@@ -155,6 +177,7 @@ class PublicModelRoutes {
     if (_loaded || _closed) return;
     if (_instances != null) {
       await _instances.load();
+      await scenarios?.load();
       _loaded = true;
       return;
     }
@@ -247,14 +270,15 @@ class PublicModelRoutes {
     RuntimeCapability requiredCapability = RuntimeCapability.textGeneration,
   }) {
     final entries = <PublicModelEntry>[];
-    for (final artifactId in _registeredIds.toList()..sort()) {
+    for (final entry in _registrations) {
+      final artifactId = entry.id;
       final ready = _readyInstances(artifactId, requiredCapability);
       if (requiredCapability == RuntimeCapability.embeddings
           ? ready.length == 1
           : ready.isNotEmpty) {
         entries.add(
           PublicModelEntry(
-            publicId: publicIdFor(artifactId),
+            publicId: entry.name,
             artifactId: ready.first.instance.artifactId,
           ),
         );
@@ -269,15 +293,10 @@ class PublicModelRoutes {
     RuntimeCapability requiredCapability = RuntimeCapability.textGeneration,
   }) {
     _ensureOpen();
-    final artifactId = _instances != null
-        ? _instances.definitions
-              .where((definition) => definition.publicName == publicId)
-              .firstOrNull
-              ?.id
-        : _publicIds.entries
-              .where((entry) => entry.value == publicId)
-              .firstOrNull
-              ?.key;
+    final artifactId = _registrations
+        .where((entry) => entry.name == publicId)
+        .firstOrNull
+        ?.id;
     if (artifactId == null || !isEnabled(artifactId)) {
       throw const PublicRequestException(
         404,
@@ -327,6 +346,7 @@ class PublicModelRoutes {
                 ? !instance.temporaryTest
                 : _instanceIds.contains(instance.id)) &&
             instance.status == RuntimeInstanceStatus.ready &&
+            !(_instances?.isStarting(artifactId) ?? false) &&
             instance.acceptingRequests &&
             instance.hasLiveProcess &&
             instance.capabilities.contains(capability) &&
@@ -339,11 +359,12 @@ class PublicModelRoutes {
     return found;
   }
 
-  /// Capacity belongs to the sole currently callable runtime, never a file's
-  /// declared maximum or a saved launch form. Ambiguous routes stay absent.
+  /// Saved instances publish applied capacity, not pending edits. Legacy routes
+  /// use the sole callable runtime's observation. Ambiguous routes stay absent.
   List<Map<String, Object?>> capacityModels() {
     final entries = <Map<String, Object?>>[];
-    for (final artifactId in _registeredIds.toList()..sort()) {
+    for (final entry in _registrations) {
+      final artifactId = entry.id;
       final artifact = _library.state.artifacts
           .where(
             (artifact) =>
@@ -369,12 +390,16 @@ class PublicModelRoutes {
       final ready = _readyInstances(artifactId, capability);
       if (ready.length != 1) continue;
       final capacity = ready.single.instance.capacity;
+      final context = _instances == null
+          ? capacity?.contextPerSlot
+          : _instances.contextLengthFor(artifactId);
       if (capacity == null ||
-          capacity.contextPerSlot <= 0 ||
+          context == null ||
+          context <= 0 ||
           capacity.slotCount <= 0) {
         continue;
       }
-      final publicId = publicIdFor(artifactId);
+      final publicId = entry.name;
       entries.add({
         'key': publicId,
         'type': capability == RuntimeCapability.embeddings
@@ -385,7 +410,7 @@ class PublicModelRoutes {
           {
             'id': publicId,
             'config': {
-              'context_length': capacity.contextPerSlot,
+              'context_length': context,
               'max_concurrent_requests': capacity.slotCount,
             },
           },
@@ -428,6 +453,7 @@ class PublicModelRoutes {
     _closed = true;
     unawaited(_librarySubscription.cancel());
     unawaited(_instanceSubscription?.cancel());
+    unawaited(_scenarioSubscription?.cancel());
     unawaited(_changes.close());
   }
 }
@@ -920,7 +946,7 @@ class PublicGatewayServer {
             'model': target.publicId,
           }, projection: JevDebugProjection.embeddingResponse),
         );
-      } on LlamaRequestException catch (error) {
+      } on DecisionCallFailure catch (error) {
         return _upstreamError(error.kind.name);
       } on LlamaEngineException {
         // Identity failures retain their original error and cleanup in the
@@ -1126,7 +1152,7 @@ class PublicGatewayServer {
             'usage': result.usage,
           }, projection: JevDebugProjection.llmResponse),
         );
-      } on LlamaRequestException catch (error) {
+      } on DecisionCallFailure catch (error) {
         return _upstreamError(error.kind.name);
       } on OmlxRequestException catch (error) {
         return _upstreamError(error.kind.name);
@@ -1211,7 +1237,7 @@ class PublicGatewayServer {
     } catch (error) {
       if (!started) {
         // Headers are unsent until the first frame: reply truthfully.
-        if (error is LlamaRequestException) {
+        if (error is DecisionCallFailure) {
           _sendUpstreamError(response, error.kind.name);
         } else if (error is OmlxRequestException) {
           _sendUpstreamError(response, error.kind.name);

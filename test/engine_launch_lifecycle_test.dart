@@ -11,6 +11,7 @@ import 'package:ghost_model_deck/engine_launch_configuration.dart';
 import 'package:ghost_model_deck/engine_page.dart';
 import 'package:ghost_model_deck/engine_runtime.dart';
 import 'package:ghost_model_deck/llama_engine.dart';
+import 'package:ghost_model_deck/launch_instances.dart';
 import 'package:ghost_model_deck/model_library.dart';
 import 'package:ghost_model_deck/model_use_registry.dart';
 
@@ -18,8 +19,83 @@ import 'fixtures/decision_gguf.dart';
 import 'fixtures/engine_archive.dart';
 
 void main() {
+  test('unlink keeps saved instances and their parameters without retaining engine history', () async {
+    final fixture = await _LifecycleFixture.create();
+    addTearDown(fixture.close);
+    final entry = await fixture.catalog.link(fixture.binary.path);
+    final file = File('${fixture.root.path}/instances.json');
+    final instances = LaunchInstances(catalog: fixture.catalog, file: file);
+    addTearDown(instances.close);
+    final saved = await instances.save(
+      name: 'My model',
+      artifactId: fixture.asset.id,
+      engineId: entry.id,
+      configuration: EngineLaunchConfiguration(
+        formValues: {'--ctx-size': '2048'},
+        argumentText: '--threads 3',
+      ),
+    );
+    final original = await file.readAsString();
+    await fixture.catalog.remove(
+      await fixture.catalog.prepareRemoval(entry.id),
+      confirmed: true,
+    );
+    expect(await file.readAsString(), original);
+    expect(instances.find(saved.id)!.publicName, saved.publicName);
+    expect(instances.missingReason(saved), '引擎缺失或未安装');
+    await fixture.reopen();
+    final reopened = LaunchInstances(catalog: fixture.catalog, file: file);
+    addTearDown(reopened.close);
+    await reopened.load();
+    final retained = reopened.find(saved.id)!;
+    expect(retained.toJson(), saved.toJson());
+    expect(reopened.missingReason(retained), '引擎缺失或未安装');
+    expect(await fixture.binary.readAsString(), 'original linked engine');
+    expect(fixture.io.startedArguments, isEmpty);
+  });
+
+  test(
+    'obsolete history fields are ignored on load and omitted on the next save',
+    () async {
+      for (final obsolete in <Object?>[
+        null,
+        17,
+        {
+          'old-engine': {'defaults': 'invalid old configuration'},
+        },
+      ]) {
+        final fixture = await _LifecycleFixture.create();
+        addTearDown(fixture.close);
+        final entry = await fixture.catalog.link(fixture.binary.path);
+        final file = fixture.catalog.registryFile;
+        final value = jsonDecode(await file.readAsString()) as Map;
+        value['schema'] = 5;
+        value['launchDefaults'] = {};
+        value['modelLaunchOverrides'] = {};
+        value['unlinkedConfigurations'] = obsolete;
+        await file.writeAsString(jsonEncode(value));
+        await fixture.reopen();
+        expect(
+          fixture.catalog.state.entries.any((e) => e.id == entry.id),
+          isTrue,
+        );
+        await fixture.catalog.saveLaunchDefaults(
+          entry.id,
+          EngineLaunchConfiguration(formValues: {'--ctx-size': '8192'}),
+        );
+        final saved = jsonDecode(await file.readAsString()) as Map;
+        expect(saved.containsKey('unlinkedConfigurations'), isFalse);
+        expect(
+          fixture.catalog.launchDefaultsFor(entry.id).formValues['--ctx-size'],
+          '8192',
+        );
+        expect(fixture.io.startedArguments, isEmpty);
+      }
+    },
+  );
+
   testWidgets(
-    'unlinked history shows retained model tuning and artifact identity after reopen',
+    'unlink leaves no configuration history or recovery entry after reopen',
     (tester) async {
       final fixture = (await tester.runAsync(_LifecycleFixture.create))!;
       addTearDown(() => tester.runAsync(fixture.close));
@@ -47,12 +123,15 @@ void main() {
         await fixture.reopen();
       });
       await _showPage(tester, fixture);
-      await tester.tap(find.widgetWithText(OutlinedButton, '未关联启动配置'));
-      await tester.pumpAndSettle();
-      expect(find.text('继承引擎默认 · 独立内容已保留'), findsOneWidget);
-      expect(find.text('--ctx-size: 1024'), findsOneWidget);
-      expect(find.text(' --threads 5\n'), findsOneWidget);
-      expect(find.text(artifactId), findsOneWidget);
+      expect(find.text('未关联启动配置'), findsNothing);
+      expect(find.text('选择目标恢复'), findsNothing);
+      final saved = await tester.runAsync(
+        () => fixture.catalog.registryFile.readAsString(),
+      );
+      expect(
+        (jsonDecode(saved!) as Map).containsKey('unlinkedConfigurations'),
+        isFalse,
+      );
       expect(fixture.io.startedArguments, isEmpty);
       expect(tester.takeException(), isNull);
     },
@@ -78,7 +157,11 @@ void main() {
       fixture.catalog.providerFor(entry.id).state.installation,
       LlamaInstallationStatus.installed,
     );
-    expect(fixture.catalog.unlinkedConfigurations, isEmpty);
+    expect(
+      (jsonDecode(await fixture.catalog.registryFile.readAsString()) as Map)
+          .containsKey('unlinkedConfigurations'),
+      isFalse,
+    );
     expect(await fixture.catalog.registryFile.readAsString(), original);
     await obstruction.delete();
     await HttpOverrides.runWithHttpOverrides(() async {
@@ -113,7 +196,11 @@ void main() {
         fixture.catalog.state.entries.any((value) => value.id == entry.id),
         isTrue,
       );
-      expect(fixture.catalog.unlinkedConfigurations, isEmpty);
+      expect(
+        (jsonDecode(await fixture.catalog.registryFile.readAsString()) as Map)
+            .containsKey('unlinkedConfigurations'),
+        isFalse,
+      );
       expect(await fixture.catalog.registryFile.readAsString(), original);
       expect(
         running.launchCommand!.arguments,
@@ -128,8 +215,19 @@ void main() {
       );
     }, _LifecycleNetwork());
     expect(
-      fixture.catalog.unlinkedConfigurations.single.registrationId,
-      entry.id,
+      fixture.catalog.state.entries.any((value) => value.id == entry.id),
+      isFalse,
+    );
+    final saved =
+        jsonDecode(await fixture.catalog.registryFile.readAsString()) as Map;
+    expect(saved.containsKey('unlinkedConfigurations'), isFalse);
+    expect(
+      (saved['launchDefaults'] as Map?)?.containsKey(entry.id) ?? false,
+      isFalse,
+    );
+    expect(
+      (saved['configurationVersions'] as Map?)?.containsKey(entry.id) ?? false,
+      isFalse,
     );
     expect(await fixture.binary.readAsString(), 'original linked engine');
   });
@@ -138,8 +236,6 @@ void main() {
       'active-default',
       'active-model',
       'managed-default',
-      'history-default',
-      'history-model',
     ]) {
       final fixture = await _LifecycleFixture.create();
       addTearDown(fixture.close);
@@ -158,12 +254,6 @@ void main() {
         fixture.asset.id,
         independent: false,
       );
-      if (location.startsWith('history')) {
-        await fixture.catalog.remove(
-          await fixture.catalog.prepareRemoval(registration.id),
-          confirmed: true,
-        );
-      }
       final file = fixture.catalog.registryFile;
       final value =
           jsonDecode(await file.readAsString()) as Map<String, dynamic>;
@@ -180,16 +270,6 @@ void main() {
         case 'managed-default':
           (value['launchDefaults'] as Map)[EngineCatalog.officialId] =
               incompatible;
-        case 'history-default':
-          ((value['unlinkedConfigurations'] as Map)[registration.id]
-                  as Map)['defaults'] =
-              incompatible;
-        case 'history-model':
-          ((((value['unlinkedConfigurations'] as Map)[registration.id]
-                          as Map)['models']
-                      as Map)[fixture.asset.id]
-                  as Map)['configuration'] =
-              incompatible;
       }
       final corrupted = jsonEncode(value);
       await file.writeAsString(corrupted);
@@ -205,7 +285,6 @@ void main() {
         isEmpty,
         reason: location,
       );
-      expect(fixture.catalog.unlinkedConfigurations, isEmpty, reason: location);
       expect(
         fixture.catalog
             .launchDefaultsFor(EngineCatalog.officialId)
@@ -363,7 +442,7 @@ void main() {
     },
   );
   testWidgets(
-    'a verified original path update keeps tuning and an explicit later relink preserves parameter provenance',
+    'a verified original path update keeps tuning while a later relink starts with defaults',
     (tester) async {
       final fixture = (await tester.runAsync(_LifecycleFixture.create))!;
       addTearDown(() => tester.runAsync(fixture.close));
@@ -428,25 +507,17 @@ void main() {
         target = await fixture.catalog.link(fixture.binary.path);
         expect(target.id, isNot(source.id));
         expect(fixture.catalog.launchDefaultsFor(target.id).argumentText, '');
-        await fixture.catalog.restoreUnlinkedConfiguration(
-          source.id,
-          target.id,
-        );
         final modes = fixture.catalog.modelLaunchOverridesFor(
           target.id,
           fixture.asset.id,
         );
         expect(modes.enabled, isFalse);
-        expect(modes.configuration!.formValues['--ctx-size'], '1024');
-        expect(modes.configuration!.argumentText, '--threads 4');
+        expect(modes.configuration, isNull);
         expect(
           fixture.catalog.launchDefaultsFor(target.id).formValues['--ctx-size'],
-          '2048',
+          '4096',
         );
-        expect(
-          fixture.catalog.launchDefaultsFor(target.id).argumentText,
-          ' --old-option keep\n',
-        );
+        expect(fixture.catalog.launchDefaultsFor(target.id).argumentText, '');
         expect(
           fixture.catalog.parameterRecognitionFor(target.id).version,
           fixture.io.version,
@@ -454,12 +525,12 @@ void main() {
         expect(fixture.io.startedArguments, isEmpty);
       });
       await _showPage(tester, fixture);
-      expect(find.textContaining('参数来源版本已变化'), findsOneWidget);
+      expect(find.textContaining('参数来源版本已变化'), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );
   testWidgets(
-    'relinking requires an explicit history source and target before restoring parameters',
+    'relinking exposes fresh defaults without a history recovery action',
     (tester) async {
       final fixture = (await tester.runAsync(_LifecycleFixture.create))!;
       addTearDown(() => tester.runAsync(fixture.close));
@@ -516,63 +587,25 @@ void main() {
             .configuration,
         isNull,
       );
-      await tester.tap(find.text('未关联启动配置'));
-      await tester.pumpAndSettle();
-      expect(find.widgetWithText(OutlinedButton, '选择目标恢复'), findsOneWidget);
-      await tester.tap(find.widgetWithText(OutlinedButton, '选择目标恢复'));
-      await tester.pumpAndSettle();
-      final restore = find.widgetWithText(FilledButton, '恢复到所选引擎');
-      expect(tester.widget<FilledButton>(restore).onPressed, isNull);
-      await tester.tap(
-        find.widgetWithText(DropdownButtonFormField<String>, '恢复到引擎'),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(
-        find
-            .byWidgetPredicate(
-              (widget) =>
-                  widget is DropdownMenuItem<String> &&
-                  widget.value == target.id,
-            )
-            .last,
-      );
-      await tester.pumpAndSettle();
-      await tester.runAsync(() async {
-        final restored = fixture.catalog.changes.firstWhere(
-          (state) => !state.busy,
-        );
-        await tester.tap(restore);
-        await restored.timeout(const Duration(seconds: 5));
-        await tester.pump();
-      });
-      await tester.pumpAndSettle();
-      expect(
-        fixture.catalog.launchDefaultsFor(target.id).formValues['--ctx-size'],
-        '2048',
-      );
-      expect(
-        fixture.catalog.launchDefaultsFor(target.id).argumentText,
-        ' --threads 3\n',
-      );
-      final independent = fixture.catalog.modelLaunchOverridesFor(
-        target.id,
-        fixture.asset.id,
-      );
-      expect(independent.enabled, isTrue);
-      expect(independent.configuration!.formValues, isEmpty);
-      expect(independent.configuration!.argumentText, '');
-      expect(
-        fixture.io.startedArguments,
-        isEmpty,
-        reason: 'restoring preferences does not start a model',
-      );
+      expect(find.text('未关联启动配置'), findsNothing);
+      expect(find.text('选择目标恢复'), findsNothing);
+      expect(fixture.io.startedArguments, isEmpty);
       await tester.runAsync(
         () => HttpOverrides.runWithHttpOverrides(() async {
           final provider = fixture.catalog.providerFor(target.id);
           final preview = await provider.previewLaunch(fixture.asset.id);
           final running = await provider.start(fixture.asset.id);
-          expect(preview.arguments, hasLength(8));
-          expect(fixture.io.startedArguments.single, hasLength(8));
+          expect(preview.arguments, containsAllInOrder(['--ctx-size', '4096']));
+          expect(preview.provisional, isTrue);
+          final boundPreview = [
+            for (final value in preview.arguments)
+              switch (value) {
+                '<启动时分配的模型标识>' => running.id,
+                '<启动时分配的端口>' => '${running.endpoint.port}',
+                _ => value,
+              },
+          ];
+          expect(boundPreview, fixture.io.startedArguments.single);
           expect(
             running.launchCommand!.arguments,
             fixture.io.startedArguments.single,
@@ -588,7 +621,7 @@ void main() {
     },
   );
   testWidgets(
-    'unlink preserves a visible configuration history across reopen',
+    'unlink removes its settings without a configuration history across reopen',
     (tester) async {
       final fixture = (await tester.runAsync(_LifecycleFixture.create))!;
       addTearDown(() => tester.runAsync(fixture.close));
@@ -597,7 +630,9 @@ void main() {
       ))!;
       await _showPage(tester, fixture);
       await tester.runAsync(() async {
-        await tester.tap(find.byTooltip('启动参数').last);
+        final action = find.byKey(ValueKey('engine-parameters:${entry.id}'));
+        await tester.ensureVisible(action);
+        await tester.tap(action);
         await fixture.catalog.readParameters(entry.id);
       });
       await tester.pumpAndSettle();
@@ -624,7 +659,11 @@ void main() {
         final prepared = fixture.catalog.changes.firstWhere(
           (state) => !state.busy,
         );
-        await tester.tap(find.widgetWithText(TextButton, '解除关联'));
+        final more = find.byKey(ValueKey('engine-more:${entry.id}'));
+        await tester.ensureVisible(more);
+        await tester.tap(more);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('解除关联').last);
         await prepared.timeout(const Duration(seconds: 5));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 300));
@@ -639,11 +678,18 @@ void main() {
         await fixture.reopen();
       });
       await _showPage(tester, fixture);
-      expect(find.text('未关联启动配置'), findsOneWidget);
-      await tester.tap(find.text('未关联启动配置'));
-      await tester.pumpAndSettle();
-      expect(find.textContaining(fixture.binary.path), findsWidgets);
-      expect(find.textContaining(' --threads 3\n'), findsOneWidget);
+      expect(find.text('未关联启动配置'), findsNothing);
+      expect(find.text('选择目标恢复'), findsNothing);
+      final saved = await tester.runAsync(
+        () => fixture.catalog.registryFile.readAsString(),
+      );
+      final registry = jsonDecode(saved!) as Map;
+      expect(registry.containsKey('unlinkedConfigurations'), isFalse);
+      expect(
+        (registry['modelLaunchOverrides'] as Map?)?.containsKey(entry.id) ??
+            false,
+        isFalse,
+      );
       expect(
         await tester.runAsync(() => fixture.binary.readAsString()),
         'original linked engine',

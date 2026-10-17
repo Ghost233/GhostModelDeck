@@ -14,6 +14,98 @@ import 'package:ghost_model_deck/public_gateway.dart';
 import 'splash_engine_test.dart' show SplashRuntimeFixture;
 
 void main() {
+  test('master off cancels a running draft HTTP test, stops all owned instances and preserves saved configuration', () async {
+    final fixture = await SplashRuntimeFixture.create();
+    addTearDown(fixture.close);
+    final cpp = LlamaEngine(
+      library: fixture.library,
+      installationDirectory: Directory('${fixture.root.path}/cpp'),
+    );
+    final catalog = EngineCatalog(
+      library: fixture.library,
+      officialEngine: cpp,
+      useRegistry: ModelUseRegistry(fixture.library),
+      registryFile: File('${fixture.root.path}/engines.json'),
+      splashIO: fixture.io,
+    );
+    addTearDown(() async {
+      await catalog.shutdown();
+      catalog.close();
+      cpp.close();
+    });
+    final registration = await catalog.link(fixture.source.path);
+    await catalog.bindSplashModel(
+      registration.id,
+      fixture.asset.id,
+      fixture.assembly,
+    );
+    final saved = EngineLaunchConfiguration(
+      family: EngineFamily.splash,
+      formValues: {'--max-context': '1024'},
+    );
+    await catalog.saveLaunchDefaults(registration.id, saved);
+    final runtime = catalog.runtimeFor(registration.id) as SplashEngine;
+    final peer = await runtime.startRuntime(fixture.asset.id);
+    final before = await catalog.registryFile.readAsBytes();
+    fixture.io.holdChatResponses = true;
+    final token = DecisionCancellation();
+    final pending = testModelLaunch(
+      catalog: catalog,
+      engineId: registration.id,
+      artifact: fixture.asset,
+      configuration: EngineLaunchConfiguration(
+        family: EngineFamily.splash,
+        formValues: {'--max-context': '2048'},
+      ),
+      cancellation: token,
+    ).then<Object>((result) => result, onError: (Object error) => error);
+    try {
+      await fixture.io.holdReached.future.timeout(const Duration(seconds: 5));
+      expect(
+        runtime.runtimeInstances.where(
+          (run) =>
+              run.temporaryTest &&
+              run.hasLiveProcess &&
+              run.activeRequests == 1,
+        ),
+        hasLength(1),
+      );
+      await catalog
+          .setRuntimeEnabled(false)
+          .timeout(const Duration(seconds: 5));
+      final result = await pending.timeout(const Duration(seconds: 5));
+      expect(
+        result,
+        isA<StateError>().having(
+          (error) => error.message,
+          'HTTP cancellation',
+          contains('HTTP 499'),
+        ),
+      );
+      expect(
+        token.isCancelled,
+        isFalse,
+        reason: 'Cancellation must come from the master switch, not the draft button token',
+      );
+      expect(
+        runtime.runtimeInstances.every(
+          (run) => !run.hasLiveProcess && run.activeRequests == 0,
+        ),
+        isTrue,
+      );
+      expect(
+        runtime.runtimeInstances.singleWhere((run) => run.id == peer.id).status,
+        RuntimeInstanceStatus.stopped,
+      );
+      expect(await catalog.registryFile.readAsBytes(), before);
+      expect(await File(fixture.asset.files.first.path).exists(), isTrue);
+    } finally {
+      if (!fixture.io.releaseHeld.isCompleted) {
+        fixture.io.releaseHeld.complete();
+      }
+    }
+  });
+
   test(
     'unsaved launch uses public HTTP and preserves peer and saved parameters',
     () async {

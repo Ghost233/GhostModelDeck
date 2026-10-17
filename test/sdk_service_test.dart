@@ -33,6 +33,30 @@ import 'fixtures/decision_gguf.dart';
 import 'fixtures/engine_archive.dart';
 
 void main() {
+  _realNet(
+    'SDK start keeps listeners but cannot bypass the engine master switch',
+    () async {
+      final fixture = await _SdkFixture.create(useAssetEntry: true);
+      addTearDown(fixture.close);
+      await fixture.catalog.setRuntimeEnabled(false);
+      await fixture.connect();
+      await fixture.peer.call('start');
+      expect(fixture.io.startCount, 0);
+      expect(fixture.catalog.runtimeEnabled, isFalse);
+      expect(fixture.gateway.baseUrl, isNotNull);
+      expect(fixture.mcp.endpoint, isNotNull);
+      final logs = await fixture.peer.call('logs');
+      expect(jsonEncode(logs), contains('总开关已关闭'));
+      await fixture.catalog.setRuntimeEnabled(true);
+      await fixture.peer.call('start');
+      expect(fixture.io.startCount, 1);
+      await fixture.catalog.setRuntimeEnabled(false);
+      await fixture.peer.call('start');
+      expect(fixture.io.startCount, 1);
+      expect(fixture.liveInstances, isEmpty);
+    },
+  );
+
   _realNet('SDK startup reuses saved instance snapshot and applies changes only after recycle', () async {
     final fixture = await _SdkFixture.create(useAssetEntry: true);
     addTearDown(fixture.close);
@@ -1117,7 +1141,12 @@ void main() {
         expect(created, isNotNull);
         final fixture = created!;
         addTearDown(() async {
-          await tester.runAsync(() => fixture.close());
+          await tester.pumpWidget(const SizedBox.shrink());
+          final closed = await tester.runAsync(() async {
+            await fixture.close();
+            return true;
+          });
+          expect(closed, isTrue);
         });
         await tester.runAsync(
           () => fixture.instances.start(fixture.definition.id),
@@ -1143,50 +1172,47 @@ void main() {
           }
         }
 
+        final toggle = find.byKey(
+          ValueKey('instance-autostart:${fixture.definition.id}'),
+        );
+        bool selected(bool value) =>
+            toggle.evaluate().isNotEmpty &&
+            tester.widget<Checkbox>(toggle).value == value &&
+            tester.widget<Checkbox>(toggle).onChanged != null;
         await tester.runAsync(() async {
           await pumpPage(withSet: true);
-          await pumpUntil(
-            () =>
-                find.byIcon(Icons.rocket_launch_outlined).evaluate().isNotEmpty,
-          );
+          await pumpUntil(() => selected(false));
         });
-        expect(find.byIcon(Icons.rocket_launch_outlined), findsOneWidget);
-
+        expect(toggle, findsOneWidget);
         await tester.runAsync(() async {
-          await tester.tap(find.byIcon(Icons.rocket_launch_outlined));
-          await pumpUntil(
-            () => find.byIcon(Icons.rocket_launch).evaluate().isNotEmpty,
-          );
+          await tester.ensureVisible(toggle);
+          await tester.tap(toggle);
+          await pumpUntil(() => selected(true));
         });
         expect(fixture.startupSet.contains(fixture.definition.id), isTrue);
-        expect(find.byIcon(Icons.rocket_launch), findsOneWidget);
-        final saved = await tester.runAsync(() async {
-          return (jsonDecode(
-            await fixture.startupSet.file.readAsString(),
-          ) as Map).cast<String, Object?>();
-        });
+        expect(tester.widget<Checkbox>(toggle).value, isTrue);
+        final saved = await tester.runAsync(
+          () async =>
+              (jsonDecode(await fixture.startupSet.file.readAsString()) as Map)
+                  .cast<String, Object?>(),
+        );
         expect(saved, isNotNull);
         expect(saved!['schema'], 1);
         expect((saved['entries'] as List).single, {
           'instance': fixture.definition.id,
         });
-
         await tester.runAsync(() async {
-          await tester.tap(find.byIcon(Icons.rocket_launch));
-          await pumpUntil(
-            () =>
-                find.byIcon(Icons.rocket_launch_outlined).evaluate().isNotEmpty,
-          );
+          await tester.ensureVisible(toggle);
+          await tester.tap(toggle);
+          await pumpUntil(() => selected(false));
         });
         expect(fixture.startupSet.contains(fixture.definition.id), isFalse);
-        expect(find.byIcon(Icons.rocket_launch_outlined), findsOneWidget);
-
+        expect(tester.widget<Checkbox>(toggle).value, isFalse);
         await tester.runAsync(() async {
           await pumpPage(withSet: false);
           await pumpUntil(() => find.text('运行中').evaluate().isNotEmpty);
         });
-        expect(find.byIcon(Icons.rocket_launch), findsNothing);
-        expect(find.byIcon(Icons.rocket_launch_outlined), findsNothing);
+        expect(toggle, findsNothing);
       }, _NetworkBoundary()),
     );
   });

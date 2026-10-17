@@ -1484,6 +1484,7 @@ class SplashTestProcessIO implements SplashProcessIO {
   bool wrongPid = false;
   int readyStatus = 200;
   bool statusReady = true;
+  bool holdChatResponses = false;
   String? statusModel;
   String? statusServerId;
   int transportRestarts = 0;
@@ -1505,6 +1506,31 @@ class SplashTestProcessIO implements SplashProcessIO {
     required Duration timeout,
   }) async {
     calls.add(arguments);
+    if (arguments.any(
+      (value) => value.contains('# Ghost Model Deck Splash preparation'),
+    )) {
+      final request = jsonDecode(arguments.last) as Map;
+      final source = Directory('${root.parent.path}/assembly');
+      final directory = Directory('${request['root']}/fixture-prepared');
+      if (!await directory.exists()) {
+        await directory.create(recursive: true);
+        final record = jsonDecode(
+          await File('${source.path}/model.json').readAsString(),
+        ) as Map;
+        for (final entry in (record['files'] as Map).entries) {
+          final link = Link('${directory.path}/${entry.key}');
+          await link.parent.create(recursive: true);
+          await link.create((entry.value as Map)['path'] as String);
+        }
+        await File('${directory.path}/model.json')
+            .writeAsString(jsonEncode(record));
+      }
+      return EngineCommandResult(
+        0,
+        jsonEncode({'directory': directory.path}),
+        '',
+      );
+    }
     if (arguments.first == 'model-check') {
       if (modelCheckEntered?.isCompleted == false) {
         modelCheckEntered!.complete();
@@ -1705,7 +1731,8 @@ class SplashTestProcessIO implements SplashProcessIO {
               await request.cast<List<int>>().transform(utf8.decoder).join(),
             ) as Map;
             chatModels.add(body['model'] as String);
-            if ((body['messages'] as List).last['content'] == 'hold') {
+            if (holdChatResponses ||
+                (body['messages'] as List).last['content'] == 'hold') {
               if (!holdReached.isCompleted) holdReached.complete();
               await releaseHeld.future;
             }

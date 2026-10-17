@@ -10,6 +10,7 @@ import 'package:ghost_model_deck/launch_instances.dart';
 import 'package:ghost_model_deck/llama_engine.dart';
 import 'package:ghost_model_deck/model_use_registry.dart';
 import 'package:ghost_model_deck/public_gateway.dart';
+import 'package:ghost_model_deck/model_scenarios.dart';
 
 import 'splash_engine_test.dart' show SplashRuntimeFixture;
 
@@ -50,10 +51,25 @@ void main() {
       splashAssembly: fixture.assembly.path,
     );
     final second = await instances.copy(first.id);
+    final scenarios = ModelScenarios(
+      file: File('${fixture.root.path}/scenarios.json'),
+      names: instances.names,
+      instances: instances,
+    );
+    addTearDown(scenarios.close);
+    await scenarios.save(
+      0,
+      ModelScenario(
+        displayName: '短上下文',
+        modelName: 'fast-v',
+        instanceId: first.id,
+      ),
+    );
     final routes = PublicModelRoutes(
       library: fixture.library,
       runtimes: catalog.runtimes.toList(),
       instances: instances,
+      scenarios: scenarios,
     );
     final gateway = PublicGatewayServer(routes: routes, port: 0);
     await gateway.start();
@@ -89,6 +105,7 @@ void main() {
     }
 
     expect((await post(first.publicName)).$1, 503);
+    expect((await post('fast-v')).$1, 503);
     expect(fixture.io.starts, 0);
     final firstRun = await instances.start(first.id);
     final secondRun = await instances.start(second.id);
@@ -108,6 +125,29 @@ void main() {
     expect(fixture.io.chatModels, [firstRun.id, secondRun.id]);
     expect((await post('fast')).$1, 200);
     expect(fixture.io.chatModels.last, firstRun.id);
+    final alias = await post('fast-v');
+    expect(alias.$1, 200);
+    expect(alias.$2['model'], 'fast-v');
+    expect(alias.$2['choices'].single['message']['content'], 'OK');
+    expect(fixture.io.chatModels.last, firstRun.id);
+    final listing = await client.getUrl(gateway.baseUrl!.resolve('/v1/models'));
+    final listed = await listing.close();
+    final models = jsonDecode(await utf8.decoder.bind(listed).join()) as Map;
+    expect(
+      (models['data'] as List).map((row) => row['id']),
+      containsAll(['fast', second.publicName, 'fast-v']),
+    );
+    await scenarios.save(
+      0,
+      ModelScenario(
+        displayName: '短上下文',
+        modelName: 'fast-v',
+        instanceId: first.id,
+        enabled: false,
+      ),
+    );
+    expect((await post('fast-v')).$1, 404);
+    expect((await post('fast')).$1, 200);
     final third = await instances.copy(first.id);
     final release = Completer<void>();
     fixture.io.releaseStart = release;

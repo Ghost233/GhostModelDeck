@@ -41,6 +41,7 @@ class CouncilMcpServer {
   final _changes = StreamController<CouncilMcpState>.broadcast();
   final _sessions = <String, StreamableHTTPServerTransport>{};
   final _transports = <StreamableHTTPServerTransport>{};
+  final _refreshTools = <StreamableHTTPServerTransport, void Function()>{};
   final _inflight = <DecisionCancellation, Future<CallToolResult>>{};
   HttpServer? _listener;
   CouncilMcpStatus _status = CouncilMcpStatus.stopped;
@@ -60,7 +61,7 @@ class CouncilMcpServer {
   String get codexConfig {
     final address = endpoint;
     if (address == null) return '';
-    final timeoutSeconds = controller.models.definitions.fold<int>(
+    final timeoutSeconds = controller.models.allDefinitions.fold<int>(
       20,
       (budget, model) => max(
         budget,
@@ -123,6 +124,7 @@ class CouncilMcpServer {
       ),
     );
     _transports.clear();
+    _refreshTools.clear();
     _sessions.clear();
     _status = CouncilMcpStatus.stopped;
     _publish();
@@ -244,9 +246,10 @@ class CouncilMcpServer {
             allowedOrigins: {'http://${uri.authority}'},
           ),
         );
-        final mcp = _createProtocol();
+        final mcp = _createProtocol(created);
         mcp.server.onclose = () {
           _transports.remove(created);
+          _refreshTools.remove(created);
           _sessions.removeWhere((_, value) => identical(value, created));
         };
         transport = created;
@@ -260,6 +263,9 @@ class CouncilMcpServer {
         return;
       }
       try {
+        if (body is Map && body['method'] == 'tools/list') {
+          _refreshTools[transport]?.call();
+        }
         await runZoned(
           () => transport.handleRequest(request, body),
           zoneValues: {_protocolKey: version},
@@ -268,6 +274,7 @@ class CouncilMcpServer {
         if (transient || transport.sessionId == null) {
           await transport.close();
           _transports.remove(transport);
+          _refreshTools.remove(transport);
         }
       }
     } catch (_) {
@@ -279,12 +286,13 @@ class CouncilMcpServer {
     }
   }
 
-  McpServer _createProtocol() {
+  McpServer _createProtocol(StreamableHTTPServerTransport transport) {
     final mcp = McpServer(
       const Implementation(name: 'ghostmodeldeck', version: '0.1.0'),
-      options: const McpServerOptions(
+      options: McpServerOptions(
         protocol: McpProtocol.stable,
-        instructions: '''
+        instructions:
+            '''
 本服务提供用于程序内部的局部语义判断。
 
 当调用者已有明确状态和有限候选项，需要进行分类、语义匹配、
@@ -305,10 +313,11 @@ Kev 返回结构化判断，实际操作由宿主工具执行。
 
 confidence 描述分布形状，不代表正确率。
 任务完成应依据实际状态和验收条件验证。
+${controller.models.scenarioInstructions}
 ''',
       ),
     );
-    mcp.registerTool(
+    final singleTool = mcp.registerTool(
       toolName,
       description: '''
 根据已有状态，从有限候选项中完成一次局部语义选择，
@@ -326,7 +335,7 @@ instructions 指定本次判断目标。
       ),
       callback: _call,
     );
-    mcp.registerTool(
+    final batchTool = mcp.registerTool(
       batchToolName,
       description: '''
 针对共享同一 state 的多个独立问题，在一次请求中返回结构化判断。
@@ -343,7 +352,7 @@ confidence 描述分布形状，不代表正确率。
       ),
       callback: (args, extra) => _call(args, extra, typed: true),
     );
-    mcp.registerTool(
+    final discoveryTool = mcp.registerTool(
       discoveryToolName,
       description: '''
 列出当前具有唯一可用绑定的模型调用名称及来源类型。
@@ -361,6 +370,22 @@ confidence 描述分布形状，不代表正确率。
       ),
       callback: (args, extra) => _discover(args),
     );
+    final descriptions = {
+      for (final tool in [singleTool, batchTool, discoveryTool])
+        tool: tool.description ?? '',
+    };
+    void refreshTools() {
+      final summary = controller.models.scenarioInstructions;
+      for (final entry in descriptions.entries) {
+        final description = '${entry.value}\n$summary';
+        if (entry.key.description != description) {
+          entry.key.update(description: description);
+        }
+      }
+    }
+
+    refreshTools();
+    _refreshTools[transport] = refreshTools;
     // Application validation preserves structured failures, including bad input.
     mcp.server.setRequestHandler<JsonRpcCallToolRequest>(
       'tools/call',
@@ -474,7 +499,9 @@ confidence 描述分布形状，不代表正确率。
     await controller.models.load();
     final payload = {
       'object': 'list',
-      'data': [for (final m in controller.models.callableModels) m.toJson()],
+      'data': [
+        for (final m in controller.models.discoverableScenarios) m.toJson(),
+      ],
     };
     return CallToolResult(
       content: [TextContent(text: jsonEncode(payload))],

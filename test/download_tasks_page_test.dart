@@ -138,6 +138,7 @@ void main() {
         ),
       );
       await tester.pump();
+      await tester.ensureVisible(find.widgetWithText(OutlinedButton, '查看下载'));
       await tester.tap(find.widgetWithText(OutlinedButton, '查看下载'));
       expect(openedDownloads, 1);
       expect(tester.takeException(), isNull);

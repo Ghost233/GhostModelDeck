@@ -61,6 +61,7 @@ class RuntimeInstance {
     required Set<RuntimeCapability> capabilities,
     this.error,
     this.capacity,
+    this.inferenceConcurrency,
     this.temporaryTest = false,
     this.launchInstanceId,
     this.launchRevision,
@@ -78,6 +79,9 @@ class RuntimeInstance {
   final String? launchInstanceId;
   final int? launchRevision;
   final RuntimeCapacity? capacity;
+
+  /// Native execution slots, separate from HTTP request admission capacity.
+  final int? inferenceConcurrency;
 }
 
 abstract interface class EmbeddingRuntime implements EngineRuntime {

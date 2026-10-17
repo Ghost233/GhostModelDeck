@@ -979,17 +979,21 @@ void main() {
             _Network(),
           ),
         ))!;
-        expect(
-          (stillCallable['data'] as List).map((row) => row['id']),
-          contains(name),
-        );
+        if (mode == JevPlaygroundMode.http) {
+          expect(
+            (stillCallable['data'] as List).map((row) => row['id']),
+            contains(name),
+          );
+        } else {
+          expect(stillCallable, {'object': 'list', 'data': []});
+        }
         await tester.pump();
         expect(
           tester
               .widget<FilledButton>(find.byKey(const Key('playground-submit')))
               .onPressed,
           isNotNull,
-          reason: 'The same target remains callable through the normal public discovery entry after cancellation.',
+          reason: 'The known model remains directly callable after cancellation, including when MCP discovery is a scene shortlist.',
         );
 
         await submit();
@@ -1109,7 +1113,7 @@ void main() {
   }
   for (final mode in JevPlaygroundMode.values) {
     testWidgets(
-      'actual $mode page copies header-looking discovery IDs and calls the copied name',
+      'actual $mode page copies discovery and calls known header-looking model names',
       (tester) async {
         final fixture = (await tester.runAsync(
           () => HttpOverrides.runWithHttpOverrides(
@@ -1200,14 +1204,18 @@ void main() {
             .map((row) => row['id'] as String)
             .toList();
         final names = [...headerNamedNativeModels, ...headerNamedCouncilModels];
-        expect(ids, containsAll(names));
+        if (mode == JevPlaygroundMode.http) {
+          expect(ids, containsAll(names));
+        } else {
+          expect(ids, isEmpty);
+        }
         await tester.ensureVisible(
           find.byKey(const Key('playground-json-mode')),
         );
         await _discoverPublicModels(tester);
         await tester.tap(find.byKey(const Key('playground-json-mode')));
         await tester.pump();
-        for (final name in ids.where(names.contains)) {
+        for (final name in names) {
           final document = headerNamedJevDocument(name);
           await tester.ensureVisible(find.byKey(const Key('playground-json')));
           await tester.enterText(

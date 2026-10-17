@@ -111,16 +111,16 @@ void main() {
       CallToolRequest(name: 'list_jev_models', arguments: {}),
     );
     final listed = await get(http.baseUrl!.resolve('/v1/models'));
-    expect(discovered.structuredContent!['data'], [
-      {'id': 'quick', 'source': 'council'},
-      {'id': 'hard', 'source': 'council'},
-      {'id': 'native-kev', 'source': 'native'},
-    ]);
+    expect(discovered.structuredContent!['data'], isEmpty);
     expect(
       (listed.$2 as Map)['data']
           .map((m) => {'id': m['id'], 'source': m['source']})
           .toList(),
-      discovered.structuredContent!['data'],
+      [
+        {'id': 'quick', 'source': 'council'},
+        {'id': 'hard', 'source': 'council'},
+        {'id': 'native-kev', 'source': 'native'},
+      ],
     );
     for (final args in [
       {'state': 'missing', 'questions': questions},
@@ -245,10 +245,17 @@ void main() {
     final discovery = await client.callTool(
       CallToolRequest(name: 'list_jev_models', arguments: {}),
     );
-    expect(discovery.structuredContent!['data'], [
-      {'id': 'partial-native', 'source': 'native'},
-      {'id': 'hard', 'source': 'council'},
-    ]);
+    expect(discovery.structuredContent!['data'], isEmpty);
+    final available = await get(http.baseUrl!.resolve('/v1/models'));
+    expect(
+      (available.$2['data'] as List)
+          .map((row) => {'id': row['id'], 'source': row['source']})
+          .toList(),
+      [
+        {'id': 'partial-native', 'source': 'native'},
+        {'id': 'hard', 'source': 'council'},
+      ],
+    );
     final choiceOnly = await post(http.baseUrl!.resolve('/v1/systemone'), {
       'model': 'partial-native',
       'state': 'choice',

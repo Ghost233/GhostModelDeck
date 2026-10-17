@@ -25,7 +25,11 @@ void main() {
     final document = jsonEncode(playgroundDocument('native-kev'));
     for (final mode in JevPlaygroundMode.values) {
       final discovered = await fixture.playground.discover(mode);
-      expect(jsonEncode(discovered), contains('native-kev'));
+      if (mode == JevPlaygroundMode.http) {
+        expect(jsonEncode(discovered), contains('native-kev'));
+      } else {
+        expect(discovered, {'object': 'list', 'data': []});
+      }
       final result = await fixture.playground.run(mode, document);
       expect(result.status, JevPlaygroundStatus.success);
       expect(result.output!['answers'], {

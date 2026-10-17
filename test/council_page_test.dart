@@ -23,27 +23,35 @@ void main() {
   testWidgets(
     'saved committee uses instance choices and turns red only for a missing reference',
     (tester) async {
-      final runtime = (await tester.runAsync(
-        () => HttpOverrides.runWithHttpOverrides(
-          () => CouncilRuntime.create(modelCount: 1, sourceSystemone: true),
-          _NetworkBoundary(),
-        ),
+      final owners = (await tester.runAsync(
+        () => HttpOverrides.runWithHttpOverrides(() async {
+          final runtime = await CouncilRuntime.create(
+            modelCount: 1,
+            sourceSystemone: true,
+          );
+          final store = LaunchInstances(
+            catalog: runtime.catalog,
+            file: File('${runtime.root.path}/instances.json'),
+          );
+          final controller = CouncilController(
+            catalog: runtime.catalog,
+            launchInstances: store,
+          );
+          return (runtime: runtime, store: store, controller: controller);
+        }, _NetworkBoundary()),
       ))!;
-      final store = LaunchInstances(
-        catalog: runtime.catalog,
-        file: File('${runtime.root.path}/instances.json'),
-      );
-      final controller = CouncilController(
-        catalog: runtime.catalog,
-        launchInstances: store,
-      );
+      final runtime = owners.runtime;
+      final store = owners.store;
+      final controller = owners.controller;
       addTearDown(() async {
         await tester.pumpWidget(const SizedBox.shrink());
-        await tester.runAsync(() async {
+        final closed = await tester.runAsync(() async {
           await controller.close();
           await store.close();
           await runtime.close();
+          return true;
         });
+        expect(closed, isTrue);
       });
       await tester.runAsync(() async {
         await store.save(
@@ -91,6 +99,10 @@ void main() {
                 controller.models.configuredModels.single.missingReason != null,
           );
           await runtime.library.scanDirectories([]);
+          expect(
+            controller.models.configuredModels.single.missingReason,
+            contains('模型缺失'),
+          );
           await invalidated.timeout(const Duration(seconds: 2));
           await tester.pump();
           await tester.pump();
