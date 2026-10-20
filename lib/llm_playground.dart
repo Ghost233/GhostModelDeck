@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'chat_protocol.dart';
+import 'generation_seed.dart';
 import 'engine_runtime.dart';
 import 'jev_debug.dart';
 
@@ -205,7 +206,7 @@ class LlmPlayground {
     final expired = Completer<void>();
     final unlisten = cancellation?.listen(() => client.close(force: true));
     Future<void> receive() async {
-      final value = jsonDecode(document);
+      final value = decodeGenerationRequest(document);
       if (value is! Map) throw const FormatException('请求需要是 JSON 对象');
       final parsedBody = freezeDebugJson(
         Map<String, Object?>.from(value),

@@ -1,5 +1,6 @@
 import Cocoa
 import FlutterMacOS
+import UniformTypeIdentifiers
 
 class MainFlutterWindow: NSWindow {
   override func awakeFromNib() {
@@ -48,7 +49,7 @@ class MainFlutterWindow: NSWindow {
         result(nil)
         return
       }
-      guard call.method == "pickLibraryDirectory" || call.method == "pickEngineDirectory" else {
+      guard call.method == "pickLibraryDirectory" || call.method == "pickEngineDirectory" || call.method == "pickParameterFile" else {
         result(FlutterMethodNotImplemented)
         return
       }
@@ -57,9 +58,16 @@ class MainFlutterWindow: NSWindow {
         return
       }
       let panel = NSOpenPanel()
-      panel.title = call.method == "pickEngineDirectory" ? "引擎目录" : "模型目录"
-      panel.canChooseDirectories = true
-      panel.canChooseFiles = false
+      let chooseFile = call.method == "pickParameterFile"
+      panel.title = chooseFile ? "选择参数文件" : call.method == "pickEngineDirectory" ? "引擎目录" : "模型目录"
+      panel.canChooseDirectories = !chooseFile
+      panel.canChooseFiles = chooseFile
+      if chooseFile,
+         let arguments = call.arguments as? [String: Any],
+         let extensions = arguments["extensions"] as? [String],
+         !extensions.isEmpty {
+        panel.allowedContentTypes = extensions.compactMap { UTType(filenameExtension: $0) }
+      }
       panel.allowsMultipleSelection = false
       panel.beginSheetModal(for: window) { response in
         result(response == .OK ? panel.url?.path : nil)

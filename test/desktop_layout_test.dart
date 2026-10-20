@@ -275,7 +275,14 @@ void main() {
               ),
             ))!;
             await _openRunDialog(tester, fixture, packages);
-            final field = find.byType(DropdownButton<String>);
+            final field = find.descendant(
+              of: find.byWidgetPredicate(
+                (w) =>
+                    w is DropdownButtonFormField<String> &&
+                    w.key.toString().contains('instance-engine:'),
+              ),
+              matching: find.byType(DropdownButton<String>),
+            );
             expect(
               tester.widget<DropdownButton<String>>(field).items,
               hasLength(2),
@@ -283,7 +290,7 @@ void main() {
             _expectVisible(tester, find.widgetWithText(OutlinedButton, '测试运行'));
             _expectVisible(tester, find.widgetWithText(TextButton, '取消'));
             await _capture(tester, '$page-$mode');
-            await tester.tap(field);
+            await tester.runAsync(() => tester.tap(field));
             await tester.pumpAndSettle();
             final localSource = engineSourceLabel(
               fixture.runtime.catalog.state.entries.last,
@@ -297,13 +304,16 @@ void main() {
               findsOneWidget,
             );
             await _capture(tester, '$page-menu-$mode');
-            await tester.tap(find.textContaining(localSource).last);
+            await tester.runAsync(() async {
+              await tester.tap(find.textContaining(localSource).last);
+              await _settleIo(tester);
+            });
             await tester.pumpAndSettle();
             expect(
               tester.widget<DropdownButton<String>>(field).value,
               fixture.runtime.catalog.state.entries.last.id,
             );
-            await tester.tap(field);
+            await tester.runAsync(() => tester.tap(field));
             await tester.pumpAndSettle();
             await tester.sendKeyEvent(LogicalKeyboardKey.escape);
             await tester.pumpAndSettle();
@@ -316,9 +326,12 @@ void main() {
             await tester.pumpAndSettle();
             expect(find.text('运行模型'), findsNothing);
             await _openRunDialog(tester, fixture, packages);
-            await tester.tap(field);
+            await tester.runAsync(() => tester.tap(field));
             await tester.pumpAndSettle();
-            await tester.tap(find.textContaining(localSource).last);
+            await tester.runAsync(() async {
+              await tester.tap(find.textContaining(localSource).last);
+              await _settleIo(tester);
+            });
             await tester.pumpAndSettle();
             final processIO = fixture.runtime.io as _LayoutProcessIO;
             processIO.startRequested = Completer<void>();

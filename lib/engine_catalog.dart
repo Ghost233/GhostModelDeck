@@ -987,6 +987,12 @@ class EngineCatalog {
   ) => _serial(() async {
     await _load();
     _requireConfigurationFamily(id, configuration);
+    if (configuration.drafter != null) {
+      throw ArgumentError('drafter 必须在模型或实例配置中选择，不能设置为引擎全局默认值');
+    }
+    if (configuration.generation.values.isNotEmpty) {
+      throw ArgumentError('生成默认值必须在实例配置中保存');
+    }
     final versions = _versionsForSave(id);
     await _save(
       launchDefaults: {..._launchDefaults, id: configuration},
@@ -1495,6 +1501,33 @@ class EngineCatalog {
     _modelLaunchOverrides.remove(id);
     _configurationVersions.remove(id);
   }
+
+  int? contextLengthForConfiguration(
+    String engineId,
+    EngineLaunchConfiguration configuration,
+  ) {
+    final entry = state.entries
+        .where((entry) => entry.id == engineId)
+        .singleOrNull;
+    if (entry == null ||
+        entry.status != LlamaInstallationStatus.installed ||
+        entry.family != configuration.family) {
+      return null;
+    }
+    return configuration.contextLengthFor(
+      recognition: parameterRecognitionFor(engineId),
+    );
+  }
+
+  /// The live owner is independent of a saved instance's next engine selection.
+  EngineRuntime? runningOwnerFor(String launchInstanceId) => runtimes
+      .where(
+        (runtime) => runtime.runtimeInstances.any(
+          (run) =>
+              run.launchInstanceId == launchInstanceId && run.hasLiveProcess,
+        ),
+      )
+      .singleOrNull;
 
   EngineRuntime runtimeFor(String id) {
     if (_splash.containsKey(id)) return _splash[id]!;

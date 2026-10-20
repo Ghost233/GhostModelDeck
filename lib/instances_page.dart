@@ -149,12 +149,18 @@ class _InstancesPageState extends State<InstancesPage> {
         initialEngineId: existing?.engineId,
         initialConfiguration: existing?.configuration,
         initialName: existing?.name,
+        initialInstanceId: existing?.id,
+        initialSplashAssembly: existing?.splashAssembly == null
+            ? null
+            : Directory(existing!.splashAssembly!),
         contextPreview: existing == null || widget.models == null
             ? null
-            : (configuration) => widget.models!.previewContextChange(
-                existing.id,
-                configuration,
-              ),
+            : (configuration, {resolvedContext}) =>
+                  widget.models!.previewContextChange(
+                    existing.id,
+                    configuration,
+                    resolvedContext: resolvedContext,
+                  ),
         onSaveInstance: (name, engine, model, configuration) async {
           await store.save(
             id: existing?.id,
@@ -345,11 +351,12 @@ class _InstancesPageState extends State<InstancesPage> {
   String _stateLabel(LaunchInstance definition) {
     if (_preparing) return '准备中';
     final missing = widget.instances.missingReason(definition);
-    if (missing != null) return missing;
-    if (widget.instances.isStarting(definition.id)) return '启动中';
+    String liveState(String state) =>
+        missing == null ? state : '$state · $missing';
+    if (widget.instances.isStarting(definition.id)) return liveState('启动中');
     final runs = widget.instances.runsFor(definition.id);
     if (runs.any((run) => run.status == RuntimeInstanceStatus.stopping)) {
-      return '停止中';
+      return liveState('停止中');
     }
     if (runs.any(
       (run) =>
@@ -357,8 +364,9 @@ class _InstancesPageState extends State<InstancesPage> {
           run.acceptingRequests &&
           run.hasLiveProcess,
     )) {
-      return '运行中';
+      return liveState('运行中');
     }
+    if (missing != null) return missing;
     if (widget.instances.startErrorFor(definition.id) != null ||
         runs.any((run) => run.status == RuntimeInstanceStatus.failed)) {
       return '失败';
@@ -625,11 +633,14 @@ class _InstancesPageState extends State<InstancesPage> {
                       .compareTo(store.contextLengthFor(b.id) ?? -1),
                   cell: (value) {
                     final applied = store.contextLengthFor(value.id);
-                    final pending = value.configuration.contextLength;
+                    final pending = store.catalog.contextLengthForConfiguration(
+                      value.engineId,
+                      value.configuration,
+                    );
                     final label = '${applied ?? '—'}';
                     return Tooltip(
                       message: pending == null
-                          ? '已生效上下文 $label；启动配置未指定固定值。'
+                          ? '已生效上下文 $label；保存配置容量未确定，启动时由引擎核对。'
                           : '已生效上下文 $label；保存配置 $pending，修改后重启生效。',
                       child: Text(
                         label,

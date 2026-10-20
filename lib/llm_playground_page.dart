@@ -9,6 +9,9 @@ import 'engine_runtime.dart';
 import 'jev_debug.dart';
 import 'llm_playground.dart';
 import 'public_gateway.dart';
+import 'generation_configuration.dart';
+import 'generation_seed.dart';
+import 'parameter_editor.dart';
 
 class LlmPlaygroundPage extends StatefulWidget {
   const LlmPlaygroundPage({
@@ -32,7 +35,6 @@ class _LlmPlaygroundPageState extends State<LlmPlaygroundPage> {
         {'role': 'user', 'content': '你好，请简单介绍自己。'},
       ],
       'stream': false,
-      'max_tokens': 128,
     }),
   );
   late final _playground = LlmPlayground(baseUrl: () => widget.gateway.baseUrl);
@@ -90,7 +92,7 @@ class _LlmPlaygroundPageState extends State<LlmPlaygroundPage> {
 
   Map<String, Object?>? get _document {
     try {
-      final value = jsonDecode(_json.text);
+      final value = decodeGenerationRequest(_json.text);
       return value is Map ? Map<String, Object?>.from(value) : null;
     } on FormatException {
       return null;
@@ -98,7 +100,7 @@ class _LlmPlaygroundPageState extends State<LlmPlaygroundPage> {
   }
 
   void _write(Map<String, Object?> document) {
-    _json.text = _encoder.convert(document);
+    _json.text = encodeGenerationRequest(document, pretty: true);
   }
 
   void _edit(String field, Object? value, {bool remove = false}) {
@@ -271,26 +273,22 @@ class _LlmPlaygroundPageState extends State<LlmPlaygroundPage> {
     }
   }
 
-  Widget _numberField(String field, Map<String, Object?> document) => Padding(
-    padding: const EdgeInsets.only(bottom: 12),
-    child: TextFormField(
-      key: ValueKey('llm-$field-$_formRevision'),
-      initialValue: document[field]?.toString() ?? '',
-      decoration: InputDecoration(labelText: field),
-      onChanged: (value) {
-        final number = num.tryParse(value);
-        _edit(
-          field,
-          number != null && number.isFinite ? number : value,
-          remove: value.isEmpty,
-        );
-      },
-    ),
-  );
-
   Widget _form(Map<String, Object?>? document) {
     if (document == null) return const Text('JSON 格式无效，原文已保留。请切换 JSON 修正。');
     final messages = document['messages'];
+    final model = document['model'];
+    final target = model is String
+        ? widget.gateway.readyTextModel(model)
+        : null;
+    final overrides = <String, Object?>{
+      for (final entry in document.entries)
+        if (GenerationConfiguration.acceptedKeys.contains(entry.key) &&
+            !(entry.key == 'max_tokens' &&
+                document.containsKey('max_completion_tokens')) &&
+            !(entry.key == 'thinking_budget_tokens' &&
+                document.containsKey('reasoning_budget_tokens')))
+          GenerationConfiguration.canonicalKey(entry.key): entry.value,
+    };
     return Column(
       key: ValueKey('llm-form-$_formRevision'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -353,9 +351,26 @@ class _LlmPlaygroundPageState extends State<LlmPlaygroundPage> {
           value: document['stream'] == true,
           onChanged: (value) => _edit('stream', value),
         ),
-        for (final field in ['max_tokens', 'temperature', 'top_p'])
-          _numberField(field, document),
-        const Text('完整 JSON 保留其他字段；公开服务会明确返回不支持字段的错误。'),
+        if (target != null)
+          GenerationSettingsFields(
+            family: target.family,
+            values: overrides,
+            inheritedValues: target.generationDefaults.values,
+            inheritLabel: '继承实例默认',
+            parameterPrefix: 'llm',
+            collapsed: true,
+            enabled: _active == null,
+            onChanged: (values) {
+              document.removeWhere(
+                (key, _) => GenerationConfiguration.acceptedKeys.contains(key),
+              );
+              document.addAll(values);
+              _write(document);
+            },
+          )
+        else
+          const Text('选择就绪模型后可编辑单次生成参数。'),
+        const Text('未覆盖的字段继承实例默认，再由引擎决定；完整 JSON 保留其他字段。'),
       ],
     );
   }

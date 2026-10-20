@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/council.dart';
 import 'package:ghost_model_deck/decision_protocol.dart';
+import 'package:ghost_model_deck/engine_launch_configuration.dart';
 import 'package:ghost_model_deck/jev_models.dart';
 import 'package:ghost_model_deck/jev_debug.dart';
 import 'package:ghost_model_deck/llama_engine.dart';
@@ -298,6 +299,81 @@ void main() {
       true,
     );
     expect(runtime.io.killedChildren, 0);
+  });
+  test('owned credentials reach the final debug projection without changing business IO', () async {
+    final runtime = await CouncilRuntime.create(modelCount: 2);
+    addTearDown(runtime.close);
+    final original = runtime.engine.state.instances.toList();
+    final keys = <String, String>{};
+    final ownerKeys = <String, String>{};
+    for (var index = 0; index < original.length; index++) {
+      final instance = original[index];
+      final key = 'owned-debug-key-$index';
+      keys[instance.asset.id] = key;
+      await runtime.engine.stop(instance.id);
+      final started = await runtime.engine.start(
+        instance.asset.id,
+        configuration: EngineLaunchConfiguration(
+          formValues: {'--api-key': key},
+        ),
+      );
+      ownerKeys[started.id] = key;
+    }
+    final council = CouncilController(catalog: runtime.catalog);
+    addTearDown(council.close);
+    final bindings = council.models.availableBindings;
+    for (var index = 0; index < bindings.length; index++) {
+      await council.models.save(
+        JevModelDefinition.native(
+          name: 'native-$index',
+          binding: bindings[index],
+        ),
+      );
+    }
+    await council.models.save(
+      JevModelDefinition.council(
+        name: 'quick',
+        seats: bindings,
+        timeout: const Duration(seconds: 2),
+      ),
+    );
+    final state =
+        'business ${keys.values.join(' ')} '
+        '${keys.values.map((key) => 'prefix-$key-suffix').join(' ')}';
+    runtime.io.respond = (body, raw) async => jsonEncode({
+      ...jsonDecode(raw) as Map,
+      'diagnostic': {'API_KEY': 'prefix-${ownerKeys[body['model']]}-suffix'},
+      'echo': state,
+    });
+    for (final name in ['native-0', 'native-1', 'quick']) {
+      final plain = await council.models.decide(name, request(state));
+      final result = await council.models.decide(
+        name,
+        request(state),
+        debug: true,
+      );
+      expect(runtime.io.requests.last['state'], state);
+      expect(result['answers'], plain['answers']);
+      final debug = result['debug'] as Map;
+      var expected = state;
+      final relevant = name == 'quick'
+          ? keys.values.toList()
+          : [keys[bindings[int.parse(name.split('-').last)].artifactId]!];
+      for (final key in relevant) {
+        expected = expected
+            .replaceAll('prefix-$key-suffix', '[redacted]')
+            .replaceAll(key, '[redacted]');
+        expect(jsonEncode(debug), isNot(contains(key)));
+      }
+      expect(debug['input']['state'], expected);
+      final records = name == 'quick'
+          ? debug['seats'] as List
+          : [debug['native']];
+      for (final record in records.cast<Map>()) {
+        expect(record['request']['state'], expected);
+        expect(jsonDecode(record['request_body'] as String)['state'], expected);
+      }
+    }
   });
   test('debug redacts credential fields and echoes without changing engine input or standard answers', () async {
     final runtime = await CouncilRuntime.create(modelCount: 1);

@@ -1,12 +1,16 @@
+import 'fixtures/parameter_editor_navigation.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/engine_catalog.dart';
 import 'package:ghost_model_deck/engine_launch_configuration.dart';
+import 'package:ghost_model_deck/engine_launch_editor.dart';
 import 'package:ghost_model_deck/engine_parameter_recognition.dart';
 import 'package:ghost_model_deck/engine_page.dart';
 import 'package:ghost_model_deck/engine_runtime.dart';
@@ -19,6 +23,122 @@ import 'fixtures/engine_archive.dart';
 import 'fixtures/test_environment.dart';
 
 void main() {
+  test('llama native underscore options keep credentials private and model sources controlled', () async {
+    final rules = EngineParameterRecognition.fromHelp(
+      '$_currentHelp\n--api-key KEY  engine authentication key\n',
+      family: EngineFamily.llamaCpp,
+      version: 'b11457 native spelling contract',
+    );
+    const key = 'effective-underscore-secret';
+    const raw =
+        '--api_key "$key" --model_draft /unmanaged-draft '
+        '--spec_draft_model /another-draft --docker_repo remote/model '
+        '--model_url https://unmanaged.example/model --models_dir /unmanaged-target';
+    final configuration = EngineLaunchConfiguration(
+      formValues: {'--api-key': 'preserved-form-secret'},
+      argumentText: raw,
+    );
+    final command = configuration.command(
+      executable: testPythonExecutable,
+      modelPath: '/selected-target',
+      executableArguments: [
+        '-P',
+        '-c',
+        'import json,sys; print(json.dumps(sys.argv[1:]))',
+      ],
+      recognition: rules,
+    );
+    expect(command.overriddenForm, contains('--api-key'));
+    expect(command.arguments, isNot(contains('preserved-form-secret')));
+    expect(command.displayText, isNot(contains(key)));
+    expect(command.notices.join(' '), isNot(contains(key)));
+    final native = await NativeEngineProcessIO().run(
+      command.executable,
+      command.arguments,
+      timeout: const Duration(seconds: 5),
+    );
+    expect(native.exitCode, 0);
+    final argv = (jsonDecode(native.stdout) as List).cast<String>();
+    expect(argv, containsAllInOrder(['--api_key', key]));
+    expect(argv, containsAllInOrder(['--model', '/selected-target']));
+    expect(argv.join(' '), isNot(contains('unmanaged')));
+    expect(argv.join(' '), isNot(contains('another-draft')));
+    expect(argv.join(' '), isNot(contains('remote/model')));
+    expect(configuration.argumentText, raw);
+  });
+  test('Splash abbreviated key stays secret while native argv keeps its exact value', () async {
+    final rules = EngineParameterRecognition.fromHelp(
+      '--api-key KEY  native authentication key\n',
+      family: EngineFamily.splash,
+      version: 'local CLI contract',
+    );
+    const key = 'abbreviated-secret';
+    final command =
+        EngineLaunchConfiguration(
+          family: EngineFamily.splash,
+          formValues: const {},
+          argumentText: '--api-k="$key" --future="$key"',
+        ).command(
+          executable: testPythonExecutable,
+          modelPath: '/assembly',
+          executableArguments: [
+            '-P',
+            '-c',
+            'import json,sys; print(json.dumps(sys.argv[1:]))',
+          ],
+          recognition: rules,
+        );
+    expect(command.displayText, isNot(contains(key)));
+    expect(command.displayText, contains('[redacted]'));
+    expect(command.notices.join(' '), isNot(contains(key)));
+    final native = await NativeEngineProcessIO().run(
+      command.executable,
+      command.arguments,
+      timeout: const Duration(seconds: 5),
+    );
+    expect(native.exitCode, 0);
+    expect(
+      jsonDecode(native.stdout),
+      containsAllInOrder(['--api-k=$key', '--future=$key']),
+    );
+  });
+  test('typed Splash flags and lists survive configuration restore and text precedence', () {
+    final configuration = EngineLaunchConfiguration.fromJson({
+      'family': 'splash',
+      'formValues': {
+        '--persistent-cache': 'true',
+        '--disable-ane': 'false',
+        '--allowed-host': jsonEncode(['localhost', 'desktop.local']),
+        '--max-context': '32768',
+        '--fast-topk': 'on',
+      },
+      'argumentText': '--max-context 4K --fast-topk off --model /unmanaged',
+    });
+    final restored = EngineLaunchConfiguration.fromJson(configuration.toJson());
+    final command = restored.command(
+      executable: '/splash',
+      modelPath: '/model',
+    );
+    expect(command.arguments, contains('--persistent-cache'));
+    expect(command.arguments, isNot(contains('--disable-ane')));
+    expect(
+      command.arguments,
+      containsAllInOrder([
+        '--allowed-host',
+        'localhost',
+        '--allowed-host',
+        'desktop.local',
+      ]),
+    );
+    expect(
+      command.arguments,
+      containsAllInOrder(['--max-context', '4K', '--fast-topk', 'off']),
+    );
+    expect(command.arguments, isNot(contains('32768')));
+    expect(command.arguments, isNot(contains('/unmanaged')));
+    expect(restored.formValues, configuration.formValues);
+  });
+
   test('Splash unit hints remain soft and saved malformed text fails before ProcessIO', () async {
     final configuration = EngineLaunchConfiguration.fromJson({
       'family': 'splash',
@@ -385,12 +505,18 @@ print(json.dumps(vars(p.parse_args())))
       EngineLaunchConfiguration(family: loaded.family).formValues,
       isEmpty,
     );
-    expect(EngineLaunchConfiguration.labelsFor(loaded.family).keys, [
-      '--max-context',
-      '--max-memory',
-      '--kv-format',
-      '--queue-size',
-    ]);
+    expect(
+      EngineLaunchConfiguration.labelsFor(loaded.family).keys,
+      containsAll([
+        '--max-context',
+        '--max-memory',
+        '--kv-format',
+        '--queue-size',
+        '--disable-ane',
+        '--compact-draft-ranking',
+        '--fast-topk',
+      ]),
+    );
     expect(loaded.argumentText, originalText);
     await file.writeAsString(jsonEncode(loaded.toJson()));
     final reopened = EngineLaunchConfiguration.fromJson(
@@ -649,8 +775,10 @@ print(json.dumps(vars(p.parse_args())))
         fixture.engine.parameterRecognition.recognizes('--context-tokens'),
         isTrue,
       );
+      await selectParameterGroup(tester, '参数文本与命令');
       expect(find.byTooltip('复制命令'), findsOneWidget);
-      final input = find.widgetWithText(TextField, '启动参数文本');
+      await selectParameterGroup(tester, '参数文本与命令');
+      final input = find.byKey(const Key('engine-argument-text'));
       await tester.ensureVisible(input);
       await tester.enterText(input, '--future new');
       await tester.pump();
@@ -930,8 +1058,397 @@ print(json.dumps(vars(p.parse_args())))
       expect(fixture.catalog.launchDefaultsFor(fixture.id).argumentText, text);
     },
   );
+  for (final (positive, negative, source) in [
+    ('--perf', '--no-perf', '  --perf\n'),
+    ('--kv-offload', '--no-kv-offload', '  -nkvo\n'),
+  ]) {
+    testWidgets(
+      'observed $positive switches share one editor and text wins at actual startup',
+      (tester) async {
+        final fixture = (await tester.runAsync(_RecognitionFixture.create))!;
+        addTearDown(() => tester.runAsync(fixture.close));
+        await tester.runAsync(() async {
+          await tester.pumpWidget(
+            MaterialApp(
+              home: Scaffold(
+                body: EnginePage(
+                  catalog: fixture.catalog,
+                  pickEngineDirectory: () async => null,
+                ),
+              ),
+            ),
+          );
+          await fixture.catalog.readParameters(fixture.id);
+        });
+        await tester.pumpAndSettle();
+        await tester.runAsync(() async {
+          final action = find.byKey(
+            ValueKey('engine-parameters:${fixture.id}'),
+          );
+          await tester.ensureVisible(action);
+          await tester.tap(action);
+          await fixture.catalog.readParameters(fixture.id);
+        });
+        await tester.pumpAndSettle();
+        await selectParameterGroup(tester, '其他引擎参数');
+        expect(find.byKey(Key('parameter-choice:$negative')), findsNothing);
+        final toggle = find.byKey(Key('parameter-choice:$positive'));
+        await tester.ensureVisible(toggle);
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('关闭').last);
+        await tester.pumpAndSettle();
+        await selectParameterGroup(tester, '参数文本与命令');
+        EngineLaunchCommand preview() => tester
+            .widget<EngineLaunchCommandView>(
+              find.byType(EngineLaunchCommandView),
+            )
+            .command;
+        expect(preview().arguments, contains(negative));
+        expect(preview().arguments, isNot(contains(positive)));
+        await tester.enterText(
+          find.byKey(const Key('engine-argument-text')),
+          source,
+        );
+        await tester.pump();
+        expect(preview().overriddenForm, contains(positive));
+        expect(preview().arguments, isNot(contains(negative)));
+        await tester.runAsync(() async {
+          final saved = fixture.catalog.changes.firstWhere(
+            (state) => !state.busy,
+          );
+          await tester.tap(find.widgetWithText(FilledButton, '保存'));
+          await saved.timeout(const Duration(seconds: 5));
+          await tester.pump();
+        });
+        await tester.pumpAndSettle();
+        expect(
+          fixture.catalog.launchDefaultsFor(fixture.id).formValues[positive],
+          'false',
+        );
+        expect(
+          fixture.catalog.launchDefaultsFor(fixture.id).argumentText,
+          source,
+        );
+        expect(fixture.io.started, isEmpty);
+        await tester.runAsync(
+          () => HttpOverrides.runWithHttpOverrides(() async {
+            final run = await fixture.engine.start(fixture.asset.id);
+            expect(run.status, LlamaInstanceStatus.ready);
+            expect(fixture.io.started.single, contains(source.trim()));
+            expect(fixture.io.started.single, isNot(contains(negative)));
+            await fixture.engine.stop(run.id);
+          }, _NetworkBoundary()),
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
   testWidgets(
-    'current linked help aliases reach editor save, preview and actual startup',
+    'API keys remain secret in the parameter editor preview and copied command',
+    (tester) async {
+      final fixture = (await tester.runAsync(
+        () => _RecognitionFixture.create(
+          initialHelp:
+              '$_currentHelp\n--api-key KEY  engine authentication key\n',
+        ),
+      ))!;
+      addTearDown(() => tester.runAsync(fixture.close));
+      String? clipboard;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+            if (call.method == 'Clipboard.setData') {
+              clipboard = (call.arguments as Map)['text'] as String;
+            }
+            return null;
+          });
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(SystemChannels.platform, null),
+      );
+      await tester.runAsync(() async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: EnginePage(
+                catalog: fixture.catalog,
+                pickEngineDirectory: () async => null,
+              ),
+            ),
+          ),
+        );
+        await fixture.catalog.readParameters(fixture.id);
+      });
+      await tester.pumpAndSettle();
+      await tester.runAsync(() async {
+        final action = find.byKey(ValueKey('engine-parameters:${fixture.id}'));
+        await tester.ensureVisible(action);
+        await tester.tap(action);
+        await fixture.catalog.readParameters(fixture.id);
+      });
+      await tester.pumpAndSettle();
+      await selectParameterGroup(tester, '其他引擎参数');
+      final keyField = find.byKey(const Key('parameter-text:--api-key'));
+      await tester.ensureVisible(keyField);
+      const key = 'engine-preview-secret';
+      await tester.enterText(keyField, key);
+      await tester.pump();
+      expect(tester.widget<TextField>(keyField).obscureText, isTrue);
+      await selectParameterGroup(tester, '参数文本与命令');
+      final preview = tester
+          .widget<EngineLaunchCommandView>(find.byType(EngineLaunchCommandView))
+          .command;
+      expect(preview.arguments, containsAllInOrder(['--api-key', key]));
+      expect(preview.displayText, isNot(contains(key)));
+      expect(preview.displayText, contains('[redacted]'));
+      expect(preview.notices.join(' '), isNot(contains(key)));
+      await tester.tap(find.byTooltip('复制命令'));
+      await tester.pump();
+      expect(clipboard, preview.displayText);
+      await tester.runAsync(() async {
+        final saved = fixture.catalog.changes.firstWhere(
+          (state) => !state.busy,
+        );
+        await tester.tap(find.widgetWithText(FilledButton, '保存'));
+        await saved.timeout(const Duration(seconds: 5));
+        await tester.pump();
+      });
+      await tester.pumpAndSettle();
+      await tester.runAsync(
+        () => HttpOverrides.runWithHttpOverrides(() async {
+          final run = await fixture.engine.start(fixture.asset.id);
+          expect(
+            fixture.io.started.single,
+            containsAllInOrder(['--api-key', key]),
+          );
+          expect(run.launchCommand!.displayText, isNot(contains(key)));
+          await fixture.engine.stop(run.id);
+        }, _NetworkBoundary()),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+  for (final initial in <String?>[null, '"unfinished']) {
+    testWidgets(
+      'observed multi-value loading option repairs $initial and starts with both argv values',
+      (tester) async {
+        final fixture = (await tester.runAsync(_RecognitionFixture.create))!;
+        addTearDown(() => tester.runAsync(fixture.close));
+        if (initial != null) {
+          await tester.runAsync(
+            () => fixture.catalog.saveLaunchDefaults(
+              fixture.id,
+              EngineLaunchConfiguration(
+                formValues: {'--control-vector-layer-range': initial},
+              ),
+            ),
+          );
+        }
+        await tester.runAsync(() async {
+          await tester.pumpWidget(
+            MaterialApp(
+              home: Scaffold(
+                body: EnginePage(
+                  catalog: fixture.catalog,
+                  pickEngineDirectory: () async => null,
+                ),
+              ),
+            ),
+          );
+          await fixture.catalog.readParameters(fixture.id);
+        });
+        await tester.pumpAndSettle();
+        Future<void> open() async {
+          await tester.runAsync(() async {
+            final action = find.byKey(
+              ValueKey('engine-parameters:${fixture.id}'),
+            );
+            await tester.ensureVisible(action);
+            await tester.tap(action);
+            await fixture.catalog.readParameters(fixture.id);
+          });
+          await tester.pumpAndSettle();
+          await selectParameterGroup(tester, '其他引擎参数');
+          await tester.enterText(
+            find.byKey(const Key('parameter-search')),
+            'control-vector-layer-range',
+          );
+          await tester.pumpAndSettle();
+        }
+
+        await open();
+        final start = find.byKey(
+          const Key('parameter-number:--control-vector-layer-range:0'),
+        );
+        final end = find.byKey(
+          const Key('parameter-number:--control-vector-layer-range:1'),
+        );
+        await tester.enterText(start, '13');
+        await tester.enterText(end, '7');
+        await tester.pump();
+        await selectParameterGroup(tester, '参数文本与命令');
+        final preview = tester
+            .widget<EngineLaunchCommandView>(
+              find.byType(EngineLaunchCommandView),
+            )
+            .command;
+        expect(
+          preview.arguments,
+          containsAllInOrder(['--control-vector-layer-range', '13', '7']),
+        );
+        await tester.runAsync(() async {
+          final saved = fixture.catalog.changes.firstWhere(
+            (state) => !state.busy,
+          );
+          await tester.tap(find.widgetWithText(FilledButton, '保存'));
+          await saved.timeout(const Duration(seconds: 5));
+          await tester.pump();
+        });
+        await tester.pumpAndSettle();
+        expect(fixture.io.started, isEmpty);
+        await open();
+        expect(tester.widget<TextField>(start).controller!.text, '13');
+        expect(tester.widget<TextField>(end).controller!.text, '7');
+        await tester.tap(find.widgetWithText(TextButton, '取消'));
+        await tester.pumpAndSettle();
+        await tester.runAsync(
+          () => HttpOverrides.runWithHttpOverrides(() async {
+            final run = await fixture.engine.start(fixture.asset.id);
+            expect(run.status, LlamaInstanceStatus.ready);
+            expect(
+              fixture.io.started.single,
+              containsAllInOrder(['--control-vector-layer-range', '13', '7']),
+            );
+            await fixture.engine.stop(run.id);
+          }, _NetworkBoundary()),
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+  testWidgets(
+    'native loading choice hints expose selectors and reach startup without CLI text',
+    (tester) async {
+      const help = '''$_currentHelp
+--fit [on|off]  adjust unset arguments to fit in device memory
+--cpu-strict <0|1>  strict CPU placement
+--load-mode MODE  model loading mode
+    - auto: automatic memory mapping
+    - none: no special loading mode
+    - mmap: map model into memory
+    - mlock: lock model memory
+    - mmap+mlock: mapping and lock
+    - dio: DirectIO if available
+--lazy-mode MODE  on-demand tensor reading
+    - on: read from disk on demand
+    - auto: only large tensors
+    - off: keep resident
+--rope-scale N  RoPE context scaling factor
+''';
+      final fixture = (await tester.runAsync(
+        () => _RecognitionFixture.create(initialHelp: help),
+      ))!;
+      addTearDown(() => tester.runAsync(fixture.close));
+      await tester.runAsync(() async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: EnginePage(
+                catalog: fixture.catalog,
+                pickEngineDirectory: () async => null,
+              ),
+            ),
+          ),
+        );
+        await fixture.catalog.readParameters(fixture.id);
+      });
+      await tester.pumpAndSettle();
+      await tester.runAsync(() async {
+        final action = find.byKey(ValueKey('engine-parameters:${fixture.id}'));
+        await tester.ensureVisible(action);
+        await tester.tap(action);
+        await fixture.catalog.readParameters(fixture.id);
+      });
+      await tester.pumpAndSettle();
+      await selectParameterGroup(tester, '其他引擎参数');
+      for (final (name, value) in [
+        ('--fit', 'off'),
+        ('--cpu-strict', '1'),
+        ('--load-mode', 'mmap+mlock'),
+        ('--lazy-mode', 'on'),
+      ]) {
+        await tester.enterText(find.byKey(const Key('parameter-search')), name);
+        await tester.pumpAndSettle();
+        final selector = find.byKey(Key('parameter-choice:$name'));
+        await tester.ensureVisible(selector);
+        await tester.tap(selector);
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find
+              .text(
+                value == 'off'
+                    ? '关闭'
+                    : value == 'on'
+                    ? '开启'
+                    : value,
+              )
+              .last,
+        );
+        await tester.pumpAndSettle();
+      }
+      await tester.enterText(
+        find.byKey(const Key('parameter-search')),
+        'rope-scale',
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('parameter-number:--rope-scale')),
+        '1.5',
+      );
+      await tester.pump();
+      expect(find.text('请输入整数'), findsNothing);
+      await tester.runAsync(() async {
+        final saved = fixture.catalog.changes.firstWhere(
+          (state) => !state.busy,
+        );
+        await tester.tap(find.widgetWithText(FilledButton, '保存'));
+        await saved.timeout(const Duration(seconds: 5));
+        await tester.pump();
+      });
+      await tester.pumpAndSettle();
+      expect(
+        fixture.catalog.launchDefaultsFor(fixture.id).argumentText,
+        isEmpty,
+      );
+      await tester.runAsync(
+        () => HttpOverrides.runWithHttpOverrides(() async {
+          final preview = await fixture.engine.previewLaunch(fixture.asset.id);
+          final run = await fixture.engine.start(fixture.asset.id);
+          expect(run.status, LlamaInstanceStatus.ready);
+          expect(preview.arguments.skip(8), fixture.io.started.single.skip(8));
+          expect(
+            fixture.io.started.single,
+            containsAllInOrder([
+              '--fit',
+              'off',
+              '--cpu-strict',
+              '1',
+              '--load-mode',
+              'mmap+mlock',
+              '--lazy-mode',
+              'on',
+              '--rope-scale',
+              '1.5',
+            ]),
+          );
+          await fixture.engine.stop(run.id);
+        }, _NetworkBoundary()),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets(
+    'current linked help aliases keep model sources controlled through actual startup',
     (tester) async {
       final fixture = (await tester.runAsync(_RecognitionFixture.create))!;
       addTearDown(() => tester.runAsync(fixture.close));
@@ -956,18 +1473,21 @@ print(json.dumps(vars(p.parse_args())))
         await fixture.catalog.readParameters(fixture.id);
       });
       await tester.pumpAndSettle();
-      final input = find.widgetWithText(TextField, '启动参数文本');
+      await selectParameterGroup(tester, '参数文本与命令');
+      final input = find.byKey(const Key('engine-argument-text'));
       await tester.ensureVisible(input);
       const source =
-          '--context-tokens 2048 --extra-path "two words" --extra-path=again --no-perf';
+          '--context-tokens 2048 --extra-path "two words" --extra-path=again --no-perf --docker-repo remote/model -dr other/model';
       await tester.enterText(input, source);
       await tester.pump();
       expect(
         tester
-            .widget<TextField>(find.widgetWithText(TextField, '上下文大小'))
-            .decoration!
-            .errorText,
-        '已被文本覆盖',
+            .widget<EngineLaunchCommandView>(
+              find.byType(EngineLaunchCommandView),
+            )
+            .command
+            .overriddenForm,
+        contains('--ctx-size'),
       );
       await tester.runAsync(() async {
         final saved = fixture.catalog.changes.firstWhere(
@@ -1034,9 +1554,12 @@ const _currentHelp = '''----- common params -----
 -ngl, --gpu-layers, --n-gpu-layers N    GPU layer count
 -dev, --device DEVICE                  selected device
 --extra-path PATH                      additional path for this version
+-dr, --docker-repo [<repo>/]<model>[:quant]  model download source
 --control-vector-layer-range START END
                                        selected layer range
 --perf, --no-perf                      whether to enable performance timings
+-kvo, --kv-offload, -nkvo, --no-kv-offload
+                                       whether to offload KV cache
 ''';
 
 const _requiredFlatHelp =

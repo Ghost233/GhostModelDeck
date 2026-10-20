@@ -122,6 +122,9 @@ Future<String> testModelLaunch({
               'stream': false,
             };
     }
+    if (decision == null && artifact.kind != AssetKind.embedding) {
+      body = {...configuration.generation.values, ...body};
+    }
     final request = await client
         .postUrl(requestUrl)
         .timeout(const Duration(seconds: 30));

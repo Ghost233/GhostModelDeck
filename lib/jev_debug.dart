@@ -8,6 +8,14 @@ class DecisionIOTrace {
   String? _rawResponse;
   int? _httpStatus;
   bool _sealed = false;
+  List<String>? _ownerCredentials;
+
+  /// Bind once at runtime admission, before identity checks or request IO.
+  void bindOwnerCredentials(Iterable<String> credentials) {
+    if (_sealed || _ownerCredentials != null) return;
+    _ownerCredentials = List.unmodifiable(credentials);
+  }
+
   void sent(String body) {
     if (_sealed) return;
     _requestBody = body;
@@ -25,14 +33,22 @@ class DecisionIOTrace {
     _watch.stop();
   }
 
-  Map<String, Object?> toJson() => freezeDebugJson({
-    'dispatched': _requestBody != null,
-    'request': _request,
-    'request_body': _requestBody,
-    'raw_response': _rawResponse,
-    'http_status': _httpStatus,
-    'elapsed_us': _watch.elapsedMicroseconds,
-  }) as Map<String, Object?>;
+  Map<String, Object?> toJson() {
+    final redactor = _CredentialRedactor()
+      .._secrets.addAll(_ownerCredentials ?? const []);
+    // Preserve raw field roles until the caller's complete typed projection.
+    // Known owner credentials are hidden even in a standalone trace snapshot.
+    return freezeDebugJson(
+      redactor.redact({
+        'dispatched': _requestBody != null,
+        'request': _request,
+        'request_body': _requestBody,
+        'raw_response': _rawResponse,
+        'http_status': _httpStatus,
+        'elapsed_us': _watch.elapsedMicroseconds,
+      }, taskData: true),
+    ) as Map<String, Object?>;
+  }
 }
 
 /// Deep JSON snapshot; neither returned debug nor its nested objects are mutable.
@@ -68,6 +84,7 @@ enum JevDebugProjection {
 Map<String, Object?> sealDebugJson(
   Map<String, Object?> value, {
   JevDebugProjection projection = JevDebugProjection.generic,
+  Iterable<({DecisionIOTrace trace, bool typedResponse})> ioTraces = const [],
 }) {
   final context = switch (projection) {
     JevDebugProjection.generic => _JevProjection.none,
@@ -87,7 +104,21 @@ Map<String, Object?> sealDebugJson(
       _JevProjection.benchmarkQuestionRun,
     JevDebugProjection.benchmarkGameRun => _JevProjection.benchmarkGameRun,
   };
-  final redactor = _CredentialRedactor()..collect(value, context: context);
+  final redactor = _CredentialRedactor();
+  for (final source in ioTraces) {
+    final trace = source.trace;
+    redactor._secrets.addAll(trace._ownerCredentials ?? const []);
+    // Collect before an owner's literal masking can hide part of a credential.
+    // The caller supplies the response role only after successful typed parsing.
+    redactor.collect(trace._request, context: _JevProjection.request);
+    redactor.collect(
+      trace._rawResponse,
+      context: source.typedResponse
+          ? _JevProjection.response
+          : _JevProjection.none,
+    );
+  }
+  redactor.collect(value, context: context);
   return freezeDebugJson(redactor.redact(value, context: context))
       as Map<String, Object?>;
 }

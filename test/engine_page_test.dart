@@ -1,3 +1,5 @@
+import 'fixtures/parameter_editor_navigation.dart';
+
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
@@ -199,11 +201,16 @@ void main() {
         await catalog.readParameters(catalog.state.entries.single.id);
       });
       await tester.pumpAndSettle();
-      expect(find.text('完整启动命令'), findsOneWidget);
-      await tester.enterText(find.widgetWithText(TextField, '上下文大小'), '2048');
+      await selectParameterGroup(tester, '上下文与内存');
+      await tester.enterText(
+        find.byKey(const Key('parameter-number:--ctx-size')),
+        '2048',
+      );
       // Present the frame scheduled by onChanged before interacting with its
       // command view, and verify the displayed preview changed before copying.
       await tester.pump();
+      await selectParameterGroup(tester, '参数文本与命令');
+      expect(find.text('完整启动命令'), findsOneWidget);
       expect(find.textContaining('--ctx-size 2048'), findsOneWidget);
       final copy = find.byTooltip('复制命令');
       await tester.ensureVisible(copy);
@@ -277,7 +284,11 @@ void main() {
         await catalog.readParameters(catalog.state.entries.single.id);
       });
       await tester.pumpAndSettle();
-      await tester.enterText(find.widgetWithText(TextField, '上下文大小'), '2048');
+      await selectParameterGroup(tester, '上下文与内存');
+      await tester.enterText(
+        find.byKey(const Key('parameter-number:--ctx-size')),
+        '2048',
+      );
       await tester.runAsync(() async {
         final saved = catalog.changes.firstWhere((state) => !state.busy);
         await tester.tap(find.widgetWithText(FilledButton, '保存'));
@@ -299,8 +310,9 @@ void main() {
         await catalog.readParameters(catalog.state.entries.single.id);
       });
       await tester.pumpAndSettle();
+      await selectParameterGroup(tester, '上下文与内存');
       final field = tester.widget<TextField>(
-        find.widgetWithText(TextField, '上下文大小'),
+        find.byKey(const Key('parameter-number:--ctx-size')),
       );
       expect(field.controller!.text, '2048');
       expect(tester.takeException(), isNull);

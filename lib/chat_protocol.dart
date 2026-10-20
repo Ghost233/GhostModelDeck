@@ -1,5 +1,8 @@
 import 'dart:convert';
 
+import 'generation_configuration.dart';
+import 'generation_seed.dart';
+
 /// One typed message of a public chat request. Roles are closed.
 class TextMessage {
   TextMessage({required this.role, required this.content}) {
@@ -18,8 +21,8 @@ class TextMessage {
 /// Text chat, optionally streamed. Never implicitly loads a model.
 class TextRequest {
   factory TextRequest({required String prompt, int maxTokens = 32}) {
-    if (prompt.trim().isEmpty || maxTokens < 1 || maxTokens > 4096) {
-      throw const TextProtocolException('需要非空文本与 1–4096 个生成 token 上限');
+    if (prompt.trim().isEmpty || maxTokens < 1) {
+      throw const TextProtocolException('需要非空文本与正整数生成 token 上限');
     }
     return TextRequest.messages(
       messages: [TextMessage(role: 'user', content: prompt)],
@@ -30,33 +33,59 @@ class TextRequest {
 
   TextRequest.messages({
     required List<TextMessage> messages,
-    this.maxTokens = 32,
-    this.temperature,
-    this.topP,
+    int? maxTokens,
+    double? temperature,
+    double? topP,
+    GenerationConfiguration? parameters,
   }) : messages = List.unmodifiable(messages) {
     if (messages.isEmpty) {
       throw const TextProtocolException('需要至少一条消息');
     }
-    if (maxTokens < 1 || maxTokens > 4096) {
-      throw const TextProtocolException('需要非空文本与 1–4096 个生成 token 上限');
-    }
-    final temperature = this.temperature;
-    if (temperature != null &&
-        (temperature.isNaN || temperature < 0 || temperature > 2)) {
-      throw const TextProtocolException('temperature 需要在 0 到 2 之间');
-    }
-    final topP = this.topP;
-    if (topP != null && (topP.isNaN || topP <= 0 || topP > 1)) {
-      throw const TextProtocolException('top_p 需要在 (0, 1] 之间');
+    try {
+      this.parameters = GenerationConfiguration({
+        ...?parameters?.values,
+        'max_tokens': ?maxTokens,
+        'temperature': ?temperature,
+        'top_p': ?topP,
+      });
+    } on FormatException catch (error) {
+      throw TextProtocolException(error.message);
     }
   }
 
   final List<TextMessage> messages;
-  final int maxTokens;
-  final double? temperature;
-  final double? topP;
+  late final GenerationConfiguration parameters;
+  int? get maxTokens => parameters.values['max_tokens'] as int?;
+  double? get temperature =>
+      (parameters.values['temperature'] as num?)?.toDouble();
+  double? get topP => (parameters.values['top_p'] as num?)?.toDouble();
 
-  Map<String, Object> toChat({required String model, bool stream = false}) {
+  TextRequest withDefaults(GenerationConfiguration defaults) =>
+      TextRequest.messages(
+        messages: messages,
+        parameters: defaults.withOverrides(parameters),
+      );
+
+  String encodeChat({
+    required String model,
+    bool stream = false,
+    bool splash = false,
+    bool unlimitedAsNegativeOne = false,
+  }) => encodeGenerationRequest(
+    toChat(
+      model: model,
+      stream: stream,
+      splash: splash,
+      unlimitedAsNegativeOne: unlimitedAsNegativeOne,
+    ),
+  );
+
+  Map<String, Object> toChat({
+    required String model,
+    bool stream = false,
+    bool splash = false,
+    bool unlimitedAsNegativeOne = false,
+  }) {
     return {
       'model': model,
       'messages': [
@@ -65,9 +94,10 @@ class TextRequest {
       ],
       'stream': stream,
       if (stream) 'stream_options': {'include_usage': true},
-      'temperature': ?temperature,
-      'top_p': ?topP,
-      'max_tokens': maxTokens,
+      ...parameters.nativeValues(
+        splash: splash,
+        unlimitedAsNegativeOne: unlimitedAsNegativeOne,
+      ),
     };
   }
 }

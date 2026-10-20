@@ -1,3 +1,5 @@
+import 'fixtures/parameter_editor_navigation.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -8,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/engine_catalog.dart';
 import 'package:ghost_model_deck/engine_page.dart';
 import 'package:ghost_model_deck/engine_launch_configuration.dart';
+import 'package:ghost_model_deck/engine_launch_editor.dart';
 import 'package:ghost_model_deck/engine_parameter_recognition.dart';
 import 'package:ghost_model_deck/engine_runtime.dart';
 import 'package:ghost_model_deck/local_model_package.dart';
@@ -593,6 +596,7 @@ void main() {
 
       await openDialog();
       expect(find.textContaining('生产模型运行尚未接通'), findsNothing);
+      await selectParameterGroup(tester, '参数文本与命令');
       expect(find.textContaining('完整启动命令'), findsOneWidget);
       expect(
         tester
@@ -602,13 +606,17 @@ void main() {
       );
       expect(find.text('模型独立'), findsNothing);
       expect(find.text('引擎默认'), findsNothing);
-      final requests = find.widgetWithText(TextField, '最大并发请求数');
+      await selectParameterGroup(tester, '上下文与内存');
+      final requests = find.byKey(
+        const Key('parameter-number:--max-concurrent-requests'),
+      );
       // Desktop pointer input keeps focus without touch selection handles.
       await tester.tap(requests, kind: PointerDeviceKind.mouse);
       await tester.pump();
       tester.testTextInput.enterText('3');
       await tester.pump();
-      final text = find.widgetWithText(TextField, '启动参数文本');
+      await selectParameterGroup(tester, '参数文本与命令');
+      final text = find.byKey(const Key('engine-argument-text'));
       await tester.ensureVisible(
         find.descendant(of: text, matching: find.byType(EditableText)),
       );
@@ -666,7 +674,9 @@ void main() {
       await tester.pumpAndSettle();
       await tester.runAsync(fixture.reopen);
       await openDialog();
+      await selectParameterGroup(tester, '参数文本与命令');
       expect(tester.widget<TextField>(text).controller!.text, raw);
+      await selectParameterGroup(tester, '上下文与内存');
       expect(tester.widget<TextField>(requests).controller!.text, '3');
       expect(
         fixture.catalog.launchConfigurationFor(fixture.id, id).family,
@@ -709,18 +719,30 @@ void main() {
             .timeout(const Duration(seconds: 5));
       });
       await tester.pumpAndSettle();
-      expect(find.widgetWithText(TextField, '上下文大小'), findsNothing);
-      final requests = find.widgetWithText(TextField, '最大并发请求数');
+      expect(
+        find.byKey(const Key('parameter-number:--ctx-size')),
+        findsNothing,
+      );
+      await selectParameterGroup(tester, '上下文与内存');
+      final requests = find.byKey(
+        const Key('parameter-number:--max-concurrent-requests'),
+      );
       await tester.ensureVisible(requests);
       await tester.enterText(requests, '4');
-      final input = find.widgetWithText(TextField, '启动参数文本');
+      await selectParameterGroup(tester, '参数文本与命令');
+      final input = find.byKey(const Key('engine-argument-text'));
       await tester.ensureVisible(input);
       const raw = '  --max-concurrent-requests 6 --future "two words"\n';
       await tester.enterText(input, raw);
       await tester.pumpAndSettle();
       expect(
-        tester.widget<TextField>(requests).decoration!.errorText,
-        '已被文本覆盖',
+        tester
+            .widget<EngineLaunchCommandView>(
+              find.byType(EngineLaunchCommandView),
+            )
+            .command
+            .overriddenForm,
+        contains('--max-concurrent-requests'),
       );
       expect(find.textContaining('生产模型运行尚未接通'), findsNothing);
       expect(find.textContaining('默认参数'), findsWidgets);
@@ -749,7 +771,9 @@ void main() {
         await fixture.catalog.readParameters(fixture.id);
       });
       await tester.pumpAndSettle();
+      await selectParameterGroup(tester, '参数文本与命令');
       expect(tester.widget<TextField>(input).controller!.text, raw);
+      await selectParameterGroup(tester, '上下文与内存');
       expect(tester.widget<TextField>(requests).controller!.text, '4');
       await tester.pumpWidget(const SizedBox());
       await tester.pumpAndSettle();
@@ -775,7 +799,9 @@ void main() {
         await fixture.catalog.readParameters(fixture.id);
       });
       await tester.pumpAndSettle();
+      await selectParameterGroup(tester, '参数文本与命令');
       expect(tester.widget<TextField>(input).controller!.text, raw);
+      await selectParameterGroup(tester, '上下文与内存');
       expect(tester.widget<TextField>(requests).controller!.text, '4');
       expect(fixture.pool.starts, 0);
       expect(fixture.engine.runtimeInstances, isEmpty);

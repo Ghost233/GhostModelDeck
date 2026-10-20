@@ -1424,9 +1424,11 @@ Future<_SafetensorsGroups> _groupSafetensors(
           ? config!['model_type'] as String
           : null;
       if (declared is List &&
-          declared.any(
-            (value) => value is String && value.endsWith('ForCausalLM'),
-          )) {
+          (declared.any(
+                (value) => value is String && value.endsWith('ForCausalLM'),
+              ) ||
+              config?['model_type'] == 'qwen3_5' &&
+                  declared.contains('Qwen3_5ForConditionalGeneration'))) {
         kind = AssetKind.chat;
       }
       void primaryMissing(String message) {

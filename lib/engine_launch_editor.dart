@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 
 import 'engine_launch_configuration.dart';
 import 'engine_parameter_recognition.dart';
-import 'engine_runtime.dart';
+import 'parameter_editor.dart';
 
 class EngineLaunchCommandView extends StatelessWidget {
   const EngineLaunchCommandView({
@@ -88,42 +88,22 @@ class EngineLaunchEditor extends StatefulWidget {
 }
 
 class _EngineLaunchEditorState extends State<EngineLaunchEditor> {
-  late final Map<String, TextEditingController> _controllers;
-  late final TextEditingController _argumentText;
+  late final _argumentText = TextEditingController(
+    text: widget.initialConfiguration.argumentText,
+  );
+  late final _values = Map<String, String>.from(
+    widget.initialConfiguration.formValues,
+  );
   bool _saving = false;
   String? _error;
-
   EngineLaunchConfiguration get _configuration => EngineLaunchConfiguration(
     family: widget.initialConfiguration.family,
+    formValues: _values,
     argumentText: _argumentText.text,
-    formValues: {
-      for (final entry in _controllers.entries)
-        if (entry.value.text.isNotEmpty) entry.key: entry.value.text,
-    },
   );
-
-  @override
-  void initState() {
-    super.initState();
-    _argumentText = TextEditingController(
-      text: widget.initialConfiguration.argumentText,
-    );
-    _controllers = {
-      for (final name in EngineLaunchConfiguration.labelsFor(
-        widget.initialConfiguration.family,
-      ).keys)
-        name: TextEditingController(
-          text: widget.initialConfiguration.formValues[name] ?? '',
-        ),
-    };
-  }
-
   @override
   void dispose() {
     _argumentText.dispose();
-    for (final controller in _controllers.values) {
-      controller.dispose();
-    }
     super.dispose();
   }
 
@@ -137,7 +117,7 @@ class _EngineLaunchEditorState extends State<EngineLaunchEditor> {
       await widget.onSave(_configuration);
       if (mounted) Navigator.pop(context);
     } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
+      if (mounted) setState(() => _error = '$error');
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -154,104 +134,100 @@ class _EngineLaunchEditorState extends State<EngineLaunchEditor> {
         recognition: widget.recognition,
       );
     } on LaunchArgumentTextException catch (error) {
-      argumentError = error.toString();
+      argumentError = '$error';
+    } on FormatException catch (error) {
+      argumentError = error.message;
     }
     return PopScope(
       canPop: !_saving,
-      child: AlertDialog(
-        title: Text(widget.title),
-        content: SizedBox(
-          width: 520,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 420),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    widget.initialConfiguration.family == EngineFamily.omlx
-                        ? '保存默认参数，不启动模型。清空表单项不生成自定义参数。'
-                        : '保存后用于后续启动。清空表单项将使用引擎自身默认值。',
-                  ),
-                  const SizedBox(height: 16),
-                  if (widget.recognition?.version != null)
-                    Text('参数帮助版本：${widget.recognition!.version}'),
-                  if (command == null || widget.executable == null)
-                    for (final notice
-                        in command?.notices ??
-                            widget.recognition?.notices ??
-                            <String>[])
-                      Text(notice),
-                  for (final field in EngineLaunchConfiguration.labelsFor(
-                    widget.initialConfiguration.family,
-                  ).entries)
-                    Padding(
-                      key: ValueKey('engine-parameter-form:${field.key}'),
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: TextField(
-                        controller: _controllers[field.key],
-                        enabled: !_saving,
-                        onChanged: (_) => setState(() {}),
-                        decoration: InputDecoration(
-                          labelText: field.value,
-                          helperText:
-                              widget.recognition?.descriptionFor(field.key) ==
-                                  null
-                              ? field.key
-                              : '${widget.recognition!.descriptionFor(field.key)!.names.join(', ')} · ${widget.recognition!.descriptionFor(field.key)!.description}',
-                          helperMaxLines: 3,
-                          errorText:
-                              (command?.overriddenForm.contains(field.key) ??
-                                  false)
-                              ? '已被文本覆盖'
-                              : null,
-                        ),
-                      ),
-                    ),
-                  TextField(
-                    key: const ValueKey('engine-argument-text'),
-                    controller: _argumentText,
+      child: Dialog(
+        insetPadding: const EdgeInsets.all(24),
+        child: SizedBox(
+          width: 1080,
+          height: (MediaQuery.sizeOf(context).height - 90)
+              .clamp(380, 800)
+              .toDouble(),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(22, 18, 22, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  widget.title,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 8),
+                const Text('保存引擎启动默认值；已保存的实例保留自己的参数快照。'),
+                const SizedBox(height: 14),
+                Expanded(
+                  child: ParameterEditor(
+                    family: _configuration.family,
+                    formValues: _values,
+                    initialFormValues: widget.initialConfiguration.formValues,
+                    generationValues: const {},
+                    initialGenerationValues: const {},
+                    onGenerationChanged: (_) {},
+                    onDrafterChanged: (_) {},
+                    showGeneration: false,
+                    showDrafter: false,
+                    recognition: widget.recognition,
+                    command: command,
                     enabled: !_saving,
-                    minLines: 3,
-                    maxLines: 6,
-                    onChanged: (_) => setState(() {}),
-                    decoration: InputDecoration(
-                      labelText: '启动参数文本',
-                      helperText: '仅填写参数；文本优先，表单值仍保留。',
-                      errorText: argumentError,
-                      errorMaxLines: 3,
+                    onFormChanged: (values) => setState(() {
+                      _values
+                        ..clear()
+                        ..addAll(values);
+                    }),
+                    argumentEditor: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        TextField(
+                          key: const ValueKey('engine-argument-text'),
+                          controller: _argumentText,
+                          enabled: !_saving,
+                          minLines: 3,
+                          maxLines: 7,
+                          onChanged: (_) => setState(() {}),
+                          decoration: InputDecoration(
+                            labelText: '可选启动参数文本',
+                            helperText: '同名调优项仍为文本优先；常用及已知参数均可在分组中配置。',
+                            errorText: argumentError,
+                            errorMaxLines: 3,
+                          ),
+                        ),
+                        const SizedBox(height: 15),
+                        if (command != null)
+                          EngineLaunchCommandView(command: command),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  if (argumentError == null &&
-                      (widget.executable != null ||
-                          command!.isConfigurationOnly))
-                    EngineLaunchCommandView(command: command!)
-                  else if (argumentError == null)
-                    const Text('安装或关联引擎后显示完整启动命令。'),
-                  if (_error != null)
-                    Text(
-                      _error!,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
+                ),
+                if (_error != null)
+                  Text(
+                    _error!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
                     ),
-                ],
-              ),
+                  ),
+                const Divider(height: 18),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: _saving ? null : () => Navigator.pop(context),
+                      child: const Text('取消'),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: _saving ? null : _save,
+                      child: Text(_saving ? '保存中' : '保存'),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: _saving ? null : () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: _saving ? null : _save,
-            child: Text(_saving ? '保存中' : '保存'),
-          ),
-        ],
       ),
     );
   }

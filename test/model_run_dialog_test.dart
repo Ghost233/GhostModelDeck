@@ -1,3 +1,5 @@
+import 'fixtures/parameter_editor_navigation.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -8,7 +10,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/app_theme.dart';
 import 'package:ghost_model_deck/engine_catalog.dart';
+import 'package:ghost_model_deck/generation_configuration.dart';
+import 'package:ghost_model_deck/model_run_dialog.dart';
 import 'package:ghost_model_deck/engine_launch_configuration.dart';
+import 'package:ghost_model_deck/engine_launch_editor.dart';
 import 'package:ghost_model_deck/engine_page.dart';
 import 'package:ghost_model_deck/engine_runtime.dart';
 import 'package:ghost_model_deck/library_page.dart';
@@ -25,8 +30,807 @@ import 'package:ghost_model_deck/council.dart';
 
 import 'fixtures/decision_gguf.dart';
 import 'fixtures/engine_archive.dart';
+import 'splash_engine_test.dart' show SplashRuntimeFixture;
 
 void main() {
+  for (final (contextText, expected) in <(String, int?)>[
+    ('16K', 16384),
+    ('auto', null),
+  ]) {
+    testWidgets(
+      'observed Splash context $contextText previews pending capacity without changing the live owner',
+      (tester) async {
+        final (
+          fixture,
+          cpp,
+          catalog,
+          store,
+          controller,
+          definition,
+          run,
+        ) = (await tester.runAsync(() async {
+          final fixture = await SplashRuntimeFixture.create();
+          fixture.io.monitorStatus = {
+            'maximum_context_tokens': 8192,
+            'http': {
+              'requests': {'capacity': 1},
+            },
+          };
+          final cpp = LlamaEngine(
+            library: fixture.library,
+            installationDirectory: Directory('${fixture.root.path}/cpp'),
+          );
+          final catalog = EngineCatalog(
+            library: fixture.library,
+            officialEngine: cpp,
+            useRegistry: ModelUseRegistry(fixture.library),
+            splashIO: fixture.io,
+            registryFile: File('${fixture.root.path}/engines.json'),
+          );
+          final entry = await catalog.link(fixture.source.path);
+          final store = LaunchInstances(
+            catalog: catalog,
+            file: File('${fixture.root.path}/instances.json'),
+          );
+          final definition = await store.save(
+            name: 'Prefix preview',
+            artifactId: fixture.asset.id,
+            engineId: entry.id,
+            configuration: EngineLaunchConfiguration(
+              family: EngineFamily.splash,
+              formValues: {'--max-context': '8192'},
+              drafter: const DrafterConfiguration(enabled: false),
+            ),
+          );
+          final run = await HttpOverrides.runWithHttpOverrides(
+            () => store.start(definition.id),
+            _NetworkBoundary(),
+          );
+          final controller = CouncilController(
+            catalog: catalog,
+            launchInstances: store,
+            modelRegistryFile: File('${fixture.root.path}/committees.json'),
+            scenarioRegistryFile: File('${fixture.root.path}/scenarios.json'),
+          );
+          await controller.models.load();
+          return (fixture, cpp, catalog, store, controller, definition, run);
+        }))!;
+        addTearDown(
+          () => tester.runAsync(() async {
+            await tester.pumpWidget(const SizedBox.shrink());
+            await controller.close();
+            await store.close();
+            await catalog.shutdown();
+            catalog.close();
+            cpp.close();
+            await fixture.close();
+          }),
+        );
+        expect(store.contextLengthFor(definition.id), 8192);
+        final prepareCount = fixture.io.calls
+            .where(
+              (args) => args.any(
+                (arg) => arg.contains('# Ghost Model Deck Splash preparation'),
+              ),
+            )
+            .length;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: InstancesPage(instances: store, models: controller.models),
+            ),
+          ),
+        );
+        await tester.runAsync(() => _settleFilesystemFrames(tester));
+        final edit = find.byKey(
+          ValueKey('instance-parameters:${definition.id}'),
+        );
+        await tester.ensureVisible(edit);
+        await tester.tap(edit);
+        await tester.runAsync(() => _settleFilesystemFrames(tester));
+        await tester.pumpAndSettle();
+        await selectParameterGroup(tester, '参数文本与命令');
+        final raw = '--max-con $contextText';
+        await tester.enterText(
+          find.byKey(const Key('engine-argument-text')),
+          raw,
+        );
+        await tester.runAsync(() => _settleFilesystemFrames(tester));
+        await tester.tap(find.text('状态与生效'));
+        await tester.pumpAndSettle();
+        expect(
+          find.text('实例 Prefix preview：8192 → ${expected ?? '未指定'}'),
+          findsOneWidget,
+        );
+        await tester.tap(find.widgetWithText(TextButton, '关闭'));
+        await tester.pumpAndSettle();
+        await tester.runAsync(() async {
+          final saved = store.changes.firstWhere(
+            (_) => store.find(definition.id)!.configuration.argumentText == raw,
+          );
+          await tester.tap(find.widgetWithText(FilledButton, '保存'));
+          await saved.timeout(const Duration(seconds: 5));
+        });
+        await tester.runAsync(() => _settleFilesystemFrames(tester));
+        await tester.pumpAndSettle();
+        expect(
+          find.byTooltip(
+            expected == null
+                ? '已生效上下文 8192；保存配置容量未确定，启动时由引擎核对。'
+                : '已生效上下文 8192；保存配置 $expected，修改后重启生效。',
+          ),
+          findsOneWidget,
+        );
+        expect(store.contextLengthFor(definition.id), 8192);
+        expect(store.runsFor(definition.id).single.id, run.id);
+        expect(fixture.io.starts, 1);
+        expect(
+          fixture.io.calls
+              .where(
+                (args) => args.any(
+                  (arg) =>
+                      arg.contains('# Ghost Model Deck Splash preparation'),
+                ),
+              )
+              .length,
+          prepareCount,
+        );
+        await tester.runAsync(() async {
+          await store.stop(definition.id);
+          fixture.io.monitorStatus = null;
+          await HttpOverrides.runWithHttpOverrides(
+            () => store.start(definition.id),
+            _NetworkBoundary(),
+          );
+        });
+        expect(store.contextLengthFor(definition.id), expected);
+        expect(fixture.io.starts, 2);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+  for (final runningFamily in [EngineFamily.llamaCpp, EngineFamily.splash]) {
+    testWidgets(
+      'rebound instance editor keeps the live ${runningFamily.name} draft owner',
+      (tester) async {
+        final (fixture, cppIO, cpp, catalog, store, bytes) = (await tester
+            .runAsync(() async {
+              final fixture = await SplashRuntimeFixture.create();
+              final cppIO = _RuntimeIO();
+              final bytes = engineArchive();
+              final cpp = LlamaEngine(
+                library: fixture.library,
+                installationDirectory: Directory('${fixture.root.path}/cpp'),
+                io: cppIO,
+                release: LlamaRelease(
+                  tag: 'b11381',
+                  commit: '836d57176',
+                  url: Uri.parse('https://github.com/fixture'),
+                  sha256: sha256.convert(bytes).toString(),
+                  sizeBytes: bytes.length,
+                ),
+              );
+              final catalog = EngineCatalog(
+                library: fixture.library,
+                officialEngine: cpp,
+                useRegistry: ModelUseRegistry(fixture.library),
+                io: cppIO,
+                splashIO: fixture.io,
+                registryFile: File('${fixture.root.path}/engines.json'),
+              );
+              final store = LaunchInstances(
+                catalog: catalog,
+                file: File('${fixture.root.path}/instances.json'),
+              );
+              return (fixture, cppIO, cpp, catalog, store, bytes);
+            }))!;
+        addTearDown(
+          () => tester.runAsync(() async {
+            await tester.pumpWidget(const SizedBox.shrink());
+            await store.close();
+            await catalog.shutdown();
+            catalog.close();
+            cpp.close();
+            await fixture.close();
+          }),
+        );
+        final (definition, run, expectedSource, pending) = (await tester
+            .runAsync(() async {
+              final archive = await File('${fixture.root.path}/engine.tar.gz')
+                  .writeAsBytes(bytes);
+              await catalog.installOfficial(verifiedArchive: archive);
+              final splash = await catalog.link(fixture.source.path);
+              final cppDraft = await File('${fixture.root.path}/cpp-draft.gguf')
+                  .writeAsString('selected native draft');
+              final splashDraft = await Directory(
+                '${fixture.root.path}/splash-draft',
+              ).create();
+              await File('${splashDraft.path}/config.json')
+                  .writeAsString('{"architectures":["DFlashDraftModel"]}');
+              await File('${splashDraft.path}/model.safetensors')
+                  .writeAsString('selected external draft');
+              final splashRunning = runningFamily == EngineFamily.splash;
+              final definition = await store.save(
+                name: 'Rebound owner',
+                artifactId: fixture.asset.id,
+                engineId: splashRunning ? splash.id : EngineCatalog.officialId,
+                configuration: EngineLaunchConfiguration(
+                  family: runningFamily,
+                  formValues: {
+                    splashRunning ? '--max-context' : '--ctx-size': '8192',
+                  },
+                  drafter: DrafterConfiguration(
+                    enabled: true,
+                    path: splashRunning ? splashDraft.path : cppDraft.path,
+                    mode: splashRunning ? null : 'draft-simple',
+                  ),
+                ),
+              );
+              final run = await HttpOverrides.runWithHttpOverrides(
+                () => store.start(definition.id),
+                _NetworkBoundary(),
+              );
+              final nextFamily = splashRunning
+                  ? EngineFamily.llamaCpp
+                  : EngineFamily.splash;
+              final pending = await store.save(
+                id: definition.id,
+                name: definition.name,
+                artifactId: definition.artifactId,
+                engineId: splashRunning ? EngineCatalog.officialId : splash.id,
+                configuration: EngineLaunchConfiguration(
+                  family: nextFamily,
+                  formValues: {
+                    splashRunning ? '--ctx-size' : '--max-context': '16384',
+                  },
+                  drafter: const DrafterConfiguration(
+                    enabled: false,
+                    path: '/deleted/pending-source',
+                  ),
+                ),
+              );
+              final expected = splashRunning
+                  ? await splashDraft.resolveSymbolicLinks()
+                  : await cppDraft.resolveSymbolicLinks();
+              return (definition, run, expected, pending);
+            }))!;
+        expect(store.contextLengthFor(definition.id), 8192);
+        expect(pending.configuration.contextLength, 16384);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(body: InstancesPage(instances: store)),
+          ),
+        );
+        await tester.runAsync(() => _settleFilesystemFrames(tester));
+        final edit = find.byKey(
+          ValueKey('instance-parameters:${definition.id}'),
+        );
+        await tester.ensureVisible(edit);
+        await tester.tap(edit);
+        await tester.runAsync(() => _settleFilesystemFrames(tester));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('状态与生效'));
+        await tester.pumpAndSettle();
+        expect(find.text(expectedSource), findsOneWidget);
+        expect(find.text('无就绪运行实例'), findsNothing);
+        expect(store.runsFor(definition.id).single.id, run.id);
+        expect(cppIO.startedArguments.length + fixture.io.starts, 1);
+        await tester.tap(find.widgetWithText(TextButton, '关闭'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(TextButton, '取消'));
+        await tester.pumpAndSettle();
+        await tester.runAsync(() => store.stop(definition.id));
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+  testWidgets(
+    'instance editor rejects native generation ranges and preserves editable input',
+    (tester) async {
+      tester.view.physicalSize = const Size(1200, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final (fixture, cpp, catalog, entry) = (await tester.runAsync(() async {
+        final fixture = await SplashRuntimeFixture.create();
+        final cpp = LlamaEngine(
+          library: fixture.library,
+          installationDirectory: fixture.source,
+        );
+        final catalog = EngineCatalog(
+          library: fixture.library,
+          officialEngine: cpp,
+          useRegistry: ModelUseRegistry(fixture.library),
+          registryFile: File('${fixture.root.path}/engines.json'),
+          splashIO: fixture.io,
+        );
+        final entry = await catalog.link(fixture.source.path);
+        return (fixture, cpp, catalog, entry);
+      }))!;
+      addTearDown(
+        () => tester.runAsync(() async {
+          await tester.pumpWidget(const SizedBox.shrink());
+          await catalog.shutdown();
+          catalog.close();
+          cpp.close();
+          await fixture.close();
+        }),
+      );
+      EngineLaunchConfiguration? saved;
+      final variant = LocalModelVariant(
+        id: fixture.asset.id,
+        label: 'GGUF',
+        artifacts: [fixture.asset],
+      );
+      await tester.runAsync(() async {
+        late BuildContext host;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Builder(
+              builder: (context) {
+                host = context;
+                return const Scaffold();
+              },
+            ),
+          ),
+        );
+        unawaited(
+          showDialog<void>(
+            context: host,
+            builder: (_) => ModelRunDialog(
+              catalog: catalog,
+              library: fixture.library,
+              modelPackage: LocalModelPackage(
+                directoryPath: fixture.source.path,
+                name: 'Selected model',
+                variants: [variant],
+                details: [],
+              ),
+              variant: variant,
+              initialEngineId: entry.id,
+              initialConfiguration: EngineLaunchConfiguration(
+                family: EngineFamily.splash,
+                drafter: const DrafterConfiguration(enabled: false),
+                generation: GenerationConfiguration({'temperature': 2.1}),
+              ),
+              onSaveInstance: (_, _, _, configuration) async {
+                saved = configuration;
+              },
+            ),
+          ),
+        );
+        await _settleFilesystemFrames(tester);
+      });
+      await selectParameterGroup(tester, '基本生成');
+      final field = find.byKey(
+        const Key('parameter-number:generation:temperature'),
+      );
+      await tester.ensureVisible(field);
+      expect(tester.widget<TextField>(field).controller!.text, '2.1');
+      expect(find.textContaining('0 到 2'), findsOneWidget);
+      expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, '保存'))
+            .onPressed,
+        isNull,
+      );
+      await tester.enterText(field, 'NaN');
+      await tester.runAsync(() => _settleFilesystemFrames(tester));
+      expect(tester.widget<TextField>(field).controller!.text, 'NaN');
+      expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, '保存'))
+            .onPressed,
+        isNull,
+      );
+      await tester.enterText(field, '0.6');
+      await tester.runAsync(() => _settleFilesystemFrames(tester));
+      await tester.ensureVisible(
+        find.byKey(const Key('parameter-choice:generation:max_tokens')),
+      );
+      await tester.tap(
+        find.byKey(const Key('parameter-choice:generation:max_tokens')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('关闭').last);
+      await tester.pumpAndSettle();
+      await selectParameterGroup(tester, '停止与输出');
+      final stop = find.byKey(const Key('parameter-list:generation:stop'));
+      for (final value in ['1', '2', '3', '4', '5']) {
+        await tester.ensureVisible(stop);
+        await tester.enterText(stop, value);
+        await tester.testTextInput.receiveAction(TextInputAction.done);
+        await tester.runAsync(() => _settleFilesystemFrames(tester));
+      }
+      expect(find.textContaining('最多支持 4'), findsOneWidget);
+      expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, '保存'))
+            .onPressed,
+        isNull,
+      );
+      final fifth = find.widgetWithText(InputChip, '5');
+      await tester.ensureVisible(fifth);
+      await tester.tap(
+        find.descendant(of: fifth, matching: find.byTooltip('Delete')),
+      );
+      await tester.runAsync(() => _settleFilesystemFrames(tester));
+      await tester.ensureVisible(
+        find.byKey(const Key('parameter-choice:generation:response_format')),
+      );
+      await tester.tap(
+        find.byKey(const Key('parameter-choice:generation:response_format')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('json_schema').last);
+      await tester.pumpAndSettle();
+      final schema = find.byKey(
+        const Key('parameter-object:generation:schema'),
+      );
+      await tester.ensureVisible(schema);
+      await tester.enterText(schema, '[]');
+      await tester.runAsync(() => _settleFilesystemFrames(tester));
+      expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, '保存'))
+            .onPressed,
+        isNull,
+      );
+      await tester.enterText(schema, '{"type":"object"}');
+      await tester.runAsync(() => _settleFilesystemFrames(tester));
+      await tester.ensureVisible(
+        find.byKey(const Key('parameter-choice:generation:ignore_eos')),
+      );
+      await tester.tap(
+        find.byKey(const Key('parameter-choice:generation:ignore_eos')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('开启').last);
+      await tester.runAsync(() => _settleFilesystemFrames(tester));
+      expect(find.textContaining('ignore_eos 不能'), findsOneWidget);
+      expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, '保存'))
+            .onPressed,
+        isNull,
+      );
+      await tester.tap(
+        find.byKey(const Key('parameter-choice:generation:ignore_eos')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('关闭').last);
+      await tester.runAsync(() => _settleFilesystemFrames(tester));
+      await tester.runAsync(
+        () => tester.tap(find.widgetWithText(FilledButton, '保存')),
+      );
+      await tester.pumpAndSettle();
+      expect(saved!.generation.values['temperature'], 0.6);
+      expect(saved!.generation.values.containsKey('max_tokens'), isTrue);
+      expect(saved!.generation.values['max_tokens'], isNull);
+      expect(saved!.generation.values['stop'], ['1', '2', '3', '4']);
+      expect(saved!.generation.values['response_format'], {
+        'type': 'json_schema',
+        'json_schema': {
+          'name': 'response',
+          'schema': {'type': 'object'},
+        },
+      });
+      expect(fixture.io.starts, 0);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  for (final family in [EngineFamily.llamaCpp, EngineFamily.splash]) {
+    testWidgets(
+      'decision draft controls preserve native policy for ${family.name}',
+      (tester) async {
+        late Directory root;
+        late EngineCatalog catalog;
+        late LibraryArtifact asset;
+        late String engineId;
+        late Future<void> Function() closeResources;
+        await tester.runAsync(() async {
+          if (family == EngineFamily.splash) {
+            final fixture = await SplashRuntimeFixture.create(
+              ordinaryChat: false,
+            );
+            final cpp = LlamaEngine(
+              library: fixture.library,
+              installationDirectory: fixture.source,
+            );
+            catalog = EngineCatalog(
+              library: fixture.library,
+              officialEngine: cpp,
+              useRegistry: ModelUseRegistry(fixture.library),
+              registryFile: File('${fixture.root.path}/engines.json'),
+              splashIO: fixture.io,
+            );
+            engineId = (await catalog.link(fixture.source.path)).id;
+            root = fixture.root;
+            asset = fixture.asset;
+            closeResources = () async {
+              await catalog.shutdown();
+              catalog.close();
+              cpp.close();
+              await fixture.close();
+            };
+          } else {
+            final fixture = await _LaunchTextFixture.create(
+              ordinaryChat: false,
+            );
+            root = fixture.root;
+            catalog = fixture.catalog;
+            asset = fixture.asset;
+            engineId = EngineCatalog.officialId;
+            closeResources = fixture.close;
+          }
+        });
+        final store = LaunchInstances(
+          catalog: catalog,
+          file: File('${root.path}/policy-instances.json'),
+        );
+        addTearDown(
+          () => tester.runAsync(() async {
+            await tester.pumpWidget(const SizedBox.shrink());
+            await store.close();
+            await closeResources();
+          }),
+        );
+        expect(asset.decisionType, 'kev');
+        final definition = (await tester.runAsync(
+          () => store.save(
+            name: 'Native policy',
+            artifactId: asset.id,
+            engineId: engineId,
+            configuration: EngineLaunchConfiguration(
+              family: family,
+              drafter: DrafterConfiguration(
+                enabled: false,
+                mode: family == EngineFamily.llamaCpp ? 'draft-simple' : null,
+              ),
+            ),
+          ),
+        ))!;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(body: InstancesPage(instances: store)),
+          ),
+        );
+        await tester.runAsync(() => _settleFilesystemFrames(tester));
+        Future<void> open() async {
+          await tester.pumpAndSettle();
+          await tester.ensureVisible(find.text('编辑参数'));
+          await tester.tap(find.text('编辑参数'));
+          await tester.runAsync(() => _settleFilesystemFrames(tester));
+          await tester.pumpAndSettle();
+          await selectParameterGroup(tester, '草稿模型');
+        }
+
+        await open();
+        final toggle = find.byKey(const Key('splash-drafter-enabled'));
+        if (family == EngineFamily.splash) {
+          expect(tester.widget<SwitchListTile>(toggle).onChanged, isNull);
+          expect(find.textContaining('不支持草稿模型'), findsWidgets);
+          await tester.tap(find.widgetWithText(TextButton, '取消'));
+          await tester.pumpAndSettle();
+          expect(store.runsFor(definition.id), isEmpty);
+          return;
+        }
+        expect(tester.widget<SwitchListTile>(toggle).onChanged, isNotNull);
+        await tester.ensureVisible(toggle);
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+        final mode = find.byKey(const Key('drafter-mode'));
+        expect(
+          tester
+              .widget<DropdownButton<String>>(mode)
+              .items!
+              .map((item) => item.value),
+          [
+            '',
+            'draft-simple',
+            'draft-eagle3',
+            'draft-mtp',
+            'draft-dflash',
+            'draft-dspark',
+          ],
+        );
+        Future<void> choose(String label) async {
+          await tester.ensureVisible(mode);
+          await tester.tap(mode);
+          await tester.pumpAndSettle();
+          await tester.tap(find.text(label).last);
+          await tester.pumpAndSettle();
+        }
+
+        for (final label in ['普通 draft', 'EAGLE3', 'MTP', 'DFlash', 'DSpark']) {
+          await choose(label);
+        }
+        await choose('MTP');
+        expect(find.textContaining('可留空'), findsWidgets);
+        final draft = (await tester.runAsync(
+          () =>
+              File('${root.path}/chosen-draft.gguf')
+                  .writeAsString('native input'),
+        ))!;
+        final picks = <String?>[draft.path, null, draft.path];
+        const native = MethodChannel('com.ghost233.ghostmodeldeck/native');
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(native, (
+          call,
+        ) async {
+          expect(call.method, 'pickParameterFile');
+          return picks.removeAt(0);
+        });
+        addTearDown(
+          () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            native,
+            null,
+          ),
+        );
+        final pathRow = find.byKey(const Key('parameter-field:drafter-path'));
+        final path = find.byKey(const Key('parameter-path:drafter-path'));
+        Future<void> pick() async {
+          final button = find.descendant(
+            of: pathRow,
+            matching: find.text('选择…'),
+          );
+          await tester.ensureVisible(button);
+          await tester.tap(button);
+          await tester.runAsync(() => _settleFilesystemFrames(tester));
+        }
+
+        await pick();
+        expect(tester.widget<TextField>(path).controller!.text, draft.path);
+        await pick();
+        expect(tester.widget<TextField>(path).controller!.text, draft.path);
+        final resetPath = find.descendant(
+          of: pathRow,
+          matching: find.byTooltip('恢复默认'),
+        );
+        await tester.ensureVisible(resetPath);
+        await tester.tap(resetPath);
+        await tester.runAsync(() => _settleFilesystemFrames(tester));
+        await tester.runAsync(() async {
+          final saved = store.changes.firstWhere(
+            (_) => store.find(definition.id)!.configuration.drafter!.enabled,
+          );
+          await tester.tap(find.widgetWithText(FilledButton, '保存'));
+          await saved.timeout(const Duration(seconds: 5));
+        });
+        await tester.runAsync(() => _settleFilesystemFrames(tester));
+        expect(store.find(definition.id)!.configuration.drafter!.toJson(), {
+          'enabled': true,
+          'path': null,
+          'mode': 'draft-mtp',
+        });
+        await open();
+        await choose('DSpark');
+        await pick();
+        await tester.tap(find.widgetWithText(TextButton, '取消'));
+        await tester.runAsync(() => _settleFilesystemFrames(tester));
+        expect(store.find(definition.id)!.configuration.drafter!.toJson(), {
+          'enabled': true,
+          'path': null,
+          'mode': 'draft-mtp',
+        });
+        expect(store.runsFor(definition.id), isEmpty);
+        expect(await tester.runAsync(draft.readAsString), 'native input');
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+  for (final unit in ['G', 'GiB']) {
+    testWidgets(
+      'Splash $unit loading amount keeps middle editing through search and saves without startup',
+      (tester) async {
+        final (fixture, cpp, catalog, entry) = (await tester.runAsync(() async {
+          final fixture = await SplashRuntimeFixture.create();
+          final cpp = LlamaEngine(
+            library: fixture.library,
+            installationDirectory: fixture.source,
+          );
+          final catalog = EngineCatalog(
+            library: fixture.library,
+            officialEngine: cpp,
+            useRegistry: ModelUseRegistry(fixture.library),
+            registryFile: File('${fixture.root.path}/engines.json'),
+            splashIO: fixture.io,
+          );
+          final entry = await catalog.link(fixture.source.path);
+          await catalog.saveLaunchDefaults(
+            entry.id,
+            EngineLaunchConfiguration(
+              family: EngineFamily.splash,
+              formValues: {'--max-memory': '28$unit'},
+            ),
+          );
+          return (fixture, cpp, catalog, entry);
+        }))!;
+        addTearDown(
+          () => tester.runAsync(() async {
+            await tester.pumpWidget(const SizedBox.shrink());
+            await catalog.shutdown();
+            catalog.close();
+            cpp.close();
+            await fixture.close();
+          }),
+        );
+        await tester.runAsync(() async {
+          await tester.pumpWidget(
+            MaterialApp(
+              home: Scaffold(
+                body: EnginePage(
+                  catalog: catalog,
+                  pickEngineDirectory: () async => null,
+                ),
+              ),
+            ),
+          );
+          await catalog.refresh();
+        });
+        await tester.pumpAndSettle();
+        await tester.runAsync(() async {
+          final action = find.byKey(ValueKey('engine-parameters:${entry.id}'));
+          await tester.ensureVisible(action);
+          await tester.tap(action);
+          await catalog.readParameters(entry.id);
+        });
+        await tester.pumpAndSettle();
+        await selectParameterGroup(tester, '上下文与内存');
+        final amount = find.byKey(const Key('parameter-quantity:--max-memory'));
+        await tester.ensureVisible(amount);
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('parameter-field:--max-memory')),
+            matching: find.byWidgetPredicate(
+              (widget) =>
+                  widget is DropdownButton<String> && widget.value == unit,
+            ),
+          ),
+          findsOneWidget,
+        );
+        await tester.tap(amount);
+        tester.testTextInput.updateEditingValue(
+          const TextEditingValue(
+            text: '218',
+            selection: TextSelection.collapsed(offset: 2),
+          ),
+        );
+        await tester.pump();
+        expect(tester.widget<TextField>(amount).controller!.text, '218');
+        expect(
+          tester.widget<TextField>(amount).controller!.selection.baseOffset,
+          2,
+        );
+        tester.testTextInput.updateEditingValue(
+          const TextEditingValue(
+            text: '18',
+            selection: TextSelection.collapsed(offset: 1),
+          ),
+        );
+        await tester.pump();
+        await tester.enterText(
+          find.byKey(const Key('parameter-search')),
+          'max-memory',
+        );
+        await tester.pumpAndSettle();
+        expect(tester.widget<TextField>(amount).controller!.text, '18');
+        await tester.runAsync(() async {
+          final saved = catalog.changes.firstWhere((state) => !state.busy);
+          await tester.tap(find.widgetWithText(FilledButton, '保存'));
+          await saved.timeout(const Duration(seconds: 5));
+          await tester.pump();
+        });
+        await tester.pumpAndSettle();
+        expect(
+          catalog.launchDefaultsFor(entry.id).formValues['--max-memory'],
+          '18$unit',
+        );
+        expect(fixture.io.starts, 0);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
   testWidgets(
     'instance capacity preview cancels without saving and save remains pending',
     (tester) async {
@@ -77,13 +881,18 @@ void main() {
           await tester.ensureVisible(find.text('编辑参数'));
           await tester.tap(find.text('编辑参数'));
           await _settleFilesystemFrames(tester);
+          await selectParameterGroup(tester, '上下文与内存');
           final field = find.byKey(
-            const ValueKey('model-parameter:--ctx-size'),
+            const ValueKey('parameter-number:--ctx-size'),
           );
           await tester.ensureVisible(field);
           await tester.enterText(field, '16384');
           await _settleFilesystemFrames(tester);
+          await tester.tap(find.text('状态与生效'));
+          await tester.pumpAndSettle();
           expect(find.text('实例 Capacity：8192 → 16384'), findsOneWidget);
+          await tester.tap(find.widgetWithText(TextButton, '关闭'));
+          await tester.pumpAndSettle();
         }
 
         await edit();
@@ -433,7 +1242,7 @@ void main() {
           await _settleFilesystemFrames(tester);
           await tester.tap(find.text('创建实例'));
           await _settleFilesystemFrames(tester);
-          expect(find.byType(AlertDialog), findsOneWidget);
+          expect(find.byType(Dialog), findsOneWidget);
           await tester.tap(find.widgetWithText(FilledButton, '保存'));
           await _settleFilesystemFrames(tester);
           await tester.pump(const Duration(milliseconds: 300));
@@ -853,30 +1662,33 @@ void main() {
       expect(find.text('模型独立'), findsNothing);
       expect(find.text('引擎默认'), findsNothing);
       expect(find.text('编辑模型参数'), findsNothing);
-      expect(find.byType(AlertDialog), findsOneWidget);
-      final field = find.widgetWithText(TextField, '上下文大小');
+      expect(find.byType(Dialog), findsOneWidget);
+      await selectParameterGroup(tester, '上下文与内存');
+      final field = find.byKey(const Key('parameter-number:--ctx-size'));
       expect(tester.widget<TextField>(field).controller!.text, '2048');
-      expect(find.text('override ↶'), findsNothing);
-      final commandBefore = tester.getRect(find.text('完整启动命令'));
       final saveBefore = tester.getRect(
         find.widgetWithText(FilledButton, '保存'),
       );
       await tester.enterText(field, '1024');
       await tester.pumpAndSettle();
-      expect(find.text('override ↶'), findsOneWidget);
+      await selectParameterGroup(tester, '参数文本与命令');
       expect(find.textContaining('--ctx-size 1024'), findsOneWidget);
-      await tester.tap(find.text('override ↶'));
+      await selectParameterGroup(tester, '上下文与内存');
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const Key('parameter-field:--ctx-size')),
+          matching: find.byTooltip('恢复默认'),
+        ),
+      );
       await tester.pumpAndSettle();
-      expect(tester.widget<TextField>(field).controller!.text, '2048');
-      expect(find.text('override ↶'), findsNothing);
-      await tester.drag(find.byType(ListView).last, const Offset(0, -350));
-      await tester.pumpAndSettle();
-      expect(tester.getRect(find.text('完整启动命令')), commandBefore);
+      expect(tester.widget<TextField>(field).controller!.text, '');
+      await selectParameterGroup(tester, '参数文本与命令');
       expect(
         tester.getRect(find.widgetWithText(FilledButton, '保存')),
         saveBefore,
       );
-      final text = find.widgetWithText(TextField, '启动参数文本');
+      final text = find.byKey(const Key('engine-argument-text'));
+      await selectParameterGroup(tester, '参数文本与命令');
       await tester.ensureVisible(text);
       expect(
         tester.widget<TextField>(text).controller!.text,
@@ -898,7 +1710,11 @@ void main() {
         await tester.pump();
       });
       await tester.pumpAndSettle();
-      await tester.enterText(find.widgetWithText(TextField, '上下文大小'), '1024');
+      await selectParameterGroup(tester, '上下文与内存');
+      await tester.enterText(
+        find.byKey(const Key('parameter-number:--ctx-size')),
+        '1024',
+      );
       await tester.pumpAndSettle();
       await _saveTextEditor(tester, fixture);
       expect(fixture.catalog.preferredEngineFor(fixture.asset.id), id);
@@ -967,7 +1783,8 @@ void main() {
       ];
       for (final (source, tail, overridden, managed) in cases) {
         await _openTextEditor(tester, fixture);
-        final input = find.widgetWithText(TextField, '启动参数文本');
+        final input = find.byKey(const Key('engine-argument-text'));
+        await selectParameterGroup(tester, '参数文本与命令');
         await tester.ensureVisible(input);
         await tester.enterText(input, source);
         await tester.pump();
@@ -1040,7 +1857,8 @@ void main() {
         (r'--device CPU\', 13),
       ]) {
         await _openTextEditor(tester, fixture);
-        final input = find.widgetWithText(TextField, '启动参数文本');
+        final input = find.byKey(const Key('engine-argument-text'));
+        await selectParameterGroup(tester, '参数文本与命令');
         await tester.ensureVisible(input);
         await tester.enterText(input, text);
         await tester.pump();
@@ -1074,7 +1892,8 @@ void main() {
     final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
     addTearDown(() => tester.runAsync(fixture.close));
     await _openTextEditor(tester, fixture);
-    final input = find.widgetWithText(TextField, '启动参数文本');
+    final input = find.byKey(const Key('engine-argument-text'));
+    await selectParameterGroup(tester, '参数文本与命令');
     await tester.ensureVisible(input);
     await tester.enterText(input, '--ctx-size bananas');
     await tester.pump();
@@ -1145,7 +1964,8 @@ void main() {
       final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
       addTearDown(() => tester.runAsync(fixture.close));
       await _openTextEditor(tester, fixture);
-      final input = find.widgetWithText(TextField, '启动参数文本');
+      final input = find.byKey(const Key('engine-argument-text'));
+      await selectParameterGroup(tester, '参数文本与命令');
       await tester.ensureVisible(input);
       await tester.enterText(input, '--ctx-size bananas');
       await tester.pump();
@@ -1222,7 +2042,8 @@ void main() {
       addTearDown(() => tester.runAsync(fixture.close));
       await _openTextEditor(tester, fixture);
       const text = '--device "CPU';
-      final input = find.widgetWithText(TextField, '启动参数文本');
+      final input = find.byKey(const Key('engine-argument-text'));
+      await selectParameterGroup(tester, '参数文本与命令');
       await tester.ensureVisible(input);
       await tester.enterText(input, text);
       await tester.pump();
@@ -1258,6 +2079,7 @@ void main() {
         expect(fixture.io.startedArguments, isEmpty);
         expect(fixture.engine.state.instances, isEmpty);
       });
+      await selectParameterGroup(tester, '参数文本与命令');
       await tester.ensureVisible(input);
       await tester.enterText(input, '--device "CPU"');
       await tester.pump();
@@ -1265,6 +2087,7 @@ void main() {
       // InputDecorator fades the previous error label after the corrected frame.
       await tester.pumpAndSettle();
       expect(find.textContaining('第 10 位'), findsNothing);
+      await selectParameterGroup(tester, '参数文本与命令');
       expect(find.text('完整启动命令'), findsOneWidget);
       await _saveTextEditor(tester, fixture);
       await tester.runAsync(
@@ -1289,7 +2112,8 @@ void main() {
       const text =
           r'--brand-new=opaque --ctx-size bananas --batch-size '
           r'--parallel=2 /bin/echo ; | $HOME';
-      final input = find.widgetWithText(TextField, '启动参数文本');
+      final input = find.byKey(const Key('engine-argument-text'));
+      await selectParameterGroup(tester, '参数文本与命令');
       await tester.ensureVisible(input);
       await tester.enterText(input, text);
       await tester.pump();
@@ -1339,7 +2163,8 @@ void main() {
       const text =
           '-m /foreign/model.gguf --alias=outside --host 0.0.0.0 '
           '--port=9999 -h --no-host';
-      final input = find.widgetWithText(TextField, '启动参数文本');
+      final input = find.byKey(const Key('engine-argument-text'));
+      await selectParameterGroup(tester, '参数文本与命令');
       await tester.ensureVisible(input);
       await tester.enterText(input, text);
       await tester.pump();
@@ -1394,7 +2219,8 @@ void main() {
       const text = r'''--device "CPU fallback" -c=1024 --device 'CPU final'
 --experimental "" --pair=a=b --literal '$HOME ; echo nope | cat'
 --escaped one\ two --slash "a\qb" --quote "say \"hi\"" --single 'a\b' '' ''';
-      final input = find.widgetWithText(TextField, '启动参数文本');
+      final input = find.byKey(const Key('engine-argument-text'));
+      await selectParameterGroup(tester, '参数文本与命令');
       await tester.ensureVisible(input);
       await tester.enterText(input, text);
       await tester.pump();
@@ -1440,21 +2266,28 @@ void main() {
     final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
     addTearDown(() => tester.runAsync(fixture.close));
     await _openTextEditor(tester, fixture);
-    final contextField = find.widgetWithText(TextField, '上下文大小');
+    await selectParameterGroup(tester, '上下文与内存');
+    final contextField = find.byKey(const Key('parameter-number:--ctx-size'));
     await tester.enterText(contextField, '2048');
-    final arguments = find.widgetWithText(TextField, '启动参数文本');
+    final arguments = find.byKey(const Key('engine-argument-text'));
+    await selectParameterGroup(tester, '参数文本与命令');
     await tester.ensureVisible(arguments);
     await tester.enterText(arguments, '-c=1024');
     await tester.pump();
     expect(
-      tester.widget<TextField>(contextField).decoration!.errorText,
-      '已被文本覆盖',
+      tester
+          .widget<EngineLaunchCommandView>(find.byType(EngineLaunchCommandView))
+          .command
+          .overriddenForm,
+      contains('--ctx-size'),
     );
     await _saveTextEditor(tester, fixture);
     await _openTextEditor(tester, fixture);
+    await selectParameterGroup(tester, '参数文本与命令');
     await tester.ensureVisible(arguments);
     await tester.enterText(arguments, '');
     await tester.pump();
+    await selectParameterGroup(tester, '上下文与内存');
     expect(tester.widget<TextField>(contextField).controller!.text, '2048');
     expect(
       tester.widget<TextField>(contextField).decoration!.errorText,
@@ -1480,18 +2313,27 @@ void main() {
       final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
       addTearDown(() => tester.runAsync(fixture.close));
       await _openTextEditor(tester, fixture);
-      await tester.enterText(find.widgetWithText(TextField, '上下文大小'), '2048');
+      await selectParameterGroup(tester, '上下文与内存');
+      await tester.enterText(
+        find.byKey(const Key('parameter-number:--ctx-size')),
+        '2048',
+      );
       const text = '  -c 1024  --device=CPU\n';
-      final arguments = find.widgetWithText(TextField, '启动参数文本');
+      final arguments = find.byKey(const Key('engine-argument-text'));
+      await selectParameterGroup(tester, '参数文本与命令');
       expect(arguments, findsOneWidget);
       await tester.ensureVisible(arguments);
       await tester.enterText(arguments, text);
       await tester.pump();
-      final contextField = tester.widget<TextField>(
-        find.widgetWithText(TextField, '上下文大小'),
+      expect(
+        tester
+            .widget<EngineLaunchCommandView>(
+              find.byType(EngineLaunchCommandView),
+            )
+            .command
+            .overriddenForm,
+        contains('--ctx-size'),
       );
-      expect(contextField.controller!.text, '2048');
-      expect(contextField.decoration!.errorText, '已被文本覆盖');
       await _saveTextEditor(tester, fixture);
       await tester.runAsync(() async {
         await tester.pumpWidget(const SizedBox.shrink());
@@ -1499,9 +2341,12 @@ void main() {
       });
       await _openTextEditor(tester, fixture);
       expect(tester.widget<TextField>(arguments).controller!.text, text);
+      await selectParameterGroup(tester, '上下文与内存');
       expect(
         tester
-            .widget<TextField>(find.widgetWithText(TextField, '上下文大小'))
+            .widget<TextField>(
+              find.byKey(const Key('parameter-number:--ctx-size')),
+            )
             .controller!
             .text,
         '2048',
@@ -1758,10 +2603,17 @@ void main() {
         await catalog.readParameters(EngineCatalog.officialId);
       });
       await tester.pumpAndSettle();
-      await tester.enterText(find.widgetWithText(TextField, '上下文大小'), '2048');
-      final device = find.widgetWithText(TextField, '设备');
-      await tester.ensureVisible(device);
-      await tester.enterText(device, '');
+      await selectParameterGroup(tester, '上下文与内存');
+      await tester.enterText(
+        find.byKey(const Key('parameter-number:--ctx-size')),
+        '2048',
+      );
+      await selectParameterGroup(tester, '计算与设备');
+      final device = find.byKey(const Key('parameter-choice:--device'));
+      await tester.tap(device);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('继承引擎默认').last);
+      await tester.pumpAndSettle();
       await tester.runAsync(() async {
         final saved = catalog.changes.firstWhere((state) => !state.busy);
         await tester.tap(find.widgetWithText(FilledButton, '保存'));
@@ -1887,7 +2739,11 @@ void main() {
         await catalog.readParameters(EngineCatalog.officialId);
       });
       await tester.pumpAndSettle();
-      await tester.enterText(find.widgetWithText(TextField, '上下文大小'), '2048');
+      await selectParameterGroup(tester, '上下文与内存');
+      await tester.enterText(
+        find.byKey(const Key('parameter-number:--ctx-size')),
+        '2048',
+      );
       await tester.runAsync(() async {
         final saved = catalog.changes.firstWhere((state) => !state.busy);
         await tester.tap(find.widgetWithText(FilledButton, '保存'));
@@ -1929,6 +2785,7 @@ void main() {
             .onPressed,
         isNotNull,
       );
+      await selectParameterGroup(tester, '参数文本与命令');
       expect(find.text('完整启动命令'), findsOneWidget);
       await tester.tap(find.byTooltip('复制命令'));
       await tester.pump();
@@ -2462,7 +3319,14 @@ void main() {
           await tester.tap(find.byTooltip('模型参数'));
           for (var n = 0; n < 100; n++) {
             await tester.pump();
-            final dropdown = find.byType(DropdownButton<String>);
+            final dropdown = find.descendant(
+              of: find.byWidgetPredicate(
+                (w) =>
+                    w is DropdownButtonFormField<String> &&
+                    w.key.toString().contains('instance-engine:'),
+              ),
+              matching: find.byType(DropdownButton<String>),
+            );
             if (dropdown.evaluate().isNotEmpty &&
                 tester.widget<DropdownButton<String>>(dropdown).items!.length ==
                     (standard ? 2 : 1) &&
@@ -2474,13 +3338,35 @@ void main() {
           }
         });
         final dropdown = tester.widget<DropdownButton<String>>(
-          find.byType(DropdownButton<String>),
+          find.descendant(
+            of: find.byWidgetPredicate(
+              (w) =>
+                  w is DropdownButtonFormField<String> &&
+                  w.key.toString().contains('instance-engine:'),
+            ),
+            matching: find.byType(DropdownButton<String>),
+          ),
         );
         expect(dropdown.items, hasLength(standard ? 2 : 1));
         if (standard) {
-          await tester.tap(find.byType(DropdownButton<String>));
-          await tester.pumpAndSettle();
-          await tester.tap(find.text('llama.cpp · b11146').last);
+          // Opening the menu owns the Future that later runs onChanged. Keep
+          // that complete interaction in the real I/O zone for help file reads.
+          await tester.runAsync(() async {
+            await tester.tap(
+              find.descendant(
+                of: find.byWidgetPredicate(
+                  (w) =>
+                      w is DropdownButtonFormField<String> &&
+                      w.key.toString().contains('instance-engine:'),
+                ),
+                matching: find.byType(DropdownButton<String>),
+              ),
+            );
+            await tester.pumpAndSettle();
+            await tester.tap(find.textContaining('b11146').last);
+            await tester.pump(const Duration(milliseconds: 350));
+            await _settleFilesystemFrames(tester, dialogRemainsOpen: true);
+          });
           await tester.pumpAndSettle();
         }
         expect(find.text('请先安装或关联引擎'), findsNothing);
@@ -2663,7 +3549,7 @@ class _LaunchTextFixture {
   late EngineCatalog catalog;
   late LibraryArtifact asset;
 
-  static Future<_LaunchTextFixture> create() async {
+  static Future<_LaunchTextFixture> create({bool ordinaryChat = true}) async {
     final root = await Directory.systemTemp.createTemp('gmd-launch-text-');
     final data = engineArchive();
     final fixture = _LaunchTextFixture(
@@ -2679,7 +3565,7 @@ class _LaunchTextFixture {
     );
     final archive = await File('${root.path}/engine.tar.gz').writeAsBytes(data);
     final models = Directory('${root.path}/models');
-    await writeDecisionKev(models, ordinaryChat: true);
+    await writeDecisionKev(models, ordinaryChat: ordinaryChat);
     fixture._open();
     await fixture.catalog.installOfficial(verifiedArchive: archive);
     fixture.asset = (await fixture.library.scan(
@@ -2759,6 +3645,7 @@ Future<void> _openTextEditor(
     await fixture.catalog.readParameters(EngineCatalog.officialId);
   });
   await tester.pumpAndSettle();
+  await selectParameterGroup(tester, '参数文本与命令');
 }
 
 Future<void> _saveTextEditor(

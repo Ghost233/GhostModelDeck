@@ -26,9 +26,11 @@ class EngineParameterRecognition {
     required Map<String, EngineParameterDescription> parameters,
     required Map<String, String> aliases,
     required List<String> notices,
+    Set<String> observedNames = const {},
   }) : parameters = Map.unmodifiable(parameters),
        _aliases = Map.unmodifiable(aliases),
-       notices = List.unmodifiable(notices);
+       notices = List.unmodifiable(notices),
+       _observedNames = Set.unmodifiable(observedNames);
 
   final EngineFamily family;
   final String? version;
@@ -39,6 +41,7 @@ class EngineParameterRecognition {
   final Map<String, EngineParameterDescription> parameters;
   final Map<String, String> _aliases;
   final List<String> notices;
+  final Set<String> _observedNames;
 
   static const _llamaAliases = {
     '-c': '--ctx-size',
@@ -50,6 +53,36 @@ class EngineParameterRecognition {
     '-dev': '--device',
     '-m': '--model',
     '-a': '--alias',
+    '-t': '--threads',
+    '-tb': '--threads-batch',
+    '-fa': '--flash-attn',
+    '-ctk': '--cache-type-k',
+    '-ctv': '--cache-type-v',
+    '-mu': '--model-url',
+    '-dr': '--docker-repo',
+    '-hf': '--hf-repo',
+    '-hfr': '--hf-repo',
+    '-hff': '--hf-file',
+    '-hft': '--hf-token',
+    '-md': '--spec-draft-model',
+    '--model-draft': '--spec-draft-model',
+    '-hfd': '--spec-draft-hf',
+    '-hfrd': '--spec-draft-hf',
+    '--hf-repo-draft': '--spec-draft-hf',
+    '-ngld': '--spec-draft-ngl',
+    '--gpu-layers-draft': '--spec-draft-ngl',
+    '--n-gpu-layers-draft': '--spec-draft-ngl',
+    '-devd': '--spec-draft-device',
+    '--device-draft': '--spec-draft-device',
+    '-td': '--spec-draft-threads',
+    '--threads-draft': '--spec-draft-threads',
+    '-tbd': '--spec-draft-threads-batch',
+    '--threads-batch-draft': '--spec-draft-threads-batch',
+    '-ctkd': '--spec-draft-type-k',
+    '--cache-type-k-draft': '--spec-draft-type-k',
+    '-ctvd': '--spec-draft-type-v',
+    '--cache-type-v-draft': '--spec-draft-type-v',
+    '--draft-p-min': '--spec-draft-p-min',
   };
   static const _llamaDescriptions = {
     '--ctx-size': '上下文大小',
@@ -62,6 +95,9 @@ class EngineParameterRecognition {
     '--alias': '软件管理的模型标识',
     '--host': '软件管理的监听地址',
     '--port': '软件管理的监听端口',
+    '--spec-type': '软件管理的实际推测模式',
+    '--spec-draft-model': '软件管理的本地草稿模型',
+    '--spec-draft-hf': '草稿来源由本地模型配置管理',
   };
   static const _splashDescriptions = {
     '--model': '软件管理的 Splash 模型身份',
@@ -222,6 +258,21 @@ class EngineParameterRecognition {
       if (row.names.any(
         (name) => name.startsWith('--no-') || name.startsWith('-no-'),
       )) {
+        if (row.valueHint.isEmpty) {
+          // Short spellings precede the long switch they control. Keep the
+          // positive and negative destinations distinct.
+          for (var index = 0; index < row.names.length; index++) {
+            final name = row.names[index];
+            if (name.startsWith('--') || builtIn.parameters.containsKey(name)) {
+              continue;
+            }
+            final target = row.names
+                .skip(index + 1)
+                .where((option) => option.startsWith('--'))
+                .firstOrNull;
+            if (target != null) aliases[name] = aliases[target] ?? target;
+          }
+        }
         continue;
       }
       final known = row.names
@@ -281,6 +332,7 @@ class EngineParameterRecognition {
       parameters: parameters,
       aliases: aliases,
       notices: notices,
+      observedNames: {...?retained?._observedNames, ...observedNames},
     );
   }
 
@@ -289,9 +341,30 @@ class EngineParameterRecognition {
   );
   static final _name = RegExp(r'-{1,2}[A-Za-z][A-Za-z0-9_-]*');
 
-  String canonicalName(String name) => _aliases[name] ?? name;
-  bool recognizes(String name) => parameters.containsKey(name);
-  EngineParameterDescription? descriptionFor(String name) => parameters[name];
+  String _nativeName(String name) {
+    if (family == EngineFamily.llamaCpp && name.startsWith('--')) {
+      return name.replaceAll('_', '-');
+    }
+    if (family != EngineFamily.splash ||
+        !name.startsWith('--') ||
+        name.length <= 2 ||
+        parameters.containsKey(name)) {
+      return name;
+    }
+    final matches = _observedNames.where(
+      (option) => option.startsWith('--') && option.startsWith(name),
+    );
+    return matches.length == 1 ? matches.single : name;
+  }
+
+  String canonicalName(String name) {
+    final normalized = _nativeName(name);
+    return _aliases[normalized] ?? normalized;
+  }
+
+  bool recognizes(String name) => parameters.containsKey(_nativeName(name));
+  EngineParameterDescription? descriptionFor(String name) =>
+      parameters[_nativeName(name)];
 
   EngineParameterRecognition withReadFailure({
     required String version,
@@ -305,6 +378,7 @@ class EngineParameterRecognition {
     status: EngineHelpStatus.unavailable,
     parameters: parameters,
     aliases: _aliases,
+    observedNames: _observedNames,
     notices: [
       ...{...notices, notice},
     ],

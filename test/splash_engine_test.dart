@@ -11,10 +11,446 @@ import 'package:ghost_model_deck/model_use_registry.dart';
 import 'package:ghost_model_deck/engine_launch_configuration.dart';
 import 'package:ghost_model_deck/engine_runtime.dart';
 import 'package:ghost_model_deck/chat_protocol.dart';
+import 'package:ghost_model_deck/decision_protocol.dart';
+import 'package:ghost_model_deck/jev_debug.dart';
 
 import 'fixtures/decision_gguf.dart';
+import 'fixtures/splash_help.dart';
 
 void main() {
+  test('compact observation keeps its running source and exposes validated full-head fallback', () async {
+    final fixture = await SplashRuntimeFixture.create(compactHelp: true);
+    addTearDown(fixture.close);
+    fixture.io.optionalFeatures = {
+      'compact_draft_head': true,
+      'compact_validated': true,
+      'compact_capacity': 16384,
+      'compact_reason': '',
+      'compact_request_fallbacks': 0,
+    };
+    fixture.io.monitorStatus = {'active_requests': 0};
+    var configuration = EngineLaunchConfiguration(
+      family: EngineFamily.splash,
+      drafter: DrafterConfiguration(
+        enabled: true,
+        path: '${fixture.assembly.path}/draft',
+      ),
+      formValues: {
+        '--compact-draft-head': 'on',
+        '--compact-draft-ranking': '/ranking/form.splash',
+        '--compact-draft-capacity': '32768',
+      },
+      argumentText: '--compact-draft-rank="/ranking/first.splash"',
+    );
+    final engine = fixture.engine(configurationFor: (_) => configuration);
+    addTearDown(() async {
+      await engine.shutdown();
+      await engine.close();
+    });
+    await engine.bindModel(fixture.asset.id, fixture.assembly);
+    final first = await engine.startWithConfiguration(
+      fixture.asset.id,
+      configuration,
+      launchInstanceId: 'compact-first',
+    );
+    expect(
+      engine.actualCompactFor('compact-first'),
+      contains('/ranking/first.splash'),
+    );
+    expect(engine.actualCompactFor('compact-first'), contains('16384'));
+    configuration = EngineLaunchConfiguration(
+      family: EngineFamily.splash,
+      drafter: const DrafterConfiguration(enabled: false),
+      formValues: {
+        '--compact-draft-head': 'on',
+        '--compact-draft-ranking': '/ranking/pending.splash',
+        '--compact-draft-capacity': '65536',
+      },
+    );
+    fixture.io.optionalFeatures = {'compact_draft_head': false};
+    final second = await engine.startWithConfiguration(
+      fixture.asset.id,
+      configuration,
+      launchInstanceId: 'compact-second',
+    );
+    expect(
+      engine
+          .actualCommandFor(second.id)!
+          .arguments
+          .any((argument) => argument.startsWith('--compact-draft-')),
+      isFalse,
+    );
+    fixture.io.optionalFeaturesByPid[engine.pidFor(first.id)!] = {
+      'compact_draft_head': true,
+      'compact_validated': true,
+      'compact_capacity': 16384,
+      'compact_reason': 'rare-token ratio exceeds 1 percent',
+      'compact_request_fallbacks': 3,
+    };
+    await engine.readTelemetry(first.id, cancellation: DecisionCancellation());
+    final observed = engine.actualCompactFor('compact-first')!;
+    expect(observed, contains('已验证'));
+    expect(observed, contains('完整 head 回退'));
+    expect(observed, contains('rare-token ratio exceeds 1 percent'));
+    expect(observed, contains('请求回退次数 3'));
+    expect(observed, contains('/ranking/first.splash'));
+    expect(observed, isNot(contains('/ranking/pending.splash')));
+    fixture.io.optionalFeaturesByPid[engine.pidFor(first.id)!] = {
+      'compact_draft_head': true,
+      'compact_validated': false,
+      'compact_reason': 'validation unavailable',
+    };
+    await engine.readTelemetry(first.id, cancellation: DecisionCancellation());
+    expect(engine.actualCompactFor('compact-first'), contains('原生未验证'));
+    expect(
+      engine.actualCompactFor('compact-first'),
+      isNot(contains('完整 head 回退')),
+    );
+    fixture.io.optionalFeaturesByPid[engine.pidFor(first.id)!] = {
+      'compact_draft_head': true,
+      'compact_validated': true,
+      'compact_capacity': 16384,
+      'compact_reason': 'lookup supplied proposals; draft head skipped',
+      'compact_request_fallbacks': 3,
+    };
+    await engine.readTelemetry(first.id, cancellation: DecisionCancellation());
+    expect(engine.actualCompactFor('compact-first'), contains('跳过草稿 head'));
+    expect(
+      engine.actualCompactFor('compact-first'),
+      isNot(contains('完整 head 回退')),
+    );
+    fixture.io.optionalFeaturesByPid[engine.pidFor(
+          first.id,
+        )!]!['compact_reason'] =
+        '';
+    await engine.readTelemetry(first.id, cancellation: DecisionCancellation());
+    expect(engine.actualCompactFor('compact-first'), contains('按原生条件使用'));
+    expect(
+      engine.actualCompactFor('compact-first'),
+      isNot(contains('rare-token ratio')),
+    );
+    expect(engine.actualCompactFor('compact-second'), '关闭');
+    expect(
+      engine.actualDrafterFor('compact-first')!.stage,
+      DrafterStage.running,
+    );
+    expect(
+      engine.runtimeInstances.every(
+        (run) => run.status == RuntimeInstanceStatus.ready,
+      ),
+      isTrue,
+    );
+    expect(fixture.io.chatModels, isEmpty);
+    expect(fixture.io.decisionBodies, isEmpty);
+    await engine.stop(first.id);
+    expect(engine.actualCompactFor('compact-first'), isNull);
+    expect(
+      engine.runtimeInstances
+          .singleWhere((run) => run.id == second.id)
+          .acceptingRequests,
+      isTrue,
+    );
+  });
+  test(
+    'Splash startup failures redact current and superseded CLI keys from logs',
+    () async {
+      final fixture = await SplashRuntimeFixture.create();
+      addTearDown(fixture.close);
+      fixture.io.launchStderr =
+          'native failed shadow-private-key and owned-private-key';
+      fixture.io.wrongPid = true;
+      final engine = fixture.engine();
+      addTearDown(() async {
+        await engine.shutdown();
+        await engine.close();
+      });
+      await engine.bindModel(fixture.asset.id, fixture.assembly);
+      Object? failure;
+      try {
+        await engine.startWithConfiguration(
+          fixture.asset.id,
+          EngineLaunchConfiguration(
+            family: EngineFamily.splash,
+            argumentText:
+                '--api-key shadow-private-key --api-key owned-private-key',
+          ),
+        );
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure, isA<SplashEngineException>());
+      for (final key in ['shadow-private-key', 'owned-private-key']) {
+        expect(failure.toString(), isNot(contains(key)));
+        expect(engine.runtimeInstances.single.error, isNot(contains(key)));
+      }
+      expect(engine.runtimeInstances.single.hasLiveProcess, isFalse);
+    },
+  );
+  test(
+    'Splash failures and default decision traces redact the running API key',
+    () async {
+      final fixture = await SplashRuntimeFixture.create(
+        supportsSystemone: true,
+      );
+      addTearDown(fixture.close);
+      final engine = fixture.engine();
+      addTearDown(() async {
+        await engine.shutdown();
+        await engine.close();
+      });
+      await engine.bindModel(fixture.asset.id, fixture.assembly);
+      final run = await engine.startWithConfiguration(
+        fixture.asset.id,
+        EngineLaunchConfiguration(
+          family: EngineFamily.splash,
+          formValues: {'--api-key': 'private-owned-key'},
+        ),
+      );
+      fixture.io.decisionStatus = 403;
+      fixture.io.decisionResponse = (_) => {
+        'error': 'native rejected private-owned-key',
+      };
+      final trace = DecisionIOTrace();
+      Object? failure;
+      try {
+        await engine.decideBatch(
+          run.id,
+          DecisionBatchRequest(
+            state: 'private-owned-key',
+            questions: {
+              'pick': ChoiceQuestion(
+                instructions: 'choose',
+                options: {'yes': 'Yes', 'no': 'No'},
+              ),
+            },
+          ),
+          ioTrace: trace,
+        );
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure, isA<SplashRequestException>());
+      expect(failure.toString(), isNot(contains('private-owned-key')));
+      expect(
+        (failure as SplashRequestException).rawResponse,
+        isNot(contains('private-owned-key')),
+      );
+      expect(jsonEncode(trace.toJson()), isNot(contains('private-owned-key')));
+      final frozen = trace.toJson();
+      trace.sent('{"late":"private-owned-key"}');
+      trace.received('late response', 200);
+      expect(trace.toJson(), frozen);
+
+      expect(engine.runtimeInstances.single.acceptingRequests, isTrue);
+    },
+  );
+  test(
+    'Splash typed trace preserves task roles and final credential correlation',
+    () async {
+      final fixture = await SplashRuntimeFixture.create(
+        supportsSystemone: true,
+      );
+      addTearDown(fixture.close);
+      final engine = fixture.engine();
+      addTearDown(() async {
+        await engine.shutdown();
+        await engine.close();
+      });
+      await engine.bindModel(fixture.asset.id, fixture.assembly);
+      final run = await engine.startWithConfiguration(
+        fixture.asset.id,
+        EngineLaunchConfiguration(
+          family: EngineFamily.splash,
+          formValues: {'--api-key': 'typed-owner-key'},
+        ),
+      );
+      final input = DecisionBatchRequest(
+        state: {
+          'api_key': 'Authorization: allow',
+          'echo': 'typed-owner-key response-private-key',
+        },
+        questions: {
+          'api_key': ChoiceQuestion(
+            instructions: {'Authorization': 'allow'},
+            options: {'cookie': 'Cookie: allow', 'authorization': 'allow'},
+          ),
+        },
+      );
+      fixture.io.decisionResponse = (_) => {
+        'model': fixture.io.nativeResponseModel,
+        'answers': {
+          'api_key': {
+            'type': 'choice',
+            'choice': 'cookie',
+            'probabilities': {'cookie': 1.0, 'authorization': 0.0},
+            'confidence': 1.0,
+          },
+        },
+        'usage': {'input_tokens': 1, 'output_tokens': 0},
+        'diagnostic': {'API_KEY': 'response-private-key'},
+        'echo': 'typed-owner-key response-private-key',
+      };
+      final trace = DecisionIOTrace();
+      final result = await engine.decideBatch(run.id, input, ioTrace: trace);
+      expect(fixture.io.decisionBodies.single['state'], input.state);
+      final response = result.toJson();
+      expect((response['answers'] as Map)['api_key']['choice'], 'cookie');
+      final debug = sealDebugJson(
+        {
+          'input': input.toSystemone(model: 'Authorization: allow'),
+          'native': {...trace.toJson(), 'result': response},
+          'converted_result': response,
+        },
+        projection: JevDebugProjection.debug,
+        ioTraces: [(trace: trace, typedResponse: true)],
+      );
+      expect((debug['input'] as Map)['model'], 'Authorization: allow');
+      expect(
+        (debug['input'] as Map)['questions'],
+        input.toSystemone()['questions'],
+      );
+      expect((debug['input'] as Map)['state'], {
+        'api_key': 'Authorization: allow',
+        'echo': '[redacted] [redacted]',
+      });
+      expect(debug['converted_result'], response);
+      final raw = jsonDecode(
+        (debug['native'] as Map)['raw_response'] as String,
+      );
+      expect(raw['answers'], response['answers']);
+      expect(raw['diagnostic'], {'API_KEY': '[redacted]'});
+      expect(jsonEncode(debug), isNot(contains('typed-owner-key')));
+      expect(jsonEncode(debug), isNot(contains('response-private-key')));
+    },
+  );
+  test('Splash saved keys affect the next owner without changing live authentication', () async {
+    final fixture = await SplashRuntimeFixture.create();
+    addTearDown(fixture.close);
+    var configuration = EngineLaunchConfiguration(
+      family: EngineFamily.splash,
+      formValues: {'--api-key': 'first-owner-key'},
+    );
+    final engine = fixture.engine(configurationFor: (_) => configuration);
+    addTearDown(() async {
+      await engine.shutdown();
+      await engine.close();
+    });
+    await engine.bindModel(fixture.asset.id, fixture.assembly);
+    final first = await engine.startRuntime(fixture.asset.id);
+    configuration = EngineLaunchConfiguration(
+      family: EngineFamily.splash,
+      formValues: {'--api-key': 'second-owner-key'},
+    );
+    expect(
+      (await engine.generateText(first.id, TextRequest(prompt: 'OK'))).text,
+      'OK',
+    );
+    final second = await engine.startRuntime(fixture.asset.id);
+    expect(
+      (await engine.generateText(second.id, TextRequest(prompt: 'OK'))).text,
+      'OK',
+    );
+    final firstEvents = await engine
+        .streamText(first.id, TextRequest(prompt: 'OK'))
+        .toList();
+    expect(
+      firstEvents.where((event) => event.result != null).single.result!.text,
+      'OK',
+    );
+    await engine.stop(first.id);
+    expect(
+      (await engine.generateText(second.id, TextRequest(prompt: 'OK'))).text,
+      'OK',
+    );
+  });
+  for (final operation in ['JSON', 'SSE', 'monitor', 'systemone']) {
+    test('Splash API key authenticates owned $operation calls', () async {
+      final fixture = await SplashRuntimeFixture.create(
+        supportsSystemone: true,
+      );
+      addTearDown(fixture.close);
+      final engine = fixture.engine();
+      addTearDown(() async {
+        await engine.shutdown();
+        await engine.close();
+      });
+      await engine.bindModel(fixture.asset.id, fixture.assembly);
+      final run = await engine.startWithConfiguration(
+        fixture.asset.id,
+        EngineLaunchConfiguration(
+          family: EngineFamily.splash,
+          formValues: {'--api-key': 'owned-call-key'},
+        ),
+      );
+      switch (operation) {
+        case 'JSON':
+          expect(
+            (await engine.generateText(run.id, TextRequest(prompt: 'OK'))).text,
+            'OK',
+          );
+        case 'SSE':
+          final events = await engine
+              .streamText(run.id, TextRequest(prompt: 'OK'))
+              .toList();
+          expect(
+            events.where((e) => e.result != null).single.result!.text,
+            'OK',
+          );
+        case 'monitor':
+          fixture.io.monitorStatus = {'active_requests': 0};
+          await engine.readTelemetry(
+            run.id,
+            cancellation: DecisionCancellation(),
+          );
+          expect(engine.runtimeInstances.single.acceptingRequests, isTrue);
+        case 'systemone':
+          final result = await engine.decide(
+            run.id,
+            DecisionRequest(
+              state: 'test',
+              instructions: 'choose',
+              options: {'yes': 'Yes', 'no': 'No'},
+            ),
+          );
+          expect(result.choice, 'yes');
+      }
+    });
+  }
+  test(
+    'Splash API key permits owned startup and rejects unauthenticated access',
+    () async {
+      final fixture = await SplashRuntimeFixture.create();
+      addTearDown(fixture.close);
+      final engine = fixture.engine();
+      addTearDown(() async {
+        await engine.shutdown();
+        await engine.close();
+      });
+      await engine.bindModel(fixture.asset.id, fixture.assembly);
+      final run = await engine.startWithConfiguration(
+        fixture.asset.id,
+        EngineLaunchConfiguration(
+          family: EngineFamily.splash,
+          formValues: {'--api-key': 'form-key'},
+          argumentText: '--api-key=first-key --api-k text-key',
+        ),
+      );
+      expect(run.status, RuntimeInstanceStatus.ready);
+      final endpoint = engine.endpointFor(run.id)!;
+      final client = HttpClient();
+      try {
+        for (final key in [null, 'wrong-key', 'text-key']) {
+          final request = await client.getUrl(endpoint.resolve('/status'));
+          if (key != null) request.headers.set('Authorization', 'Bearer $key');
+          final response = await request.close();
+          expect(response.statusCode, key == 'text-key' ? 200 : 401);
+          await response.drain<void>();
+        }
+      } finally {
+        client.close(force: true);
+      }
+    },
+  );
   for (final stream in [false, true]) {
     test(
       '${stream ? 'SSE' : 'JSON'} transient Splash unready keeps the same text instance callable',
@@ -254,7 +690,7 @@ void main() {
     }
   });
   test('Splash only supplies its private cache directory with an explicit persistent-cache option', () async {
-    final fixture = await SplashRuntimeFixture.create();
+    final fixture = await SplashRuntimeFixture.create(compactHelp: true);
     addTearDown(fixture.close);
     final engine = fixture.engine();
     addTearDown(engine.close);
@@ -282,6 +718,44 @@ void main() {
       ]),
     );
     expect(persistent.arguments, isNot(contains('/external')));
+    final prefixed = engine.composeLaunch(
+      EngineLaunchConfiguration(
+        family: EngineFamily.splash,
+        argumentText: '--persistent-c --cache-dir /external',
+      ),
+    );
+    expect(
+      prefixed.arguments,
+      containsAllInOrder([
+        '--cache-dir',
+        '${engine.runtimeDirectory.path}/cache',
+      ]),
+    );
+    expect(prefixed.arguments, isNot(contains('/external')));
+    expect(prefixed.arguments, contains('--persistent-c'));
+    final ambiguous = engine.composeLaunch(
+      EngineLaunchConfiguration(
+        family: EngineFamily.splash,
+        argumentText: '--p',
+      ),
+    );
+    expect(ambiguous.arguments, contains('--p'));
+    expect(ambiguous.arguments, isNot(contains('--cache-dir')));
+    final unread = fixture.engine(
+      installation: await SplashEngine.inspectInstallation(
+        fixture.source,
+        io: fixture.io,
+      ),
+    );
+    addTearDown(unread.close);
+    final notObserved = unread.composeLaunch(
+      EngineLaunchConfiguration(
+        family: EngineFamily.splash,
+        argumentText: '--persistent-c',
+      ),
+    );
+    expect(notObserved.arguments, contains('--persistent-c'));
+    expect(notObserved.arguments, isNot(contains('--cache-dir')));
   });
   test(
     'linked Splash discovers paths without executing help or hashing content',
@@ -410,7 +884,7 @@ void main() {
     expect(fixture.io.nativeResponseModel, 'fixture/target:Q8');
     expect(
       engine.actualCommandFor(started.id)!.arguments,
-      contains('--default-reasoning-effort'),
+      isNot(contains('--default-reasoning-effort')),
     );
     final result = await engine.generateText(
       started.id,
@@ -1254,8 +1728,20 @@ void main() {
           await engine.close();
         });
         await engine.bindModel(fixture.asset.id, fixture.assembly);
-        final first = await engine.startRuntime(fixture.asset.id);
-        final peer = await engine.startRuntime(fixture.asset.id);
+        final first = await engine.startWithConfiguration(
+          fixture.asset.id,
+          EngineLaunchConfiguration(
+            family: EngineFamily.splash,
+            formValues: {'--api-key': 'cancelled-owner-key'},
+          ),
+        );
+        final peer = await engine.startWithConfiguration(
+          fixture.asset.id,
+          EngineLaunchConfiguration(
+            family: EngineFamily.splash,
+            formValues: {'--api-key': 'peer-owner-key'},
+          ),
+        );
         fixture.io.identityEntered = Completer<void>();
         fixture.io.identityClosed = Completer<void>();
         final gate = Completer<void>();
@@ -1343,6 +1829,7 @@ class SplashRuntimeFixture {
   static Future<SplashRuntimeFixture> create({
     bool ordinaryChat = true,
     bool supportsSystemone = false,
+    bool compactHelp = false,
   }) async {
     final root = await Directory.systemTemp.createTemp('splash-runtime-');
     final source = Directory('${root.path}/source');
@@ -1358,6 +1845,7 @@ class SplashRuntimeFixture {
       await file.writeAsString('original $path');
     }
     final io = SplashTestProcessIO(source, mutate: false);
+    if (compactHelp) io.helpOutput = splashCurrentHelp;
     if (supportsSystemone) {
       await File('${source.path}/server/server.py').writeAsString(
         '"/v1/systemone": PostRoute("_post_systemone", SYSTEMONE_ERRORS)',
@@ -1461,16 +1949,22 @@ class SplashTestProcessIO implements SplashProcessIO {
   final calls = <List<String>>[];
   final httpPaths = <String>[];
   final chatModels = <String>[];
+  final chatBodies = <Map>[];
+  final rawChatBodies = <String>[];
   final decisionBodies = <Map>[];
   Completer<void>? decisionEntered;
   Completer<void>? decisionRelease;
   int decisionStatus = 200;
+  String? launchStderr;
   Map<String, Object?> Function(Map body)? decisionResponse;
   Map<String, Object?>? monitorStatus;
+  Map<String, Object?>? optionalFeatures;
+  final optionalFeaturesByPid = <int, Map<String, Object?>>{};
   void Function()? afterDecision;
   bool rejectTransferEncoding = false;
   int sizedPosts = 0;
   int starts = 0;
+  final launchArguments = <List<String>>[];
   int? expectedStarts;
   Completer<void>? startsEntered;
   Duration identityDelay = Duration.zero;
@@ -1478,8 +1972,10 @@ class SplashTestProcessIO implements SplashProcessIO {
   Completer<void>? identityClosed;
   Completer<void>? identityRelease;
   final detachedIdentitySockets = <Socket>{};
+  String? nativeDrafter;
   bool modelCheckFailure = false;
   bool helpFailure = false;
+  String helpOutput = '--max-context TOKENS  Maximum context';
   bool omitDone = false;
   bool wrongPid = false;
   int readyStatus = 200;
@@ -1511,12 +2007,46 @@ class SplashTestProcessIO implements SplashProcessIO {
     )) {
       final request = jsonDecode(arguments.last) as Map;
       final source = Directory('${root.parent.path}/assembly');
-      final directory = Directory('${request['root']}/fixture-prepared');
+      final selection = request['drafter'] as Map?;
+      final selectedDirectory = selection?['path'] as String?;
+      final selectionKey = sha256
+          .convert(utf8.encode(jsonEncode(selection)))
+          .toString();
+      final directory = Directory(
+        '${request['root']}/fixture-prepared-$selectionKey',
+      );
       if (!await directory.exists()) {
         await directory.create(recursive: true);
         final record = jsonDecode(
           await File('${source.path}/model.json').readAsString(),
         ) as Map;
+        if (selection?['enabled'] != true) {
+          (record['files'] as Map).removeWhere(
+            (key, _) => (key as String).startsWith('draft/'),
+          );
+        } else if (selectedDirectory != null) {
+          final selected = Directory(selectedDirectory);
+          final config = File('${selected.path}/config.json');
+          final weights = File('${selected.path}/model.safetensors');
+          for (final entry in {
+            'draft/config.json': config,
+            'draft/model.safetensors': weights,
+          }.entries) {
+            if (!await entry.value.exists()) {
+              return EngineCommandResult(
+                1,
+                '',
+                'Missing drafter ${entry.value.path}',
+              );
+            }
+            (record['files'] as Map)[entry.key] = {
+              'path': await entry.value.resolveSymbolicLinks(),
+              'bytes': await entry.value.length(),
+              'digest': (await sha256.bind(entry.value.openRead()).first)
+                  .toString(),
+            };
+          }
+        }
         for (final entry in (record['files'] as Map).entries) {
           final link = Link('${directory.path}/${entry.key}');
           await link.parent.create(recursive: true);
@@ -1561,11 +2091,7 @@ class SplashTestProcessIO implements SplashProcessIO {
       }
       return helpFailure
           ? const EngineCommandResult(70, '', 'fixture help failed')
-          : const EngineCommandResult(
-              0,
-              '--max-context TOKENS  Maximum context',
-              '',
-            );
+          : EngineCommandResult(0, helpOutput, '');
     }
     return EngineCommandResult(
       0,
@@ -1576,6 +2102,7 @@ class SplashTestProcessIO implements SplashProcessIO {
 
   @override
   Future<EngineChild> start(String executable, List<String> arguments) async {
+    launchArguments.add(List.unmodifiable(arguments));
     starts++;
     if (starts == expectedStarts && startsEntered?.isCompleted == false) {
       startsEntered!.complete();
@@ -1587,8 +2114,36 @@ class SplashTestProcessIO implements SplashProcessIO {
       InternetAddress.loopbackIPv4,
       int.parse(value('--port')),
     );
-    final child = SplashTestChild(server, 30000 + children.length);
+    final child = SplashTestChild(
+      server,
+      30000 + children.length,
+      diagnostic: launchStderr,
+    );
     children.add(child);
+    if (optionalFeatures != null) {
+      optionalFeaturesByPid[child.pid] = Map.from(optionalFeatures!);
+    }
+    final preparation = calls.lastWhere(
+      (args) => args.any(
+        (value) => value.contains('# Ghost Model Deck Splash preparation'),
+      ),
+    );
+    final requestedDraft =
+        (jsonDecode(preparation.last) as Map)['drafter'] as Map?;
+    final reportedDrafter =
+        nativeDrafter ??
+        (requestedDraft?['enabled'] == true ? 'dflash' : 'none');
+    String? apiKey;
+    for (var index = 0; index < arguments.length; index++) {
+      if (arguments[index].startsWith('--') &&
+          arguments[index].length > 2 &&
+          '--api-key'.startsWith(arguments[index])) {
+        apiKey = arguments[++index];
+      }
+      if (arguments[index].startsWith('--api-key=')) {
+        apiKey = arguments[index].substring('--api-key='.length);
+      }
+    }
     final model = value('--model');
     final alias = value('--served-model-name');
     nativeResponseModel = model;
@@ -1597,6 +2152,14 @@ class SplashTestProcessIO implements SplashProcessIO {
         request.response.headers.contentType = ContentType.json;
         Object response;
         httpPaths.add(request.uri.path);
+        if (apiKey != null &&
+            !{'/health', '/ready'}.contains(request.uri.path) &&
+            request.headers.value('Authorization') != 'Bearer $apiKey') {
+          request.response.statusCode = 401;
+          request.response.write('{"error":"invalid or missing API key"}');
+          await request.response.close();
+          return;
+        }
         switch (request.uri.path) {
           case '/ready':
             if (readyStatus != 200) {
@@ -1655,6 +2218,11 @@ class SplashTestProcessIO implements SplashProcessIO {
             response = {
               ...?monitorStatus,
               'ready': statusReady,
+              'startup_features': {
+                'drafter': reportedDrafter,
+                if (optionalFeaturesByPid[child.pid] != null)
+                  'optional': optionalFeaturesByPid[child.pid],
+              },
               'instance': {
                 'id': statusServerId ?? 'source-${child.pid}',
                 'pid': child.pid + (wrongPid ? 1 : 0),
@@ -1727,10 +2295,14 @@ class SplashTestProcessIO implements SplashProcessIO {
               return;
             }
             if (request.contentLength >= 0) sizedPosts++;
-            final body = jsonDecode(
-              await request.cast<List<int>>().transform(utf8.decoder).join(),
-            ) as Map;
+            final rawBody = await request
+                .cast<List<int>>()
+                .transform(utf8.decoder)
+                .join();
+            rawChatBodies.add(rawBody);
+            final body = jsonDecode(rawBody) as Map;
             chatModels.add(body['model'] as String);
+            chatBodies.add(body);
             if (holdChatResponses ||
                 (body['messages'] as List).last['content'] == 'hold') {
               if (!holdReached.isCompleted) holdReached.complete();
@@ -1845,7 +2417,8 @@ class SplashTestProcessIO implements SplashProcessIO {
 }
 
 class SplashTestChild implements EngineChild {
-  SplashTestChild(this.server, this.pid);
+  SplashTestChild(this.server, this.pid, {this.diagnostic});
+  final String? diagnostic;
   final HttpServer server;
   @override
   final int pid;
@@ -1862,7 +2435,9 @@ class SplashTestChild implements EngineChild {
   @override
   Stream<List<int>> get stdout => const Stream.empty();
   @override
-  Stream<List<int>> get stderr => const Stream.empty();
+  Stream<List<int>> get stderr => diagnostic == null
+      ? const Stream.empty()
+      : Stream.value(utf8.encode(diagnostic!));
   @override
   bool kill(ProcessSignal signal) {
     if (!closing) {

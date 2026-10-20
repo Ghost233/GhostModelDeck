@@ -10,11 +10,487 @@ import 'package:ghost_model_deck/model_library.dart';
 import 'package:ghost_model_deck/model_use_registry.dart';
 import 'package:ghost_model_deck/engine_runtime.dart';
 import 'package:ghost_model_deck/chat_protocol.dart';
+import 'package:ghost_model_deck/splash_engine.dart';
+import 'package:ghost_model_deck/generation_configuration.dart';
+import 'package:ghost_model_deck/public_gateway.dart';
 
 import 'splash_engine_test.dart' show SplashRuntimeFixture;
 import 'fixtures/council_runtime.dart';
 
 void main() {
+  for (final observed in <int?>[4096, null]) {
+    test(
+      'applied context uses ${observed ?? 'successful configuration fallback'} and survives pending save and reopen',
+      () async {
+        final runtime = await CouncilRuntime.create(
+          modelCount: 1,
+          sourceSystemone: true,
+        );
+        addTearDown(runtime.close);
+        if (observed != null) {
+          runtime.io.capacityProperties = {
+            'default_generation_settings': {'n_ctx': observed},
+            'total_slots': 2,
+          };
+        }
+        final store = LaunchInstances(
+          catalog: runtime.catalog,
+          file: File('${runtime.root.path}/observed-context.json'),
+        );
+        addTearDown(store.close);
+        final definition = await store.save(
+          name: 'Context source',
+          artifactId: runtime.library.state.artifacts.single.id,
+          engineId: EngineCatalog.officialId,
+          configuration: EngineLaunchConfiguration(
+            formValues: {'--ctx-size': '16384'},
+          ),
+        );
+        final run = await store.start(definition.id);
+        expect(run.capacity?.contextPerSlot, observed);
+        expect(store.contextLengthFor(definition.id), observed ?? 16384);
+        await store.save(
+          id: definition.id,
+          name: definition.name,
+          artifactId: definition.artifactId,
+          engineId: definition.engineId,
+          configuration: EngineLaunchConfiguration(
+            formValues: {'--ctx-size': '32768'},
+          ),
+        );
+        expect(store.find(definition.id)!.configuration.contextLength, 32768);
+        expect(store.contextLengthFor(definition.id), observed ?? 16384);
+        final reopened = LaunchInstances(
+          catalog: runtime.catalog,
+          file: store.file,
+        );
+        addTearDown(reopened.close);
+        await reopened.load();
+        expect(reopened.contextLengthFor(definition.id), observed ?? 16384);
+        expect(
+          reopened.find(definition.id)!.configuration.contextLength,
+          32768,
+        );
+        expect(store.runsFor(definition.id).single.id, run.id);
+        await store.stop(definition.id);
+      },
+    );
+  }
+  test('saved generation defaults apply to the next public request without restarting', () async {
+    final fixture = await SplashRuntimeFixture.create();
+    addTearDown(fixture.close);
+    final cpp = LlamaEngine(
+      library: fixture.library,
+      installationDirectory: Directory('${fixture.root.path}/cpp'),
+    );
+    addTearDown(cpp.close);
+    final catalog = EngineCatalog(
+      library: fixture.library,
+      officialEngine: cpp,
+      useRegistry: ModelUseRegistry(fixture.library),
+      registryFile: File('${fixture.root.path}/engines.json'),
+      splashIO: fixture.io,
+    );
+    addTearDown(catalog.close);
+    addTearDown(catalog.shutdown);
+    final entry = await catalog.link(fixture.source.path);
+    final store = LaunchInstances(
+      catalog: catalog,
+      file: File('${fixture.root.path}/instances.json'),
+    );
+    addTearDown(store.close);
+    EngineLaunchConfiguration configuration(double temperature, int topK) =>
+        EngineLaunchConfiguration(
+          family: EngineFamily.splash,
+          drafter: const DrafterConfiguration(enabled: false),
+          generation: GenerationConfiguration({
+            'temperature': temperature,
+            'top_k': topK,
+            'stop': ['END'],
+          }),
+        );
+    final definition = await store.save(
+      name: 'Generation defaults',
+      artifactId: fixture.asset.id,
+      engineId: entry.id,
+      configuration: configuration(0.6, 9),
+    );
+    final run = await store.start(definition.id);
+    final routes = PublicModelRoutes(
+      library: fixture.library,
+      runtimes: catalog.runtimes.toList(),
+      instances: store,
+    );
+    addTearDown(routes.close);
+    final gateway = PublicGatewayServer(routes: routes, port: 0);
+    addTearDown(gateway.close);
+    addTearDown(gateway.stop);
+    await gateway.start();
+    final client = HttpClient();
+    addTearDown(() => client.close(force: true));
+    Future<void> request([Map<String, Object?> overrides = const {}]) async {
+      final http = await client.postUrl(
+        gateway.baseUrl!.resolve('/v1/chat/completions'),
+      );
+      http.headers.contentType = ContentType.json;
+      http.write(
+        jsonEncode({
+          'model': definition.publicName,
+          'messages': [
+            {'role': 'user', 'content': 'Reply OK'},
+          ],
+          ...overrides,
+        }),
+      );
+      final response = await http.close();
+      final body = await utf8.decoder.bind(response).join();
+      expect(response.statusCode, 200, reason: body);
+    }
+
+    await request();
+    expect(fixture.io.chatBodies.last['temperature'], 0.6);
+    expect(fixture.io.chatBodies.last['top_k'], 9);
+    expect(fixture.io.chatBodies.last.containsKey('max_tokens'), isFalse);
+    await request({'temperature': 0.9, 'top_k': 4});
+    expect(fixture.io.chatBodies.last['temperature'], 0.9);
+    expect(fixture.io.chatBodies.last['top_k'], 4);
+    expect(fixture.io.chatBodies.last['stop'], ['END']);
+    await store.save(
+      id: definition.id,
+      name: definition.name,
+      artifactId: definition.artifactId,
+      engineId: definition.engineId,
+      configuration: configuration(0.3, 17),
+    );
+    await request({'stream': true});
+    expect(fixture.io.chatBodies.last['temperature'], 0.3);
+    expect(fixture.io.chatBodies.last['top_k'], 17);
+    expect(store.runsFor(definition.id).single.id, run.id);
+    expect(fixture.io.starts, 1);
+    final restored = LaunchInstances(catalog: catalog, file: store.file);
+    addTearDown(restored.close);
+    await restored.load();
+    expect(
+      restored
+          .find(definition.id)!
+          .configuration
+          .generation
+          .values['temperature'],
+      0.3,
+    );
+    await store.stop(definition.id);
+  });
+
+  test('disabled limits and output defaults persist per instance without changing admitted requests', () async {
+    final fixture = await SplashRuntimeFixture.create();
+    addTearDown(fixture.close);
+    final cpp = LlamaEngine(
+      library: fixture.library,
+      installationDirectory: Directory('${fixture.root.path}/cpp'),
+    );
+    addTearDown(cpp.close);
+    final catalog = EngineCatalog(
+      library: fixture.library,
+      officialEngine: cpp,
+      useRegistry: ModelUseRegistry(fixture.library),
+      registryFile: File('${fixture.root.path}/engines.json'),
+      splashIO: fixture.io,
+    );
+    addTearDown(catalog.close);
+    addTearDown(catalog.shutdown);
+    final entry = await catalog.link(fixture.source.path);
+    final store = LaunchInstances(
+      catalog: catalog,
+      file: File('${fixture.root.path}/instances.json'),
+    );
+    addTearDown(store.close);
+    const format = {
+      'type': 'json_schema',
+      'json_schema': {
+        'name': 'instance-answer',
+        'strict': true,
+        'description': 'Persist the selected contract',
+        'schema': {'type': 'object'},
+      },
+    };
+    EngineLaunchConfiguration configuration(Map<String, Object?> values) =>
+        EngineLaunchConfiguration(
+          family: EngineFamily.splash,
+          drafter: const DrafterConfiguration(enabled: false),
+          generation: GenerationConfiguration(values),
+        );
+    final first = await store.save(
+      name: 'First defaults',
+      artifactId: fixture.asset.id,
+      engineId: entry.id,
+      configuration: configuration({
+        'temperature': 0.6,
+        'max_tokens': 13,
+        'seed': 31,
+        'stop': ['END'],
+        'response_format': format,
+      }),
+    );
+    final second = await store.save(
+      name: 'Second defaults',
+      artifactId: fixture.asset.id,
+      engineId: entry.id,
+      configuration: configuration({'temperature': 0.8, 'max_tokens': 7}),
+    );
+    final firstRun = await store.start(first.id);
+    final secondRun = await store.start(second.id);
+    final routes = PublicModelRoutes(
+      library: fixture.library,
+      runtimes: catalog.runtimes.toList(),
+      instances: store,
+    );
+    addTearDown(routes.close);
+    final gateway = PublicGatewayServer(routes: routes, port: 0);
+    addTearDown(gateway.close);
+    addTearDown(gateway.stop);
+    await gateway.start();
+    final client = HttpClient();
+    addTearDown(() => client.close(force: true));
+    Future<void> request(
+      String model, {
+      Map<String, Object?> overrides = const {},
+      String prompt = 'Reply OK',
+      int expectedStatus = 200,
+    }) async {
+      final http = await client.postUrl(
+        gateway.baseUrl!.resolve('/v1/chat/completions'),
+      );
+      http.headers.contentType = ContentType.json;
+      http.write(
+        jsonEncode({
+          'model': model,
+          'messages': [
+            {'role': 'user', 'content': prompt},
+          ],
+          ...overrides,
+        }),
+      );
+      final response = await http.close();
+      final body = await utf8.decoder.bind(response).join();
+      expect(response.statusCode, expectedStatus, reason: body);
+      if (expectedStatus == 200 && overrides['stream'] == true) {
+        expect(body, contains('data: [DONE]'));
+      }
+    }
+
+    for (final stream in [false, true]) {
+      await request(
+        first.publicName,
+        overrides: {
+          'stream': stream,
+          'max_completion_tokens': null,
+          'temperature': 0,
+          'seed': -1,
+          'stop': ['123'],
+        },
+      );
+      expect(fixture.io.chatBodies.last.containsKey('max_tokens'), isFalse);
+      expect(fixture.io.chatBodies.last['temperature'], 0);
+      expect(fixture.io.chatBodies.last['seed'], -1);
+      expect(fixture.io.chatBodies.last['stop'], ['123']);
+      expect(fixture.io.chatBodies.last['response_format'], format);
+    }
+    final accepted = fixture.io.chatBodies.length;
+    for (final stream in [false, true]) {
+      await request(
+        first.publicName,
+        overrides: {'stream': stream, 'ignore_eos': true},
+        expectedStatus: 400,
+      );
+      expect(fixture.io.chatBodies, hasLength(accepted));
+    }
+    final admitted = request(first.publicName, prompt: 'hold');
+    await fixture.io.holdReached.future.timeout(const Duration(seconds: 5));
+    final oldBody = Map<String, Object?>.from(fixture.io.chatBodies.last);
+    await store.save(
+      id: first.id,
+      name: first.name,
+      artifactId: first.artifactId,
+      engineId: first.engineId,
+      configuration: configuration({
+        'temperature': 0.2,
+        'max_tokens': null,
+        'stop': <String>[],
+        'response_format': {'type': 'text'},
+      }),
+    );
+    await request(first.publicName, overrides: {'stream': true});
+    expect(fixture.io.chatBodies.last.containsKey('max_tokens'), isFalse);
+    expect(fixture.io.chatBodies.last['temperature'], 0.2);
+    expect(fixture.io.chatBodies.last['stop'], isEmpty);
+    expect(fixture.io.chatBodies.last['response_format'], {'type': 'text'});
+    expect(oldBody['max_tokens'], 13);
+    expect(oldBody['temperature'], 0.6);
+    expect(oldBody['response_format'], format);
+    fixture.io.releaseHeld.complete();
+    await admitted;
+    await request(second.publicName);
+    expect(fixture.io.chatBodies.last['temperature'], 0.8);
+    expect(fixture.io.chatBodies.last['max_tokens'], 7);
+    final restored = LaunchInstances(catalog: catalog, file: store.file);
+    addTearDown(restored.close);
+    await restored.load();
+    final saved = restored.find(first.id)!.configuration;
+    expect(saved.generation.values.containsKey('max_tokens'), isTrue);
+    expect(saved.generation.values['max_tokens'], isNull);
+    expect(saved.generation.values['stop'], isEmpty);
+    expect(saved.loadingIdentity, first.configuration.loadingIdentity);
+    expect(
+      restored.find(second.id)!.configuration.generation.values['max_tokens'],
+      7,
+    );
+    expect(store.runsFor(first.id).single.id, firstRun.id);
+    expect(store.runsFor(second.id).single.id, secondRun.id);
+    expect(fixture.io.starts, 2);
+    await store.stop(first.id);
+    await store.stop(second.id);
+  });
+
+  test('Splash drafter choices persist per instance and rebuild bindings on directory and switch changes', () async {
+    final fixture = await SplashRuntimeFixture.create();
+    addTearDown(fixture.close);
+    final cpp = LlamaEngine(
+      library: fixture.library,
+      installationDirectory: Directory('${fixture.root.path}/cpp'),
+    );
+    addTearDown(cpp.close);
+    final catalog = EngineCatalog(
+      library: fixture.library,
+      officialEngine: cpp,
+      useRegistry: ModelUseRegistry(fixture.library),
+      registryFile: File('${fixture.root.path}/engines.json'),
+      splashIO: fixture.io,
+    );
+    addTearDown(catalog.close);
+    addTearDown(catalog.shutdown);
+    final entry = await catalog.link(fixture.source.path);
+    final runtime = catalog.runtimeFor(entry.id) as SplashEngine;
+    final file = File('${fixture.root.path}/instances.json');
+    final store = LaunchInstances(catalog: catalog, file: file);
+    addTearDown(store.close);
+    Future<EngineLaunchConfiguration> selection(String name) async {
+      final directory = await Directory('${fixture.root.path}/$name').create();
+      await File('${directory.path}/config.json')
+          .writeAsString('{"architectures":["DFlashDraftModel"]}');
+      await File('${directory.path}/model.safetensors')
+          .writeAsString('external engine fixture weights');
+      return EngineLaunchConfiguration(
+        family: EngineFamily.splash,
+        drafter: DrafterConfiguration(enabled: true, path: directory.path),
+      );
+    }
+
+    final a = await selection('drafter-a');
+    final b = await selection('drafter-b');
+    final first = await store.save(
+      name: 'A',
+      artifactId: fixture.asset.id,
+      engineId: entry.id,
+      configuration: a,
+    );
+    final second = await store.save(
+      name: 'B',
+      artifactId: fixture.asset.id,
+      engineId: entry.id,
+      configuration: b,
+    );
+    expect(catalog.launchDefaultsFor(entry.id).drafter, isNull);
+    await expectLater(
+      catalog.saveLaunchDefaults(entry.id, a),
+      throwsArgumentError,
+    );
+    await store.start(first.id);
+    final assemblyA = runtime.bindingFor(fixture.asset.id)!.assembly.path;
+    expect(
+      runtime.bindingFor(fixture.asset.id)!.roles['draft/config.json'],
+      '${a.drafter!.path}/config.json',
+    );
+    expect(runtime.actualDrafterFor(first.id)!.source, a.drafter!.path);
+    // Saving a different next-start source cannot rewrite the active owner's observation.
+    await store.save(
+      id: first.id,
+      name: first.name,
+      artifactId: first.artifactId,
+      engineId: first.engineId,
+      configuration: b,
+    );
+    expect(runtime.actualDrafterFor(first.id)!.source, a.drafter!.path);
+    await store.stop(first.id);
+    expect(runtime.actualDrafterFor(first.id), isNull);
+    fixture.io.nativeDrafter = 'none';
+    await expectLater(
+      store.start(first.id),
+      throwsA(
+        isA<SplashEngineException>().having(
+          (e) => e.message,
+          'native fallback',
+          contains('原生未报告实际启用'),
+        ),
+      ),
+    );
+    fixture.io.nativeDrafter = null;
+    await store.save(
+      id: first.id,
+      name: first.name,
+      artifactId: first.artifactId,
+      engineId: first.engineId,
+      configuration: b,
+    );
+    await store.start(first.id);
+    expect(
+      runtime.bindingFor(fixture.asset.id)!.assembly.path,
+      isNot(assemblyA),
+    );
+    expect(
+      runtime.bindingFor(fixture.asset.id)!.roles['draft/config.json'],
+      '${b.drafter!.path}/config.json',
+    );
+    await store.stop(first.id);
+    final off = EngineLaunchConfiguration(
+      family: EngineFamily.splash,
+      drafter: const DrafterConfiguration(
+        enabled: false,
+        path: '/deleted/worktree/drafter',
+      ),
+    );
+    await store.save(
+      id: first.id,
+      name: first.name,
+      artifactId: first.artifactId,
+      engineId: first.engineId,
+      configuration: off,
+    );
+    await store.start(first.id);
+    expect(
+      runtime
+          .bindingFor(fixture.asset.id)!
+          .roles
+          .keys
+          .any((key) => key.startsWith('draft/')),
+      isFalse,
+    );
+    expect(runtime.drafterCheckFor(fixture.asset.id, off)!.active, isFalse);
+    await store.stop(first.id);
+    final restored = LaunchInstances(catalog: catalog, file: file);
+    addTearDown(restored.close);
+    await restored.load();
+    expect(restored.find(first.id)!.configuration.drafter!.enabled, isFalse);
+    expect(
+      restored.find(first.id)!.configuration.drafter!.path,
+      '/deleted/worktree/drafter',
+    );
+    expect(restored.find(second.id)!.configuration.drafter!.enabled, isTrue);
+    expect(
+      restored.find(second.id)!.configuration.drafter!.path,
+      b.drafter!.path,
+    );
+  });
+
   test('successful startup reports capacity persistence failure and a later save repairs it', () async {
     final runtime = await CouncilRuntime.create(
       modelCount: 1,

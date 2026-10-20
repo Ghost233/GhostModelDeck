@@ -440,9 +440,84 @@ class LlamaInstance implements DecisionInstance {
   final String? error;
 }
 
+Future<List<String>> _llamaApiKeys(List<String> arguments) async {
+  final keys = <String>[];
+  for (var index = 0; index < arguments.length; index++) {
+    final argument = arguments[index];
+    final separator = argument.indexOf('=');
+    final name = (separator < 0 ? argument : argument.substring(0, separator))
+        .replaceAll('_', '-');
+    if (name != '--api-key' && name != '--api-key-file') continue;
+    final String value;
+    if (separator >= 0) {
+      value = argument.substring(separator + 1);
+    } else if (index + 1 < arguments.length) {
+      value = arguments[++index];
+    } else {
+      continue; // Native argument validation reports the missing value.
+    }
+    if (name == '--api-key-file') {
+      keys.addAll(
+        (await File(value).readAsString())
+            .split('\n')
+            .where((line) => line.isNotEmpty && !line.startsWith('#')),
+      );
+      continue;
+    }
+    // Match llama.cpp's CSV contract, including quoted commas and doubled quotes.
+    var field = '';
+    var quoted = false;
+    for (var offset = 0; offset < value.length; offset++) {
+      final character = value[offset];
+      if (character == '"') {
+        if (!quoted) {
+          if (field.isEmpty) {
+            quoted = true;
+          } else {
+            field += character;
+          }
+        } else if (offset + 1 < value.length && value[offset + 1] == '"') {
+          field += '"';
+          offset++;
+        } else {
+          quoted = false;
+        }
+      } else if (character == ',' && !quoted) {
+        if (field.isNotEmpty) keys.add(field);
+        field = '';
+      } else {
+        field += character;
+      }
+    }
+    if (field.isNotEmpty) keys.add(field);
+  }
+  return keys;
+}
+
+String _safeLlama(String value, List<String> apiKeys) =>
+    sealDebugJson({
+          'credentials': [
+            for (final key in apiKeys) {'api_key': key},
+          ],
+          'message': value,
+        })['message']
+        as String;
+
 class _Running {
-  _Running(this.instance, this.child, this.startupCancellation);
+  _Running(
+    this.instance,
+    this.child,
+    this.startupCancellation,
+    List<String> apiKeys,
+  ) : apiKeys = List.unmodifiable(apiKeys);
+  final List<String> apiKeys;
+  Map<String, String> get headers => {
+    if (apiKeys.isNotEmpty)
+      HttpHeaders.authorizationHeader: 'Bearer ${apiKeys.first}',
+  };
+  String safe(String value) => _safeLlama(value, apiKeys);
   LlamaInstance instance;
+  DrafterCheck? actualDrafter;
   final EngineChild child;
   int? exitCode;
   StartluxReadout? readout;
@@ -619,6 +694,7 @@ class LlamaEngine
         return await readMonitorHttp(
           run.instance.endpoint.resolve(path),
           cancellation: cancellation,
+          headers: run.headers,
         );
       } on HttpException {
         return null;
@@ -704,6 +780,68 @@ class LlamaEngine
   final _running = <String, _Running>{};
   final _instances = <String, LlamaInstance>{};
   final _reserved = <String, Set<String>>{};
+  final _drafterChecks = <String, DrafterCheck>{};
+  String _drafterKey(
+    String artifactId,
+    EngineLaunchConfiguration configuration,
+  ) => jsonEncode([artifactId, configuration.loadingIdentity]);
+  DrafterCheck? drafterCheckFor(
+    String artifactId,
+    EngineLaunchConfiguration configuration,
+  ) => _drafterChecks[_drafterKey(artifactId, configuration)];
+
+  DrafterCheck? actualDrafterFor(String launchId) => _running.entries
+      .where(
+        (entry) =>
+            _launchIdentities[entry.key]?.$1 == launchId &&
+            entry.value.instance.status == LlamaInstanceStatus.ready &&
+            entry.value.exitCode == null,
+      )
+      .map((entry) => entry.value.actualDrafter)
+      .singleOrNull;
+
+  Future<List<String>> checkDrafterFiles(
+    String artifactId,
+    EngineLaunchConfiguration configuration,
+  ) async {
+    final key = _drafterKey(artifactId, configuration);
+    _drafterChecks[key] = const DrafterCheck();
+    _publishInstances();
+    try {
+      if (configuration.legacyLlamaDrafter != null) {
+        throw const FormatException('旧草稿参数待修复：请在实例中明确选择草稿模式与来源，或关闭草稿模型');
+      }
+      final artifact = library.state.artifacts
+          .where((a) => a.id == artifactId)
+          .singleOrNull;
+      if (artifact == null) throw const FormatException('目标模型不在当前模型库中');
+      final paths = await checkLlamaDrafterFiles(configuration.drafter);
+      _drafterChecks[key] = DrafterCheck(
+        stage: configuration.drafter?.enabled == true
+            ? DrafterStage.filesReady
+            : DrafterStage.disabled,
+        source:
+            paths.firstOrNull ??
+            (configuration.drafter?.enabled == true
+                ? artifact.files.firstOrNull?.path
+                : null),
+        type: configuration.drafter?.enabled != true
+            ? null
+            : '${DrafterConfiguration.modes[configuration.drafter?.mode]} · '
+                  '${configuration.drafter!.usesEmbeddedTarget ? '目标模型内嵌' : '独立 GGUF'}',
+      );
+      return paths;
+    } catch (error) {
+      _drafterChecks[key] = DrafterCheck(
+        source: configuration.drafter?.path,
+        error: error.toString(),
+      );
+      rethrow;
+    } finally {
+      _publishInstances();
+    }
+  }
+
   bool _detached = false;
   bool _shuttingDown = false;
   final _shutdownCancellation = DecisionCancellation();
@@ -827,10 +965,23 @@ class LlamaEngine
       if (launchInstanceId != null) {
         _launchIdentities[alias] = (launchInstanceId, launchRevision ?? 1);
       }
-      _reserved[alias] = asset.files.map((value) => value.path).toSet();
+      _reserved[alias] = {
+        ...asset.files.map((value) => value.path),
+        if (selectedConfiguration.drafter?.enabled == true &&
+            selectedConfiguration.drafter?.path != null)
+          selectedConfiguration.drafter!.path!,
+      };
       _Running? running;
+      var apiKeys = const <String>[];
       var unexpectedStartupExit = false;
       try {
+        await _protect();
+        checkStartup();
+        final draftFiles = await checkDrafterFiles(
+          artifactId,
+          selectedConfiguration,
+        );
+        _reserved[alias]!.addAll(draftFiles);
         await _protect();
         checkStartup();
         final files = asset.files.toList()
@@ -846,6 +997,9 @@ class LlamaEngine
           alias: alias,
           port: port,
           recognition: recognition,
+          managedArguments: {
+            if (draftFiles.isNotEmpty) '--spec-draft-model': draftFiles.first,
+          },
           executableArguments: asset.kind == AssetKind.embedding
               ? const ['--embedding']
               : const [],
@@ -865,6 +1019,8 @@ class LlamaEngine
         _instances[alias] = instance;
         _publishInstances();
         checkStartup();
+        apiKeys = await _llamaApiKeys(command.arguments);
+        checkStartup();
         final child = await io.start(command.executable, command.arguments);
         instance = _copy(
           instance,
@@ -877,7 +1033,7 @@ class LlamaEngine
               ? LlamaInstanceStatus.stopping
               : LlamaInstanceStatus.starting,
         );
-        running = _Running(instance, child, startupCancellation);
+        running = _Running(instance, child, startupCancellation, apiKeys);
         _running[alias] = running;
         _instances[alias] = instance;
         _publishInstances();
@@ -952,6 +1108,7 @@ class LlamaEngine
           try {
             final health = jsonDecode(
               await _request(
+                owned,
                 endpoint.resolve('/health'),
                 timeout: const Duration(seconds: 1),
                 cancellation: owned.startupCancellation,
@@ -978,6 +1135,18 @@ class LlamaEngine
           cancellation: owned.startupCancellation,
         );
         owned.instance = _copy(owned.instance, properties: properties);
+        if (selectedConfiguration.drafter?.enabled == true) {
+          final key = _drafterKey(artifactId, selectedConfiguration);
+          final checked = _drafterChecks[key];
+          _drafterChecks[key] = DrafterCheck(
+            stage: DrafterStage.unverified,
+            source: draftFiles.firstOrNull ?? path,
+            type: checked?.type,
+          );
+        }
+        owned.actualDrafter = selectedConfiguration.drafter?.enabled == true
+            ? _drafterChecks[_drafterKey(artifactId, selectedConfiguration)]
+            : const DrafterCheck(stage: DrafterStage.disabled);
         // Startup advertises selected engine interfaces, never model scores.
         // Model support and inference results come from explicit user requests.
         final capabilities = <LlamaCapability>{
@@ -1025,9 +1194,16 @@ class LlamaEngine
         _publishInstances();
         return owned.instance;
       } catch (error) {
+        _drafterChecks[_drafterKey(
+          artifactId,
+          selectedConfiguration,
+        )] = DrafterCheck(
+          source: selectedConfiguration.drafter?.path,
+          error: _safeLlama(error.toString(), apiKeys),
+        );
         final cancelled =
             startupCancellation.isCancelled && !unexpectedStartupExit;
-        final reason =
+        final rawReason =
             unexpectedStartupExit &&
                 running != null &&
                 !_shuttingDown &&
@@ -1042,6 +1218,7 @@ class LlamaEngine
             : error is DecisionProtocolException
             ? error.message
             : '引擎启动失败：$error';
+        final reason = _safeLlama(rawReason, apiKeys);
         if (running != null) {
           await _fail(running, reason, cancelled: cancelled);
         } else {
@@ -1179,6 +1356,7 @@ class LlamaEngine
       );
     }
     final permit = _admit(running, cancellation);
+    ioTrace?.bindOwnerCredentials(running.apiKeys);
     try {
       final watch = Stopwatch()..start();
       await _identity(running, timeout, cancellation: permit.cancellation);
@@ -1226,6 +1404,7 @@ class LlamaEngine
   }) async {
     final watch = Stopwatch()..start();
     final raw = await _request(
+      running,
       (running.instance.decisionEndpoint ?? running.instance.endpoint).resolve(
         '/v1/systemone',
       ),
@@ -1248,7 +1427,7 @@ class LlamaEngine
       throw LlamaRequestException(
         error.message,
         kind: DecisionFailureKind.invalidResponse,
-        rawResponse: raw,
+        rawResponse: running.safe(raw),
       );
     }
   }
@@ -1304,6 +1483,7 @@ class LlamaEngine
     }
     final value = jsonDecode(
       await _request(
+        running,
         running.instance.endpoint.resolve('/props'),
         timeout: timeout,
         cancellation: cancellation,
@@ -1331,6 +1511,7 @@ class LlamaEngine
   }) async {
     final watch = Stopwatch()..start();
     final raw = await _request(
+      running,
       (running.instance.decisionEndpoint ?? running.instance.endpoint).resolve(
         '/v1/systemone',
       ),
@@ -1366,7 +1547,7 @@ class LlamaEngine
       throw LlamaRequestException(
         error.message,
         kind: DecisionFailureKind.invalidResponse,
-        rawResponse: raw,
+        rawResponse: running.safe(raw),
       );
     }
     if (running.exitCode != null || running.stopping || !_isCurrent(running)) {
@@ -1422,6 +1603,7 @@ class LlamaEngine
     DecisionCancellation? cancellation,
   }) async {
     final raw = await _request(
+      running,
       running.instance.endpoint.resolve('/v1/embeddings'),
       timeout: timeout,
       body: request.toJson(model: running.instance.id),
@@ -1440,7 +1622,7 @@ class LlamaEngine
       throw LlamaRequestException(
         error.message,
         kind: DecisionFailureKind.invalidResponse,
-        rawResponse: raw,
+        rawResponse: running.safe(raw),
       );
     }
   }
@@ -1613,10 +1795,15 @@ class LlamaEngine
             final upstream = await client.postUrl(
               running.instance.endpoint.resolve('/v1/chat/completions'),
             );
+            running.headers.forEach(upstream.headers.set);
             upstream.headers.contentType = ContentType.json;
             upstream.write(
               jsonEncode(
-                request.toChat(model: running.instance.id, stream: true),
+                request.toChat(
+                  model: running.instance.id,
+                  stream: true,
+                  unlimitedAsNegativeOne: true,
+                ),
               ),
             );
             final response = await upstream.close();
@@ -1688,13 +1875,13 @@ class LlamaEngine
       throw LlamaRequestException(
         error.message,
         kind: DecisionFailureKind.invalidResponse,
-        rawResponse: decoder.rawResponse,
+        rawResponse: running.safe(decoder.rawResponse),
       );
     } on FormatException {
       throw LlamaRequestException(
         '文本流不是有效 UTF-8',
         kind: DecisionFailureKind.invalidResponse,
-        rawResponse: decoder.rawResponse,
+        rawResponse: running.safe(decoder.rawResponse),
       );
     } on IOException catch (error) {
       // Closing the owned socket can beat the cancellation future to the race.
@@ -1707,13 +1894,13 @@ class LlamaEngine
         throw LlamaRequestException(
           '文本流已取消',
           kind: DecisionFailureKind.cancelled,
-          rawResponse: decoder.rawResponse,
+          rawResponse: running.safe(decoder.rawResponse),
         );
       }
       throw LlamaRequestException(
         '文本流连接失败：$error',
         kind: DecisionFailureKind.failed,
-        rawResponse: decoder.rawResponse,
+        rawResponse: running.safe(decoder.rawResponse),
       );
     } finally {
       removeShutdown();
@@ -1729,9 +1916,13 @@ class LlamaEngine
     DecisionCancellation? cancellation,
   }) async {
     final raw = await _request(
+      running,
       running.instance.endpoint.resolve('/v1/chat/completions'),
       timeout: timeout,
-      body: request.toChat(model: running.instance.id),
+      body: request.toChat(
+        model: running.instance.id,
+        unlimitedAsNegativeOne: true,
+      ),
       cancellation: cancellation,
     );
     final TextResult result;
@@ -1741,7 +1932,7 @@ class LlamaEngine
       throw LlamaRequestException(
         error.message,
         kind: DecisionFailureKind.invalidResponse,
-        rawResponse: raw,
+        rawResponse: running.safe(raw),
       );
     }
     if (running.exitCode != null || running.stopping || !_isCurrent(running)) {
@@ -1754,6 +1945,7 @@ class LlamaEngine
   }
 
   Future<String> _request(
+    _Running running,
     Uri uri, {
     required Duration timeout,
     Map<String, Object?>? body,
@@ -1795,6 +1987,9 @@ class LlamaEngine
             final request = body == null
                 ? await client.getUrl(uri)
                 : await client.postUrl(uri);
+            if (uri.origin == running.instance.endpoint.origin) {
+              running.headers.forEach(request.headers.set);
+            }
             if (body != null) {
               request.headers.contentType = ContentType.json;
               final encoded = jsonEncode(body);
@@ -1827,9 +2022,11 @@ class LlamaEngine
             ioTrace?.received(raw, response.statusCode);
             if (response.statusCode != 200) {
               throw LlamaRequestException(
-                '引擎 HTTP ${response.statusCode}: ${raw.length > 1024 ? raw.substring(0, 1024) : raw}',
+                running.safe(
+                  '引擎 HTTP ${response.statusCode}: ${raw.length > 1024 ? raw.substring(0, 1024) : raw}',
+                ),
                 kind: DecisionFailureKind.failed,
-                rawResponse: raw,
+                rawResponse: running.safe(raw),
               );
             }
             return raw;
@@ -1869,6 +2066,10 @@ class LlamaEngine
           running.instance.generation;
 
   void _publishRun(_Running running) {
+    final error = running.instance.error;
+    if (error != null) {
+      running.instance = _copy(running.instance, error: running.safe(error));
+    }
     if (!_isCurrent(running)) return;
     running.instance = _copy(
       running.instance,
@@ -1936,10 +2137,13 @@ class LlamaEngine
     String reason, {
     bool cancelled = false,
   }) async {
+    reason = running.safe(reason);
     try {
       await _stopChild(running);
     } catch (cleanupError, stack) {
-      final failure = LlamaEngineException('$reason；受管资源收尾失败：$cleanupError');
+      final failure = LlamaEngineException(
+        running.safe('$reason；受管资源收尾失败：$cleanupError'),
+      );
       running.instance = _copy(
         running.instance,
         status: LlamaInstanceStatus.failed,

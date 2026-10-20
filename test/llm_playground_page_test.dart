@@ -223,6 +223,114 @@ void main() {
     expect(fixture.io.bodies, isEmpty);
   });
 
+  testWidgets(
+    'response length controls distinguish inherit, disabled and explicit limits',
+    (tester) async {
+      final fixture = (await tester.runAsync(
+        () => HttpOverrides.runWithHttpOverrides(
+          LlmTestRuntime.create,
+          _Network(),
+        ),
+      ))!;
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.runAsync(fixture.close);
+      });
+      await networkAction(tester, () async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(body: LlmPlaygroundPage(gateway: fixture.gateway)),
+          ),
+        );
+        await waitForWidget(tester, find.byKey(const Key('llm-discovery')));
+      });
+      await tapVisible(tester, find.byKey(const Key('llm-json-mode')));
+      final document = llmDocument(fixture.publicId)..['max_tokens'] = 24;
+      await tester.enterText(
+        find.byKey(const Key('llm-json')),
+        jsonEncode(document),
+      );
+      await tapVisible(tester, find.byKey(const Key('llm-form-mode')));
+      await tester.pumpAndSettle();
+      final mode = find.byKey(const Key('parameter-choice:llm:max_tokens'));
+      await tapVisible(tester, mode);
+      await tester.tap(find.text('关闭').last);
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<TextField>(
+              find.byKey(const Key('parameter-number:llm:max_tokens')),
+            )
+            .enabled,
+        isFalse,
+      );
+      await tapVisible(tester, find.byKey(const Key('llm-json-mode')));
+      document['max_tokens'] = null;
+      expect(
+        jsonDecode(
+          tester
+              .widget<TextField>(find.byKey(const Key('llm-json')))
+              .controller!
+              .text,
+        ),
+        document,
+      );
+      await networkAction(tester, () async {
+        await tapVisible(tester, find.byKey(const Key('llm-run')));
+        await waitForWidget(tester, find.byKey(const Key('llm-completed')));
+      });
+      expect(fixture.io.bodies.last['max_tokens'], -1);
+      await tapVisible(tester, find.byKey(const Key('llm-form-mode')));
+      await tapVisible(tester, mode);
+      await tester.tap(find.text('指定数值').last);
+      await tester.pumpAndSettle();
+      final number = find.byKey(const Key('parameter-number:llm:max_tokens'));
+      await tester.ensureVisible(number);
+      await tester.enterText(number, '512');
+      await tapVisible(tester, find.byKey(const Key('llm-json-mode')));
+      document['max_tokens'] = 512;
+      expect(
+        jsonDecode(
+          tester
+              .widget<TextField>(find.byKey(const Key('llm-json')))
+              .controller!
+              .text,
+        ),
+        document,
+      );
+      await tapVisible(tester, find.byKey(const Key('llm-form-mode')));
+      await tapVisible(tester, mode);
+      await tester.tap(find.text('继承实例默认').last);
+      await tester.pumpAndSettle();
+      await tapVisible(tester, find.byKey(const Key('llm-json-mode')));
+      document.remove('max_tokens');
+      expect(
+        jsonDecode(
+          tester
+              .widget<TextField>(find.byKey(const Key('llm-json')))
+              .controller!
+              .text,
+        ),
+        document,
+      );
+      document['max_completion_tokens'] = null;
+      document['max_tokens'] = 64;
+      await tester.enterText(
+        find.byKey(const Key('llm-json')),
+        jsonEncode(document),
+      );
+      await tapVisible(tester, find.byKey(const Key('llm-form-mode')));
+      expect(tester.widget<DropdownButton<String>>(mode).value, 'off');
+      await tapVisible(tester, find.byKey(const Key('llm-json-mode')));
+      await networkAction(tester, () async {
+        await tapVisible(tester, find.byKey(const Key('llm-run')));
+        await waitForWidget(tester, find.byKey(const Key('llm-completed')));
+      });
+      expect(fixture.io.bodies.last['max_tokens'], -1);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('LLM 编辑器公开发现、JSON与表单保留多消息、提交与会话留存', (tester) async {
     final fixture = (await tester.runAsync(
       () =>
@@ -258,7 +366,17 @@ void main() {
     );
     await tapVisible(tester, find.byKey(const Key('llm-json-mode')));
     await tester.pump();
-    final document = llmDocument(fixture.publicId);
+    final document = llmDocument(fixture.publicId)
+      ..['stop'] = '["123"]'
+      ..['response_format'] = {
+        'type': 'json_schema',
+        'json_schema': {
+          'name': 'chosen',
+          'strict': true,
+          'description': 'Keep this response contract',
+          'schema': {'type': 'string'},
+        },
+      };
     await tester.enterText(
       find.byKey(const Key('llm-json')),
       jsonEncode(document),
@@ -270,6 +388,94 @@ void main() {
       find.byKey(const Key('llm-message-1')),
       'Edited user text  ',
     );
+    await tester.ensureVisible(
+      find.byKey(const Key('parameter-number:llm:max_tokens')),
+    );
+    await tapVisible(
+      tester,
+      find.byKey(const Key('parameter-choice:llm:max_tokens')),
+    );
+    await tester.tap(find.text('继承实例默认').last);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const Key('parameter-number:llm:temperature')),
+    );
+    await tester.enterText(
+      find.byKey(const Key('parameter-number:llm:temperature')),
+      'NaN',
+    );
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    await tester.enterText(
+      find.byKey(const Key('parameter-number:llm:temperature')),
+      '0.6',
+    );
+    await tapVisible(tester, find.text('采样与惩罚'));
+    await tester.pumpAndSettle();
+    await tapVisible(
+      tester,
+      find.byKey(const Key('parameter-choice:llm:top_k')),
+    );
+    await tester.tap(find.text('指定数值').last);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const Key('parameter-number:llm:top_k')),
+    );
+    await tester.enterText(
+      find.byKey(const Key('parameter-number:llm:top_k')),
+      '40',
+    );
+    await tester.pumpAndSettle();
+    await tapVisible(tester, find.text('采样与惩罚'));
+    await tester.pumpAndSettle();
+    await tapVisible(tester, find.text('停止与输出'));
+    await tester.pumpAndSettle();
+    await tapVisible(
+      tester,
+      find.byKey(const Key('parameter-choice:llm:response_format')),
+    );
+    await tester.tap(find.text('json_schema').last);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const Key('parameter-list:llm:stop')),
+    );
+    await tester.enterText(
+      find.byKey(const Key('parameter-list:llm:stop')),
+      '123',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('parameter-list:llm:stop')),
+      'END',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    for (final value in ['FOUR', 'FIVE']) {
+      await tester.enterText(
+        find.byKey(const Key('parameter-list:llm:stop')),
+        value,
+      );
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+    }
+    // llama.cpp does not share Splash's four-item cap; all literal stops survive.
+    await tester.ensureVisible(
+      find.byKey(const Key('parameter-object:llm:schema')),
+    );
+    await tester.enterText(
+      find.byKey(const Key('parameter-object:llm:schema')),
+      '{"type":"integer"}',
+    );
+    (document['response_format'] as Map)['json_schema']['schema'] = {
+      'type': 'integer',
+    };
+    document.remove('max_tokens');
+    document.addAll({
+      'temperature': 0.6,
+      'top_k': 40,
+      'stop': ['["123"]', '123', 'END', 'FOUR', 'FIVE'],
+    });
     await tapVisible(tester, find.byKey(const Key('llm-json-mode')));
     await tester.pump();
     (document['messages'] as List)[1]['content'] = 'Edited user text  ';
@@ -291,6 +497,19 @@ void main() {
     expect(find.text('Hello.'), findsOneWidget);
     expect(find.textContaining('stop'), findsWidgets);
     expect(fixture.io.bodies.last['messages'], document['messages']);
+    expect(fixture.io.bodies.last['top_k'], 40);
+    expect(fixture.io.bodies.last['stop'], [
+      '["123"]',
+      '123',
+      'END',
+      'FOUR',
+      'FIVE',
+    ]);
+    expect(
+      fixture.io.bodies.last['response_format'],
+      document['response_format'],
+    );
+    expect(fixture.io.bodies.last.containsKey('max_tokens'), isFalse);
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -581,6 +800,8 @@ Future<void> waitForWidget(WidgetTester tester, Finder finder) async {
 class _Network extends HttpOverrides {}
 
 Future<void> tapVisible(WidgetTester tester, Finder finder) async {
+  // Settle focus-driven scrolling from the last edit before revealing a control.
+  await tester.pumpAndSettle();
   await tester.ensureVisible(finder);
   await tester.pumpAndSettle();
   await tester.tap(finder);

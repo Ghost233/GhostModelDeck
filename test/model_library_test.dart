@@ -11,6 +11,40 @@ import 'package:ghost_model_deck/model_library.dart';
 import 'fixtures/qwen2_mlx_layout.dart';
 
 void main() {
+  test(
+    'Qwen3.5 conditional generation remains a selectable text asset',
+    () async {
+      final root = await Directory.systemTemp.createTemp('gmd-qwen35-text-');
+      addTearDown(() => root.delete(recursive: true));
+      final library = ModelLibrary();
+      addTearDown(library.close);
+      await _writeJson(root, 'text/config.json', {
+        'model_type': 'qwen3_5',
+        'architectures': ['Qwen3_5ForConditionalGeneration'],
+        'text_config': {'model_type': 'qwen3_5_text'},
+      });
+      await _writeSafetensors(root, 'text/model.safetensors', {
+        'model.language_model.embed_tokens.weight': [2, 2],
+      });
+      await _writeJson(root, 'ocr/config.json', {
+        'model_type': 'unrecognized_ocr',
+        'architectures': ['OtherForConditionalGeneration'],
+      });
+      await _writeSafetensors(root, 'ocr/model.safetensors', {
+        'encoder.weight': [2, 2],
+      });
+      final assets = await library.scan(root, verifyFiles: true);
+      final text = assets.singleWhere(
+        (a) => a.files.any((f) => f.path.contains('/text/')),
+      );
+      final ocr = assets.singleWhere(
+        (a) => a.files.any((f) => f.path.contains('/ocr/')),
+      );
+      expect(text.kind, AssetKind.chat);
+      expect(text.engineCapability, EngineCapability.awaitingVerification);
+      expect(ocr.kind, isNot(AssetKind.chat));
+    },
+  );
   test('earlier unknown grouping or bounded companion wins over primary evidence failure', () async {
     final root = await Directory.systemTemp.createTemp(
       'gmd-qwen2-primary-precedence-',

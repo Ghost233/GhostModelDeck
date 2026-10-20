@@ -16,6 +16,83 @@ import 'fixtures/council_runtime.dart';
 import 'fixtures/test_environment.dart';
 
 void main() {
+  testWidgets(
+    'missing saved resources remain distinct from the live owner state',
+    (tester) async {
+      final verified = await tester.runAsync(
+        () => HttpOverrides.runWithHttpOverrides(() async {
+          final runtime = await CouncilRuntime.create(
+            modelCount: 1,
+            sourceSystemone: true,
+          );
+          final store = LaunchInstances(
+            catalog: runtime.catalog,
+            file: File('${runtime.root.path}/owner-state.json'),
+          );
+          try {
+            final asset = runtime.library.state.artifacts.single;
+            final definition = await store.save(
+              name: 'Retained live owner',
+              artifactId: asset.id,
+              engineId: EngineCatalog.officialId,
+              configuration: EngineLaunchConfiguration(
+                formValues: {'--ctx-size': '8192'},
+              ),
+            );
+            final running = await store.start(definition.id);
+            await store.save(
+              id: definition.id,
+              name: definition.name,
+              artifactId: definition.artifactId,
+              engineId: definition.engineId,
+              configuration: EngineLaunchConfiguration(
+                formValues: {'--ctx-size': '16384'},
+              ),
+            );
+            await runtime.library.scanDirectories([]);
+            await tester.pumpWidget(
+              MaterialApp(
+                home: Scaffold(body: InstancesPage(instances: store)),
+              ),
+            );
+            await tester.pumpAndSettle();
+            expect(find.text('运行中 · 模型缺失'), findsOneWidget);
+            expect(store.runsFor(definition.id).single.id, running.id);
+            final more = find.byKey(ValueKey('instance-more:${definition.id}'));
+            await tester.ensureVisible(more);
+            await tester.tap(more);
+            await tester.pumpAndSettle();
+            await tester.tap(find.text('实际启动命令'));
+            await tester.pumpAndSettle();
+            expect(find.textContaining('--ctx-size 8192'), findsOneWidget);
+            expect(find.textContaining('--ctx-size 16384'), findsNothing);
+            await tester.tap(find.widgetWithText(TextButton, '关闭'));
+            await tester.pumpAndSettle();
+            final stopped = store.changes.firstWhere(
+              (_) => store
+                  .runsFor(definition.id)
+                  .every((run) => !run.hasLiveProcess),
+            );
+            final stop = find.widgetWithText(TextButton, '停止');
+            await tester.ensureVisible(stop);
+            await tester.tap(stop);
+            await stopped.timeout(const Duration(seconds: 5));
+            await tester.pumpAndSettle();
+            expect(find.text('模型缺失'), findsOneWidget);
+            expect(store.actualCommand(definition.id), isNull);
+            expect(await File(asset.files.first.path).exists(), isTrue);
+            expect(tester.takeException(), isNull);
+            return true;
+          } finally {
+            await tester.pumpWidget(const SizedBox.shrink());
+            await store.close();
+            await runtime.close();
+          }
+        }, _NetworkBoundary()),
+      );
+      expect(verified, isTrue);
+    },
+  );
   setUpAll(() async {
     expect(await layoutFontFile.exists(), isTrue);
     await (FontLoader('Layout Noto CJK')..addFont(

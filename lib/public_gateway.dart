@@ -5,6 +5,8 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'chat_protocol.dart';
+import 'generation_configuration.dart';
+import 'generation_seed.dart';
 import 'decision_protocol.dart';
 import 'embedding_protocol.dart';
 import 'engine_runtime.dart';
@@ -13,6 +15,7 @@ import 'jev_debug.dart';
 import 'llama_engine.dart';
 import 'model_library.dart';
 import 'omlx_engine.dart';
+import 'splash_engine.dart';
 import 'launch_instances.dart';
 import 'public_model_names.dart';
 import 'model_scenarios.dart';
@@ -40,11 +43,18 @@ class PublicRouteTarget {
     required this.artifactId,
     required this.runtime,
     required this.instance,
+    this.generationDefaults = const GenerationConfiguration.empty(),
   });
   final String publicId;
   final String artifactId;
   final EngineRuntime runtime;
   final RuntimeInstance instance;
+  final GenerationConfiguration generationDefaults;
+  EngineFamily get family => runtime is SplashEngine
+      ? EngineFamily.splash
+      : runtime is OmlxEngine
+      ? EngineFamily.omlx
+      : EngineFamily.llamaCpp;
 }
 
 /// Public names are allocated from model names and persisted by artifact
@@ -325,6 +335,12 @@ class PublicModelRoutes {
       artifactId: hit.instance.artifactId,
       runtime: hit.runtime,
       instance: hit.instance,
+      generationDefaults:
+          _instances
+              ?.find(hit.instance.launchInstanceId ?? '')
+              ?.configuration
+              .generation ??
+          const GenerationConfiguration.empty(),
     );
   }
 
@@ -544,6 +560,15 @@ class PublicGatewayServer {
   }
 
   Stream<PublicGatewayState> get changes => _changes.stream;
+
+  /// Display metadata only; requests still resolve their route at admission.
+  PublicRouteTarget? readyTextModel(String publicId) {
+    try {
+      return _routes.resolve(publicId);
+    } on PublicRequestException {
+      return null;
+    }
+  }
 
   int get activeOwnedRequests =>
       _inflight.where((r) => r.ownedId != null).length;
@@ -867,9 +892,30 @@ class PublicGatewayServer {
     HttpRequest request,
     DecisionCancellation cancellation,
   ) async {
-    final parsed = await _readChat(request);
+    var parsed = await _readChat(request);
     if (parsed == null) return;
     final target = _routes.resolve(parsed.model);
+    try {
+      final effective = parsed.request.withDefaults(target.generationDefaults);
+      if (target.family == EngineFamily.omlx &&
+          effective.parameters.values.keys.any(
+            (key) => !{'max_tokens', 'temperature', 'top_p'}.contains(key),
+          )) {
+        throw const FormatException(
+          '当前 oMLX 仅支持 max_tokens、temperature 和 top_p 生成参数',
+        );
+      }
+      effective.parameters.nativeValues(splash: target.runtime is SplashEngine);
+      parsed = _ParsedChat(
+        model: parsed.model,
+        request: effective,
+        stream: parsed.stream,
+      );
+    } on FormatException catch (error) {
+      throw PublicRequestException(400, 'invalid_request_error', error.message);
+    } on TextProtocolException catch (error) {
+      throw PublicRequestException(400, 'invalid_request_error', error.message);
+    }
     if (parsed.stream) {
       unawaited(
         request.response.done.then(
@@ -983,7 +1029,7 @@ class PublicGatewayServer {
     }
     final Object? decoded;
     try {
-      decoded = jsonDecode(utf8.decode(builder.takeBytes()));
+      decoded = decodeGenerationRequest(utf8.decode(builder.takeBytes()));
     } on FormatException {
       throw const PublicRequestException(
         400,
@@ -998,13 +1044,18 @@ class PublicGatewayServer {
         '请求体需要是 JSON 对象',
       );
     }
+    if (decoded['seed'] is String) {
+      throw const PublicRequestException(
+        400,
+        'invalid_request_error',
+        'seed 需要是 JSON 整数',
+      );
+    }
     const allowed = {
       'model',
       'messages',
       'stream',
-      'max_tokens',
-      'temperature',
-      'top_p',
+      ...GenerationConfiguration.acceptedKeys,
     };
     for (final key in decoded.keys) {
       if (!allowed.contains(key)) {
@@ -1083,43 +1134,35 @@ class PublicGatewayServer {
           'stream 需要是布尔值',
         );
       }
-      final maxTokens = decoded['max_tokens'];
-      if (maxTokens != null && maxTokens is! int) {
-        throw const PublicRequestException(
-          400,
-          'invalid_request_error',
-          'max_tokens 需要是整数',
-        );
-      }
-      final temperature = decoded['temperature'];
-      if (temperature != null && temperature is! num) {
-        throw const PublicRequestException(
-          400,
-          'invalid_request_error',
-          'temperature 需要是数字',
-        );
-      }
-      final topP = decoded['top_p'];
-      if (topP != null && topP is! num) {
-        throw const PublicRequestException(
-          400,
-          'invalid_request_error',
-          'top_p 需要是数字',
-        );
-      }
       return _ParsedChat(
         model: model,
         request: TextRequest.messages(
           messages: typed,
-          maxTokens: (maxTokens as int?) ?? 32,
-          temperature: (temperature as num?)?.toDouble(),
-          topP: (topP as num?)?.toDouble(),
+          parameters: GenerationConfiguration.fromJson({
+            for (final key in GenerationConfiguration.acceptedKeys)
+              if (decoded.containsKey(key)) key: decoded[key],
+          }),
         ),
         stream: (stream as bool?) ?? false,
       );
     } on TextProtocolException catch (error) {
       throw PublicRequestException(400, 'invalid_request_error', error.message);
+    } on FormatException catch (error) {
+      throw PublicRequestException(400, 'invalid_request_error', error.message);
     }
+  }
+
+  Duration? _splashRequestTimeout(
+    _ParsedChat parsed,
+    PublicRouteTarget target,
+  ) {
+    if (target.family != EngineFamily.splash) return null;
+    final seconds = parsed.request.parameters.values['timeout'];
+    return seconds is num
+        ? Duration(
+            microseconds: (seconds * Duration.microsecondsPerSecond).round(),
+          )
+        : null;
   }
 
   Future<void> _chatOnce(
@@ -1130,11 +1173,19 @@ class PublicGatewayServer {
   ) async {
     await _jsonConnection(request, cancellation, () async {
       try {
-        final result = await target.runtime.generateText(
-          target.instance.id,
-          parsed.request,
-          cancellation: cancellation,
-        );
+        final timeout = _splashRequestTimeout(parsed, target);
+        final result = await (timeout == null
+            ? target.runtime.generateText(
+                target.instance.id,
+                parsed.request,
+                cancellation: cancellation,
+              )
+            : target.runtime.generateText(
+                target.instance.id,
+                parsed.request,
+                timeout: timeout,
+                cancellation: cancellation,
+              ));
         return (
           200,
           sealDebugJson({
@@ -1172,52 +1223,59 @@ class PublicGatewayServer {
     Timer? heartbeat;
     try {
       final finished = Completer<void>();
-      subscription = target.runtime
-          .streamText(
-            target.instance.id,
-            parsed.request,
-            cancellation: cancellation,
-          )
-          .listen(
-            (event) {
-              if (finished.isCompleted) return;
-              try {
-                final result = event.result;
-                if (result != null) {
-                  final write = started ? _writeSseFrame : _writeSseChunk;
-                  started = true;
-                  write(response, target.publicId, {
-                    'index': 0,
-                    'delta': <String, Object?>{},
-                    'finish_reason': result.finishReason,
-                  }, usage: result.usage);
-                  response.write('data: [DONE]\n\n');
-                } else if (event.delta.isNotEmpty) {
-                  final first = !started;
-                  final write = first ? _writeSseChunk : _writeSseFrame;
-                  started = true;
-                  write(response, target.publicId, {
-                    'index': 0,
-                    'delta': {
-                      if (first) 'role': 'assistant',
-                      'content': event.delta,
-                    },
-                    'finish_reason': null,
-                  });
-                }
-              } catch (error, stack) {
-                if (!finished.isCompleted) {
-                  finished.completeError(error, stack);
-                }
-              }
-            },
-            onError: (Object error) {
-              if (!finished.isCompleted) finished.completeError(error);
-            },
-            onDone: () {
-              if (!finished.isCompleted) finished.complete();
-            },
-          );
+      final timeout = _splashRequestTimeout(parsed, target);
+      final events = timeout == null
+          ? target.runtime.streamText(
+              target.instance.id,
+              parsed.request,
+              cancellation: cancellation,
+            )
+          : target.runtime.streamText(
+              target.instance.id,
+              parsed.request,
+              timeout: timeout,
+              cancellation: cancellation,
+            );
+      subscription = events.listen(
+        (event) {
+          if (finished.isCompleted) return;
+          try {
+            final result = event.result;
+            if (result != null) {
+              final write = started ? _writeSseFrame : _writeSseChunk;
+              started = true;
+              write(response, target.publicId, {
+                'index': 0,
+                'delta': <String, Object?>{},
+                'finish_reason': result.finishReason,
+              }, usage: result.usage);
+              response.write('data: [DONE]\n\n');
+            } else if (event.delta.isNotEmpty) {
+              final first = !started;
+              final write = first ? _writeSseChunk : _writeSseFrame;
+              started = true;
+              write(response, target.publicId, {
+                'index': 0,
+                'delta': {
+                  if (first) 'role': 'assistant',
+                  'content': event.delta,
+                },
+                'finish_reason': null,
+              });
+            }
+          } catch (error, stack) {
+            if (!finished.isCompleted) {
+              finished.completeError(error, stack);
+            }
+          }
+        },
+        onError: (Object error) {
+          if (!finished.isCompleted) finished.completeError(error);
+        },
+        onDone: () {
+          if (!finished.isCompleted) finished.complete();
+        },
+      );
       if (heartbeatInterval > Duration.zero) {
         heartbeat = Timer.periodic(heartbeatInterval, (_) {
           // The first actual frame owns SSE headers. Earlier failures must

@@ -315,6 +315,27 @@ class SplashEngineState {
   final String? error;
 }
 
+List<String> _splashApiKeys(List<String> arguments) {
+  final keys = <String>[];
+  for (var index = 0; index < arguments.length; index++) {
+    final argument = arguments[index];
+    final separator = argument.indexOf('=');
+    final name = separator < 0 ? argument : argument.substring(0, separator);
+    // argparse accepts an unambiguous long-option prefix.
+    if (!name.startsWith('--') ||
+        name.length <= 2 ||
+        !'--api-key'.startsWith(name)) {
+      continue;
+    }
+    if (separator >= 0) {
+      keys.add(argument.substring(separator + 1));
+    } else if (index + 1 < arguments.length) {
+      keys.add(arguments[++index]);
+    }
+  }
+  return List.unmodifiable(keys);
+}
+
 class _SplashRun {
   _SplashRun(
     this.id,
@@ -326,7 +347,24 @@ class _SplashRun {
     this.asset,
     this.supportsSystemone,
     this.binarySha256,
-  );
+    this.recognition,
+  ) : apiKeys = _splashApiKeys(command.arguments);
+  final EngineParameterRecognition recognition;
+  final List<String> apiKeys;
+  String? get apiKey => apiKeys.lastOrNull;
+  Map<String, String> get headers => {
+    if (apiKey != null) HttpHeaders.authorizationHeader: 'Bearer $apiKey',
+  };
+  String safe(String value) =>
+      sealDebugJson({
+            'credentials': [
+              for (final key in apiKeys) {'api_key': key},
+            ],
+            'message': value,
+          })['message']
+          as String;
+  DrafterCheck? actualDrafter;
+  String? compactStatus;
   bool temporaryTest = false;
   String? launchInstanceId;
   int? launchRevision;
@@ -376,7 +414,7 @@ class _SplashRun {
             },
           }
         : {},
-    error: error,
+    error: error == null ? null : safe(error!),
   );
 }
 
@@ -513,6 +551,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
   Future<void> _operations = Future.value();
   final _startupJobs = <Future<RuntimeInstance>>{};
   final _modelPreparations = <String, Future<SplashModelBinding>>{};
+  final _drafterChecks = <String, DrafterCheck>{};
   final _runs = <String, _SplashRun>{};
   final _preparing = <SplashModelBinding>{};
   final _changes = StreamController<SplashEngineState>.broadcast();
@@ -563,6 +602,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
         await readMonitorHttp(
           run.endpoint.resolve('/status'),
           cancellation: cancellation,
+          headers: run.headers,
         ),
       ),
       'Splash status',
@@ -581,11 +621,85 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
         row['ready'] != true) {
       throw StateError('实例身份已变化');
     }
+    _recordNativeFeatures(run, row);
     final telemetry = RuntimeTelemetry.splash(row);
     if (telemetry.capacity != null) {
       run.inferenceConcurrency = telemetry.capacity;
     }
     return telemetry;
+  }
+
+  _SplashRun? _readyLaunch(String launchId) => _runs.values
+      .where(
+        (run) =>
+            run.launchInstanceId == launchId &&
+            run.status == RuntimeInstanceStatus.ready &&
+            run.exit == null,
+      )
+      .singleOrNull;
+  DrafterCheck? actualDrafterFor(String launchId) =>
+      _readyLaunch(launchId)?.actualDrafter;
+  String? actualCompactFor(String launchId) =>
+      _readyLaunch(launchId)?.compactStatus;
+
+  void _recordNativeFeatures(_SplashRun run, Map<String, dynamic> status) {
+    final features = status['startup_features'];
+    final type = features is Map ? features['drafter'] : null;
+    final source = run.binding.roles['draft/config.json'];
+    if (source != null && (type is! String || type.isEmpty || type == 'none')) {
+      throw SplashEngineException('已请求开启草稿模型，但原生未报告实际启用：$source');
+    }
+    if (source == null && type is String && type != 'none') {
+      throw SplashEngineException('草稿模型已关闭，但原生报告 $type');
+    }
+    run.actualDrafter = DrafterCheck(
+      stage: source == null ? DrafterStage.disabled : DrafterStage.running,
+      source: source == null ? null : File(source).parent.path,
+      type: type is String ? type : null,
+    );
+    final optional = features is Map ? features['optional'] : null;
+    if (optional is Map && optional['compact_draft_head'] is bool) {
+      final requested = optional['compact_draft_head'] == true;
+      final valid = optional['compact_validated'] == true;
+      final reason = optional['compact_reason'];
+      final fallback = optional['compact_request_fallbacks'];
+      String? ranking;
+      final arguments = run.command.arguments;
+      for (var index = arguments.length - 1; index >= 0; index--) {
+        final argument = arguments[index];
+        final separator = argument.indexOf('=');
+        final name = separator < 0
+            ? argument
+            : argument.substring(0, separator);
+        if (run.recognition.canonicalName(name) != '--compact-draft-ranking') {
+          continue;
+        }
+        if (separator >= 0) {
+          ranking = argument.substring(separator + 1);
+          break;
+        }
+        if (index + 1 < arguments.length) {
+          ranking = arguments[index + 1];
+          break;
+        }
+      }
+      final capacity = optional['compact_capacity'];
+      run.compactStatus = !requested
+          ? '关闭'
+          : [
+              valid ? '已验证' : '原生未验证',
+              if (capacity is int && capacity > 0) '实际容量 $capacity',
+              if (ranking != null) '实际 ranking $ranking',
+              if (valid) '按原生条件使用：单路文本且当前 token 覆盖满足',
+              if (reason is String && reason.isNotEmpty)
+                '${!valid
+                    ? '原因'
+                    : reason == 'lookup supplied proposals; draft head skipped'
+                    ? '跳过草稿 head'
+                    : '完整 head 回退'}：$reason',
+              if (fallback is int) '请求回退次数 $fallback',
+            ].join('；');
+    }
   }
 
   EngineLaunchCommand? actualCommandFor(String id) => _runs[id]?.command;
@@ -595,6 +709,39 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
   }
 
   SplashModelBinding? bindingFor(String artifactId) => _bindings[artifactId];
+
+  String _drafterKey(
+    String artifactId,
+    EngineLaunchConfiguration configuration,
+  ) => jsonEncode([artifactId, configuration.loadingIdentity]);
+
+  DrafterCheck? drafterCheckFor(
+    String artifactId,
+    EngineLaunchConfiguration configuration,
+  ) => _drafterChecks[_drafterKey(artifactId, configuration)];
+
+  Future<DrafterConfiguration> drafterConfigurationFor(
+    String artifactId, {
+    Directory? previous,
+  }) async {
+    final assembly = previous ?? _bindings[artifactId]?.assembly;
+    if (assembly == null) return const DrafterConfiguration(enabled: false);
+    final manifest = File('${assembly.path}/model.json');
+    if (await manifest.exists()) {
+      final record = _object(
+        jsonDecode(await manifest.readAsString()),
+        'Splash assembly',
+      );
+      final sources = record['sources'];
+      final draft = sources is Map ? sources['draft'] : null;
+      final directory = draft is Map ? draft['repo'] : null;
+      if (directory is String && directory.startsWith('/')) {
+        return DrafterConfiguration(enabled: true, path: directory);
+      }
+    }
+    return const DrafterConfiguration(enabled: false);
+  }
+
   Iterable<SplashModelBinding> get bindings =>
       List.unmodifiable(_bindings.values);
   EngineLaunchCommand composeLaunch(
@@ -607,10 +754,13 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
       throw const SplashEngineException('Splash配置family不符');
     }
     final assembly = binding?.assembly.path ?? '<由 GMD 自动准备的模型运行目录>';
-    final persistentCache = parseLaunchArgumentText(configuration.argumentText)
-        .any(
+    final persistentCache =
+        configuration.formValues['--persistent-cache'] == 'true' ||
+        parseLaunchArgumentText(configuration.argumentText).any(
           (token) =>
-              !token.hasLiteralPrefix && token.value == '--persistent-cache',
+              !token.hasLiteralPrefix &&
+              _installation.recognition.canonicalName(token.value) ==
+                  '--persistent-cache',
         );
     final bootstrap =
         '# Ghost Model Deck Splash owned group\n'
@@ -624,15 +774,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
       alias: alias,
       port: port,
       recognition: _installation.recognition,
-      executableArguments: [
-        '-B',
-        '-P',
-        '-c',
-        bootstrap,
-        assembly,
-        '--default-reasoning-effort',
-        'none',
-      ],
+      executableArguments: ['-B', '-P', '-c', bootstrap, assembly],
       managedArguments: {
         '--model': binding?.nativeModel ?? '<绑定的 Splash 模型身份>',
         '--tokenizer': binding?.tokenizer.path ?? '<绑定的本地 tokenizer 目录>',
@@ -673,13 +815,13 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
     final epoch = _startEpoch;
     final operation = _operations.then((_) async {
       if (_shuttingDown) throw const SplashEngineException('Splash正在退出');
-      final binding = assembly == null
-          ? await prepareModelBinding(
-              artifactId,
-              previous: preparationHint ?? _bindings[artifactId]?.assembly,
-              cancellation: cancellation,
-            )
-          : await _readBinding(artifactId, assembly);
+      final binding = await prepareModelBinding(
+        artifactId,
+        configuration: configuration,
+        previous:
+            assembly ?? preparationHint ?? _bindings[artifactId]?.assembly,
+        cancellation: cancellation,
+      );
       _preparing.add(binding);
       try {
         await _syncUses();
@@ -713,6 +855,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
           ),
           _installation.supportsSystemone,
           null,
+          _installation.recognition,
         );
         run.temporaryTest = temporaryTest;
         run.launchInstanceId = launchInstanceId;
@@ -737,7 +880,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
               run.exit = code;
               if (run.status == RuntimeInstanceStatus.ready) {
                 run.status = RuntimeInstanceStatus.failed;
-                run.error = 'Splash进程意外退出：$code ${run.stderr}';
+                run.error = run.safe('Splash进程意外退出：$code ${run.stderr}');
                 run.cancellation.cancel();
                 _publish();
                 unawaited(
@@ -786,9 +929,28 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
             throw const SplashEngineException('Splash启动已取消或进程退出');
           }
           run.status = RuntimeInstanceStatus.ready;
+          final checked =
+              _drafterChecks[_drafterKey(artifactId, configuration)];
+          if (checked != null && checked.stage == DrafterStage.prepared) {
+            _drafterChecks[_drafterKey(
+              artifactId,
+              configuration,
+            )] = DrafterCheck(
+              stage: DrafterStage.running,
+              type: checked.type,
+              source: checked.source,
+            );
+          }
           _publish();
           return run.snapshot();
         } catch (error) {
+          final checked =
+              _drafterChecks[_drafterKey(artifactId, configuration)];
+          _drafterChecks[_drafterKey(artifactId, configuration)] = DrafterCheck(
+            type: checked?.type,
+            source: checked?.source,
+            error: run.safe(error.toString()),
+          );
           run.status = RuntimeInstanceStatus.failed;
           final details = run.stderr.toString();
           run.error = details.isEmpty
@@ -799,6 +961,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
           } catch (cleanup) {
             run.error = '${run.error}；收尾：$cleanup';
           }
+          run.error = run.safe(run.error!);
           _publish();
           throw SplashEngineException(run.error!);
         }
@@ -887,12 +1050,12 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
       }
       if (!run.cancellation.isCancelled) {
         run.status = RuntimeInstanceStatus.failed;
-        run.error = 'Splash Ready身份失效：$error';
+        run.error = run.safe('Splash Ready身份失效：$error');
         run.cancellation.cancel();
         _publish();
       }
       throw SplashRequestException(
-        'Splash Ready身份失效：$error',
+        run.safe('Splash Ready身份失效：$error'),
         kind: DecisionFailureKind.notReady,
       );
     }
@@ -975,6 +1138,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
       );
     }
     final permit = _permit(run, cancellation);
+    ioTrace?.bindOwnerCredentials(run.apiKeys);
     final budget = _SplashBudget(timeout, permit.cancellation);
     final watch = Stopwatch()..start();
     final client = HttpClient();
@@ -987,6 +1151,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
       final http = await budget.wait(
         () => client.postUrl(run.endpoint.resolve('/v1/systemone')),
       );
+      run.headers.forEach(http.headers.set);
       http.headers.contentType = ContentType.json;
       final body = jsonEncode(request.toSystemone(model: run.id));
       final bytes = utf8.encode(body);
@@ -1009,7 +1174,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
         throw SplashRequestException(
           'Splash 原生决策 HTTP ${response.statusCode}',
           kind: DecisionFailureKind.failed,
-          rawResponse: raw,
+          rawResponse: run.safe(raw!),
         );
       }
       final result = DecisionBatchResult.parse(
@@ -1035,11 +1200,14 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
             run.cancellation.isCancelled || permit.cancellation.isCancelled,
       );
       throw SplashRequestException(
-        failure.message,
+        run.safe(failure.message),
         kind: failure.kind,
-        rawResponse: failure.rawResponse ?? raw,
+        rawResponse: failure.rawResponse == null && raw == null
+            ? null
+            : run.safe(failure.rawResponse ?? raw!),
       );
     } finally {
+      ioTrace?.seal();
       remove();
       removeStop();
       client.close(force: true);
@@ -1109,9 +1277,10 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
       final http = await budget.wait(
         () => client.postUrl(run.endpoint.resolve('/v1/chat/completions')),
       );
+      run.headers.forEach(http.headers.set);
       http.headers.contentType = ContentType.json;
       final body = utf8.encode(
-        jsonEncode(request.toChat(model: run.id, stream: true)),
+        request.encodeChat(model: run.id, stream: true, splash: true),
       );
       http.contentLength = body.length;
       http.add(body);
@@ -1191,7 +1360,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
         run.status = RuntimeInstanceStatus.stopped;
       } catch (error) {
         run.status = RuntimeInstanceStatus.failed;
-        run.error = '$error';
+        run.error = run.safe('$error');
         rethrow;
       } finally {
         _publish();
@@ -1230,7 +1399,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
         run.status = RuntimeInstanceStatus.stopped;
       } catch (error) {
         run.status = RuntimeInstanceStatus.failed;
-        run.error = '$error';
+        run.error = run.safe('$error');
         first ??= error;
       }
     }
@@ -1326,6 +1495,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
       final request = await clock.wait(
         () => client.getUrl(run.endpoint.resolve(path)),
       );
+      run.headers.forEach(request.headers.set);
       final response = await clock.wait(request.close);
       final raw = await clock.wait(
         () => response.cast<List<int>>().transform(utf8.decoder).join(),
@@ -1333,7 +1503,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
       if (response.statusCode == 503) throw const _SplashLoading();
       if (response.statusCode != 200) {
         throw SplashEngineException(
-          'Splash $path失败：${response.statusCode} $raw',
+          run.safe('Splash $path失败：${response.statusCode} $raw'),
         );
       }
       return _object(jsonDecode(raw), 'Splash $path');
@@ -1386,6 +1556,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
         transport['stopped'] != false) {
       throw const _SplashLoading();
     }
+    _recordNativeFeatures(run, status);
     final models = await _json(run, '/v1/models', budget: budget);
     final data = models['data'];
     if (data is! List || data.isEmpty) {
@@ -1438,8 +1609,9 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
       final http = await clock.wait(
         () => client.postUrl(run.endpoint.resolve('/v1/chat/completions')),
       );
+      run.headers.forEach(http.headers.set);
       http.headers.contentType = ContentType.json;
-      final body = utf8.encode(jsonEncode(request.toChat(model: run.id)));
+      final body = utf8.encode(request.encodeChat(model: run.id, splash: true));
       http.contentLength = body.length;
       http.add(body);
       final response = await clock.wait(http.close);
@@ -1447,7 +1619,9 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
         () => response.cast<List<int>>().transform(utf8.decoder).join(),
       );
       if (response.statusCode != 200) {
-        throw SplashEngineException('Splash文本失败：${response.statusCode} $raw');
+        throw SplashEngineException(
+          run.safe('Splash文本失败：${response.statusCode} $raw'),
+        );
       }
       if (run.cancellation.isCancelled || clock.cancellation.isCancelled) {
         throw const SplashEngineException('Splash请求已取消');
@@ -1579,6 +1753,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
   Future<SplashModelBinding> prepareModelBinding(
     String artifactId, {
     Directory? previous,
+    EngineLaunchConfiguration? configuration,
     DecisionCancellation? cancellation,
   }) async {
     if (cancellation?.isCancelled ?? false) {
@@ -1605,9 +1780,15 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
         }
       }
     }
+    final selected = configuration ?? configurationFor(artifactId);
+    if (selected.family != EngineFamily.splash) {
+      throw const SplashEngineException('Splash配置family不符');
+    }
+    final hint = previous ?? recorded?.assembly;
+    final key = jsonEncode([_drafterKey(artifactId, selected), hint?.path]);
     final pending = _modelPreparations.putIfAbsent(
-      artifactId,
-      () => _prepareModelBinding(artifactId, previous),
+      key,
+      () => _prepareModelBinding(artifactId, hint, selected),
     );
     try {
       final binding = await pending;
@@ -1617,8 +1798,8 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
       // Concurrent starts share metadata work, but own separate file-use leases.
       return SplashModelBinding.fromJson(binding.toJson());
     } finally {
-      if (identical(_modelPreparations[artifactId], pending)) {
-        _modelPreparations.remove(artifactId);
+      if (identical(_modelPreparations[key], pending)) {
+        _modelPreparations.remove(key);
       }
     }
   }
@@ -1626,21 +1807,66 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
   Future<SplashModelBinding> _prepareModelBinding(
     String artifactId,
     Directory? previous,
+    EngineLaunchConfiguration configuration,
   ) async {
-    final asset = library.state.artifacts
-        .where((asset) => asset.id == artifactId)
-        .singleOrNull;
-    if (asset == null) throw const SplashEngineException('模型不在当前模型库中');
-    await _assertInstallation();
-    final directory = await prepareSplashModel(
-      io: io,
-      python: _installation.python,
-      engine: _installation.root,
-      root: modelDirectory,
-      artifact: asset,
-      previous: previous,
-    );
-    return _readBinding(artifactId, directory);
+    final key = _drafterKey(artifactId, configuration);
+    _drafterChecks[key] = const DrafterCheck();
+    _publish();
+    try {
+      final asset = library.state.artifacts
+          .where((asset) => asset.id == artifactId)
+          .singleOrNull;
+      if (asset == null) throw const SplashEngineException('模型不在当前模型库中');
+      await _assertInstallation();
+      final directory = await prepareSplashModel(
+        io: io,
+        python: _installation.python,
+        engine: _installation.root,
+        root: modelDirectory,
+        artifact: asset,
+        previous: previous,
+        drafter: configuration.drafter,
+        nativeBinary: _installation.nativeBinary,
+        configuration: configuration,
+        recognition: _installation.recognition,
+      );
+      final binding = await _readBinding(artifactId, directory);
+      final draftConfig = binding.roles['draft/config.json'];
+      final requested = configuration.drafter;
+      if (requested != null && requested.enabled != (draftConfig != null)) {
+        throw const SplashEngineException('Splash drafter 实际绑定与请求开关不符');
+      }
+      String? type;
+      if (draftConfig != null) {
+        if (requested != null &&
+            (requested.path == null ||
+                await Directory(requested.path!).resolveSymbolicLinks() !=
+                    File(draftConfig).parent.path)) {
+          throw const SplashEngineException('Splash drafter 实际来源与选择目录不符');
+        }
+        final draft = _object(
+          jsonDecode(await File(draftConfig).readAsString()),
+          'drafter config',
+        );
+        final architectures = draft['architectures'];
+        if (architectures is List && architectures.every((v) => v is String)) {
+          type = architectures.join(', ');
+        }
+      }
+      _drafterChecks[key] = DrafterCheck(
+        stage: draftConfig == null
+            ? DrafterStage.disabled
+            : DrafterStage.prepared,
+        source: draftConfig == null ? null : File(draftConfig).parent.path,
+        type: type,
+      );
+      return binding;
+    } catch (error) {
+      _drafterChecks[key] = DrafterCheck(error: error.toString());
+      rethrow;
+    } finally {
+      _publish();
+    }
   }
 
   Future<SplashModelBinding> _readBinding(

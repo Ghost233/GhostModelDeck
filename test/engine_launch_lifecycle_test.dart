@@ -1,8 +1,13 @@
+import 'fixtures/parameter_editor_navigation.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
+import 'package:ghost_model_deck/chat_protocol.dart';
+import 'package:ghost_model_deck/decision_protocol.dart';
+import 'package:ghost_model_deck/jev_debug.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/app_theme.dart';
@@ -19,6 +24,209 @@ import 'fixtures/decision_gguf.dart';
 import 'fixtures/engine_archive.dart';
 
 void main() {
+  test(
+    'llama spawn failures hide CLI keys before process ownership starts',
+    () => HttpOverrides.runWithHttpOverrides(() async {
+      final fixture = await _LifecycleFixture.create();
+      addTearDown(fixture.close);
+      fixture.io.failStart = true;
+      final engine = LlamaEngine(
+        library: fixture.library,
+        installationDirectory: Directory('${fixture.root.path}/auth-managed'),
+        io: fixture.io,
+        linkedInstallation: await inspectLinkedLlama(
+          fixture.binary,
+          fixture.io,
+        ),
+      );
+      addTearDown(() async {
+        await engine.shutdown();
+        engine.close();
+      });
+      await engine.refreshInstallation();
+      Object? failure;
+      try {
+        await engine.start(
+          fixture.asset.id,
+          configuration: EngineLaunchConfiguration(
+            formValues: {'--api-key': 'spawn-private-key'},
+          ),
+        );
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure, isA<LlamaEngineException>());
+      expect(failure.toString(), isNot(contains('spawn-private-key')));
+      expect(
+        engine.runtimeInstances.single.error,
+        isNot(contains('spawn-private-key')),
+      );
+      expect(engine.runtimeInstances.single.hasLiveProcess, isFalse);
+    }, _LifecycleNetwork()),
+  );
+  test(
+    'llama API key permits owned startup and keeps protected discovery closed',
+    () => HttpOverrides.runWithHttpOverrides(() async {
+      final fixture = await _LifecycleFixture.create();
+      addTearDown(fixture.close);
+      final engine = LlamaEngine(
+        library: fixture.library,
+        installationDirectory: Directory('${fixture.root.path}/auth-managed'),
+        io: fixture.io,
+        linkedInstallation: await inspectLinkedLlama(
+          fixture.binary,
+          fixture.io,
+        ),
+        loadTimeout: const Duration(milliseconds: 300),
+        sourceBuild: {'supports_systemone': true},
+      );
+      addTearDown(() async {
+        await engine.shutdown();
+        engine.close();
+      });
+      await engine.refreshInstallation();
+      final run = await engine.start(
+        fixture.asset.id,
+        configuration: EngineLaunchConfiguration(
+          formValues: {'--api-key': 'form-key'},
+          argumentText: '--api-key text-key,second-key',
+        ),
+      );
+      expect(run.status, LlamaInstanceStatus.ready);
+      final client = HttpClient();
+      try {
+        for (final key in [null, 'wrong-key', 'text-key']) {
+          final request = await client.getUrl(run.endpoint.resolve('/props'));
+          if (key != null) request.headers.set('Authorization', 'Bearer $key');
+          final response = await request.close();
+          expect(response.statusCode, key == 'text-key' ? 200 : 401);
+          await response.drain<void>();
+        }
+      } finally {
+        client.close(force: true);
+      }
+      expect(
+        (await engine.generateText(run.id, TextRequest(prompt: 'hello'))).text,
+        'hello',
+      );
+      final events = await engine
+          .streamText(run.id, TextRequest(prompt: 'hello'))
+          .toList();
+      expect(
+        events.where((event) => event.result != null).single.result!.text,
+        'hello',
+      );
+      final telemetry = await engine.readTelemetry(
+        run.id,
+        cancellation: DecisionCancellation(),
+      );
+      expect(telemetry.running, 0);
+      expect(
+        (await engine.decide(
+          run.id,
+          DecisionRequest(
+            state: 'test',
+            instructions: 'choose',
+            options: {'yes': 'Yes', 'no': 'No'},
+          ),
+        )).choice,
+        'yes',
+      );
+      fixture.io.inferenceError = 'native rejected text-key and second-key';
+      final trace = DecisionIOTrace();
+      Object? failure;
+      try {
+        await engine.decideBatch(
+          run.id,
+          DecisionBatchRequest(
+            state: 'text-key',
+            questions: {
+              'pick': ChoiceQuestion(
+                instructions: 'choose',
+                options: {'yes': 'Yes', 'no': 'No'},
+              ),
+            },
+          ),
+          ioTrace: trace,
+        );
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure, isA<LlamaRequestException>());
+      for (final key in ['text-key', 'second-key']) {
+        expect(failure.toString(), isNot(contains(key)));
+        expect(
+          (failure as LlamaRequestException).rawResponse,
+          isNot(contains(key)),
+        );
+        expect(jsonEncode(trace.toJson()), isNot(contains(key)));
+      }
+    }, _LifecycleNetwork()),
+  );
+  test(
+    'llama key files and saved keys stay isolated between running owners',
+    () => HttpOverrides.runWithHttpOverrides(() async {
+      final fixture = await _LifecycleFixture.create();
+      addTearDown(fixture.close);
+      final keys = File('${fixture.root.path}/keys.txt');
+      await keys.writeAsString('# comment\n\nfile-key\nspare-key\n');
+      var configuration = EngineLaunchConfiguration(
+        formValues: {'--api-key-file': keys.path},
+      );
+      final engine = LlamaEngine(
+        library: fixture.library,
+        installationDirectory: Directory('${fixture.root.path}/auth-managed'),
+        io: fixture.io,
+        linkedInstallation: await inspectLinkedLlama(
+          fixture.binary,
+          fixture.io,
+        ),
+        loadTimeout: const Duration(milliseconds: 300),
+        sourceBuild: {'supports_systemone': false},
+      )..readLaunchConfigurationFrom((_) => configuration);
+      addTearDown(() async {
+        await engine.shutdown();
+        engine.close();
+      });
+      await engine.refreshInstallation();
+      final first = await engine.start(fixture.asset.id);
+      await keys.writeAsString('changed-file-key\n');
+      configuration = EngineLaunchConfiguration(
+        formValues: {},
+        argumentText: '--api_key second-owner-key',
+      );
+      expect(
+        (await engine.generateText(
+          first.id,
+          TextRequest(prompt: 'hello'),
+        )).text,
+        'hello',
+      );
+      final second = await engine.start(fixture.asset.id);
+      expect(
+        (await engine.generateText(
+          second.id,
+          TextRequest(prompt: 'hello'),
+        )).text,
+        'hello',
+      );
+      final firstEvents = await engine
+          .streamText(first.id, TextRequest(prompt: 'hello'))
+          .toList();
+      expect(
+        firstEvents.where((event) => event.result != null).single.result!.text,
+        'hello',
+      );
+      await engine.stop(first.id);
+      expect(
+        (await engine.generateText(
+          second.id,
+          TextRequest(prompt: 'hello'),
+        )).text,
+        'hello',
+      );
+    }, _LifecycleNetwork()),
+  );
   test('unlink keeps saved instances and their parameters without retaining engine history', () async {
     final fixture = await _LifecycleFixture.create();
     addTearDown(fixture.close);
@@ -636,8 +844,13 @@ void main() {
         await fixture.catalog.readParameters(entry.id);
       });
       await tester.pumpAndSettle();
-      await tester.enterText(find.widgetWithText(TextField, '上下文大小'), '2048');
-      final text = find.widgetWithText(TextField, '启动参数文本');
+      await selectParameterGroup(tester, '上下文与内存');
+      await tester.enterText(
+        find.byKey(const Key('parameter-number:--ctx-size')),
+        '2048',
+      );
+      await selectParameterGroup(tester, '参数文本与命令');
+      final text = find.byKey(const Key('engine-argument-text'));
       await tester.ensureVisible(text);
       await tester.enterText(text, ' --threads 3\n');
       await tester.pump();
@@ -789,6 +1002,8 @@ class _LifecycleFixture {
 }
 
 class _LifecycleIO implements EngineProcessIO {
+  String? inferenceError;
+  bool failStart = false;
   Completer<void>? startEntered;
   Completer<void>? releaseStart;
   Completer<void>? versionStarted;
@@ -796,7 +1011,7 @@ class _LifecycleIO implements EngineProcessIO {
   String version =
       'version: 0.5.0-dev (build 12000, commit abcdef123)\nbuilt for Darwin arm64';
   String help =
-      '--model --alias --host --port --ctx-size --batch-size --ubatch-size --parallel --n-gpu-layers --device';
+      '--model --alias --host --port --ctx-size --batch-size --ubatch-size --parallel --n-gpu-layers --device --api-key --api-key-file';
   final startedArguments = <List<String>>[];
   @override
   Future<EngineCommandResult> run(
@@ -828,6 +1043,14 @@ class _LifecycleIO implements EngineProcessIO {
   @override
   Future<EngineChild> start(String executable, List<String> arguments) async {
     startedArguments.add(List.of(arguments));
+    if (failStart) {
+      throw ProcessException(
+        executable,
+        arguments,
+        'native process unavailable',
+        2,
+      );
+    }
     if (startEntered != null && !startEntered!.isCompleted) {
       startEntered!.complete();
     }
@@ -837,8 +1060,37 @@ class _LifecycleIO implements EngineProcessIO {
       InternetAddress.loopbackIPv4,
       int.parse(value('--port')),
     );
+    final keys = <String>[];
+    for (var index = 0; index < arguments.length; index++) {
+      if (arguments[index].replaceAll('_', '-') == '--api-key') {
+        keys.addAll(arguments[++index].split(','));
+      }
+      if (arguments[index].replaceAll('_', '-') == '--api-key-file') {
+        keys.addAll(
+          (await File(arguments[++index]).readAsLines()).where(
+            (line) => line.isNotEmpty && !line.startsWith('#'),
+          ),
+        );
+      }
+    }
     server.listen((request) async {
       request.response.headers.contentType = ContentType.json;
+      if (keys.isNotEmpty &&
+          request.uri.path != '/health' &&
+          !keys.any(
+            (key) => request.headers.value('Authorization') == 'Bearer $key',
+          )) {
+        request.response.statusCode = 401;
+        request.response.write('{"error":"invalid or missing API key"}');
+        await request.response.close();
+        return;
+      }
+      if (request.uri.path == '/v1/systemone' && inferenceError != null) {
+        request.response.statusCode = 403;
+        request.response.write(jsonEncode({'error': inferenceError}));
+        await request.response.close();
+        return;
+      }
       if (request.uri.path == '/health') {
         request.response.write('{"status":"ok"}');
       } else if (request.uri.path == '/props') {
@@ -848,7 +1100,61 @@ class _LifecycleIO implements EngineProcessIO {
             'model_path': value('--model'),
           }),
         );
+      } else if (request.uri.path == '/slots') {
+        request.response.write('[]');
+      } else if (request.uri.path == '/metrics') {
+        request.response.headers.contentType = ContentType.text;
+        request.response.write('llamacpp:requests_processing 0\n');
+      } else if (request.uri.path == '/v1/systemone') {
+        final body = jsonDecode(await utf8.decoder.bind(request).join()) as Map;
+        request.response.write(
+          jsonEncode({
+            'model': value('--alias'),
+            'answers': {
+              for (final entry in (body['questions'] as Map).entries)
+                '${entry.key}': {
+                  'type': 'choice',
+                  'choice': 'yes',
+                  'probabilities': {'yes': 1.0, 'no': 0.0},
+                  'confidence': 1.0,
+                },
+            },
+            'usage': {'input_tokens': 10, 'output_tokens': 0},
+          }),
+        );
       } else {
+        final body = jsonDecode(await utf8.decoder.bind(request).join()) as Map;
+        if (body['stream'] == true) {
+          request.response.headers.contentType = ContentType(
+            'text',
+            'event-stream',
+          );
+          for (final choice in [
+            {
+              'index': 0,
+              'delta': {'role': 'assistant', 'content': 'hello'},
+              'finish_reason': null,
+            },
+            {'index': 0, 'delta': {}, 'finish_reason': 'stop'},
+          ]) {
+            request.response.write(
+              'data: ${jsonEncode({
+                'model': value('--alias'),
+                'choices': [choice],
+              })}\n\n',
+            );
+          }
+          request.response.write(
+            'data: ${jsonEncode({
+              'model': value('--alias'),
+              'choices': [],
+              'usage': {'completion_tokens': 1},
+            })}\n\n',
+          );
+          request.response.write('data: [DONE]\n\n');
+          await request.response.close();
+          return;
+        }
         request.response.write(
           jsonEncode({
             'model': value('--alias'),

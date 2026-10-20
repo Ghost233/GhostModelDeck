@@ -53,7 +53,7 @@ void main() {
     );
     addTearDown(runtime.close);
     runtime.io.capacityProperties = {
-      'default_generation_settings': {'n_ctx': 65536},
+      'default_generation_settings': {'n_ctx': 8192},
       'total_slots': 1,
     };
     final instances = LaunchInstances(
@@ -163,6 +163,10 @@ void main() {
     await check(8192);
     expect(instances.runsFor(small.id).single.id, first.id);
     await instances.stop(small.id);
+    runtime.io.capacityProperties = {
+      'default_generation_settings': {'n_ctx': 16384},
+      'total_slots': 1,
+    };
     runtime.io.holdIdentity(expected: 1);
     final failed = instances
         .start(small.id)
@@ -568,6 +572,10 @@ void main() {
       )).$1,
       200,
     );
+    runtime.io.capacityProperties = {
+      'default_generation_settings': {'n_ctx': 8192},
+      'total_slots': 1,
+    };
     final firstRun = await instances.start(first.id);
     runtime.io.requests.clear();
     final full = await call();

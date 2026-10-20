@@ -178,7 +178,10 @@ class LaunchInstances {
         ? _appliedContexts[id]
         : definition.hasAppliedContext
         ? definition.appliedContextLength
-        : definition.configuration.contextLength;
+        : catalog.contextLengthForConfiguration(
+            definition.engineId,
+            definition.configuration,
+          );
   }
 
   EngineRegistration? runningOrigin(String id) => _runOrigins[id];
@@ -370,7 +373,7 @@ class LaunchInstances {
       jevRequestTimeoutSeconds: budget,
       hasAppliedContext: true,
       appliedContextLength: previous == null
-          ? configuration.contextLength
+          ? catalog.contextLengthForConfiguration(engineId, configuration)
           : contextLengthFor(identity),
       splashAssembly: splashAssembly?.trim().isEmpty == true
           ? null
@@ -421,7 +424,10 @@ class LaunchInstances {
       splashAssembly: original.splashAssembly,
       jevRequestTimeoutSeconds: original.jevRequestTimeoutSeconds,
       hasAppliedContext: true,
-      appliedContextLength: original.configuration.contextLength,
+      appliedContextLength: catalog.contextLengthForConfiguration(
+        original.engineId,
+        original.configuration,
+      ),
     );
     names.claim('instance:${copied.id}', copied.publicName);
     try {
@@ -551,6 +557,10 @@ class LaunchInstances {
     definition.configuration.validateArgumentText();
     if (_closed || cancellation.isCancelled) throw StateError('实例启动已取消');
     final runtime = catalog.runtimeFor(definition.engineId);
+    final configuredContext = catalog.contextLengthForConfiguration(
+      definition.engineId,
+      definition.configuration,
+    );
     _runOrigins[id] = catalog.state.entries.singleWhere(
       (entry) => entry.id == definition.engineId,
     );
@@ -604,9 +614,7 @@ class LaunchInstances {
         run.hasLiveProcess &&
         run.acceptingRequests &&
         run.status == RuntimeInstanceStatus.ready) {
-      _appliedContexts[id] =
-          definition.configuration.contextLength ??
-          run.capacity?.contextPerSlot;
+      _appliedContexts[id] = run.capacity?.contextPerSlot ?? configuredContext;
       try {
         await _serial(() => _write(_definitions));
       } catch (error, stack) {

@@ -10,6 +10,7 @@ import 'package:ghost_model_deck/council_mcp.dart';
 import 'package:ghost_model_deck/decision_protocol.dart';
 import 'package:ghost_model_deck/engine_catalog.dart';
 import 'package:ghost_model_deck/engine_runtime.dart';
+import 'package:ghost_model_deck/engine_launch_configuration.dart';
 import 'package:ghost_model_deck/llama_engine.dart';
 import 'package:ghost_model_deck/manager_lifecycle.dart';
 import 'package:ghost_model_deck/model_downloader.dart';
@@ -23,6 +24,298 @@ import 'fixtures/playground_runtime.dart';
 import 'fixtures/typed_answers.dart';
 
 void main() {
+  test(
+    'native Ready stays usable when the requested drafter is not active',
+    () async {
+      final fixture = await _GatewayFixture.create();
+      addTearDown(fixture.close);
+      final draft = await File('${fixture.root.path}/draft.gguf')
+          .writeAsBytes([71, 71, 85, 70, 3, 0, 0, 0]);
+      final run = await fixture.engine.start(
+        fixture.asset.id,
+        configuration: EngineLaunchConfiguration(
+          drafter: DrafterConfiguration(
+            enabled: true,
+            path: draft.path,
+            mode: 'draft-dflash',
+          ),
+          argumentText: '--spec-type ngram-mod -md /old/missing.gguf --spec-default --no-slots',
+        ),
+        launchInstanceId: 'native-policy',
+      );
+      expect(run.status, LlamaInstanceStatus.ready);
+      expect(fixture.io.launchArguments.single, contains('--no-slots'));
+      expect(fixture.io.launchArguments.single, isNot(contains('--slots')));
+      expect(fixture.events, isNot(contains('engine-killed')));
+      expect(fixture.engine.actualDrafterFor('native-policy')!.active, isNull);
+      final result = await fixture.engine.generateText(
+        run.id,
+        TextRequest(prompt: 'hello'),
+      );
+      expect(result.text, 'Hello.');
+      expect(
+        fixture.engine.runtimeInstances.single.status,
+        RuntimeInstanceStatus.ready,
+      );
+      await expectLater(
+        fixture.library.prepareDeletion([fixture.asset.id]),
+        throwsA(isA<LibraryException>()),
+      );
+      await fixture.engine.stop(run.id);
+      await fixture.library.prepareDeletion([fixture.asset.id]);
+    },
+  );
+
+  test('MTP can use the selected target without an independent draft path', () async {
+    final fixture = await _GatewayFixture.create();
+    addTearDown(fixture.close);
+    final run = await fixture.engine.start(
+      fixture.asset.id,
+      configuration: EngineLaunchConfiguration(
+        drafter: const DrafterConfiguration(enabled: true, mode: 'draft-mtp'),
+        argumentText:
+            '--spec-type ngram-mod --model_draft /old/missing.gguf --no-slots',
+      ),
+      launchInstanceId: 'embedded-mtp',
+    );
+    expect(run.status, LlamaInstanceStatus.ready);
+    final arguments = fixture.io.launchArguments.single;
+    expect(arguments, containsAllInOrder(['--spec-type', 'draft-mtp']));
+    expect(arguments, isNot(contains('--spec-draft-model')));
+    expect(arguments, isNot(contains('/old/missing.gguf')));
+    expect(arguments, isNot(contains('ngram-mod')));
+    expect(arguments, contains('--no-slots'));
+    final observed = fixture.engine.actualDrafterFor('embedded-mtp')!;
+    expect(observed.active, isNull);
+    expect(
+      observed.source,
+      await File(fixture.asset.files.first.path).resolveSymbolicLinks(),
+    );
+    expect(observed.type, contains('目标模型内嵌'));
+    expect(
+      (await fixture.engine.generateText(
+        run.id,
+        TextRequest(prompt: 'hello'),
+      )).text,
+      'Hello.',
+    );
+    await fixture.engine.stop(run.id);
+  });
+
+  test(
+    'native drafter failures stay observable and release owned resources',
+    () async {
+      final fixture = await _GatewayFixture.create();
+      addTearDown(fixture.close);
+      final draft = await File('${fixture.root.path}/native-selected.model')
+          .writeAsString('unchanged input for native format validation');
+      final selected = EngineLaunchConfiguration(
+        drafter: DrafterConfiguration(
+          enabled: true,
+          mode: 'draft-simple',
+          path: draft.path,
+        ),
+      );
+      fixture.io.startupFailure = 'native rejected draft format';
+      await expectLater(
+        fixture.engine.start(fixture.asset.id, configuration: selected),
+        throwsA(
+          isA<LlamaEngineException>().having(
+            (error) => error.message,
+            'native reason',
+            contains('native rejected draft format'),
+          ),
+        ),
+      );
+      expect(fixture.io.launchArguments, hasLength(1));
+      expect(
+        fixture.engine.runtimeInstances.single.status,
+        RuntimeInstanceStatus.failed,
+      );
+      await fixture.library.prepareDeletion([fixture.asset.id]);
+      expect(
+        await draft.readAsString(),
+        'unchanged input for native format validation',
+      );
+      fixture.io.startupFailure = null;
+      final ready = await fixture.engine.start(
+        fixture.asset.id,
+        configuration: selected,
+      );
+      expect(ready.status, LlamaInstanceStatus.ready);
+      fixture.io.textStatus = 422;
+      await expectLater(
+        fixture.engine.generateText(ready.id, TextRequest(prompt: 'hello')),
+        throwsA(isA<LlamaEngineException>()),
+      );
+      expect(
+        fixture.engine.runtimeInstances
+            .where((run) => run.id == ready.id)
+            .single
+            .status,
+        RuntimeInstanceStatus.ready,
+      );
+      await fixture.engine.stop(ready.id);
+      await fixture.library.prepareDeletion([fixture.asset.id]);
+      expect(await draft.exists(), isTrue);
+    },
+  );
+
+  test(
+    'llama passes an explicit draft for a decision model to native unchanged',
+    () async {
+      final fixture = await _GatewayFixture.create(ordinaryChat: false);
+      addTearDown(fixture.close);
+      expect(fixture.asset.decisionType, 'kev');
+      final draft = await File('${fixture.root.path}/chosen.gguf')
+          .writeAsString('selected native input');
+      final run = await fixture.engine.start(
+        fixture.asset.id,
+        configuration: EngineLaunchConfiguration(
+          drafter: DrafterConfiguration(
+            enabled: true,
+            mode: 'draft-simple',
+            path: draft.path,
+          ),
+        ),
+      );
+      expect(run.status, LlamaInstanceStatus.ready);
+      expect(
+        fixture.io.launchArguments.single,
+        containsAllInOrder([
+          '--spec-type',
+          'draft-simple',
+          '--spec-draft-model',
+          await draft.resolveSymbolicLinks(),
+        ]),
+      );
+      expect(await draft.readAsString(), 'selected native input');
+      await fixture.engine.stop(run.id);
+    },
+  );
+
+  for (final mode in [
+    'draft-simple',
+    'draft-eagle3',
+    'draft-mtp',
+    'draft-dflash',
+    'draft-dspark',
+  ]) {
+    test(
+      '$mode builds one native draft mode and disabling ignores stale sources',
+      () async {
+        final fixture = await _GatewayFixture.create();
+        addTearDown(fixture.close);
+        final draft = await File('${fixture.root.path}/draft.gguf')
+            .writeAsBytes([71, 71, 85, 70, 3, 0, 0, 0]);
+        final selected = EngineLaunchConfiguration(
+          formValues: {'--spec-draft-n-max': '2'},
+          drafter: DrafterConfiguration(
+            enabled: true,
+            path: draft.path,
+            mode: mode,
+          ),
+          argumentText: '--spec-type ngram-mod -md /old/missing.gguf --spec-default --no-slots --spec-draft-n-max 5',
+        );
+        final run = await fixture.engine.start(
+          fixture.asset.id,
+          configuration: selected,
+          launchInstanceId: 'saved-A',
+        );
+        expect(run.status, LlamaInstanceStatus.ready);
+        final arguments = fixture.io.launchArguments.last;
+        expect(arguments, containsAllInOrder(['--spec-type', mode]));
+        expect(
+          arguments,
+          containsAllInOrder([
+            '--spec-draft-model',
+            await draft.resolveSymbolicLinks(),
+          ]),
+        );
+        expect(arguments, contains('--no-slots'));
+        expect(arguments, isNot(contains('--slots')));
+        expect(arguments, containsAllInOrder(['--spec-draft-n-max', '5']));
+        expect(arguments, isNot(contains('2')));
+        expect(arguments, isNot(contains('--spec-default')));
+        expect(arguments, isNot(contains('ngram-mod')));
+        expect(arguments, isNot(contains('/old/missing.gguf')));
+        expect(fixture.engine.actualDrafterFor('saved-A')!.active, isNull);
+        await expectLater(
+          fixture.library.prepareDeletion([fixture.asset.id]),
+          throwsA(isA<LibraryException>()),
+        );
+        await fixture.engine.stop(run.id);
+        expect(fixture.engine.actualDrafterFor('saved-A'), isNull);
+        await fixture.library.prepareDeletion([fixture.asset.id]);
+        final off = await fixture.engine.start(
+          fixture.asset.id,
+          configuration: EngineLaunchConfiguration(
+            drafter: const DrafterConfiguration(
+              enabled: false,
+              path: '/deleted/draft.gguf',
+              mode: 'draft-dflash',
+            ),
+            argumentText: '--spec-type ngram-mod -md /old/missing.gguf --spec-draft-hf old/repo',
+          ),
+        );
+        expect(off.status, LlamaInstanceStatus.ready);
+        expect(
+          fixture.io.launchArguments.last,
+          containsAllInOrder(['--spec-type', 'ngram-mod']),
+        );
+        expect(
+          fixture.io.launchArguments.last,
+          isNot(contains('--spec-draft-model')),
+        );
+        expect(
+          fixture.io.launchArguments.last,
+          isNot(contains('--spec-draft-hf')),
+        );
+      },
+    );
+  }
+  test('llama protects complete shard inventory and leaves format validation to native', () async {
+    final fixture = await _GatewayFixture.create();
+    addTearDown(fixture.close);
+    final first = await File('${fixture.root.path}/draft-00001-of-00002.gguf')
+        .writeAsBytes([71, 71, 85, 70, 3, 0, 0, 0]);
+    Future<void> start() => fixture.engine.start(
+      fixture.asset.id,
+      configuration: EngineLaunchConfiguration(
+        drafter: DrafterConfiguration(
+          enabled: true,
+          path: first.path,
+          mode: 'draft-dflash',
+        ),
+      ),
+    );
+    await expectLater(
+      start(),
+      throwsA(
+        isA<LlamaEngineException>().having(
+          (e) => e.message,
+          'missing shard',
+          contains('00002'),
+        ),
+      ),
+    );
+    final second = await File('${fixture.root.path}/draft-00002-of-00002.gguf')
+        .writeAsString('native input, unchanged');
+    final run = await fixture.engine.start(
+      fixture.asset.id,
+      configuration: EngineLaunchConfiguration(
+        drafter: DrafterConfiguration(
+          enabled: true,
+          path: first.path,
+          mode: 'draft-dflash',
+        ),
+      ),
+    );
+    expect(run.status, LlamaInstanceStatus.ready);
+    expect(fixture.io.launchArguments, hasLength(1));
+    expect(await second.readAsString(), 'native input, unchanged');
+  });
+
   group('TextRequest 公开协议扩展', () {
     test('legacy prompt constructor keeps its exact upstream shape', () {
       final request = TextRequest(prompt: 'Hi', maxTokens: 8);
@@ -111,14 +404,14 @@ void main() {
       expect(
         () => TextRequest.messages(
           messages: [TextMessage(role: 'user', content: 'x')],
-          maxTokens: 4097,
+          maxTokens: -1,
         ),
         throwsA(isA<TextProtocolException>()),
       );
       expect(
         () => TextRequest.messages(
           messages: [TextMessage(role: 'user', content: 'x')],
-          temperature: 2.5,
+          temperature: double.infinity,
         ),
         throwsA(isA<TextProtocolException>()),
       );
@@ -139,7 +432,7 @@ void main() {
       expect(
         () => TextRequest.messages(
           messages: [TextMessage(role: 'user', content: 'x')],
-          topP: 0,
+          topP: -0.1,
         ),
         throwsA(isA<TextProtocolException>()),
       );
@@ -152,18 +445,21 @@ void main() {
       );
     });
 
-    test('legacy constructor keeps its original rejection message', () {
-      expect(
-        () => TextRequest(prompt: ' '),
-        throwsA(
-          isA<TextProtocolException>().having(
-            (e) => e.message,
-            'message',
-            '需要非空文本与 1–4096 个生成 token 上限',
+    test(
+      'prompt constructor reports its actual positive output-limit requirement',
+      () {
+        expect(
+          () => TextRequest(prompt: ' '),
+          throwsA(
+            isA<TextProtocolException>().having(
+              (e) => e.message,
+              'message',
+              '需要非空文本与正整数生成 token 上限',
+            ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
   });
 
   group('EngineRuntime 流式接口', () {
@@ -668,6 +964,115 @@ void main() {
       });
     });
 
+    test(
+      'llama public seeds use the native uint32 range and random sentinel',
+      () async {
+        final fixture = await _GatewayFixture.create();
+        addTearDown(fixture.close);
+        fixture.io.streamResponse = _defaultStream;
+        await fixture.enableReady();
+        for (final stream in [false, true]) {
+          for (final seed in [-1, 0, 4294967295]) {
+            final response = await _post(
+              '${fixture.gateway.baseUrl}/v1/chat/completions',
+              {
+                'model': fixture.routes.publicIdFor(fixture.asset.id),
+                'messages': [
+                  {'role': 'user', 'content': 'Reply OK'},
+                ],
+                'stream': stream,
+                'seed': seed,
+              },
+            );
+            expect(response.status, 200, reason: response.body);
+            expect(fixture.io.textBodies.last['seed'], seed);
+          }
+          for (final seed in [-2, 4294967296, 9223372036854775807]) {
+            final before = fixture.io.textBodies.length;
+            final response = await _post(
+              '${fixture.gateway.baseUrl}/v1/chat/completions',
+              {
+                'model': fixture.routes.publicIdFor(fixture.asset.id),
+                'messages': [
+                  {'role': 'user', 'content': 'Reply OK'},
+                ],
+                'stream': stream,
+                'seed': seed,
+              },
+            );
+            expect(response.status, 400, reason: response.body);
+            expect(fixture.io.textBodies.length, before);
+            expect(response.body, contains('llama.cpp seed'));
+          }
+        }
+      },
+    );
+
+    test(
+      'an explicit disabled response limit survives the public request',
+      () async {
+        final fixture = await _GatewayFixture.create();
+        addTearDown(fixture.close);
+        fixture.io.streamResponse = _defaultStream;
+        await fixture.enableReady();
+        for (final stream in [false, true]) {
+          final response = await _post(
+            '${fixture.gateway.baseUrl}/v1/chat/completions',
+            {
+              'model': fixture.routes.publicIdFor(fixture.asset.id),
+              'messages': [
+                {'role': 'user', 'content': 'Reply with the native budget'},
+              ],
+              'stream': stream,
+              'max_completion_tokens': null,
+            },
+          );
+          expect(response.status, 200, reason: response.body);
+          expect(fixture.io.textBodies.last['max_tokens'], -1);
+          expect(
+            fixture.io.textBodies.last.containsKey('max_completion_tokens'),
+            isFalse,
+          );
+          if (stream) expect(response.body, contains('data: [DONE]'));
+        }
+      },
+    );
+
+    test('generation controls reach the native request with no artificial output cap', () async {
+      final fixture = await _GatewayFixture.create();
+      addTearDown(fixture.close);
+      await fixture.enableReady();
+      final response = await _post(
+        '${fixture.gateway.baseUrl}/v1/chat/completions',
+        {
+          'model': fixture.routes.publicIdFor(fixture.asset.id),
+          'messages': [
+            {'role': 'user', 'content': 'Return JSON'},
+          ],
+          'max_completion_tokens': 12000,
+          'top_k': 15,
+          'min_p': 0.05,
+          'repetition_penalty': 1.12,
+          'presence_penalty': 0.2,
+          'frequency_penalty': -0.1,
+          'seed': 77,
+          'stop': ['END'],
+          'response_format': {'type': 'json_object'},
+        },
+      );
+      expect(response.status, 200, reason: response.body);
+      final upstream = fixture.io.textBodies.single;
+      expect(upstream['max_tokens'], 12000);
+      expect(upstream['top_k'], 15);
+      expect(upstream['min_p'], 0.05);
+      expect(upstream['repeat_penalty'], 1.12);
+      expect(upstream['presence_penalty'], 0.2);
+      expect(upstream['frequency_penalty'], -0.1);
+      expect(upstream['seed'], 77);
+      expect(upstream['stop'], ['END']);
+      expect(upstream['response_format'], {'type': 'json_object'});
+    });
+
     test('non-stream chat completion passes real messages through and binds the public ID', () async {
       final fixture = await _GatewayFixture.create();
       addTearDown(fixture.close);
@@ -958,17 +1363,17 @@ void main() {
       final cases = <Map<String, Object?>>[
         {
           ...valid,
-          'response_format': {'type': 'json_object'},
+          'response_format': {'type': 'unsupported'},
         },
         {...valid, 'tools': []},
         {...valid, 'n': 2},
         {...valid, 'stream': 'yes'},
         {...valid, 'max_tokens': 0},
-        {...valid, 'max_tokens': 4097},
+        {...valid, 'max_tokens': -1},
         {...valid, 'max_tokens': true},
-        {...valid, 'temperature': 2.5},
+        {...valid, 'temperature': -0.1},
         {...valid, 'temperature': 'hot'},
-        {...valid, 'top_p': 0},
+        {...valid, 'top_p': -0.1},
         {...valid, 'messages': <Object?>[]},
         {...valid, 'messages': 'Hi'},
         {
@@ -1714,6 +2119,9 @@ class _GatewayIO implements EngineProcessIO {
   final List<String> events;
   int textRequests = 0;
   final textBodies = <Map>[];
+  bool speculativeActive = false;
+  String? startupFailure;
+  final launchArguments = <List<String>>[];
   int textStatus = 200;
   Map<String, Object?> textUsage = {
     'prompt_tokens': 4,
@@ -1726,13 +2134,19 @@ class _GatewayIO implements EngineProcessIO {
 
   @override
   Future<EngineChild> start(String executable, List<String> arguments) async {
+    launchArguments.add(List.of(arguments));
     String arg(String name) => arguments[arguments.indexOf(name) + 1];
     final server = await HttpServer.bind(
       InternetAddress.loopbackIPv4,
       int.parse(arg('--port')),
     );
-    final child = _GatewayChild(server, events);
+    final child = _GatewayChild(server, events, startupFailure);
     children.add(child);
+    if (startupFailure != null) {
+      await server.close(force: true);
+      child.exited.complete(1);
+      return child;
+    }
     server.listen((request) async {
       if (request.uri.path == '/health') {
         request.response.write('{"status":"ok"}');
@@ -1742,6 +2156,12 @@ class _GatewayIO implements EngineProcessIO {
             'model_alias': arg('--alias'),
             'model_path': arg('--model'),
           }),
+        );
+      } else if (request.uri.path == '/slots') {
+        request.response.write(
+          jsonEncode([
+            {'id': 0, 'speculative': speculativeActive},
+          ]),
         );
       } else if (request.uri.path == '/v1/chat/completions') {
         textRequests++;
@@ -1821,9 +2241,11 @@ class _GatewayIO implements EngineProcessIO {
 }
 
 class _GatewayChild implements EngineChild {
-  _GatewayChild(this.server, this.events) : pid = server.port;
+  _GatewayChild(this.server, this.events, this.startupFailure)
+    : pid = server.port;
   final HttpServer server;
   final List<String> events;
+  final String? startupFailure;
   final exited = Completer<int>();
   @override
   final int pid;
@@ -1832,7 +2254,9 @@ class _GatewayChild implements EngineChild {
   @override
   Stream<List<int>> get stdout => const Stream.empty();
   @override
-  Stream<List<int>> get stderr => const Stream.empty();
+  Stream<List<int>> get stderr => startupFailure == null
+      ? const Stream.empty()
+      : Stream.value(utf8.encode(startupFailure!));
   @override
   bool kill(ProcessSignal signal) {
     events.add('engine-killed');

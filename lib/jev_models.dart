@@ -533,11 +533,14 @@ class JevModels {
 
   List<({String label, int? before, int? after})> previewContextChange(
     String instanceId,
-    EngineLaunchConfiguration configuration,
-  ) {
+    EngineLaunchConfiguration configuration, {
+    int? Function()? resolvedContext,
+  }) {
     final instance = instances?.find(instanceId);
     if (instance == null) return const [];
-    final context = configuration.contextLength;
+    final context = resolvedContext == null
+        ? configuration.contextLength
+        : resolvedContext();
     final councils = _definitions.where(
       (model) =>
           model.source == JevModelSource.council &&
@@ -903,28 +906,36 @@ class JevModels {
         for (final trace in traces.values) {
           trace.seal();
         }
-        return sealDebugJson({
-          'model': definition.name,
-          'source': 'council',
-          'configuration': definition.toJson(),
-          'input': request.toSystemone(model: definition.name),
-          'unavailable_seats': unavailable,
-          'seats': [
-            for (final binding in definition.bindings)
-              _debugSeat(binding, receivedResult!, traces, unavailable),
+        return sealDebugJson(
+          {
+            'model': definition.name,
+            'source': 'council',
+            'configuration': definition.toJson(),
+            'input': request.toSystemone(model: definition.name),
+            'unavailable_seats': unavailable,
+            'seats': [
+              for (final binding in definition.bindings)
+                _debugSeat(binding, receivedResult!, traces, unavailable),
+            ],
+            'valid_seats': [
+              for (final opinion in receivedResult!.seats)
+                if (opinion.status == CouncilSeatStatus.ok)
+                  JevModelBinding(
+                    artifactId: opinion.seat.instance.asset.id,
+                    engineId: opinion.seat.engine.id,
+                  ).id,
+            ],
+            'council': receivedResult.toJson(),
+            'converted_result': converted,
+            'elapsed_us': watch.elapsedMicroseconds,
+          },
+          projection: JevDebugProjection.debug,
+          ioTraces: [
+            for (final opinion in receivedResult.seats)
+              if (traces[opinion.seat.id] case final trace?)
+                (trace: trace, typedResponse: opinion.batchResult != null),
           ],
-          'valid_seats': [
-            for (final opinion in receivedResult!.seats)
-              if (opinion.status == CouncilSeatStatus.ok)
-                JevModelBinding(
-                  artifactId: opinion.seat.instance.asset.id,
-                  engineId: opinion.seat.engine.id,
-                ).id,
-          ],
-          'council': receivedResult.toJson(),
-          'converted_result': converted,
-          'elapsed_us': watch.elapsedMicroseconds,
-        }, projection: JevDebugProjection.debug);
+        );
       }
 
       try {
@@ -1008,23 +1019,27 @@ class JevModels {
     }) {
       if (!debug) return null;
       ioTrace!.seal();
-      return sealDebugJson({
-        'model': definition.name,
-        'source': 'native',
-        'configuration': definition.toJson(),
-        'input': request.toSystemone(model: definition.name),
-        'native': {
-          'binding': definition.bindings.single.toJson(),
-          'instance_id': seat?.instance.id,
-          'generation': seat?.instance.generation,
-          'status': error?.code ?? 'ok',
-          'error': error?.toJson()['error'],
-          ...ioTrace.toJson(),
-          'result': receivedResult?.toJson(),
+      return sealDebugJson(
+        {
+          'model': definition.name,
+          'source': 'native',
+          'configuration': definition.toJson(),
+          'input': request.toSystemone(model: definition.name),
+          'native': {
+            'binding': definition.bindings.single.toJson(),
+            'instance_id': seat?.instance.id,
+            'generation': seat?.instance.generation,
+            'status': error?.code ?? 'ok',
+            'error': error?.toJson()['error'],
+            ...ioTrace.toJson(),
+            'result': receivedResult?.toJson(),
+          },
+          'converted_result': converted,
+          'elapsed_us': watch.elapsedMicroseconds,
         },
-        'converted_result': converted,
-        'elapsed_us': watch.elapsedMicroseconds,
-      }, projection: JevDebugProjection.debug);
+        projection: JevDebugProjection.debug,
+        ioTraces: [(trace: ioTrace, typedResponse: receivedResult != null)],
+      );
     }
 
     JevRequestException finishError(JevRequestException error) {

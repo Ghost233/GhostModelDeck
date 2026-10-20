@@ -9,6 +9,8 @@ import 'splash_engine.dart';
 import 'omlx_engine.dart';
 import 'engine_launch_configuration.dart';
 import 'engine_launch_editor.dart';
+import 'parameter_editor.dart';
+import 'generation_configuration.dart';
 import 'model_launch_test.dart';
 import 'engine_runtime.dart';
 import 'llama_engine.dart';
@@ -43,6 +45,8 @@ class ModelRunDialog extends StatefulWidget {
     this.initialEngineId,
     this.initialConfiguration,
     this.initialName,
+    this.initialSplashAssembly,
+    this.initialInstanceId,
     this.onSaveInstance,
     this.contextPreview,
   });
@@ -54,9 +58,12 @@ class ModelRunDialog extends StatefulWidget {
   final String? initialEngineId;
   final EngineLaunchConfiguration? initialConfiguration;
   final String? initialName;
+  final String? initialInstanceId;
+  final Directory? initialSplashAssembly;
   final List<({String label, int? before, int? after})> Function(
-    EngineLaunchConfiguration,
-  )?
+    EngineLaunchConfiguration, {
+    int? Function()? resolvedContext,
+  })?
   contextPreview;
   final Future<void> Function(
     String name,
@@ -79,31 +86,43 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
   String? _engineId;
   String? _error;
   bool _working = false;
+  bool _testing = false;
   bool _loading = true;
-  int _impactPage = 0;
   EngineLaunchCommand? _preview;
   bool _previewBlocked = false;
-  final _fields = <String, TextEditingController>{};
+  final _formValues = <String, String>{};
+  Map<String, Object?> _generationValues = {};
+  String? _generationError;
+  EngineLaunchConfiguration? _baseline;
   final _argumentText = TextEditingController();
+  DrafterConfiguration? _drafter;
+  bool _legacyDrafter = false;
   EngineLaunchConfiguration? _defaults;
   DecisionCancellation? _testCancellation;
   String? _result;
-  EngineLaunchConfiguration? get _draft => _defaults == null
-      ? null
-      : EngineLaunchConfiguration(
-          family: _defaults!.family,
-          formValues: {
-            for (final entry in _fields.entries)
-              if (entry.value.text.isNotEmpty) entry.key: entry.value.text,
-          },
-          argumentText: _argumentText.text,
-        );
+  EngineLaunchConfiguration? get _draft {
+    if (_defaults == null) return null;
+    GenerationConfiguration generation;
+    try {
+      generation = GenerationConfiguration.fromJson(_generationValues);
+      generation.nativeValues(splash: _defaults!.family == EngineFamily.splash);
+      _generationError = null;
+    } on FormatException catch (error) {
+      _generationError = error.message;
+      generation =
+          _baseline?.generation ?? const GenerationConfiguration.empty();
+    }
+    return EngineLaunchConfiguration(
+      family: _defaults!.family,
+      formValues: _formValues,
+      argumentText: _argumentText.text,
+      drafter: _drafter,
+      generation: generation,
+    );
+  }
 
   void _loadDraft(String? engineId) {
-    for (final field in _fields.values) {
-      field.dispose();
-    }
-    _fields.clear();
+    _formValues.clear();
     final asset = _configurationAsset;
     _defaults = engineId == null
         ? null
@@ -117,14 +136,13 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
         (widget.onSaveInstance == null
             ? widget.catalog.launchConfigurationFor(engineId!, asset.id)
             : _defaults!);
-    for (final name in EngineLaunchConfiguration.labelsFor(
-      config.family,
-    ).keys) {
-      _fields[name] = TextEditingController(
-        text: config.formValues[name] ?? '',
-      );
-    }
+    _formValues.addAll(config.formValues);
+    _generationValues = Map<String, Object?>.from(config.generation.values);
+    _baseline = config;
     _argumentText.text = config.argumentText;
+    _drafter = config.drafter ?? config.legacyLlamaDrafter;
+    _legacyDrafter =
+        config.drafter == null && config.legacyLlamaDrafter != null;
     _result = null;
   }
 
@@ -134,9 +152,6 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
     _testCancellation?.cancel();
     _instanceName.dispose();
     _argumentText.dispose();
-    for (final field in _fields.values) {
-      field.dispose();
-    }
     super.dispose();
   }
 
@@ -171,6 +186,7 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
           installed.firstOrNull?.id;
       _engineId = engineId;
       _loadDraft(engineId);
+      if (engineId != null) await widget.catalog.readParameters(engineId);
       final preview = await _previewFor(engineId);
       if (!mounted) return;
       setState(() {
@@ -199,8 +215,25 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
         .toList();
     if (assets.length != 1) return null;
     if (entry.family == EngineFamily.splash) {
-      return (widget.catalog.runtimeFor(engineId) as SplashEngine)
-          .previewLaunch(assets.single.id, configuration: _draft);
+      final runtime = widget.catalog.runtimeFor(engineId) as SplashEngine;
+      if (_drafter == null) {
+        final migrated = await runtime.drafterConfigurationFor(
+          assets.single.id,
+          previous:
+              widget.initialEngineId == engineId &&
+                  widget.variant.id == _variant.id
+              ? widget.initialSplashAssembly
+              : null,
+        );
+        if (!mounted ||
+            _engineId != engineId ||
+            _configurationAsset?.id != assets.single.id) {
+          return null;
+        }
+        _drafter = migrated;
+        _legacyDrafter = migrated.enabled;
+      }
+      return runtime.previewLaunch(assets.single.id, configuration: _draft);
     }
     if (entry.family == EngineFamily.omlx) {
       return (widget.catalog.runtimeFor(engineId) as OmlxEngine).previewLaunch(
@@ -214,8 +247,18 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
         .previewLaunch(assets.single.id, configuration: _draft);
   }
 
-  Future<void> _selectEngine(String? engineId) async {
-    if (_engineId != null && _configurationAsset != null && _draft != null) {
+  Future<void> _selectEngine(
+    String? engineId, {
+    bool rememberCurrent = true,
+  }) async {
+    if (_generationError != null) {
+      setState(() => _error = _generationError);
+      return;
+    }
+    if (rememberCurrent &&
+        _engineId != null &&
+        _configurationAsset != null &&
+        _draft != null) {
       _drafts['$_engineId/${_configurationAsset!.id}'] = _draft!;
     }
     setState(() {
@@ -228,6 +271,7 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
     _previewGeneration++;
     _loadDraft(engineId);
     try {
+      if (engineId != null) await widget.catalog.readParameters(engineId);
       final preview = await _previewFor(engineId);
       if (mounted) setState(() => _preview = preview);
     } catch (error) {
@@ -246,15 +290,27 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
     final id = _engineId;
     final asset = _configurationAsset;
     final draft = _draft;
-    if (_working || _loading || id == null || asset == null || draft == null) {
+    if (_working ||
+        _loading ||
+        id == null ||
+        asset == null ||
+        draft == null ||
+        _generationError != null) {
       return;
     }
     setState(() {
       _working = true;
+      _testing = test;
       _error = null;
       _result = null;
     });
     try {
+      if (_legacyDrafter) {
+        throw StateError('旧草稿绑定待修复：请重新选择本地来源，或关闭草稿模型');
+      }
+      if (draft.drafter != null) {
+        DrafterConfiguration.fromJson(draft.drafter!.toJson());
+      }
       if (test) draft.validateArgumentText();
       if (test) {
         _testCancellation = DecisionCancellation();
@@ -270,12 +326,9 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
         await widget.onSaveInstance!(_instanceName.text, id, asset, draft);
         if (mounted) Navigator.pop(context);
       } else {
-        if (_defaults!.argumentText == draft.argumentText &&
-            EngineLaunchConfiguration.labelsFor(draft.family).keys.every(
-              (key) =>
-                  (_defaults!.formValues[key] ?? '') ==
-                  (_fields[key]?.text ?? ''),
-            )) {
+        if (draft.drafter == null &&
+            draft.generation.values.isEmpty &&
+            draft.loadingIdentity == _defaults!.loadingIdentity) {
           await widget.catalog.setModelLaunchMode(
             id,
             asset.id,
@@ -296,11 +349,80 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
       if (mounted) setState(() => _error = error.toString());
     } finally {
       _testCancellation = null;
-      if (mounted) setState(() => _working = false);
+      if (mounted) {
+        setState(() {
+          _working = false;
+          _testing = false;
+        });
+      }
     }
   }
 
   int _previewGeneration = 0;
+  Future<void> _selectModel(String id) async {
+    if (_generationError != null) {
+      setState(() => _error = _generationError);
+      return;
+    }
+    final current = _configurationAsset;
+    if (_engineId != null && current != null && _draft != null) {
+      _drafts['$_engineId/${current.id}'] = _draft!;
+    }
+    final asset = widget.modelChoices!.singleWhere((a) => a.id == id);
+    setState(() {
+      _variant = LocalModelVariant(
+        id: asset.id,
+        label: '${asset.format} · ${asset.quantization ?? ''}',
+        artifacts: [asset],
+      );
+      _package = LocalModelPackage(
+        directoryPath: File(asset.files.first.path).parent.path,
+        name: asset.name,
+        variants: [_variant],
+        details: [],
+      );
+    });
+    await _selectEngine(_engineId, rememberCurrent: false);
+  }
+
+  Future<void> _checkDrafter() async {
+    final engineId = _engineId;
+    final asset = _configurationAsset;
+    final configuration = _draft;
+    if (_working ||
+        engineId == null ||
+        asset == null ||
+        configuration == null) {
+      return;
+    }
+    setState(() {
+      _working = true;
+      _error = null;
+    });
+    try {
+      if (_legacyDrafter) {
+        throw StateError('旧草稿绑定待修复：请重新选择本地来源，或关闭草稿模型');
+      }
+      _testCancellation = DecisionCancellation();
+      final runtime = widget.catalog.runtimeFor(engineId);
+      if (runtime is SplashEngine) {
+        await runtime.prepareModelBinding(
+          asset.id,
+          configuration: configuration,
+          cancellation: _testCancellation,
+        );
+      } else if (runtime is LlamaEngine) {
+        await runtime.checkDrafterFiles(asset.id, configuration);
+        if (_testCancellation!.isCancelled) throw StateError('草稿文件检查已取消');
+      }
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      _testCancellation = null;
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
   Future<void> _updatePreview() async {
     final generation = ++_previewGeneration;
     setState(() {});
@@ -328,340 +450,327 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final entries = widget.catalog.state.entries
-        .where((value) => value.status == LlamaInstallationStatus.installed)
+        .where((e) => e.status == LlamaInstallationStatus.installed)
         .toList();
     final asset = _configurationAsset;
-    final impact = _draft == null || _previewBlocked
+    final draft = _draft;
+    final entry = entries.where((e) => e.id == _engineId).firstOrNull;
+    final runtime = entry == null ? null : widget.catalog.runtimeFor(entry.id);
+    final activeRuntime = widget.initialInstanceId == null
+        ? null
+        : widget.catalog.runningOwnerFor(widget.initialInstanceId!);
+    final check = asset == null || draft == null
+        ? null
+        : runtime is SplashEngine
+        ? runtime.drafterCheckFor(asset.id, draft)
+        : runtime is LlamaEngine
+        ? runtime.drafterCheckFor(asset.id, draft)
+        : null;
+    final impact = draft == null || _previewBlocked
         ? const <({String label, int? before, int? after})>[]
-        : widget.contextPreview?.call(_draft!) ??
+        : widget.contextPreview?.call(
+                draft,
+                resolvedContext: () => entry == null
+                    ? null
+                    : widget.catalog.contextLengthForConfiguration(
+                        entry.id,
+                        draft,
+                      ),
+              ) ??
               const <({String label, int? before, int? after})>[];
-    final impactPages = (impact.length / 5).ceil();
-    final impactPage = _impactPage.clamp(
-      0,
-      impactPages == 0 ? 0 : impactPages - 1,
-    );
+    final busy = _working || _loading;
+    final decisionModel = [
+      'kev',
+      'vllm-d3',
+      'laya',
+    ].contains(asset?.decisionType);
+    final choices = widget.modelChoices;
     return PopScope(
       canPop: !_working,
-      child: AlertDialog(
-        title: Text(widget.onSaveInstance == null ? '运行模型' : '实例配置'),
+      child: Dialog(
         insetPadding: const EdgeInsets.all(24),
-        content: SizedBox(
-          width: MediaQuery.sizeOf(context).width,
-          height: (MediaQuery.sizeOf(context).height - 220)
-              .clamp(260, 720)
+        child: SizedBox(
+          width: 1160,
+          height: (MediaQuery.sizeOf(context).height - 72)
+              .clamp(400, 850)
               .toDouble(),
-          child: Column(
-            children: [
-              Expanded(
-                child: ListView(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(22, 18, 22, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
                   children: [
-                    Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (widget.onSaveInstance != null) ...[
-                          TextField(
-                            key: const Key('launch-instance-name'),
-                            controller: _instanceName,
-                            enabled: !_working,
-                            decoration: const InputDecoration(
-                              labelText: '实例名称',
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          DropdownButtonFormField<String>(
-                            initialValue: _configurationAsset?.id,
-                            isExpanded: true,
-                            decoration: const InputDecoration(labelText: '模型'),
-                            items: [
-                              for (final model
-                                  in widget.modelChoices ?? <LibraryArtifact>[])
-                                DropdownMenuItem(
-                                  value: model.id,
-                                  child: Text(
-                                    model.name,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                            ],
-                            onChanged: _working
-                                ? null
-                                : (id) async {
-                                    if (id == null) return;
-                                    final asset = widget.modelChoices!
-                                        .singleWhere((a) => a.id == id);
-                                    setState(() {
-                                      _variant = LocalModelVariant(
-                                        id: asset.id,
-                                        label:
-                                            '${asset.format} · ${asset.quantization ?? ''}',
-                                        artifacts: [asset],
-                                      );
-                                      _package = LocalModelPackage(
-                                        directoryPath: File(
-                                          asset.files.first.path,
-                                        ).parent.path,
-                                        name: asset.name,
-                                        variants: [_variant],
-                                        details: [],
-                                      );
-                                    });
-                                    await _selectEngine(_engineId);
-                                  },
-                          ),
-                          const SizedBox(height: 12),
-                        ],
-                        Text(_package.name, style: theme.textTheme.titleSmall),
-                        const SizedBox(height: 4),
-                        Text(_variant.label, style: theme.textTheme.bodySmall),
-                        const SizedBox(height: 24),
-                        DropdownButtonFormField<String>(
-                          key: ValueKey(_loading),
-                          initialValue: _engineId,
-                          isExpanded: true,
-                          itemHeight: 58,
-                          decoration: const InputDecoration(
-                            labelText: '推理引擎',
-                            isDense: true,
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 14,
-                            ),
-                          ),
-                          selectedItemBuilder: (context) => [
-                            for (final entry in entries)
-                              Align(
-                                alignment: Alignment.centerLeft,
-                                child: Text(
-                                  '${engineDisplayName(entry)} · ${engineVersionLabel(entry.version)}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.bodyMedium,
-                                ),
-                              ),
-                          ],
-                          items: [
-                            for (final entry in entries)
-                              DropdownMenuItem(
-                                value: entry.id,
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      engineDisplayName(entry),
-                                      overflow: TextOverflow.ellipsis,
-                                      style: theme.textTheme.bodyMedium,
-                                    ),
-                                    const SizedBox(height: 3),
-                                    Text(
-                                      '${engineVersionLabel(entry.version)} · ${engineSourceLabel(entry)}',
-                                      overflow: TextOverflow.ellipsis,
-                                      style: theme.textTheme.bodySmall,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                          ],
-                          onChanged: _working || _loading
-                              ? null
-                              : _selectEngine,
+                    Expanded(
+                      child: Text(
+                        widget.onSaveInstance == null ? '运行模型' : '实例配置',
+                        style: theme.textTheme.titleLarge,
+                      ),
+                    ),
+                    if (_loading)
+                      const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 15),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (widget.onSaveInstance != null) ...[
+                      Expanded(
+                        child: TextField(
+                          key: const Key('launch-instance-name'),
+                          controller: _instanceName,
+                          enabled: !busy,
+                          decoration: const InputDecoration(labelText: '实例名称'),
                         ),
-                        if (_defaults != null) ...[
-                          const SizedBox(height: 20),
-                          if (impact.isNotEmpty) ...[
-                            const Text('容量预览（重启生效）'),
-                            for (final change
-                                in impact.skip(impactPage * 5).take(5))
-                              Text(
-                                '${change.label}：${change.before ?? '未指定'} → ${change.after ?? '未指定'}',
-                                key: ValueKey(
-                                  'context-preview:${change.label}',
-                                ),
-                                maxLines: 2,
+                      ),
+                      const SizedBox(width: 14),
+                    ],
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        key: ValueKey('instance-engine:$_engineId'),
+                        initialValue: _engineId,
+                        isExpanded: true,
+                        decoration: const InputDecoration(labelText: '推理引擎'),
+                        itemHeight: 58,
+                        selectedItemBuilder: (context) => [
+                          for (final e in entries)
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                '${engineDisplayName(e)} · ${engineVersionLabel(e.version)}',
+                                maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodyMedium,
                               ),
-                            if (impactPages > 1)
-                              Row(
+                            ),
+                        ],
+                        items: [
+                          for (final e in entries)
+                            DropdownMenuItem(
+                              value: e.id,
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  TextButton(
-                                    onPressed: impactPage == 0
-                                        ? null
-                                        : () => setState(
-                                            () => _impactPage = impactPage - 1,
-                                          ),
-                                    child: const Text('上一页'),
+                                  Text(
+                                    engineDisplayName(e),
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodyMedium,
                                   ),
-                                  Text('${impactPage + 1} / $impactPages'),
-                                  TextButton(
-                                    onPressed: impactPage + 1 == impactPages
-                                        ? null
-                                        : () => setState(
-                                            () => _impactPage = impactPage + 1,
-                                          ),
-                                    child: const Text('下一页'),
-                                  ),
-                                ],
-                              ),
-                            const Text('保存只更新待应用参数；成功重启后更新关联容量。'),
-                            const SizedBox(height: 12),
-                          ],
-                          for (final field
-                              in EngineLaunchConfiguration.labelsFor(
-                                _defaults!.family,
-                              ).entries)
-                            Padding(
-                              key: ValueKey(
-                                'engine-parameter-form:${field.key}',
-                              ),
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: TextField(
-                                      key: ValueKey(
-                                        'model-parameter:${field.key}',
-                                      ),
-                                      controller: _fields[field.key],
-                                      enabled: !_working,
-                                      onChanged: (_) => _updatePreview(),
-                                      decoration: InputDecoration(
-                                        labelText: field.value,
-                                        helperText: field.key,
-                                        errorText:
-                                            _preview?.overriddenForm.contains(
-                                                  field.key,
-                                                ) ==
-                                                true
-                                            ? '已被文本覆盖'
-                                            : null,
-                                      ),
-                                    ),
-                                  ),
-                                  SizedBox(
-                                    width: 110,
-                                    child:
-                                        _fields[field.key]!.text !=
-                                            (_defaults!.formValues[field.key] ??
-                                                '')
-                                        ? TextButton(
-                                            onPressed: _working
-                                                ? null
-                                                : () {
-                                                    _fields[field.key]!.text =
-                                                        _defaults!
-                                                            .formValues[field
-                                                            .key] ??
-                                                        '';
-                                                    _updatePreview();
-                                                  },
-                                            child: const Text('override ↶'),
-                                          )
-                                        : null,
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    '${engineVersionLabel(e.version)} · ${engineSourceLabel(e)}',
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodySmall,
                                   ),
                                 ],
                               ),
                             ),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: TextField(
-                                  key: const ValueKey('engine-argument-text'),
-                                  controller: _argumentText,
-                                  enabled: !_working,
-                                  minLines: 2,
-                                  maxLines: 6,
-                                  onChanged: (_) => _updatePreview(),
-                                  decoration: InputDecoration(
-                                    labelText: '启动参数文本',
-                                    helperText: '文本优先；保留未知参数、引号与重复参数。',
-                                    errorText: _previewBlocked ? _error : null,
-                                    errorMaxLines: 3,
-                                  ),
+                        ],
+                        onChanged: busy
+                            ? null
+                            : (id) => unawaited(_selectEngine(id)),
+                      ),
+                    ),
+                    if (choices != null && choices.isNotEmpty) ...[
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          key: ValueKey('instance-model:${asset?.id}'),
+                          initialValue: choices.any((a) => a.id == asset?.id)
+                              ? asset?.id
+                              : null,
+                          isExpanded: true,
+                          decoration: const InputDecoration(labelText: '目标模型'),
+                          items: [
+                            for (final a in choices)
+                              DropdownMenuItem(
+                                value: a.id,
+                                child: Text(
+                                  a.name,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
-                              SizedBox(
-                                width: 110,
-                                child:
-                                    _argumentText.text !=
-                                        _defaults!.argumentText
-                                    ? TextButton(
-                                        onPressed: _working
-                                            ? null
-                                            : () {
-                                                _argumentText.text =
-                                                    _defaults!.argumentText;
-                                                _updatePreview();
-                                              },
-                                        child: const Text('override ↶'),
-                                      )
-                                    : null,
+                          ],
+                          onChanged: busy
+                              ? null
+                              : (id) {
+                                  if (id != null) unawaited(_selectModel(id));
+                                },
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                if (choices == null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 9),
+                    child: Text(
+                      '${_package.name} · ${_variant.label}',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ),
+                const SizedBox(height: 15),
+                Expanded(
+                  child: draft == null || asset == null
+                      ? Center(child: Text(_loading ? '正在读取配置…' : '请先安装或关联引擎'))
+                      : ParameterEditor(
+                          key: ValueKey(
+                            'parameter-editor:$_engineId/${asset.id}',
+                          ),
+                          family: draft.family,
+                          formValues: _formValues,
+                          initialFormValues: _baseline?.formValues ?? const {},
+                          generationValues: _generationValues,
+                          initialGenerationValues:
+                              _baseline?.generation.values ?? const {},
+                          drafter: _drafter,
+                          initialDrafter: _baseline?.drafter,
+                          check: check,
+                          actualDrafter: widget.initialInstanceId == null
+                              ? null
+                              : activeRuntime is SplashEngine
+                              ? activeRuntime.actualDrafterFor(
+                                  widget.initialInstanceId!,
+                                )
+                              : activeRuntime is LlamaEngine
+                              ? activeRuntime.actualDrafterFor(
+                                  widget.initialInstanceId!,
+                                )
+                              : null,
+                          actualCompact:
+                              widget.initialInstanceId == null ||
+                                  activeRuntime is! SplashEngine
+                              ? null
+                              : activeRuntime.actualCompactFor(
+                                  widget.initialInstanceId!,
+                                ),
+                          legacyDrafter: _legacyDrafter,
+                          recognition: entry == null
+                              ? null
+                              : widget.catalog.parameterRecognitionFor(
+                                  entry.id,
+                                ),
+                          command: _preview,
+                          enabled: !busy,
+                          showGeneration:
+                              asset.kind != AssetKind.embedding &&
+                              !decisionModel,
+                          showDrafter:
+                              draft.family != EngineFamily.omlx &&
+                              asset.kind != AssetKind.embedding,
+                          decisionModel: decisionModel,
+                          capacityChanges: impact,
+                          onFormChanged: (values) {
+                            _formValues
+                              ..clear()
+                              ..addAll(values);
+                            unawaited(_updatePreview());
+                          },
+                          onGenerationChanged: (values) {
+                            _generationValues = values;
+                            unawaited(_updatePreview());
+                          },
+                          onDrafterChanged: (value) {
+                            _drafter = value;
+                            _legacyDrafter = false;
+                            unawaited(_updatePreview());
+                          },
+                          onCheckDrafter: _checkDrafter,
+                          argumentEditor: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              TextField(
+                                key: const Key('engine-argument-text'),
+                                controller: _argumentText,
+                                enabled: !busy,
+                                minLines: 3,
+                                maxLines: 7,
+                                onChanged: (_) => unawaited(_updatePreview()),
+                                decoration: InputDecoration(
+                                  labelText: '可选启动参数文本',
+                                  helperText: '已知参数可直接在各分组设置；同名调优项仍为文本优先。',
+                                  errorText: _previewBlocked ? _error : null,
+                                  errorMaxLines: 3,
+                                ),
                               ),
+                              const SizedBox(height: 15),
+                              if (_preview != null)
+                                EngineLaunchCommandView(command: _preview!),
                             ],
                           ),
-                        ],
-                        if (entries.isEmpty && !_loading)
-                          const Padding(
-                            padding: EdgeInsets.only(top: 12),
-                            child: Text('请先安装或关联引擎'),
-                          ),
-                      ],
+                        ),
+                ),
+                if (_working) const LinearProgressIndicator(minHeight: 2),
+                if (_generationError != null ||
+                    _error != null ||
+                    _result != null)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Text(
+                      _generationError ?? _error ?? _result!,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: _generationError != null || _error != null
+                            ? theme.colorScheme.error
+                            : null,
+                      ),
+                    ),
+                  ),
+                const Divider(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '保存配置不启动模型；生成默认值用于下一次请求。',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: _working
+                          ? (_testCancellation == null
+                                ? null
+                                : () => _testCancellation!.cancel())
+                          : () => Navigator.pop(context),
+                      child: Text(
+                        _working ? (_testing ? '取消测试' : '取消检查') : '取消',
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton(
+                      onPressed:
+                          busy ||
+                              _engineId == null ||
+                              _previewBlocked ||
+                              _generationError != null ||
+                              !widget.catalog.runtimeEnabled
+                          ? null
+                          : () => _submit(test: true),
+                      child: const Text('测试运行'),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed:
+                          busy ||
+                              draft == null ||
+                              asset == null ||
+                              _generationError != null
+                          ? null
+                          : () => _submit(test: false),
+                      child: const Text('保存'),
                     ),
                   ],
                 ),
-              ),
-              const Divider(height: 20),
-              if (_preview != null)
-                SizedBox(
-                  height: 130,
-                  child: SingleChildScrollView(
-                    child: EngineLaunchCommandView(command: _preview!),
-                  ),
-                ),
-              if (_working || _loading)
-                const LinearProgressIndicator(minHeight: 2),
-              if ((_error != null && !_previewBlocked) || _result != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Text(
-                    _error ?? _result!,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: _error == null ? null : theme.colorScheme.error,
-                    ),
-                  ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: _working
-                ? (_testCancellation == null
-                      ? null
-                      : () => _testCancellation!.cancel())
-                : () => Navigator.pop(context),
-            child: Text(_working ? '取消测试' : '取消'),
-          ),
-          OutlinedButton(
-            onPressed:
-                _working ||
-                    _loading ||
-                    _engineId == null ||
-                    _previewBlocked ||
-                    !widget.catalog.runtimeEnabled
-                ? null
-                : () => _submit(test: true),
-            child: const Text('测试运行'),
-          ),
-          FilledButton(
-            onPressed: _working || _loading || _draft == null || asset == null
-                ? null
-                : () => _submit(test: false),
-            child: const Text('保存'),
-          ),
-        ],
       ),
     );
   }

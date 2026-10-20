@@ -1,6 +1,14 @@
+import 'dart:convert';
+
 import 'launch_argument_text.dart';
 import 'engine_runtime.dart';
 import 'engine_parameter_recognition.dart';
+import 'generation_configuration.dart';
+import 'jev_debug.dart';
+import 'engine_parameter_definitions.dart';
+
+import 'drafter_configuration.dart';
+export 'drafter_configuration.dart';
 
 export 'launch_argument_text.dart' show LaunchArgumentTextException;
 
@@ -9,6 +17,8 @@ class EngineLaunchConfiguration {
     Map<String, String>? formValues,
     this.family = EngineFamily.llamaCpp,
     this.argumentText = '',
+    this.drafter,
+    this.generation = const GenerationConfiguration.empty(),
   }) : formValues = Map.unmodifiable(
          formValues ??
              (family == EngineFamily.llamaCpp
@@ -44,21 +54,103 @@ class EngineLaunchConfiguration {
     '--kv-format': 'KV 缓存格式',
     '--queue-size': '请求队列大小',
   };
-  static Map<String, String> labelsFor(EngineFamily family) => switch (family) {
-    EngineFamily.llamaCpp => formLabels,
-    EngineFamily.omlx => omlxFormLabels,
-    EngineFamily.splash => splashFormLabels,
+  static Map<String, String> labelsFor(EngineFamily family) => {
+    for (final field in EngineParameterDefinitions.known(family))
+      if (!field.managed) field.name: field.label,
   };
 
   final EngineFamily family;
   final Map<String, String> formValues;
   final String argumentText;
+
+  /// Null preserves an unmigrated selection; false explicitly ignores old drafts.
+  final DrafterConfiguration? drafter;
+  final GenerationConfiguration generation;
+
+  /// Request defaults do not change the identity of a loaded configuration.
+  String get loadingIdentity => jsonEncode({
+    'family': family.name,
+    'formValues': {
+      for (final key in formValues.keys.toList()..sort())
+        if (formValues[key]!.isNotEmpty) key: formValues[key],
+    },
+    'argumentText': argumentText,
+    'drafter': drafter?.toJson(),
+  });
   void validateArgumentText() => parseLaunchArgumentText(argumentText);
 
-  int? get contextLength {
+  /// Old CLI values are repair hints, never an implicit model selection.
+  DrafterConfiguration? get legacyLlamaDrafter {
+    if (family != EngineFamily.llamaCpp || drafter != null) return null;
+    final List<LaunchArgumentToken> tokens;
+    try {
+      tokens = parseLaunchArgumentText(argumentText);
+    } on LaunchArgumentTextException {
+      return null;
+    }
+    final rules = EngineParameterRecognition.builtIn();
+    var found = false;
+    String? path;
+    String? mode;
+    for (var index = 0; index < tokens.length; index++) {
+      final parts = tokens[index].value.split('=');
+      final name = rules.canonicalName(parts.first);
+      final value = parts.length > 1
+          ? parts.skip(1).join('=')
+          : index + 1 < tokens.length
+          ? tokens[index + 1].value
+          : '';
+      if (['--spec-draft-model', '--spec-draft-hf'].contains(name) ||
+          ['--fim-qwen-7b-spec', '--fim-qwen-14b-spec'].contains(name)) {
+        found = true;
+      }
+      if (name == '--spec-draft-model' && value.startsWith('/')) path = value;
+      if (name == '--spec-type') {
+        final drafts = value
+            .split(',')
+            .where((v) => v.startsWith('draft-'))
+            .toList();
+        if (drafts.isNotEmpty) found = true;
+        if (drafts.length == 1 &&
+            DrafterConfiguration.modes.containsKey(drafts.single)) {
+          mode = drafts.single;
+        }
+      }
+    }
+    return found
+        ? DrafterConfiguration(enabled: true, path: path, mode: mode)
+        : null;
+  }
+
+  static const _llamaModelSources = {
+    '--hf-repo',
+    '--hf-file',
+    '--hf-token',
+    '--model-url',
+    '--docker-repo',
+    '--spec-draft-model',
+    '--spec-draft-hf',
+    '--models-dir',
+    '--models-preset',
+  };
+  static const _llamaModelPresets = {
+    '--fim-qwen-1.5b-default',
+    '--fim-qwen-3b-default',
+    '--fim-qwen-7b-default',
+    '--fim-qwen-7b-spec',
+    '--fim-qwen-14b-spec',
+    '--fim-qwen-30b-default',
+  };
+
+  int? get contextLength => contextLengthFor();
+
+  int? contextLengthFor({EngineParameterRecognition? recognition}) {
     if (family == EngineFamily.omlx) return null;
     final name = family == EngineFamily.splash ? '--max-context' : '--ctx-size';
-    final normalized = _argumentValue(name)?.trim().toUpperCase();
+    final normalized = argumentValue(
+      name,
+      recognition: recognition,
+    )?.trim().toUpperCase();
     final match = RegExp(
       family == EngineFamily.splash ? r'^(\d+)(K)?$' : r'^(\d+)$',
     ).firstMatch(normalized ?? '');
@@ -71,15 +163,23 @@ class EngineLaunchConfiguration {
   /// Native inference parallelism; HTTP admission and queue sizes are separate.
   int? get inferenceConcurrency {
     if (family != EngineFamily.llamaCpp) return null;
-    final value = int.tryParse(_argumentValue('--parallel') ?? '');
+    final value = int.tryParse(argumentValue('--parallel') ?? '');
     return value != null && value > 0 ? value : null;
   }
 
-  String? _argumentValue(String name) {
-    final rules = EngineParameterRecognition.builtIn(family: family);
+  String? argumentValue(
+    String name, {
+    EngineParameterRecognition? recognition,
+  }) {
+    final rules =
+        recognition ?? EngineParameterRecognition.builtIn(family: family);
     final List<String> arguments;
     try {
-      arguments = command(executable: '', modelPath: '').arguments;
+      arguments = command(
+        executable: '',
+        modelPath: '',
+        recognition: rules,
+      ).arguments;
     } on LaunchArgumentTextException {
       return null;
     }
@@ -107,9 +207,45 @@ class EngineLaunchConfiguration {
   }) {
     final rules =
         recognition ?? EngineParameterRecognition.builtIn(family: family);
-    final labels = labelsFor(family);
+    final definitions = {
+      for (final field in EngineParameterDefinitions.forEngine(
+        family,
+        recognition: rules,
+      ))
+        field.name: field,
+    };
+    final labels = {
+      for (final entry in definitions.entries)
+        if (!entry.value.managed) entry.key: entry.value.label,
+      for (final key in formValues.keys)
+        if (!definitions.containsKey(key)) key: key,
+    };
     final configurationOnly = family == EngineFamily.omlx;
     final tokens = parseLaunchArgumentText(argumentText);
+    final ngram = <String>{};
+    var textSpecType = false;
+    if (family == EngineFamily.llamaCpp) {
+      for (var index = 0; index < tokens.length; index++) {
+        final parts = tokens[index].value.split('=');
+        if (parts.first == '--spec-default') ngram.add('ngram-mod');
+        if (rules.canonicalName(parts.first) != '--spec-type') continue;
+        textSpecType = true;
+        final value = parts.length > 1
+            ? parts.skip(1).join('=')
+            : index + 1 < tokens.length
+            ? tokens[index + 1].value
+            : '';
+        ngram.addAll(value.split(',').where((s) => s.startsWith('ngram-')));
+      }
+      if (!textSpecType) {
+        ngram.addAll(
+          (formValues['--spec-type'] ?? '')
+              .split(',')
+              .where((s) => s.startsWith('ngram-')),
+        );
+        if (formValues['--spec-default'] == 'true') ngram.add('ngram-mod');
+      }
+    }
     final managed = configurationOnly
         ? {
             '--model-dir': '当前未分配实际模型目录',
@@ -133,16 +269,87 @@ class EngineLaunchConfiguration {
             '--alias': alias ?? '<启动时分配的模型标识>',
             '--host': '127.0.0.1',
             '--port': port?.toString() ?? '<启动时分配的端口>',
+            if (drafter != null || ngram.isNotEmpty)
+              '--spec-type': drafter?.enabled == true
+                  ? drafter?.mode ?? '<请选择草稿模式>'
+                  : ngram.isEmpty
+                  ? 'none'
+                  : ngram.join(','),
+            if (drafter?.enabled == true &&
+                drafter?.usesEmbeddedTarget != true &&
+                drafter?.path != null)
+              '--spec-draft-model': drafter!.path!,
             ...managedArguments,
           };
+    String controlledName(String name) {
+      final canonical = rules.canonicalName(name);
+      if (family != EngineFamily.splash ||
+          rules.recognizes(name) ||
+          !name.startsWith('--')) {
+        return canonical;
+      }
+      final matches = {...rules.parameters.keys, ...managed.keys}
+          .where((option) => option.startsWith(name))
+          .map(rules.canonicalName)
+          .toSet();
+      return matches.length == 1 ? matches.single : canonical;
+    }
+
+    bool managedForm(String name) {
+      final canonical = controlledName(name);
+      return managed.containsKey(canonical) ||
+          definitions[canonical]?.managed == true ||
+          family == EngineFamily.llamaCpp &&
+              (_llamaModelSources.contains(canonical) ||
+                  _llamaModelPresets.contains(canonical) ||
+                  canonical == '--spec-default');
+    }
+
     final arguments = <String>[];
     final managedNames = <String>{};
     final overridden = <String>{};
     final notices = <String>{...rules.notices};
+    if (drafter?.enabled == true && ngram.isNotEmpty) {
+      notices.add('草稿模型已开启，本次不激活 ngram；文本中的设置仍保留。');
+    }
     for (var index = 0; index < tokens.length; index++) {
       final argument = tokens[index].value;
       final name = argument.split('=').first;
-      var controlled = rules.canonicalName(name);
+      var controlled = controlledName(name);
+      if (family == EngineFamily.llamaCpp &&
+          (_llamaModelSources.contains(controlled) ||
+              _llamaModelPresets.contains(controlled) ||
+              controlled == '--spec-default' ||
+              (drafter?.enabled != true &&
+                  controlled.startsWith('--spec-draft-')))) {
+        final flagOnly =
+            _llamaModelPresets.contains(controlled) ||
+            [
+              '--spec-default',
+              '--spec-draft-backend-sampling',
+              '--no-spec-draft-backend-sampling',
+              '--spec-draft-cpu-moe',
+            ].contains(controlled);
+        notices.add('$name 由当前模型与草稿配置管理；文本设置保留，不直接应用。');
+        if (!flagOnly &&
+            !argument.contains('=') &&
+            index + 1 < tokens.length &&
+            _isValue(tokens[index + 1])) {
+          index++;
+        }
+        continue;
+      }
+      if (family == EngineFamily.splash &&
+          drafter?.enabled == false &&
+          name.startsWith('--compact-draft-')) {
+        notices.add('$name 已保留；草稿关闭时不应用。');
+        if (!argument.contains('=') &&
+            index + 1 < tokens.length &&
+            _isValue(tokens[index + 1])) {
+          index++;
+        }
+        continue;
+      }
       if (family == EngineFamily.splash &&
           name.startsWith('--') &&
           name.length > 2 &&
@@ -157,6 +364,7 @@ class EngineLaunchConfiguration {
       }
       if (managed.containsKey(controlled)) {
         managedNames.add(controlled);
+        if (controlled == '--spec-type') overridden.add(controlled);
         if (!argument.contains('=') &&
             index + 1 < tokens.length &&
             _isValue(tokens[index + 1])) {
@@ -165,7 +373,12 @@ class EngineLaunchConfiguration {
         continue;
       }
       arguments.add(argument);
-      final canonical = rules.canonicalName(name);
+      final canonical =
+          definitions.values
+              .where((field) => field.negativeFlag == rules.canonicalName(name))
+              .firstOrNull
+              ?.name ??
+          rules.canonicalName(name);
       final description = rules.descriptionFor(name);
       if (rules.status == EngineHelpStatus.available ||
           rules.status == EngineHelpStatus.partial) {
@@ -194,7 +407,10 @@ class EngineLaunchConfiguration {
         }
         continue;
       }
-      overridden.add(canonical);
+      if (formValues[canonical]?.isNotEmpty ?? false) {
+        overridden.add(canonical);
+      }
+      if (definitions[canonical]?.kind == ParameterKind.flag) continue;
       String? value;
       final separator = argument.indexOf('=');
       if (separator >= 0) {
@@ -203,16 +419,44 @@ class EngineLaunchConfiguration {
         value = tokens[++index].value;
         arguments.add(value);
       }
+      // Help may describe multi-value options. Consume every literal value
+      // before interpreting the next token as another managed option.
+      var remaining = description == null || description.valueHint.isEmpty
+          ? 0
+          : description.valueHint.split(RegExp(r'\s+')).length - 1;
+      while (remaining > 0 &&
+          index + 1 < tokens.length &&
+          _isValue(tokens[index + 1])) {
+        arguments.add(tokens[++index].value);
+        remaining--;
+      }
       final notice = _valueNotice(canonical, value, family);
       if (notice != null) notices.add(notice);
     }
     for (final entry in formValues.entries) {
       if (overridden.contains(entry.key) || entry.value.isEmpty) continue;
+      if (rules.hasObservedHelp && !rules.recognizes(entry.key)) {
+        notices.add('${entry.key} 的支持情况尚未由当前版本帮助确认；启动时由引擎校验。');
+      }
       final notice = _valueNotice(entry.key, entry.value, family);
       if (notice != null) notices.add(notice);
     }
     return EngineLaunchCommand(
       executable: executable,
+      secretOptions: {
+        '--api-key',
+        for (final field in definitions.values)
+          if (field.kind == ParameterKind.secret) ...[
+            field.name,
+            if (family == EngineFamily.splash)
+              for (var length = 3; length < field.name.length; length++)
+                field.name.substring(0, length),
+          ],
+        for (final name in rules.parameters.keys)
+          if (definitions[rules.canonicalName(name)]?.kind ==
+              ParameterKind.secret)
+            name,
+      },
       provisional:
           !configurationOnly &&
           (alias == null &&
@@ -244,10 +488,18 @@ class EngineLaunchConfiguration {
           for (final entry in managed.entries) ...[entry.key, entry.value],
         for (final name in labels.keys)
           if (!overridden.contains(name) &&
-              (formValues[name]?.isNotEmpty ?? false)) ...[
-            name,
-            formValues[name]!,
-          ],
+              !managedForm(name) &&
+              (formValues[name]?.isNotEmpty ?? false) &&
+              !(definitions[name]?.group == 'draft' &&
+                  drafter?.enabled != true))
+            ...(definitions[name] ??
+                    EngineParameterDefinition(
+                      name,
+                      name,
+                      'extra',
+                      ParameterKind.text,
+                    ))
+                .arguments(formValues[name]!),
         ...arguments,
         if (family == EngineFamily.splash)
           for (final entry in managed.entries) ...[entry.key, entry.value],
@@ -264,6 +516,20 @@ class EngineLaunchConfiguration {
   static String? _valueNotice(String name, String? value, EngineFamily family) {
     if (value == null || value.isEmpty) {
       return '$name 缺少值，仍保留并交由引擎判断。';
+    }
+    if (family == EngineFamily.llamaCpp && !formLabels.containsKey(name)) {
+      final definition = EngineParameterDefinitions.known(family)
+          .where((d) => d.name == name)
+          .firstOrNull;
+      if (definition?.kind == ParameterKind.integer &&
+          int.tryParse(value) == null) {
+        return '$name 通常需要整数值，仍保留并交由引擎判断。';
+      }
+      if (definition?.kind == ParameterKind.decimal &&
+          double.tryParse(value) == null) {
+        return '$name 通常需要数值，仍保留并交由引擎判断。';
+      }
+      return null;
     }
     if (family == EngineFamily.omlx) {
       if (name == '--max-concurrent-requests' && int.tryParse(value) == null) {
@@ -287,8 +553,9 @@ class EngineLaunchConfiguration {
             (int.tryParse(count) ?? 0) <= 0) {
           return '$name 通常需要 auto 或正整数及受支持的单位，仍保留并交由引擎判断。';
         }
-      } else if (name == '--kv-format' && !['int8', 'bf16'].contains(value)) {
-        return '$name 常用值为 int8、bf16，仍保留并交由引擎判断。';
+      } else if (name == '--kv-format' &&
+          !['int8', 'bf16', 'q4h', 'q4_0', 'q4_0_unrotated'].contains(value)) {
+        return '$name 不属于当前内置格式，仍保留并交由引擎判断。';
       } else if (name == '--queue-size' &&
           (!RegExp(r'^[+]?\d+$').hasMatch(value.trim()) ||
               (int.tryParse(value) ?? 0) <= 0)) {
@@ -315,11 +582,14 @@ class EngineLaunchConfiguration {
         .where((item) => item.name == familyValue)
         .singleOrNull;
     if (family == null) throw const FormatException('引擎启动配置家族无效');
-    final labels = labelsFor(family);
+    if (family == EngineFamily.omlx && value['drafter'] != null) {
+      throw const FormatException('此引擎不支持草稿模型配置');
+    }
     final values = <String, String>{};
     for (final entry in (value['formValues'] as Map).entries) {
       if (entry.key is! String ||
-          !labels.containsKey(entry.key) ||
+          !RegExp(r'^--[A-Za-z0-9][A-Za-z0-9_-]*$')
+              .hasMatch(entry.key as String) ||
           entry.value is! String) {
         throw const FormatException('引擎启动表单无效');
       }
@@ -331,6 +601,12 @@ class EngineLaunchConfiguration {
       family: family,
       formValues: values,
       argumentText: text,
+      generation: GenerationConfiguration.fromJson(value['generation']),
+      drafter: (value['drafter'] ?? value['splashDrafter']) == null
+          ? null
+          : DrafterConfiguration.fromJson(
+              value['drafter'] ?? value['splashDrafter'],
+            ),
     );
   }
 
@@ -338,6 +614,8 @@ class EngineLaunchConfiguration {
     if (family != EngineFamily.llamaCpp) 'family': family.name,
     'formValues': formValues,
     'argumentText': argumentText,
+    if (drafter != null) 'drafter': drafter!.toJson(),
+    if (generation.values.isNotEmpty) 'generation': generation.toJson(),
   };
 }
 
@@ -349,21 +627,48 @@ class EngineLaunchCommand {
     this.isConfigurationOnly = false,
     Set<String> overriddenForm = const {},
     List<String> notices = const [],
+    Set<String> secretOptions = const {'--api-key'},
   }) : arguments = List.unmodifiable(arguments),
-       overriddenForm = Set.unmodifiable(overriddenForm),
-       notices = List.unmodifiable(notices);
+       overriddenForm = Set.unmodifiable(overriddenForm) {
+    final secrets = <String>[];
+    for (var index = 0; index < arguments.length; index++) {
+      final parts = arguments[index].split('=');
+      if (!secretOptions.contains(parts.first.replaceAll('_', '-'))) continue;
+      final value = parts.length > 1
+          ? parts.skip(1).join('=')
+          : index + 1 < arguments.length
+          ? arguments[++index]
+          : '';
+      secrets.addAll([value, ...value.split(',')]);
+    }
+    final display = sealDebugJson({
+      'credentials': [
+        for (final secret in secrets) {'api_key': secret},
+      ],
+      'executable': executable,
+      'arguments': arguments,
+      'notices': notices,
+    });
+    _displayExecutable = display['executable']! as String;
+    _displayArguments = (display['arguments']! as List).cast<String>();
+    this.notices = List.unmodifiable(
+      (display['notices']! as List).cast<String>(),
+    );
+  }
 
   final String executable;
   final List<String> arguments;
   final bool provisional;
   final bool isConfigurationOnly;
   final Set<String> overriddenForm;
-  final List<String> notices;
+  late final List<String> notices;
+  late final String _displayExecutable;
+  late final List<String> _displayArguments;
 
   /// Display and copying only. Execution receives the original argument array.
   String get displayText => [
-    if (!isConfigurationOnly) executable,
-    ...arguments,
+    if (!isConfigurationOnly) _displayExecutable,
+    ..._displayArguments,
   ].map(_quote).join(' ');
 
   static final _unquoted = RegExp(r'^[a-zA-Z0-9_@%+=:,./-]+$');
