@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +9,12 @@ class ActualAppEnvironment {
   final Directory _root;
   final IOOverrides? _previous;
   final _ActualAppIO _io;
+
+  void delayEngineRegistryReads(Duration delay) {
+    _io.engineRegistryReadDelay = delay;
+  }
+
+  int get delayedEngineRegistryReads => _io.delayedEngineRegistryReads;
 
   static Future<ActualAppEnvironment> create() async {
     final root = await Directory.systemTemp.createTemp('gmd-actual-app-');
@@ -62,6 +69,8 @@ final class _ActualAppIO extends IOOverrides {
   final sdkConnections = <String>[];
   final listenerPorts = <int>[];
   final storagePaths = <String>[];
+  Duration engineRegistryReadDelay = Duration.zero;
+  int delayedEngineRegistryReads = 0;
 
   String _path(String path) {
     final home = Platform.environment['HOME']!;
@@ -82,7 +91,13 @@ final class _ActualAppIO extends IOOverrides {
   }
 
   @override
-  File createFile(String path) => super.createFile(_path(path));
+  File createFile(String path) {
+    final file = super.createFile(_path(path));
+    return path.endsWith('/engines.json')
+        ? _EngineRegistryFile(file, this)
+        : file;
+  }
+
   @override
   Directory createDirectory(String path) => super.createDirectory(_path(path));
 
@@ -144,5 +159,27 @@ final class _ActualAppIO extends IOOverrides {
     );
     listenerPorts.add(listener.port);
     return listener;
+  }
+}
+
+/// Delay only external disk reads; catalog parsing and state remain production.
+final class _EngineRegistryFile extends Fake implements File {
+  _EngineRegistryFile(this.file, this.io);
+  final File file;
+  final _ActualAppIO io;
+
+  @override
+  String get path => file.path;
+  @override
+  Directory get parent => file.parent;
+  @override
+  Future<bool> exists() => file.exists();
+  @override
+  Future<String> readAsString({Encoding encoding = utf8}) {
+    final delay = io.engineRegistryReadDelay;
+    if (delay == Duration.zero) return file.readAsString(encoding: encoding);
+    io.delayedEngineRegistryReads++;
+    return Future<void>.delayed(delay)
+        .then((_) => file.readAsString(encoding: encoding));
   }
 }

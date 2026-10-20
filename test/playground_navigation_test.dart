@@ -18,21 +18,39 @@ void main() {
   late ActualAppEnvironment environment;
   setUp(() async => environment = await ActualAppEnvironment.create());
   tearDown(() => environment.close());
-  testWidgets('实例入口属于引擎区并在切换区域后保持', (tester) async {
-    await _runWithCleanup(tester, () async {
-      await _openApp(tester);
-      await _tap(tester, _navigation('实例'));
-      expect(find.byType(InstancesPage), findsOneWidget);
-      expect(find.text('创建实例').hitTestable(), findsOneWidget);
-      await _tap(tester, find.text('测试场'));
-      expect(find.text('创建实例').hitTestable(), findsNothing);
-      await _tap(tester, find.text('引擎'));
-      expect(find.byType(InstancesPage), findsOneWidget);
-      expect(find.text('创建实例').hitTestable(), findsOneWidget);
-      expect(find.byKey(const Key('playground-capability-tabs')), findsNothing);
-      expect(tester.takeException(), isNull);
+  for (final (description, readDelay) in const [
+    ('实例入口属于引擎区并在切换区域后保持', Duration.zero),
+    ('实例导航等待真实登记文件读取后保持页面和资源归属', Duration(milliseconds: 100)),
+  ]) {
+    testWidgets(description, (tester) async {
+      await _runWithCleanup(tester, () async {
+        await _openApp(tester);
+        environment.delayEngineRegistryReads(readDelay);
+        await _tap(tester, _navigation('实例'));
+        expect(
+          environment.delayedEngineRegistryReads,
+          readDelay == Duration.zero ? isZero : greaterThan(0),
+        );
+        expect(find.byType(InstancesPage), findsOneWidget);
+        expect(find.text('创建实例').hitTestable(), findsOneWidget);
+        final createButton = find.ancestor(
+          of: find.text('创建实例'),
+          matching: find.byWidgetPredicate((widget) => widget is TextButton),
+        );
+        expect(tester.widget<TextButton>(createButton).onPressed, isNotNull);
+        await _tap(tester, find.text('测试场'));
+        expect(find.text('创建实例').hitTestable(), findsNothing);
+        await _tap(tester, find.text('引擎'));
+        expect(find.byType(InstancesPage), findsOneWidget);
+        expect(find.text('创建实例').hitTestable(), findsOneWidget);
+        expect(
+          find.byKey(const Key('playground-capability-tabs')),
+          findsNothing,
+        );
+        expect(tester.takeException(), isNull);
+      });
     });
-  });
+  }
   testWidgets('顶层区域先于侧栏，引擎六入口与共享设置可访问', (tester) async {
     tester.view.physicalSize = const Size(900, 560);
     tester.view.devicePixelRatio = 1;
@@ -318,13 +336,31 @@ Future<void> _openApp(WidgetTester tester) async {
 
 Future<void> _tap(WidgetTester tester, Finder finder) async {
   await tester.ensureVisible(finder);
-  await tester.pumpAndSettle();
+  await _settleWithRealIo(tester);
   await tester.runAsync(
     () => HttpOverrides.runWithHttpOverrides(() async {
       await tester.tap(finder);
       await tester.pump();
-      await Future<void>.delayed(const Duration(milliseconds: 30));
     }, _Network()),
   );
-  await tester.pumpAndSettle();
+  await _settleWithRealIo(tester);
+}
+
+Future<void> _settleWithRealIo(WidgetTester tester) async {
+  // Real file/socket callbacks must progress while the loading frames settle.
+  var settled = false;
+  await tester.runAsync(() async {
+    final elapsed = Stopwatch()..start();
+    do {
+      await tester.pump(const Duration(milliseconds: 16));
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      if (!tester.binding.hasScheduledFrame) {
+        settled = true;
+        return;
+      }
+    } while (elapsed.elapsed < const Duration(seconds: 5));
+  });
+  if (!settled) {
+    throw StateError('导航在允许真实 I/O 完成后仍持续调度帧');
+  }
 }
