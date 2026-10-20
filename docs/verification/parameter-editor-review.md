@@ -45,6 +45,50 @@
 
 本补项与初始报告共计 5 个 P2，后续在新提交候选中逐项复审。
 
-## 当前状态
+## 首审修复后的门禁
 
-Standards 硬性违规 0、P3 判断 1；Spec 首审 4 项，加补核 1 项，共 5 个 P2。修复均已冻结并通过对应受影响回归；最终完整门禁 `run-kmiKaK` 的 1155 项全部通过，已提交候选复审仍待完成。
+Standards 硬性违规 0、P3 判断 1；Spec 首审 4 项，加补核 1 项，共 5 个 P2。修复均已冻结并通过对应受影响回归；最终完整门禁 `run-kmiKaK` 的 1155 项全部通过，随后对已提交候选执行以下复审。
+
+## 阶段复审
+
+### Standards
+
+阶段 R2：基准 `6c96dcf31021e8a5207ad352b01d7d038df2b83b`；已提交候选及核对时 HEAD 为 `929780c1858868722e2c37f314f2b2921db42169`。总比较命令 `git diff 6c96dcf31021e8a5207ad352b01d7d038df2b83b...HEAD`；提交为 `401f34d feat: add A parameter editor and explicit drafter configuration`、`929780c fix: preserve exact test inputs and drafter preparation ownership`。
+
+硬性违规：0。新增坏味道判断：0。沿用首审 P3 判断：1，非阻塞。
+
+复用 `stage-standards-401f34d.md` 的完整覆盖，逐块核对 C1→C2 的 9 个源码/测试文件、3 个文档及其实际调用路径；两轮联合覆盖基准→C2 的全部 62 个变更文件。标准沿用 AGENTS.md、engineering.md E01～E12、design.md、CONTEXT.md、spec.md 已确认测试边界、ADR 0009/0010 和 llama.cpp 范围调整；这些标准文件本轮未变。当前树未发现 CODING_STANDARDS 或 CONTRIBUTING 文件。完整 12 项坏味道基线均作为判断项考虑，跳过工具已强制的格式/分析事项。
+
+修复核对（Standards 视角）：
+
+- E02/E06：[lib/model_launch_test.dart:134](https://github.com/Ghost233/GhostModelDeck/blob/929780c1858868722e2c37f314f2b2921db42169/lib/model_launch_test.dart#L134) 复用既有精确请求编码器，经公开网关验证精确 seed，没有新建第二套协议入口。
+- E05/E07：[lib/parameter_value_field.dart:89](https://github.com/Ghost233/GhostModelDeck/blob/929780c1858868722e2c37f314f2b2921db42169/lib/parameter_value_field.dart#L89)、`:531` 共用同一焦点节点，局部输入归属清楚；禁用时同步外部清空值。
+- E03/E04：[lib/splash_engine.dart:1783](https://github.com/Ghost233/GhostModelDeck/blob/929780c1858868722e2c37f314f2b2921db42169/lib/splash_engine.dart#L1783)、`:1821`、`:1827` 对每项准备持有独立 owner；外部准备前登记资源，启动前转交 `_preparing`，finally 释放；停止及退出等待已准入任务。相应测试从公开模型库删除和引擎入口验证并发、失败、取消、晚到与收尾，替身限定于进程 I/O。
+- E07：[lib/model_run_dialog.dart:85](https://github.com/Ghost233/GhostModelDeck/blob/929780c1858868722e2c37f314f2b2921db42169/lib/model_run_dialog.dart#L85) 缓存配置与来源确认状态；[lib/parameter_editor.dart:787](https://github.com/Ghost233/GhostModelDeck/blob/929780c1858868722e2c37f314f2b2921db42169/lib/parameter_editor.dart#L787) 仅明确来源操作或关闭触发确认，模式和调优不改来源权威状态。
+- [lib/model_launch_test.dart:15](https://github.com/Ghost233/GhostModelDeck/blob/929780c1858868722e2c37f314f2b2921db42169/lib/model_launch_test.dart#L15) 与 [lib/model_run_dialog.dart:744](https://github.com/Ghost233/GhostModelDeck/blob/929780c1858868722e2c37f314f2b2921db42169/lib/model_run_dialog.dart#L744) 共用实际短测上限常量，避免请求与展示产生重复真值。
+
+**保留 [P3] 可能存在 Duplicated Code。** 固定 C2 的 [test/seed64_generation_test.dart:302](https://github.com/Ghost233/GhostModelDeck/blob/929780c1858868722e2c37f314f2b2921db42169/test/seed64_generation_test.dart#L302) 与 [test/fixtures/generation_runtime.dart:34](https://github.com/Ghost233/GhostModelDeck/blob/929780c1858868722e2c37f314f2b2921db42169/test/fixtures/generation_runtime.dart#L34) 仍重复搭建和释放同一运行图；今后生命周期变更需同步两份夹具。最低修复仍为复用 `GenerationTestRuntime.create/close`，仅保留原始 JSON 发送辅助函数。这是首审判断项，非硬性规则，本轮不阻塞。
+
+本报告只读固定提交，未运行测试、模型或窗口验收；门禁与原生结果由主线程提供，不声称独立复现。此为阶段复审，不代替集成后的总跨流程审查。
+
+### Spec
+
+已断言最终工作树 HEAD 为 `929780c1858868722e2c37f314f2b2921db42169`。基准为 `6c96dcf31021e8a5207ad352b01d7d038df2b83b`，审查命令为 `git diff 6c96dcf31021e8a5207ad352b01d7d038df2b83b...HEAD`。提交为 `401f34d feat: add A parameter editor and explicit drafter configuration`、`929780c fix: preserve exact test inputs and drafter preparation ownership`。
+
+复用首审及短测补核的 42 条故事、13 切片和 82 项验收覆盖，完整检查 C1→C2 的 9 个源码/测试文件、3 个文档及受影响调用路径。代码证据均来自 C2 的 `git show`。
+
+五项 P2 均关闭：
+
+- **精确 seed。** [model_launch_test.dart:134](https://github.com/Ghost233/GhostModelDeck/blob/929780c1858868722e2c37f314f2b2921db42169/lib/model_launch_test.dart#L134) 使用统一公开编码器。满足 [保存温度和响应长度并让下一次请求生效](https://github.com/Ghost233/GhostModelDeck/issues/121) AC3“合法范围与原生契约一致”。公开短测断言精确数字、边界拒绝及临时实例收尾；原生 GUI 的 uint64 最大值短测也已成功。
+- **路径光标。** [parameter_value_field.dart:531](https://github.com/Ghost233/GhostModelDeck/blob/929780c1858868722e2c37f314f2b2921db42169/lib/parameter_value_field.dart#L531) 绑定原有焦点节点。满足父规格第 72 行“连续输入、粘贴和中间编辑保持正常焦点与光标行为”。公开 A 编辑回归覆盖中间插入、连续粘贴、取消及保存重开。
+- **准备资源保护。** [splash_engine.dart:1838](https://github.com/Ghost233/GhostModelDeck/blob/929780c1858868722e2c37f314f2b2921db42169/lib/splash_engine.dart#L1838) 在外部准备前登记独立文件使用者，finally 释放；1799 行在释放前移交启动保护。满足第 152 行“目标和草稿全部分片共用既有在用保护”。回归覆盖分片、失败、取消、并发、移交及退出等待。
+- **旧来源确认。** [parameter_editor.dart:794](https://github.com/Ghost233/GhostModelDeck/blob/929780c1858868722e2c37f314f2b2921db42169/lib/parameter_editor.dart#L794) 仅由来源动作或明确关闭确认；组合缓存保留未确认状态。满足第 94 行“用户须重新选择本地来源或明确关闭”。模式、调优及切换组合均不能绕过。
+- **短测覆盖说明。** [model_run_dialog.dart:745](https://github.com/Ghost233/GhostModelDeck/blob/929780c1858868722e2c37f314f2b2921db42169/lib/model_run_dialog.dart#L745) 明示本次 32 token、思考模板沿用配置和临时实例停止，使用请求同一常量。满足第 104 行“明确展示的单次覆盖值”及 [配置思考、模板和 Splash 调度并验证下一次请求](https://github.com/Ghost233/GhostModelDeck/issues/131) AC6。原生浅色 100% 和深色 150% 均已观察可见。
+
+要求缺失或部分实现：0；范围蔓延：0；错误实现：0。剩余 P0/P1/P2：0，当前阶段 Spec R2 通过。
+
+已核对四项有效红灯、152 项关联回归、1155 项完整门禁和 34 项布局证据。9 个增量源码/测试与冻结输入一致；157 项生产输入与 C2 Git blob 全部一致，产物为 arm64。两组真实 Splash 和原生窗口结果保持原观察边界。未增添 ANE、性能或 Schema/思考命中实测门槛，未把 llama.cpp 未知活跃状态升级为致命判断。本审查未重跑测试或模型；[在原生桌面完成配置、调用与退出并交付最终候选](https://github.com/Ghost233/GhostModelDeck/issues/127) 后续集成、工单及总 PR 交付和总审查仍由主线程完成。
+
+## 当前结论
+
+Standards：硬性违规 0，保留 P3 判断 1；Spec：五项 P2 全部关闭，剩余 P0/P1/P2 为 0。运行候选固定为 `929780c`，后续仅记录验收结论的文档提交不改变产品输入。集成后的总 diff 与跨流程审查另行执行，阶段报告不代替总审查。

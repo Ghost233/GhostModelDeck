@@ -2,13 +2,15 @@
 
 <!-- parameter-editor-audit-status -->
 
-**交付进行中。** 13 个切片已整合，独立首审及补核的 5 项 P2 已修复。最终完整门禁 1155 项全部通过，对应回归、最小窗口布局 34 项、同源两组真实 Splash、arm64 生产构建及原生短测均通过。接下来核对已提交候选的双轴复审，完成阶段集成及工单结项。
+**实现与验证完成。** 13 个切片已整合，独立复审确认 5 项 P2 全部关闭，无剩余 P0/P1/P2。最终完整门禁 1155 项、最小窗口布局 34 项、同源两组真实 Splash、arm64 生产构建及原生短测均通过。Standards 无硬性违规，保留 1 项非阻塞 P3 夹具复用建议。工单与 PR 的实时交付结果见文末链接。
 
 2026-10-20。依据为[原规格](../requirements/parameter-editor-spec.md)、[13 项拆解](../requirements/parameter-editor-delivery-plan.md)、[llama.cpp 范围调整](../requirements/parameter-editor-llama-adjustment.md)、[ADR 0009](../adr/0009-explicit-drafter-configuration.md) 和 [ADR 0010](../adr/0010-instance-generation-defaults.md)。原规格保留创建时的状态文字；当前完成状态以本文和工单为准。
 
 ## 候选与执行入口
 
 总交付基准为 `6c96dcf31021e8a5207ad352b01d7d038df2b83b`。阶段候选进入 `dev`，总 PR 指向 `main`，本轮只推进到 ready。未设置硬性 token 或时间预算。
+
+修复后的已提交运行候选为 `929780c1858868722e2c37f314f2b2921db42169`。274 个受跟踪门禁输入与其 Git blob 一致，另 484 项固定题源材料按原提交核验；后续验收文档提交不改变已验证输入。
 
 实现者分别负责加载、生成和认证，整合者串行接收冻结增量。最终测试副本排除用户原有 `.gitignore`、`lib/model_library.dart` 和 `test/model_library_test.dart` 三处改动；原工作区保留这些改动。排除原测试块留下的相邻空白仅在副本由固定 Dart 格式化。
 
@@ -116,6 +118,8 @@ Splash 和 llama.cpp 各两个运行实例使用不同凭据。状态、发现�
 
 此前整合门禁 `run-zDFNHk` 因补入该已确认展示修复而主动中断；677 项已完成段保留，标准报告未完成，宿主退出 1，不计通过，也不归为产品失败。原始中断收尾现象见 `review-fix-host-gates/after-C1-four-P2/interruption-final.json`。
 
+阶段复审以 `929780c` 为最新已提交候选：Standards 无硬性违规、无新增判断项，保留原 P3；Spec 确认五项 P2 均关闭，无缺失、越界或错误实现。复审覆盖修复、新文档及受影响调用路径，与首审联合覆盖基准至候选全部 62 个文件。两轴报告见[独立审查记录](parameter-editor-review.md)。集成后的总跨流程审查另由交付流程执行。
+
 ## 失败历史与证据边界
 
 | 记录 | 结果及处理 |
@@ -131,4 +135,4 @@ Splash 和 llama.cpp 各两个运行实例使用不同凭据。状态、发现�
 
 [完整 A/B/C 原型](https://github.com/Ghost233/GhostModelDeck/tree/codex/prototype-parameter-editor-a) 保留在归档提交 `ab22a624243e552b8bcf37f694402de07ad5a23b`。主工作区 `.tooling/parameter-editor-prototype/archive/` 留有原预览来源。
 
-父项为 [A 方案：实例参数控件、生成默认值与显式草稿模型](https://github.com/Ghost233/GhostModelDeck/issues/118)。父规格正文保持原样，子项按本轮验收范围结项。[A 方案：参数控件、生成默认值与显式草稿配置](https://github.com/Ghost233/GhostModelDeck/pull/132) 保持草稿。五项审查修复后的完整门禁已通过，已提交候选复审及集成仍待完成，子工单尚未关闭。
+父项为 [A 方案：实例参数控件、生成默认值与显式草稿模型](https://github.com/Ghost233/GhostModelDeck/issues/118)，正文及开放状态保持原样。阶段 PR 为 [A 方案：参数控件、生成默认值与显式草稿配置](https://github.com/Ghost233/GhostModelDeck/pull/132)。子项按批准顺序逐项结项，阶段进入 `dev`，总 PR 指向 `main` 并以 ready 为本轮交付终点；实时状态、总 PR 链接和结项评论以这些 GitHub 入口为准。
