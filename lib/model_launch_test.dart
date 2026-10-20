@@ -5,11 +5,14 @@ import 'dart:math';
 import 'decision_protocol.dart';
 import 'engine_catalog.dart';
 import 'engine_launch_configuration.dart';
+import 'generation_seed.dart';
 import 'llama_engine.dart';
 import 'model_library.dart';
 import 'public_gateway.dart';
 import 'splash_engine.dart';
 import 'omlx_engine.dart';
+
+const modelLaunchTestMaxTokens = 32;
 
 /// Owns only the temporary instance and its ephemeral public HTTP listener.
 /// Saved configuration, public registrations and existing instances are untouched.
@@ -118,7 +121,7 @@ Future<String> testModelLaunch({
               'messages': [
                 {'role': 'user', 'content': 'Reply only OK.'},
               ],
-              'max_tokens': 32,
+              'max_tokens': modelLaunchTestMaxTokens,
               'stream': false,
             };
     }
@@ -128,7 +131,7 @@ Future<String> testModelLaunch({
     final request = await client
         .postUrl(requestUrl)
         .timeout(const Duration(seconds: 30));
-    final bytes = utf8.encode(jsonEncode(body));
+    final bytes = utf8.encode(encodeGenerationRequest(body));
     request.headers.contentType = ContentType.json;
     request.contentLength = bytes.length;
     request.add(bytes);

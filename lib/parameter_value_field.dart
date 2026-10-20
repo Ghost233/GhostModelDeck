@@ -88,7 +88,7 @@ class _ParameterValueFieldState extends State<ParameterValueField> {
   @override
   void didUpdateWidget(ParameterValueField old) {
     super.didUpdateWidget(old);
-    if (old.value != widget.value && !_focus.hasFocus) {
+    if (old.value != widget.value && (!_focus.hasFocus || widget.disabled)) {
       _text.text = _display(widget.value);
       _readQuantity();
     }
@@ -528,6 +528,7 @@ class _ParameterValueFieldState extends State<ParameterValueField> {
             child: TextField(
               key: Key('parameter-path:${widget.id}'),
               controller: _text,
+              focusNode: _focus,
               enabled: !widget.disabled,
               decoration: InputDecoration(
                 hintText: kind == ParameterKind.file ? '选择本地文件' : '选择本地目录',

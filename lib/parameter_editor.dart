@@ -496,6 +496,7 @@ class ParameterEditor extends StatefulWidget {
     required this.generationValues,
     required this.onGenerationChanged,
     required this.onDrafterChanged,
+    this.onDrafterSourceConfirmed,
     this.drafter,
     this.check,
     this.actualDrafter,
@@ -523,6 +524,7 @@ class ParameterEditor extends StatefulWidget {
   final DrafterConfiguration? initialDrafter;
   final List<({String label, int? before, int? after})> capacityChanges;
   final ValueChanged<DrafterConfiguration> onDrafterChanged;
+  final VoidCallback? onDrafterSourceConfirmed;
   final DrafterCheck? check, actualDrafter;
   final String? actualCompact;
   final Future<void> Function()? onCheckDrafter;
@@ -787,13 +789,22 @@ class _ParameterEditorState extends State<ParameterEditor> {
     String? path,
     String? mode,
     bool clearPath = false,
-  }) => widget.onDrafterChanged(
-    DrafterConfiguration(
-      enabled: enabled ?? widget.drafter?.enabled ?? false,
-      path: clearPath ? null : path ?? widget.drafter?.path,
-      mode: mode ?? widget.drafter?.mode,
-    ),
-  );
+    bool sourceConfirmed = false,
+  }) {
+    if (sourceConfirmed || enabled == false) {
+      widget.onDrafterSourceConfirmed?.call();
+    }
+    widget.onDrafterChanged(
+      DrafterConfiguration(
+        enabled: enabled ?? widget.drafter?.enabled ?? false,
+        path: clearPath || widget.legacyDrafter && enabled == false
+            ? null
+            : path ?? widget.drafter?.path,
+        mode: mode ?? widget.drafter?.mode,
+      ),
+    );
+  }
+
   Widget _draftBody() {
     final d = widget.drafter;
     final splash = widget.family == EngineFamily.splash;
@@ -844,7 +855,11 @@ class _ParameterEditorState extends State<ParameterEditor> {
           ),
           value: d?.path,
           disabled: !widget.enabled || d?.enabled != true || unsupported,
-          onChanged: (v) => _setDraft(path: v as String?, clearPath: v == null),
+          onChanged: (v) => _setDraft(
+            path: v as String?,
+            clearPath: v == null,
+            sourceConfirmed: true,
+          ),
         ),
         if (!splash)
           Padding(

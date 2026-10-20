@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:convert';
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -18,6 +19,309 @@ import 'fixtures/decision_gguf.dart';
 import 'fixtures/splash_help.dart';
 
 void main() {
+  test('public preparation protects an existing target deletion plan before external preparation finishes', () async {
+    final fixture = await SplashRuntimeFixture.create();
+    addTearDown(fixture.close);
+    final engine = fixture.engine();
+    final entered = Completer<void>(), release = Completer<void>();
+    fixture.io.beforePreparation = (_) async {
+      entered.complete();
+      await release.future;
+    };
+    addTearDown(() async {
+      if (!release.isCompleted) release.complete();
+      await engine.shutdown();
+      await engine.close();
+    });
+    final plan = await fixture.library.prepareDeletion([fixture.asset.id]);
+    final pending = engine
+        .prepareModelBinding(
+          fixture.asset.id,
+          configuration: EngineLaunchConfiguration(
+            family: EngineFamily.splash,
+            drafter: const DrafterConfiguration(enabled: false),
+          ),
+        )
+        .then<Object>((value) => value, onError: (Object error) => error);
+    await entered.future.timeout(const Duration(seconds: 5));
+    Object? outcome;
+    try {
+      await expectLater(
+        fixture.library.delete(plan, confirmed: true),
+        throwsA(isA<LibraryException>()),
+      );
+    } finally {
+      release.complete();
+      outcome = await pending;
+    }
+    expect(outcome, isA<SplashModelBinding>());
+    expect(
+      await fixture.library.prepareDeletion([fixture.asset.id]),
+      isA<DeletionPlan>(),
+    );
+    expect(fixture.io.starts, 0);
+  });
+
+  for (final ending in ['success', 'failure', 'cancel']) {
+    test(
+      'preparation holds target and draft shard deletion plans through $ending',
+      () async {
+        final fixture = await SplashRuntimeFixture.create();
+        addTearDown(fixture.close);
+        final assets = await _preparationShardAssets(fixture);
+        final engine = fixture.engine();
+        final entered = Completer<void>(), release = Completer<void>();
+        fixture.io.beforePreparation = (_) async {
+          entered.complete();
+          await release.future;
+        };
+        fixture.io.preparationFailure = ending == 'failure';
+        addTearDown(() async {
+          if (!release.isCompleted) release.complete();
+          await engine.shutdown();
+          await engine.close();
+        });
+        final plans = [
+          for (final asset in [assets.target, assets.draft])
+            await fixture.library.prepareDeletion([asset.id]),
+        ];
+        final token = DecisionCancellation();
+        final pending = engine
+            .prepareModelBinding(
+              assets.target.id,
+              configuration: EngineLaunchConfiguration(
+                family: EngineFamily.splash,
+                drafter: DrafterConfiguration(
+                  enabled: true,
+                  path: assets.directory.path,
+                ),
+              ),
+              cancellation: token,
+            )
+            .then<Object>((value) => value, onError: (Object error) => error);
+        await entered.future.timeout(const Duration(seconds: 5));
+        Object? outcome;
+        try {
+          for (final plan in plans) {
+            await expectLater(
+              fixture.library.delete(plan, confirmed: true),
+              throwsA(isA<LibraryException>()),
+            );
+          }
+          if (ending == 'cancel') {
+            token.cancel();
+            for (final plan in plans) {
+              await expectLater(
+                fixture.library.delete(plan, confirmed: true),
+                throwsA(isA<LibraryException>()),
+              );
+            }
+          }
+        } finally {
+          release.complete();
+          outcome = await pending;
+        }
+        expect(
+          outcome,
+          ending == 'success'
+              ? isA<SplashModelBinding>()
+              : ending == 'failure'
+              ? isA<StateError>()
+              : isA<SplashEngineException>(),
+        );
+        for (final asset in [assets.target, assets.draft]) {
+          expect(
+            asset.files.where((file) => file.path.endsWith('.safetensors')),
+            hasLength(2),
+          );
+          for (final file in asset.files) {
+            expect(await File(file.path).exists(), isTrue);
+          }
+          expect(
+            await fixture.library.prepareDeletion([asset.id]),
+            isA<DeletionPlan>(),
+          );
+        }
+        expect(fixture.io.starts, 0);
+      },
+    );
+  }
+
+  test(
+    'public Splash start hands preparation shard leases to the accepted owner',
+    () async {
+      final fixture = await SplashRuntimeFixture.create();
+      addTearDown(fixture.close);
+      final assets = await _preparationShardAssets(fixture);
+      final engine = fixture.engine();
+      final entered = Completer<void>(), release = Completer<void>();
+      fixture.io.beforePreparation = (_) async {
+        entered.complete();
+        await release.future;
+      };
+      fixture.io.releaseStart = Completer<void>();
+      addTearDown(() async {
+        if (!release.isCompleted) release.complete();
+        if (!fixture.io.releaseStart!.isCompleted) {
+          fixture.io.releaseStart!.complete();
+        }
+        await engine.shutdown();
+        await engine.close();
+      });
+      final plans = [
+        for (final asset in [assets.target, assets.draft])
+          await fixture.library.prepareDeletion([asset.id]),
+      ];
+      final pending = engine.startWithConfiguration(
+        assets.target.id,
+        EngineLaunchConfiguration(
+          family: EngineFamily.splash,
+          drafter: DrafterConfiguration(
+            enabled: true,
+            path: assets.directory.path,
+          ),
+        ),
+      );
+      await entered.future.timeout(const Duration(seconds: 5));
+      for (final plan in plans) {
+        await expectLater(
+          fixture.library.delete(plan, confirmed: true),
+          throwsA(isA<LibraryException>()),
+        );
+      }
+      release.complete();
+      await fixture.io.startEntered.future.timeout(const Duration(seconds: 5));
+      for (final plan in plans) {
+        await expectLater(
+          fixture.library.delete(plan, confirmed: true),
+          throwsA(isA<LibraryException>()),
+        );
+      }
+      fixture.io.releaseStart!.complete();
+      final run = await pending;
+      expect(run.status, RuntimeInstanceStatus.ready);
+      for (final plan in plans) {
+        await expectLater(
+          fixture.library.delete(plan, confirmed: true),
+          throwsA(isA<LibraryException>()),
+        );
+      }
+      await engine.stop(run.id);
+      for (final asset in [assets.target, assets.draft]) {
+        expect(
+          await fixture.library.prepareDeletion([asset.id]),
+          isA<DeletionPlan>(),
+        );
+      }
+    },
+  );
+
+  test('concurrent shared preparations preserve the peer lease and drain late work on shutdown', () async {
+    final fixture = await SplashRuntimeFixture.create();
+    addTearDown(fixture.close);
+    final assets = await _preparationShardAssets(fixture);
+    final engine = fixture.engine();
+    addTearDown(() async {
+      await engine.shutdown();
+      await engine.close();
+    });
+    final oldPlan = await fixture.library.prepareDeletion([fixture.asset.id]);
+    await engine.bindModel(fixture.asset.id, fixture.assembly);
+    final peer = await engine.startRuntime(fixture.asset.id);
+    final aEntered = Completer<void>(), aRelease = Completer<void>();
+    final bEntered = Completer<void>(), bRelease = Completer<void>();
+    var preparations = 0;
+    fixture.io.beforePreparation = (request) async {
+      preparations++;
+      if ((request['drafter'] as Map)['enabled'] == true) {
+        aEntered.complete();
+        await aRelease.future;
+      } else {
+        bEntered.complete();
+        await bRelease.future;
+      }
+    };
+    final targetPlan = await fixture.library.prepareDeletion([
+      assets.target.id,
+    ]);
+    final draftPlan = await fixture.library.prepareDeletion([assets.draft.id]);
+    final on = EngineLaunchConfiguration(
+      family: EngineFamily.splash,
+      drafter: DrafterConfiguration(enabled: true, path: assets.directory.path),
+    );
+    final a = engine.prepareModelBinding(assets.target.id, configuration: on);
+    final shared = engine.prepareModelBinding(
+      assets.target.id,
+      configuration: on,
+    );
+    final b = engine
+        .prepareModelBinding(
+          assets.target.id,
+          configuration: EngineLaunchConfiguration(
+            family: EngineFamily.splash,
+            drafter: const DrafterConfiguration(enabled: false),
+          ),
+        )
+        .then<Object>((value) => value, onError: (Object error) => error);
+    try {
+      await Future.wait([aEntered.future, bEntered.future])
+          .timeout(const Duration(seconds: 5));
+      for (final plan in [targetPlan, draftPlan, oldPlan]) {
+        await expectLater(
+          fixture.library.delete(plan, confirmed: true),
+          throwsA(isA<LibraryException>()),
+        );
+      }
+      aRelease.complete();
+      final bindings = await Future.wait([a, shared]);
+      expect(bindings[0].sourceHashes, bindings[1].sourceHashes);
+      expect(identical(bindings[0], bindings[1]), isFalse);
+      expect(
+        preparations,
+        2,
+        reason: 'Equal preparation inputs share native I/O, while different selections remain independent.',
+      );
+      expect(
+        await fixture.library.prepareDeletion([assets.draft.id]),
+        isA<DeletionPlan>(),
+      );
+      for (final plan in [targetPlan, oldPlan]) {
+        await expectLater(
+          fixture.library.delete(plan, confirmed: true),
+          throwsA(isA<LibraryException>()),
+        );
+      }
+      expect(
+        engine.runtimeInstances
+            .singleWhere((run) => run.id == peer.id)
+            .hasLiveProcess,
+        isTrue,
+      );
+      var closed = false;
+      final shutdown = engine.shutdown().then((_) => closed = true);
+      await Future<void>.delayed(Duration.zero);
+      expect(closed, isFalse);
+      await expectLater(
+        fixture.library.delete(targetPlan, confirmed: true),
+        throwsA(isA<LibraryException>()),
+      );
+      bRelease.complete();
+      expect(await b, isA<SplashEngineException>());
+      await shutdown;
+      expect(engine.hasLiveInstances, isFalse);
+      for (final asset in [fixture.asset, assets.target, assets.draft]) {
+        expect(
+          await fixture.library.prepareDeletion([asset.id]),
+          isA<DeletionPlan>(),
+        );
+      }
+    } finally {
+      if (!aRelease.isCompleted) aRelease.complete();
+      if (!bRelease.isCompleted) bRelease.complete();
+      await Future.wait([a, shared, b]);
+    }
+  });
+
   test('compact observation keeps its running source and exposes validated full-head fallback', () async {
     final fixture = await SplashRuntimeFixture.create(compactHelp: true);
     addTearDown(fixture.close);
@@ -1808,6 +2112,58 @@ void main() {
   }
 }
 
+Future<({LibraryArtifact target, LibraryArtifact draft, Directory directory})>
+_preparationShardAssets(SplashRuntimeFixture fixture) async {
+  for (final name in ['lease-target', 'lease-draft']) {
+    final directory = Directory('${fixture.root.path}/models/$name');
+    await directory.create(recursive: true);
+    await File('${directory.path}/config.json').writeAsString(
+      jsonEncode({
+        'model_type': 'qwen3_5',
+        'architectures': ['Qwen3_5ForConditionalGeneration'],
+      }),
+    );
+    final weights = <String, String>{};
+    for (var i = 1; i <= 2; i++) {
+      final file = 'model-0000$i-of-00002.safetensors';
+      final tensor = 'weight_$i';
+      weights[tensor] = file;
+      final header = utf8.encode(
+        jsonEncode({
+          tensor: {
+            'dtype': 'BF16',
+            'shape': [1],
+            'data_offsets': [0, 2],
+          },
+        }),
+      );
+      final size = ByteData(8)..setUint64(0, header.length, Endian.little);
+      await File('${directory.path}/$file')
+          .writeAsBytes([...size.buffer.asUint8List(), ...header, 0, 0]);
+    }
+    await File('${directory.path}/model.safetensors.index.json').writeAsString(
+      jsonEncode({
+        'metadata': {'total_size': 4},
+        'weight_map': weights,
+      }),
+    );
+  }
+  final scanned = await fixture.library.scan(
+    Directory('${fixture.root.path}/models'),
+    verifyFiles: true,
+  );
+  return (
+    target: scanned.singleWhere(
+      (asset) =>
+          asset.files.any((file) => file.path.contains('/lease-target/')),
+    ),
+    draft: scanned.singleWhere(
+      (asset) => asset.files.any((file) => file.path.contains('/lease-draft/')),
+    ),
+    directory: Directory('${fixture.root.path}/models/lease-draft'),
+  );
+}
+
 class SplashRuntimeFixture {
   SplashRuntimeFixture(
     this.root,
@@ -1989,6 +2345,8 @@ class SplashTestProcessIO implements SplashProcessIO {
   final groupSignals = <int>[];
   Completer<void>? modelCheckEntered;
   Completer<void>? releaseCheck;
+  Future<void> Function(Map<String, dynamic>)? beforePreparation;
+  bool preparationFailure = false;
   final children = <SplashTestChild>[];
   String? nativeResponseModel;
   final startEntered = Completer<void>();
@@ -2006,6 +2364,10 @@ class SplashTestProcessIO implements SplashProcessIO {
       (value) => value.contains('# Ghost Model Deck Splash preparation'),
     )) {
       final request = jsonDecode(arguments.last) as Map;
+      await beforePreparation?.call(Map<String, dynamic>.from(request));
+      if (preparationFailure) {
+        return const EngineCommandResult(70, '', 'native preparation failed');
+      }
       final source = Directory('${root.parent.path}/assembly');
       final selection = request['drafter'] as Map?;
       final selectedDirectory = selection?['path'] as String?;
@@ -2020,6 +2382,17 @@ class SplashTestProcessIO implements SplashProcessIO {
         final record = jsonDecode(
           await File('${source.path}/model.json').readAsString(),
         ) as Map;
+        (record['files'] as Map).removeWhere(
+          (key, _) => (key as String).startsWith('target/'),
+        );
+        for (final path in (request['files'] as List).cast<String>()) {
+          final file = File(path);
+          (record['files'] as Map)['target/${file.uri.pathSegments.last}'] = {
+            'path': await file.resolveSymbolicLinks(),
+            'bytes': await file.length(),
+            'digest': (await sha256.bind(file.openRead()).first).toString(),
+          };
+        }
         if (selection?['enabled'] != true) {
           (record['files'] as Map).removeWhere(
             (key, _) => (key as String).startsWith('draft/'),
@@ -2027,10 +2400,20 @@ class SplashTestProcessIO implements SplashProcessIO {
         } else if (selectedDirectory != null) {
           final selected = Directory(selectedDirectory);
           final config = File('${selected.path}/config.json');
-          final weights = File('${selected.path}/model.safetensors');
+          final index = File('${selected.path}/model.safetensors.index.json');
+          final shards = await index.exists()
+              ? ((jsonDecode(await index.readAsString()) as Map)['weight_map']
+                        as Map)
+                    .values
+                    .cast<String>()
+                    .toSet()
+              : {'model.safetensors'};
           for (final entry in {
             'draft/config.json': config,
-            'draft/model.safetensors': weights,
+            if (await index.exists())
+              'draft/model.safetensors.index.json': index,
+            for (final shard in shards)
+              'draft/$shard': File('${selected.path}/$shard'),
           }.entries) {
             if (!await entry.value.exists()) {
               return EngineCommandResult(

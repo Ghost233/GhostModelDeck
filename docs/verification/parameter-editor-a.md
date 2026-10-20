@@ -2,7 +2,7 @@
 
 <!-- parameter-editor-audit-status -->
 
-**交付进行中。** 13 个切片的实现和局部验收已整合，最终生产构建及原生界面复查通过，完整宿主门禁 1144 项全部通过。独立审查、阶段合入和总 PR 尚未完成。
+**交付进行中。** 13 个切片已整合，独立首审及补核的 5 项 P2 已修复。最终完整门禁 1155 项全部通过，对应回归、最小窗口布局 34 项、同源两组真实 Splash、arm64 生产构建及原生短测均通过。接下来核对已提交候选的双轴复审，完成阶段集成及工单结项。
 
 2026-10-20。依据为[原规格](../requirements/parameter-editor-spec.md)、[13 项拆解](../requirements/parameter-editor-delivery-plan.md)、[llama.cpp 范围调整](../requirements/parameter-editor-llama-adjustment.md)、[ADR 0009](../adr/0009-explicit-drafter-configuration.md) 和 [ADR 0010](../adr/0010-instance-generation-defaults.md)。原规格保留创建时的状态文字；当前完成状态以本文和工单为准。
 
@@ -12,7 +12,7 @@
 
 实现者分别负责加载、生成和认证，整合者串行接收冻结增量。最终测试副本排除用户原有 `.gitignore`、`lib/model_library.dart` 和 `test/model_library_test.dart` 三处改动；原工作区保留这些改动。排除原测试块留下的相邻空白仅在副本由固定 Dart 格式化。
 
-原始记录位于主工作区 `.scratch/parameter-editor-delivery/`。恢复入口为 `current.json`，完整门禁队列为 `final-gate-queue.json`。原始日志和输入身份保存在 `final-host-gates/`；工作树清理前复制并校验，不依赖临时句柄恢复。
+原始记录位于主工作区 `.scratch/parameter-editor-delivery/`。恢复入口为 `current.json`，当前完整门禁队列为 `final-five-p2-gate-queue.json`，原始日志保存在 `final-five-p2-host-gates/`。此前运行分别保留，不用中断报告替代成功完成。工作树清理前复制并校验，不依赖临时句柄恢复。
 
 ## 已实现的公开行为
 
@@ -43,7 +43,7 @@ export JEV_LAYOUT_FONT=/Users/ghost233/Ghost233Code/GhostModelDeck/.tooling/chec
 
 正式入口构建命令为固定 SDK 的 `flutter build macos --release --no-pub --target=lib/main.dart`，设置 `FLUTTER_MACOS_ARM64_ONLY=true`。最终构建退出 0，主程序、`App.framework`、`FlutterMacOS.framework` 均仅为 arm64；全部声明资源与包内字节一致，构建期间输入未变。
 
-157 个构建输入摘要为 `a63324b72bdbf1c5477da94fef970a64eb5cb4b52d98aff4672a6454dcf3ea01`。构建与测试副本逐文件一致，见 `production-build-final/final-worktree-equivalence.json`。产物保存于主工作区 `.tooling/parameter-editor-delivery/production-a63324b72bdb/Ghost Model Deck.app`，主程序摘要为 `7d2b38b555ca88abe8d3711bc04011165b750ec2804ef7fa39e97c1c420dae32`。
+五项审查修复后的 157 个构建输入摘要为 `c57cc83c33b059baade862c962947bb64dafb62ed2df32f335f7d307a8394fcc`，证据为 `production-build-five-p2/result.json`。产物保存于主工作区 `.tooling/parameter-editor-delivery/production-c57cc83c33b0/Ghost Model Deck.app`，主程序摘要为 `aac6f4ed490e76dda9f9e113318e983e7f6b029f45ae46452447b3482ed5efea`。`final-worktree-equivalence.json` 已核对全部输入与最终测试副本相同，26 项声明资源也逐字节一致。
 
 ## 真实引擎验证
 
@@ -74,6 +74,8 @@ Splash 和 llama.cpp 各两个运行实例使用不同凭据。状态、发现�
 
 完整门禁发现提前清洗调试 I/O 导致合法业务字段改变、跨副本凭据关联丢失。修复保留 trace 私有原始输入，在最终类型化展示边界投影并脱敏；运行实例凭据在准入时绑定。原始 9 个失败断言保留，新增复合凭据、实际 owner key 和晚到 I/O 边界，当前集成回归通过。真实协议、认证头及日志保护的未变路径复用上述原生证据；修复后的完整门禁已通过。
 
+五项修复后已重跑两组真实资源：`native-five-qwen35-compact-budgets-seed64/result.json` 和 `native-five-qwen38/result.json` 均通过，JSON/SSE 成功、退出 0，权重元数据未变，自建进程已停止。Qwen3.5 作业再次覆盖 compact、预算拒绝及精确 seed。运行源码全程未变，见 `five-p2-native-validation/inputs.json` 与 `result.json`；全部 101 项相关输入已逐字节绑定最终测试副本。
+
 ## 原生桌面验证
 
 使用真实 Swift MethodChannel 和生产公开控制器/Widget 组合，配置文件显式注入任务目录，HOME 不变。验收窗口与已安装应用隔离。
@@ -88,6 +90,31 @@ Splash 和 llama.cpp 各两个运行实例使用不同凭据。状态、发现�
 原生窗口曾复现 Slider 使 AX 树冻结的 SDK 问题，与 [Flutter #190357](https://github.com/flutter/flutter/issues/190357) 对应。为原 Slider 增加局部 `Overlay.wrap` 后，完整弹窗、键盘输入、拖动和 AX 更新恢复；保留原有语义且未修改 SDK。
 
 最后一次原生复查使用最终修复源码重新构建：未指定温度显示继承且没有虚构滑块位置；实际键盘输入 0 后，数值和 Slider 0% 同步，AX 持续更新。取消后保存值仍为 1.0，正常退出后 PID 消失、生命周期 stopped、live_instances 为空，正式配置保持原摘要、大小及修改时间。见 `native-window/postfix-build/result.json`、`postfix-native-result.json`。LaunchServices 未提供退出码，记录使用正常退出与进程消失证据，不虚构退出 0。
+
+## 首审与复盘
+
+独立首审以固定基准至 `401f34d076bb3cf64eceb3097b4370c22c779ec7` 的已提交变更为范围。Standards 轴没有硬性违规，提出 1 项 P3 重复测试夹具建议；Spec 轴发现 4 项 P2，后续补核增加 1 项。两轴报告分别保留，不互相抵消，见[独立审查记录](parameter-editor-review.md)。
+
+1. 显式短测试遗漏精确 JSON 编码，合法 Splash uint64 seed 变成字符串。
+2. 路径字段未绑定已有焦点节点，中间输入后光标重置。
+3. Splash 外部准备前没有文件使用登记，准备中可能从模型库删除所选目标或草稿分片。
+4. 修改 llama.cpp 草稿模式误将历史路径线索确认为新来源。
+
+四项已由单一实现者从公开入口先复现再修复。原始有效红灯分别为 `run-IvYZOT`、`run-h6uuiY`、`run-1tn6wH`、`run-MQuZQm`；统一回归 `run-N7KCUb` 的 152 项通过，format/analyze 亦通过并对应同一源码。冻结增量为 9 文件，补丁摘要 `571535c0426fd11d72563fc73537ff2d1241972f68d0c6155ca79b2da57d412d`，完整记录见 `review-seed-fix/report.md`。原始报告为 `reviews/stage-standards-401f34d.md` 与 `reviews/stage-spec-401f34d.md`，不能把此前 1144 项通过当作四项缺口已经关闭。
+
+复盘依据为本轮原始日志、原生最小探针、检查脚本和现有 CI。已起作用的护栏是固定工具链/字体/依赖身份、标准完成报告、冻结增量和唯一完整检查作业；继续使用既有入口。原生 AX 缺陷、凭据投影和未知温度显示已有针对性回归，四项首审问题继续按相同方式闭环。
+
+后续环境建议为 P3：在线依赖准备增加固定题源和 Node 的只读缺口核验；PR 检查接入已有宿主入口。当前只有 tag 发布 workflow，没有业务检查 CI，实际 pre-commit/pre-push 也不存在。另可让 seed 测试复用既有运行图夹具，减少重复收尾代码。本轮不为这些建议扩大 CI 基础设施、增加新业务抽象或追加 AGENTS 长规则。
+
+首审修复后的原生窗口也已重建并验证：真实键盘输入精确 `18446744073709551615` 后，A 面板显式“测试运行”显示 HTTP 200、测试实例已停止。随后在草稿路径 `/Users/` 后连续插入 `review-`、`check-`，截图和 AX 都确认第二次输入仍在中间，光标未跳到末尾。取消后实例文件逐字节未变；正常退出后 PID 79497 消失，生命周期 stopped、live_instances 为空，正式配置和权重元数据未变。证据为 `native-window/review-build/result.json` 和 `review-native-result.json`。
+
+补核发现 A 面板未说明显式短测的 32-token 覆盖值。新增说明仅对文本生成展示本次输出上限，思考和模板继续采用当前配置；临时测试实例结束后停止，保存配置不变。请求和 UI 使用同一个具名常量，未新增调节项或镜像文案测试。两文件增量见 `review-short-test-hint/report.md`，既有 45 项 `run-IVZ8Vv`、格式和分析通过。
+
+最终五项修复合入后，既有桌面布局测试 `run-slfHsu` 的 34 项通过，覆盖 900 × 560、深浅色及 1.0/1.5 倍文字的运行弹窗。新的唯一完整门禁 `run-kmiKaK` 自然结束，1155 项全部通过；format/analyze/test/包装退出均为 0，标准完成报告有效且无失败。758 项输入全程不变，规范摘要为 `bf4fcc5f64096a62891df8ab7b69af5d3316acbd978b9efd4eea04ae2b19719f`。该结果覆盖全部五项修复，不以旧候选 1144 项或中断作业替代。
+
+最终原生窗口构建的 158 项输入摘要为 `25afa98692aa78944437ec38d1377f5e927569d8aa9b54923606b2acfda9ddac`，其中 157 项生产输入与最终副本相同，额外一项为隔离验收组装入口。浅色 100% 与深色 150% 均能看到 32-token 说明；真实键盘输入 uint64 最大值后，“测试运行”返回 HTTP 200 并自动停止。取消后保存实例文件逐字节未变，正常退出后 PID 34080 消失，生命周期 stopped、live_instances 为空，9 份正式配置和原始权重元数据未变。证据为 `native-window/five-p2-build/` 和 `five-p2-native-result.json`。保存首次成功证据后，工具因 AX 索引刷新误触发第二次测试，已显式取消，单列为执行器操作记录，不计第二次通过。
+
+此前整合门禁 `run-zDFNHk` 因补入该已确认展示修复而主动中断；677 项已完成段保留，标准报告未完成，宿主退出 1，不计通过，也不归为产品失败。原始中断收尾现象见 `review-fix-host-gates/after-C1-four-P2/interruption-final.json`。
 
 ## 失败历史与证据边界
 
@@ -104,4 +131,4 @@ Splash 和 llama.cpp 各两个运行实例使用不同凭据。状态、发现�
 
 [完整 A/B/C 原型](https://github.com/Ghost233/GhostModelDeck/tree/codex/prototype-parameter-editor-a) 保留在归档提交 `ab22a624243e552b8bcf37f694402de07ad5a23b`。主工作区 `.tooling/parameter-editor-prototype/archive/` 留有原预览来源。
 
-父项为 [A 方案：实例参数控件、生成默认值与显式草稿模型](https://github.com/Ghost233/GhostModelDeck/issues/118)。父规格正文保持原样，子项按本轮验收范围结项。当前尚未提交或关闭工单；阶段和总审查仍待执行。
+父项为 [A 方案：实例参数控件、生成默认值与显式草稿模型](https://github.com/Ghost233/GhostModelDeck/issues/118)。父规格正文保持原样，子项按本轮验收范围结项。[A 方案：参数控件、生成默认值与显式草稿配置](https://github.com/Ghost233/GhostModelDeck/pull/132) 保持草稿。五项审查修复后的完整门禁已通过，已提交候选复审及集成仍待完成，子工单尚未关闭。

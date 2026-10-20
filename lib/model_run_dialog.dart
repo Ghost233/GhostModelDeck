@@ -82,7 +82,11 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
   late final _instanceName = TextEditingController(
     text: widget.initialName ?? _package.name,
   );
-  final _drafts = <String, EngineLaunchConfiguration>{};
+  final _drafts =
+      <
+        String,
+        ({EngineLaunchConfiguration configuration, bool legacyDrafter})
+      >{};
   String? _engineId;
   String? _error;
   bool _working = false;
@@ -128,8 +132,9 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
         ? null
         : widget.catalog.launchDefaultsFor(engineId);
     if (_defaults == null || asset == null) return;
+    final remembered = _drafts['$engineId/${asset.id}'];
     final config =
-        _drafts['$engineId/${asset.id}'] ??
+        remembered?.configuration ??
         (widget.initialEngineId == engineId && widget.variant.id == _variant.id
             ? widget.initialConfiguration
             : null) ??
@@ -142,7 +147,8 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
     _argumentText.text = config.argumentText;
     _drafter = config.drafter ?? config.legacyLlamaDrafter;
     _legacyDrafter =
-        config.drafter == null && config.legacyLlamaDrafter != null;
+        remembered?.legacyDrafter == true ||
+        (config.drafter == null && config.legacyLlamaDrafter != null);
     _result = null;
   }
 
@@ -259,7 +265,10 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
         _engineId != null &&
         _configurationAsset != null &&
         _draft != null) {
-      _drafts['$_engineId/${_configurationAsset!.id}'] = _draft!;
+      _drafts['$_engineId/${_configurationAsset!.id}'] = (
+        configuration: _draft!,
+        legacyDrafter: _legacyDrafter,
+      );
     }
     setState(() {
       _engineId = engineId;
@@ -366,7 +375,10 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
     }
     final current = _configurationAsset;
     if (_engineId != null && current != null && _draft != null) {
-      _drafts['$_engineId/${current.id}'] = _draft!;
+      _drafts['$_engineId/${current.id}'] = (
+        configuration: _draft!,
+        legacyDrafter: _legacyDrafter,
+      );
     }
     final asset = widget.modelChoices!.singleWhere((a) => a.id == id);
     setState(() {
@@ -676,9 +688,10 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
                             _generationValues = values;
                             unawaited(_updatePreview());
                           },
+                          onDrafterSourceConfirmed: () =>
+                              _legacyDrafter = false,
                           onDrafterChanged: (value) {
                             _drafter = value;
-                            _legacyDrafter = false;
                             unawaited(_updatePreview());
                           },
                           onCheckDrafter: _checkDrafter,
@@ -728,7 +741,9 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
                   children: [
                     Expanded(
                       child: Text(
-                        '保存配置不启动模型；生成默认值用于下一次请求。',
+                        '保存配置不启动模型；生成默认值用于下一次请求。\n'
+                        '${asset?.kind != AssetKind.embedding && !decisionModel ? '测试运行仅本次输出上限 $modelLaunchTestMaxTokens token；思考与模板沿用当前配置。' : ''}'
+                        '临时测试实例完成后停止，不改保存配置。',
                         style: theme.textTheme.bodySmall,
                       ),
                     ),

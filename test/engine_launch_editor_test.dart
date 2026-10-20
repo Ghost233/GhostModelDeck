@@ -9,6 +9,105 @@ import 'package:ghost_model_deck/engine_parameter_recognition.dart';
 import 'package:ghost_model_deck/engine_runtime.dart';
 
 void main() {
+  testWidgets(
+    'A editor path middle edits and consecutive paste preserve cursor, cancel and save',
+    (tester) async {
+      tester.view.physicalSize = const Size(1200, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      var persisted = EngineLaunchConfiguration(
+        formValues: {'--lora': '/models/base/adapter.gguf'},
+      );
+      var saves = 0;
+      final recognition = EngineParameterRecognition.fromHelp(
+        '--lora FNAME  path to LoRA adapter\n',
+        version: 'b11457 FILE option',
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showDialog<void>(
+                context: context,
+                builder: (_) => EngineLaunchEditor(
+                  title: 'A 启动参数',
+                  initialConfiguration: persisted,
+                  executable: '/verified/llama-server',
+                  recognition: recognition,
+                  onSave: (value) async {
+                    persisted = value;
+                    saves++;
+                  },
+                ),
+              ),
+              child: const Text('编辑A参数'),
+            ),
+          ),
+        ),
+      );
+      Future<void> open() async {
+        await tester.tap(find.text('编辑A参数'));
+        await tester.pumpAndSettle();
+        await selectParameterGroup(tester, '其他引擎参数');
+      }
+
+      final path = find.byKey(const Key('parameter-path:--lora'));
+      Future<void> send(String text, int cursor) async {
+        tester.testTextInput.updateEditingValue(
+          TextEditingValue(
+            text: text,
+            selection: TextSelection.collapsed(offset: cursor),
+          ),
+        );
+        await tester.pump();
+        expect(tester.widget<TextField>(path).controller!.text, text);
+        expect(
+          tester.widget<TextField>(path).controller!.selection.baseOffset,
+          cursor,
+        );
+        expect(tester.testTextInput.hasAnyClients, isTrue);
+      }
+
+      await open();
+      await tester.ensureVisible(path);
+      await tester.tap(path);
+      await tester.pump();
+      await send('/models/new-base/adapter.gguf', 12);
+      await send('/models/new-base/pasted adapter.gguf', 23);
+      await send('/models/new-base/pasted copy adapter.gguf', 28);
+      await tester.tap(find.widgetWithText(TextButton, '取消'));
+      await tester.pumpAndSettle();
+      expect(saves, 0);
+      expect(persisted.formValues['--lora'], '/models/base/adapter.gguf');
+      await open();
+      expect(
+        tester.widget<TextField>(path).controller!.text,
+        '/models/base/adapter.gguf',
+      );
+      await tester.ensureVisible(path);
+      await tester.tap(path);
+      await tester.pump();
+      await send('/models/saved-base/adapter.gguf', 14);
+      await send('/models/saved-base/pasted adapter.gguf', 25);
+      await tester.tap(find.widgetWithText(FilledButton, '保存'));
+      await tester.pumpAndSettle();
+      expect(saves, 1);
+      expect(
+        persisted.formValues['--lora'],
+        '/models/saved-base/pasted adapter.gguf',
+      );
+      await open();
+      expect(
+        tester.widget<TextField>(path).controller!.text,
+        '/models/saved-base/pasted adapter.gguf',
+      );
+      await tester.tap(find.widgetWithText(TextButton, '取消'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   test('context capacity uses the selected installation option metadata', () {
     final splash = EngineParameterRecognition.fromHelp(
       splashCurrentHelp,

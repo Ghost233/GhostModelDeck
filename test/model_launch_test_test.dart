@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/engine_catalog.dart';
 import 'package:ghost_model_deck/engine_launch_configuration.dart';
 import 'package:ghost_model_deck/engine_runtime.dart';
+import 'package:ghost_model_deck/generation_configuration.dart';
+import 'package:ghost_model_deck/generation_seed.dart';
 import 'package:ghost_model_deck/llama_engine.dart';
 import 'package:ghost_model_deck/model_launch_test.dart';
 import 'package:ghost_model_deck/model_use_registry.dart';
@@ -12,8 +14,143 @@ import 'package:ghost_model_deck/splash_engine.dart';
 import 'package:ghost_model_deck/public_gateway.dart';
 
 import 'splash_engine_test.dart' show SplashRuntimeFixture;
+import 'llm_playground_test.dart' show LlmTestRuntime;
 
 void main() {
+  test('public Splash launch test preserves exact integer seed and explicit short-test overrides', () async {
+    final fixture = await SplashRuntimeFixture.create();
+    addTearDown(fixture.close);
+    final cpp = LlamaEngine(
+      library: fixture.library,
+      installationDirectory: Directory('${fixture.root.path}/cpp'),
+    );
+    final catalog = EngineCatalog(
+      library: fixture.library,
+      officialEngine: cpp,
+      useRegistry: ModelUseRegistry(fixture.library),
+      registryFile: File('${fixture.root.path}/engines.json'),
+      splashIO: fixture.io,
+    );
+    addTearDown(() async {
+      await catalog.shutdown();
+      catalog.close();
+      cpp.close();
+    });
+    final registration = await catalog.link(fixture.source.path);
+    await catalog.bindSplashModel(
+      registration.id,
+      fixture.asset.id,
+      fixture.assembly,
+    );
+    final before = await catalog.registryFile.readAsBytes();
+    final runtime = catalog.runtimeFor(registration.id) as SplashEngine;
+    for (final seed in [
+      '-1',
+      '0',
+      '9007199254740991',
+      '9007199254740992',
+      '9007199254740993',
+      '9223372036854775807',
+      '9223372036854775808',
+      '18446744073709551615',
+    ]) {
+      final result = await testModelLaunch(
+        catalog: catalog,
+        engineId: registration.id,
+        artifact: fixture.asset,
+        configuration: EngineLaunchConfiguration(
+          family: EngineFamily.splash,
+          generation: GenerationConfiguration({
+            'seed': parseGenerationSeed(seed),
+            'max_tokens': null,
+            'temperature': 0,
+          }),
+        ),
+        cancellation: DecisionCancellation(),
+      );
+      expect(result, contains('HTTP 200'), reason: seed);
+      final raw = fixture.io.rawChatBodies.last;
+      expect(
+        RegExp('"seed"\\s*:\\s*${RegExp.escape(seed)}(?=[,}])').hasMatch(raw),
+        isTrue,
+        reason: '$seed: $raw',
+      );
+      expect(
+        fixture.io.chatBodies.last['max_tokens'],
+        32,
+        reason:
+            'The connection test deliberately overrides the configured limit.',
+      );
+      expect(fixture.io.chatBodies.last['temperature'], 0);
+      expect(fixture.io.chatBodies.last['stream'], false);
+      expect(
+        runtime.runtimeInstances.every((instance) => !instance.hasLiveProcess),
+        isTrue,
+      );
+    }
+    expect(await catalog.registryFile.readAsBytes(), before);
+  });
+
+  test('public llama launch test uses legal uint32 seeds and rejects larger generation seeds', () async {
+    final fixture = await LlmTestRuntime.create();
+    addTearDown(fixture.close);
+    for (final seed in ['-1', '0', '4294967295']) {
+      final result = await testModelLaunch(
+        catalog: fixture.catalog,
+        engineId: EngineCatalog.officialId,
+        artifact: fixture.asset,
+        configuration: EngineLaunchConfiguration(
+          generation: GenerationConfiguration({
+            'seed': parseGenerationSeed(seed),
+            'max_tokens': 999,
+          }),
+        ),
+        cancellation: DecisionCancellation(),
+      );
+      expect(result, contains('HTTP 200'));
+      expect(fixture.io.bodies.last['seed'], int.parse(seed));
+      expect(fixture.io.bodies.last['max_tokens'], 32);
+    }
+    for (final seed in [
+      '4294967296',
+      '9007199254740991',
+      '9007199254740992',
+      '9007199254740993',
+      '9223372036854775807',
+      '9223372036854775808',
+      '18446744073709551615',
+    ]) {
+      final sent = fixture.io.bodies.length;
+      await expectLater(
+        testModelLaunch(
+          catalog: fixture.catalog,
+          engineId: EngineCatalog.officialId,
+          artifact: fixture.asset,
+          configuration: EngineLaunchConfiguration(
+            generation: GenerationConfiguration({
+              'seed': parseGenerationSeed(seed),
+            }),
+          ),
+          cancellation: DecisionCancellation(),
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'public rejection',
+            contains('HTTP 400'),
+          ),
+        ),
+      );
+      expect(fixture.io.bodies.length, sent, reason: seed);
+    }
+    expect(
+      fixture.engine.runtimeInstances
+          .where((instance) => instance.temporaryTest)
+          .every((instance) => !instance.hasLiveProcess),
+      isTrue,
+    );
+  });
+
   test('master off cancels a running draft HTTP test, stops all owned instances and preserves saved configuration', () async {
     final fixture = await SplashRuntimeFixture.create();
     addTearDown(fixture.close);

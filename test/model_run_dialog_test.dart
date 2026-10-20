@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/app_theme.dart';
 import 'package:ghost_model_deck/engine_catalog.dart';
+import 'package:ghost_model_deck/engine_labels.dart';
 import 'package:ghost_model_deck/generation_configuration.dart';
 import 'package:ghost_model_deck/model_run_dialog.dart';
 import 'package:ghost_model_deck/engine_launch_configuration.dart';
@@ -33,6 +34,290 @@ import 'fixtures/engine_archive.dart';
 import 'splash_engine_test.dart' show SplashRuntimeFixture;
 
 void main() {
+  testWidgets(
+    'legacy llama mode and tuning changes require explicit source confirmation even for the same path',
+    (tester) async {
+      tester.view.physicalSize = const Size(1400, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
+      final peer = (await tester.runAsync(() async {
+        final binary = await File(
+          '${fixture.root.path}/legacy-peer/llama-server',
+        ).create(recursive: true);
+        await binary.writeAsString('linked engine fixture');
+        expect(
+          (await Process.run('/bin/chmod', ['+x', binary.path])).exitCode,
+          0,
+        );
+        return fixture.catalog.link(binary.path);
+      }))!;
+      final store = LaunchInstances(
+        catalog: fixture.catalog,
+        file: File('${fixture.root.path}/legacy-instances.json'),
+      );
+      addTearDown(
+        () => tester.runAsync(() async {
+          await tester.pumpWidget(const SizedBox.shrink());
+          await store.close();
+          await fixture.close();
+        }),
+      );
+      final oldPath = fixture.asset.files.single.path;
+      final definition = (await tester.runAsync(
+        () => store.save(
+          name: 'Legacy source',
+          artifactId: fixture.asset.id,
+          engineId: EngineCatalog.officialId,
+          configuration: EngineLaunchConfiguration(
+            argumentText:
+                '--spec-draft-model "$oldPath" --spec-type draft-simple',
+          ),
+        ),
+      ))!;
+      final before = (await tester.runAsync(store.file.readAsBytes))!;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: InstancesPage(instances: store)),
+        ),
+      );
+      await tester.runAsync(() => _settleFilesystemFrames(tester));
+      Future<void> open() async {
+        final edit = find.byKey(
+          ValueKey('instance-parameters:${definition.id}'),
+        );
+        await tester.ensureVisible(edit);
+        await tester.tap(edit);
+        await tester.runAsync(() => _settleFilesystemFrames(tester));
+        await selectParameterGroup(tester, '草稿模型');
+      }
+
+      Future<void> settle() => tester.runAsync(
+        () => _settleFilesystemFrames(tester, dialogRemainsOpen: true),
+      );
+      await open();
+      expect(find.textContaining('旧草稿绑定待确认'), findsOneWidget);
+      final maximum = find.byKey(
+        const Key('parameter-number:--spec-draft-n-max'),
+      );
+      await tester.ensureVisible(maximum);
+      await tester.enterText(maximum, '12');
+      await settle();
+      await tester.tap(find.widgetWithText(FilledButton, '保存'));
+      await settle();
+      expect(store.find(definition.id)!.configuration.drafter, isNull);
+      expect(find.textContaining('旧草稿绑定待修复'), findsWidgets);
+      final mode = find.byKey(const Key('drafter-mode'));
+      await tester.ensureVisible(mode);
+      await tester.tap(mode);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('EAGLE3').last);
+      await tester.pumpAndSettle();
+      await settle();
+      expect(find.textContaining('旧草稿绑定待确认'), findsOneWidget);
+      Future<void> chooseEngine(String from, String to) async {
+        await tester.runAsync(() async {
+          final engine = find.byKey(ValueKey('instance-engine:$from'));
+          await tester.ensureVisible(engine);
+          await tester.tap(engine);
+          await tester.pumpAndSettle();
+          final entry = fixture.catalog.state.entries.singleWhere(
+            (entry) => entry.id == to,
+          );
+          final item = find.text(engineDisplayName(entry)).last;
+          await tester.ensureVisible(item);
+          await tester.tap(item);
+          await _settleFilesystemFrames(tester, dialogRemainsOpen: true);
+        });
+        await tester.pumpAndSettle();
+      }
+
+      await chooseEngine(EngineCatalog.officialId, peer.id);
+      await chooseEngine(peer.id, EngineCatalog.officialId);
+      await selectParameterGroup(tester, '草稿模型');
+      expect(find.textContaining('旧草稿绑定待确认'), findsOneWidget);
+      expect(tester.widget<TextField>(maximum).controller!.text, '12');
+      await tester.runAsync(
+        () => HttpOverrides.runWithHttpOverrides(() async {
+          await tester.tap(find.widgetWithText(OutlinedButton, '测试运行'));
+          await _settleFilesystemFrames(tester, dialogRemainsOpen: true);
+        }, _NetworkBoundary()),
+      );
+      await tester.tap(find.widgetWithText(FilledButton, '保存'));
+      await settle();
+      expect((await tester.runAsync(store.file.readAsBytes))!, before);
+      expect(fixture.io.startedArguments, isEmpty);
+      const native = MethodChannel('com.ghost233.ghostmodeldeck/native');
+      final picks = <String?>[null, oldPath];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(native, (
+        call,
+      ) async {
+        expect(call.method, 'pickParameterFile');
+        expect(call.arguments, {
+          'extensions': ['gguf'],
+        });
+        return picks.removeAt(0);
+      });
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          native,
+          null,
+        ),
+      );
+      final row = find.byKey(const Key('parameter-field:drafter-path'));
+      final pick = find.descendant(of: row, matching: find.text('选择…'));
+      await tester.ensureVisible(pick);
+      await tester.tap(pick);
+      await settle();
+      expect(find.textContaining('旧草稿绑定待确认'), findsOneWidget);
+      await tester.tap(pick);
+      await settle();
+      expect(find.textContaining('旧草稿绑定待确认'), findsNothing);
+      await _saveReviewedLegacyDialog(tester);
+      final saved = store.find(definition.id)!.configuration.drafter!;
+      expect(saved.path, oldPath);
+      expect(saved.mode, 'draft-eagle3');
+      expect(
+        store
+            .find(definition.id)!
+            .configuration
+            .formValues['--spec-draft-n-max'],
+        '12',
+      );
+      await open();
+      final toggle = find.byKey(const Key('splash-drafter-enabled'));
+      final path = find.byKey(const Key('parameter-path:drafter-path'));
+      await tester.ensureVisible(toggle);
+      await tester.tap(toggle);
+      await settle();
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<TextField>(path).controller!.text,
+        oldPath,
+        reason: 'Confirmed sources keep their path while disabled.',
+      );
+      await tester.ensureVisible(toggle);
+      await tester.tap(toggle);
+      await settle();
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(path).controller!.text, oldPath);
+      await tester.tap(find.widgetWithText(TextButton, '取消'));
+      await tester.pumpAndSettle();
+      expect(fixture.io.startedArguments, isEmpty);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'legacy explicit off discards only the unconfirmed path across reenabling and reopen',
+    (tester) async {
+      tester.view.physicalSize = const Size(1400, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final fixture = (await tester.runAsync(_LaunchTextFixture.create))!;
+      final store = LaunchInstances(
+        catalog: fixture.catalog,
+        file: File('${fixture.root.path}/legacy-off-instances.json'),
+      );
+      addTearDown(
+        () => tester.runAsync(() async {
+          await tester.pumpWidget(const SizedBox.shrink());
+          await store.close();
+          await fixture.close();
+        }),
+      );
+      final oldPath = '${fixture.root.path}/missing/old.gguf';
+      final definition = (await tester.runAsync(
+        () => store.save(
+          name: 'Legacy off',
+          artifactId: fixture.asset.id,
+          engineId: EngineCatalog.officialId,
+          configuration: EngineLaunchConfiguration(
+            argumentText:
+                '--spec-draft-model "$oldPath" --spec-type draft-simple',
+          ),
+        ),
+      ))!;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: InstancesPage(instances: store)),
+        ),
+      );
+      await tester.runAsync(() => _settleFilesystemFrames(tester));
+      Future<void> open() async {
+        final edit = find.byKey(
+          ValueKey('instance-parameters:${definition.id}'),
+        );
+        await tester.ensureVisible(edit);
+        await tester.tap(edit);
+        await tester.runAsync(() => _settleFilesystemFrames(tester));
+        await selectParameterGroup(tester, '草稿模型');
+      }
+
+      Future<void> settle() => tester.runAsync(
+        () => _settleFilesystemFrames(tester, dialogRemainsOpen: true),
+      );
+      await open();
+      final toggle = find.byKey(const Key('splash-drafter-enabled'));
+      final path = find.byKey(const Key('parameter-path:drafter-path'));
+      await tester.ensureVisible(path);
+      await tester.tap(path);
+      await tester.pump();
+      await tester.ensureVisible(toggle);
+      await tester.tap(toggle);
+      await settle();
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(path).controller!.text, isEmpty);
+      expect(find.textContaining('旧草稿绑定待确认'), findsNothing);
+      await tester.ensureVisible(toggle);
+      await tester.tap(toggle);
+      await settle();
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(path).controller!.text, isEmpty);
+      expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+      await tester.runAsync(
+        () => HttpOverrides.runWithHttpOverrides(() async {
+          await tester.tap(find.widgetWithText(OutlinedButton, '测试运行'));
+          await _settleFilesystemFrames(tester, dialogRemainsOpen: true);
+        }, _NetworkBoundary()),
+      );
+      expect(fixture.io.startedArguments, isEmpty);
+      expect(find.textContaining('请选择本地 GGUF 文件'), findsWidgets);
+      await tester.ensureVisible(toggle);
+      await tester.tap(toggle);
+      await settle();
+      await tester.pumpAndSettle();
+      await _saveReviewedLegacyDialog(tester);
+      expect(
+        store.find(definition.id)!.configuration.drafter!.enabled,
+        isFalse,
+      );
+      expect(store.find(definition.id)!.configuration.drafter!.path, isNull);
+      await open();
+      await tester.ensureVisible(toggle);
+      await tester.tap(toggle);
+      await settle();
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(path).controller!.text, isEmpty);
+      final mode = find.byKey(const Key('drafter-mode'));
+      await tester.ensureVisible(mode);
+      await tester.tap(mode);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('MTP').last);
+      await tester.pumpAndSettle();
+      await settle();
+      await _saveReviewedLegacyDialog(tester);
+      final saved = store.find(definition.id)!.configuration.drafter!;
+      expect(saved.enabled, isTrue);
+      expect(saved.path, isNull);
+      expect(saved.mode, 'draft-mtp');
+      expect(fixture.io.startedArguments, isEmpty);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   for (final (contextText, expected) in <(String, int?)>[
     ('16K', 16384),
     ('auto', null),
@@ -3538,6 +3823,21 @@ void main() {
 }
 
 class _NetworkBoundary extends HttpOverrides {}
+
+Future<void> _saveReviewedLegacyDialog(WidgetTester tester) async {
+  await tester.runAsync(() async {
+    await tester.tap(find.widgetWithText(FilledButton, '保存'));
+    for (var frame = 0; frame < 100; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      if (find.byType(ModelRunDialog).evaluate().isEmpty) {
+        return;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    throw StateError('Reviewed legacy dialog did not close after save');
+  });
+  await tester.pumpAndSettle();
+}
 
 class _LaunchTextFixture {
   _LaunchTextFixture(this.root, this.release, this.io);

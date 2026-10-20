@@ -551,6 +551,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
   Future<void> _operations = Future.value();
   final _startupJobs = <Future<RuntimeInstance>>{};
   final _modelPreparations = <String, Future<SplashModelBinding>>{};
+  final _preparationJobs = <Future<SplashModelBinding>>{};
   final _drafterChecks = <String, DrafterCheck>{};
   final _runs = <String, _SplashRun>{};
   final _preparing = <SplashModelBinding>{};
@@ -815,16 +816,15 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
     final epoch = _startEpoch;
     final operation = _operations.then((_) async {
       if (_shuttingDown) throw const SplashEngineException('Splash正在退出');
-      final binding = await prepareModelBinding(
+      final binding = await _prepareBindingWithLease(
         artifactId,
         configuration: configuration,
         previous:
             assembly ?? preparationHint ?? _bindings[artifactId]?.assembly,
         cancellation: cancellation,
+        forStart: true,
       );
-      _preparing.add(binding);
       try {
-        await _syncUses();
         await _verifyBinding(binding);
         await _assertInstallation();
         if (_shuttingDown ||
@@ -1416,6 +1416,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
     }
     return _serial(() async {
       await _awaitStartupJobs();
+      await _awaitPreparationJobs();
       await _drainRuns();
     }).whenComplete(release);
   }
@@ -1425,6 +1426,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
     beginShutdown();
     return _serial(() async {
       await _awaitStartupJobs();
+      await _awaitPreparationJobs();
       await _drainRuns();
     });
   }
@@ -1755,6 +1757,111 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
     Directory? previous,
     EngineLaunchConfiguration? configuration,
     DecisionCancellation? cancellation,
+  }) async => _prepareBindingWithLease(
+    artifactId,
+    previous: previous,
+    configuration: configuration ?? configurationFor(artifactId),
+    cancellation: cancellation,
+  );
+
+  Future<SplashModelBinding> _prepareBindingWithLease(
+    String artifactId, {
+    Directory? previous,
+    required EngineLaunchConfiguration configuration,
+    DecisionCancellation? cancellation,
+    bool forStart = false,
+  }) {
+    if (_shuttingDown || _admissionHolds > 0) {
+      return Future.error(const SplashEngineException('Splash准备准入已关闭'));
+    }
+    if (cancellation?.isCancelled ?? false) {
+      return Future.error(const SplashEngineException('Splash 模型准备已取消'));
+    }
+    if (configuration.family != EngineFamily.splash) {
+      return Future.error(const SplashEngineException('Splash配置family不符'));
+    }
+    final epoch = _startEpoch;
+    final operation = _withPreparationLease(
+      artifactId,
+      configuration,
+      () async {
+        final binding = await _prepareBindingRequest(
+          artifactId,
+          previous: previous,
+          configuration: configuration,
+          cancellation: cancellation,
+        );
+        if (_shuttingDown ||
+            epoch != _startEpoch ||
+            (cancellation?.isCancelled ?? false)) {
+          throw const SplashEngineException('Splash 模型准备已取消');
+        }
+        if (forStart) {
+          _preparing.add(binding);
+          try {
+            await _syncUses();
+          } catch (_) {
+            _preparing.remove(binding);
+            rethrow;
+          }
+        }
+        return binding;
+      },
+    );
+    _preparationJobs.add(operation);
+    unawaited(
+      operation.then<void>(
+        (_) => _preparationJobs.remove(operation),
+        onError: (Object _, StackTrace _) => _preparationJobs.remove(operation),
+      ),
+    );
+    return operation;
+  }
+
+  Future<void> _awaitPreparationJobs() => Future.wait(
+    _preparationJobs.toList().map(
+      (job) => job.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+    ),
+  );
+
+  Future<SplashModelBinding> _withPreparationLease(
+    String artifactId,
+    EngineLaunchConfiguration configuration,
+    Future<SplashModelBinding> Function() prepare,
+  ) async {
+    final asset = library.state.artifacts
+        .where((asset) => asset.id == artifactId)
+        .singleOrNull;
+    if (asset == null) {
+      throw const SplashEngineException('模型不在当前模型库中');
+    }
+    final owner = Object();
+    final paths = {for (final file in asset.files) file.realPath};
+    await useRegistry.update(owner, paths);
+    try {
+      final draft = configuration.drafter;
+      if (draft?.enabled == true && draft?.path != null) {
+        final directory = Directory(draft!.path!);
+        if (await directory.exists()) {
+          await for (final entry in directory.list(followLinks: false)) {
+            if (entry is File || entry is Link) {
+              paths.add(entry.path);
+            }
+          }
+          await useRegistry.update(owner, paths);
+        }
+      }
+      return await prepare();
+    } finally {
+      await useRegistry.update(owner, const []);
+    }
+  }
+
+  Future<SplashModelBinding> _prepareBindingRequest(
+    String artifactId, {
+    Directory? previous,
+    required EngineLaunchConfiguration configuration,
+    DecisionCancellation? cancellation,
   }) async {
     if (cancellation?.isCancelled ?? false) {
       throw const SplashEngineException('Splash 模型准备已取消');
@@ -1780,10 +1887,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
         }
       }
     }
-    final selected = configuration ?? configurationFor(artifactId);
-    if (selected.family != EngineFamily.splash) {
-      throw const SplashEngineException('Splash配置family不符');
-    }
+    final selected = configuration;
     final hint = previous ?? recorded?.assembly;
     final key = jsonEncode([_drafterKey(artifactId, selected), hint?.path]);
     final pending = _modelPreparations.putIfAbsent(
