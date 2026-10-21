@@ -663,6 +663,13 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
                                   widget.initialInstanceId!,
                                 ),
                           legacyDrafter: _legacyDrafter,
+                          actualQuantizedFfn:
+                              widget.initialInstanceId == null ||
+                                  activeRuntime is! SplashEngine
+                              ? null
+                              : activeRuntime.actualQuantizedFfnFor(
+                                  widget.initialInstanceId!,
+                                ),
                           recognition: entry == null
                               ? null
                               : widget.catalog.parameterRecognitionFor(

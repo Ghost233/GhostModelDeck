@@ -239,6 +239,15 @@ class EngineParameterDefinitions {
       help: '实际最大值取决于当前原生编译；同时设置 FFN 分担比例。',
     ),
     EngineParameterDefinition(
+      '--experimental-quantized-ffn',
+      '实验性量化 FFN（不保留全量 FP16 缓存）',
+      'compute',
+      ParameterKind.toggle,
+      choices: ['on', 'off'],
+      initial: 'off',
+      help: '默认关闭，重启后生效。仅普通生成的 Qwen3.5-4B 支持，可使用 Standard DFlash 或不使用草稿。27B、MoE、Kev、D3、ModernBERT 不支持，具体兼容性由 Splash 报错。',
+    ),
+    EngineParameterDefinition(
       '--ane-power-recovery',
       'ANE 功耗恢复',
       'compute',

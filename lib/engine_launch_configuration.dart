@@ -179,6 +179,8 @@ class EngineLaunchConfiguration {
         executable: '',
         modelPath: '',
         recognition: rules,
+        // Reading one value must not validate unrelated optional features.
+        validateSupport: false,
       ).arguments;
     } on LaunchArgumentTextException {
       return null;
@@ -204,6 +206,7 @@ class EngineLaunchConfiguration {
     EngineParameterRecognition? recognition,
     List<String> executableArguments = const [],
     Map<String, String> managedArguments = const {},
+    bool validateSupport = true,
   }) {
     final rules =
         recognition ?? EngineParameterRecognition.builtIn(family: family);
@@ -309,6 +312,20 @@ class EngineLaunchConfiguration {
     final managedNames = <String>{};
     final overridden = <String>{};
     final notices = <String>{...rules.notices};
+    final unsupportedQuantizedFfn =
+        validateSupport &&
+        family == EngineFamily.splash &&
+        !rules.recognizes('--experimental-quantized-ffn');
+    String? unsupportedQuantizedFfnTextValue;
+    void checkQuantizedFfn(String? value) {
+      if (value != 'off') {
+        throw const FormatException(
+          '当前 Splash 引擎帮助未确认支持 --experimental-quantized-ffn；请更新引擎或关闭实验性量化 FFN。',
+        );
+      }
+      notices.add('当前 Splash 引擎不支持实验性量化 FFN；关闭值已保留，不传递此参数。');
+    }
+
     if (drafter?.enabled == true && ngram.isNotEmpty) {
       notices.add('草稿模型已开启，本次不激活 ngram；文本中的设置仍保留。');
     }
@@ -316,6 +333,17 @@ class EngineLaunchConfiguration {
       final argument = tokens[index].value;
       final name = argument.split('=').first;
       var controlled = controlledName(name);
+      if (unsupportedQuantizedFfn &&
+          controlled == '--experimental-quantized-ffn') {
+        final separator = argument.indexOf('=');
+        unsupportedQuantizedFfnTextValue = separator >= 0
+            ? argument.substring(separator + 1)
+            : index + 1 < tokens.length && _isValue(tokens[index + 1])
+            ? tokens[++index].value
+            : null;
+        overridden.add('--experimental-quantized-ffn');
+        continue;
+      }
       if (family == EngineFamily.llamaCpp &&
           (_llamaModelSources.contains(controlled) ||
               _llamaModelPresets.contains(controlled) ||
@@ -433,8 +461,17 @@ class EngineLaunchConfiguration {
       final notice = _valueNotice(canonical, value, family);
       if (notice != null) notices.add(notice);
     }
+    if (unsupportedQuantizedFfn &&
+        overridden.contains('--experimental-quantized-ffn')) {
+      checkQuantizedFfn(unsupportedQuantizedFfnTextValue);
+    }
     for (final entry in formValues.entries) {
       if (overridden.contains(entry.key) || entry.value.isEmpty) continue;
+      if (unsupportedQuantizedFfn &&
+          entry.key == '--experimental-quantized-ffn') {
+        checkQuantizedFfn(entry.value);
+        continue;
+      }
       if (rules.hasObservedHelp && !rules.recognizes(entry.key)) {
         notices.add('${entry.key} 的支持情况尚未由当前版本帮助确认；启动时由引擎校验。');
       }
@@ -488,6 +525,8 @@ class EngineLaunchConfiguration {
           for (final entry in managed.entries) ...[entry.key, entry.value],
         for (final name in labels.keys)
           if (!overridden.contains(name) &&
+              !(unsupportedQuantizedFfn &&
+                  name == '--experimental-quantized-ffn') &&
               !managedForm(name) &&
               (formValues[name]?.isNotEmpty ?? false) &&
               !(definitions[name]?.group == 'draft' &&

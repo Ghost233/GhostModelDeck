@@ -501,6 +501,7 @@ class ParameterEditor extends StatefulWidget {
     this.check,
     this.actualDrafter,
     this.actualCompact,
+    this.actualQuantizedFfn,
     this.onCheckDrafter,
     this.recognition,
     this.command,
@@ -527,6 +528,7 @@ class ParameterEditor extends StatefulWidget {
   final VoidCallback? onDrafterSourceConfirmed;
   final DrafterCheck? check, actualDrafter;
   final String? actualCompact;
+  final ({bool? enabled, int? cacheBytes})? actualQuantizedFfn;
   final Future<void> Function()? onCheckDrafter;
   final EngineParameterRecognition? recognition;
   final EngineLaunchCommand? command;
@@ -588,6 +590,12 @@ class _ParameterEditorState extends State<ParameterEditor> {
         _query.toLowerCase(),
       );
   String? _loadingValue(String name) {
+    if (name == '--experimental-quantized-ffn' &&
+        widget.recognition?.recognizes(name) != true &&
+        widget.command?.overriddenForm.contains(name) == true) {
+      // Unsupported engines omit an explicit text "off" from the command.
+      return 'off';
+    }
     final arguments = widget.command?.arguments;
     String canonical(String option) =>
         widget.recognition?.canonicalName(option) ?? option;
@@ -753,6 +761,8 @@ class _ParameterEditorState extends State<ParameterEditor> {
     }
     final disabled =
         !widget.enabled ||
+        f.name == '--experimental-quantized-ffn' &&
+            widget.recognition?.recognizes(f.name) != true ||
         f.managed ||
         f.group == 'draft' &&
             (widget.drafter?.enabled != true ||
@@ -780,6 +790,34 @@ class _ParameterEditorState extends State<ParameterEditor> {
           onChanged: (v) => _setForm(f.name, v),
         ),
         if (notice != null) _notice(notice),
+        if (f.name == '--experimental-quantized-ffn') ...[
+          if (widget.recognition?.recognizes(f.name) != true) ...[
+            _notice('当前引擎不支持或尚未确认支持实验性量化 FFN，不传递此参数。'),
+            if (widget.formValues[f.name] == 'on')
+              TextButton(
+                onPressed: widget.enabled
+                    ? () => _setForm(f.name, 'off')
+                    : null,
+                child: const Text('关闭实验性量化 FFN'),
+              ),
+          ],
+          const Text('实验性量化 FFN 启动检查'),
+          _statusRow('下次启动请求', _loadingValue(f.name) ?? 'off'),
+          _statusRow('当前实际模式', switch (widget.actualQuantizedFfn?.enabled) {
+            true => 'on',
+            false => 'off',
+            null => '未知',
+          }),
+          _statusRow(
+            'FP16 缓存',
+            widget.actualQuantizedFfn?.cacheBytes == null
+                ? '未知'
+                : '${widget.actualQuantizedFfn!.cacheBytes} 字节',
+          ),
+          if (widget.actualQuantizedFfn?.enabled == true &&
+              widget.actualQuantizedFfn?.cacheBytes != 0)
+            _notice('原生报告已开启，但未确认 FP16 缓存为 0；请核对引擎状态。', error: true),
+        ],
       ],
     );
   }

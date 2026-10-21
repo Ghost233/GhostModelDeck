@@ -196,6 +196,7 @@ void main() {
       await tester.tap(find.text('0.25').last);
       await tester.pumpAndSettle();
       expect(find.textContaining('ANE 最小提交行数需要固定 FFN 分担比例'), findsNothing);
+      await tester.ensureVisible(find.text('更多参数').first);
       await tester.tap(find.text('更多参数').first);
       await tester.pumpAndSettle();
       await tester.ensureVisible(

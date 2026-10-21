@@ -365,6 +365,7 @@ class _SplashRun {
           as String;
   DrafterCheck? actualDrafter;
   String? compactStatus;
+  ({bool? enabled, int? cacheBytes})? quantizedFfn;
   bool temporaryTest = false;
   String? launchInstanceId;
   int? launchRevision;
@@ -642,9 +643,19 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
       _readyLaunch(launchId)?.actualDrafter;
   String? actualCompactFor(String launchId) =>
       _readyLaunch(launchId)?.compactStatus;
+  ({bool? enabled, int? cacheBytes})? actualQuantizedFfnFor(String launchId) =>
+      _readyLaunch(launchId)?.quantizedFfn;
 
   void _recordNativeFeatures(_SplashRun run, Map<String, dynamic> status) {
     final features = status['startup_features'];
+    final quantized = features is Map
+        ? features['experimental_quantized_ffn']
+        : null;
+    final cacheBytes = features is Map ? features['ffn_cache_bytes'] : null;
+    run.quantizedFfn = (
+      enabled: quantized is bool ? quantized : null,
+      cacheBytes: cacheBytes is int && cacheBytes >= 0 ? cacheBytes : null,
+    );
     final type = features is Map ? features['drafter'] : null;
     final source = run.binding.roles['draft/config.json'];
     if (source != null && (type is! String || type.isEmpty || type == 'none')) {

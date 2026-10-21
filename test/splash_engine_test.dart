@@ -2186,6 +2186,7 @@ class SplashRuntimeFixture {
     bool ordinaryChat = true,
     bool supportsSystemone = false,
     bool compactHelp = false,
+    String? helpOutput,
   }) async {
     final root = await Directory.systemTemp.createTemp('splash-runtime-');
     final source = Directory('${root.path}/source');
@@ -2202,6 +2203,7 @@ class SplashRuntimeFixture {
     }
     final io = SplashTestProcessIO(source, mutate: false);
     if (compactHelp) io.helpOutput = splashCurrentHelp;
+    if (helpOutput != null) io.helpOutput = helpOutput;
     if (supportsSystemone) {
       await File('${source.path}/server/server.py').writeAsString(
         '"/v1/systemone": PostRoute("_post_systemone", SYSTEMONE_ERRORS)',
@@ -2315,6 +2317,9 @@ class SplashTestProcessIO implements SplashProcessIO {
   Map<String, Object?> Function(Map body)? decisionResponse;
   Map<String, Object?>? monitorStatus;
   Map<String, Object?>? optionalFeatures;
+  Map<String, Object?>? startupFeatures;
+  final startupFeaturesByPid = <int, Map<String, Object?>>{};
+  int? launchExitCode;
   final optionalFeaturesByPid = <int, Map<String, Object?>>{};
   void Function()? afterDecision;
   bool rejectTransferEncoding = false;
@@ -2503,6 +2508,10 @@ class SplashTestProcessIO implements SplashProcessIO {
       diagnostic: launchStderr,
     );
     children.add(child);
+    if (launchExitCode != null) child.done.complete(launchExitCode);
+    if (startupFeatures != null) {
+      startupFeaturesByPid[child.pid] = Map.from(startupFeatures!);
+    }
     if (optionalFeatures != null) {
       optionalFeaturesByPid[child.pid] = Map.from(optionalFeatures!);
     }
@@ -2602,6 +2611,7 @@ class SplashTestProcessIO implements SplashProcessIO {
               ...?monitorStatus,
               'ready': statusReady,
               'startup_features': {
+                ...?startupFeaturesByPid[child.pid],
                 'drafter': reportedDrafter,
                 if (optionalFeaturesByPid[child.pid] != null)
                   'optional': optionalFeaturesByPid[child.pid],
