@@ -153,12 +153,14 @@ class SplashModelBinding {
     required this.assembly,
     required this.tokenizer,
     required this.nativeModel,
+    String? assemblyModel,
     required this.family,
     required this.targetFormat,
     required Map<String, String> sourceHashes,
     required Map<String, int> sourceSizes,
     required Map<String, String> roles,
-  }) : sourceHashes = Map.unmodifiable(sourceHashes),
+  }) : assemblyModel = assemblyModel ?? nativeModel,
+       sourceHashes = Map.unmodifiable(sourceHashes),
        sourceSizes = Map.unmodifiable(sourceSizes),
        roles = Map.unmodifiable(roles);
 
@@ -166,6 +168,7 @@ class SplashModelBinding {
   final Directory assembly;
   final Directory tokenizer;
   final String nativeModel;
+  final String assemblyModel;
   final String family;
   final String targetFormat;
   final Map<String, String> sourceHashes;
@@ -177,6 +180,7 @@ class SplashModelBinding {
     'assembly': assembly.path,
     'tokenizer': tokenizer.path,
     'native_model': nativeModel,
+    'assembly_model': assemblyModel,
     'family': family,
     'target_format': targetFormat,
     'source_hashes': sourceHashes,
@@ -232,6 +236,7 @@ class SplashModelBinding {
       assembly: Directory(_path(row['assembly'])),
       tokenizer: Directory(_path(row['tokenizer'])),
       nativeModel: _string(row['native_model']),
+      assemblyModel: _string(row['assembly_model'] ?? row['native_model']),
       family: _string(row['family']),
       targetFormat: format,
       sourceHashes: hashes,
@@ -1482,6 +1487,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
   Future<void> _verifyBinding(SplashModelBinding binding) async {
     final current = await _readBinding(binding.artifactId, binding.assembly);
     if (current.nativeModel != binding.nativeModel ||
+        current.assemblyModel != binding.assemblyModel ||
         current.family != binding.family ||
         current.targetFormat != binding.targetFormat ||
         current.tokenizer.path != binding.tokenizer.path ||
@@ -1885,7 +1891,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
                 jsonDecode(await manifest.readAsString()),
                 'Splash assembly',
               )['model'] !=
-              recorded.nativeModel) {
+              recorded.assemblyModel) {
         throw const SplashEngineException('Splash 模型身份已变化');
       }
       for (final role in recorded.roles.entries.where(
@@ -1933,6 +1939,18 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
           .singleOrNull;
       if (asset == null) throw const SplashEngineException('模型不在当前模型库中');
       await _assertInstallation();
+      if (await File('${_installation.root.path}/install/local.py').exists()) {
+        // Linked engines may have been upgraded in place since help was saved.
+        // Read directly here: the public readParameters entry serializes starts.
+        final current = await inspectInstallation(
+          _installation.root,
+          io: io,
+          readParameters: true,
+        );
+        if (current.helpError == null && current.recognition.hasObservedHelp) {
+          _installation = current;
+        }
+      }
       final directory = await prepareSplashModel(
         io: io,
         python: _installation.python,
@@ -2036,7 +2054,12 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
       'assembly': assembly.path,
       'tokenizer': await Directory('${assembly.path}/tokenizer')
           .resolveSymbolicLinks(),
-      'native_model': row['model'],
+      'native_model': _string(row['model']).startsWith('/')
+          ? splashModelName(
+              library.state.artifacts.singleWhere((a) => a.id == artifactId),
+            )
+          : row['model'],
+      'assembly_model': row['model'],
       'family': row['family'],
       'target_format': row['target_format'],
       'source_hashes': hashes,

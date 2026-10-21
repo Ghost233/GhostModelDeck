@@ -6,7 +6,18 @@ import 'model_library.dart';
 import 'engine_launch_configuration.dart';
 import 'engine_parameter_recognition.dart';
 
-/// Prepares metadata and references, without copying or hashing model weights.
+String splashModelName(LibraryArtifact artifact) {
+  final stem = artifact.name
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+      .replaceAll(RegExp(r'^-+|-+$'), '');
+  final name = stem.isEmpty ? 'model' : stem;
+  return artifact.repoId ??
+      'local/${name.length > 80 ? name.substring(0, 80) : name}';
+}
+
+/// Uses the engine's public local preparer when available. New preparations may
+/// read source digests; subsequent preparations reuse the engine's inventory.
 Future<Directory> prepareSplashModel({
   required EngineProcessIO io,
   required File python,
@@ -25,11 +36,6 @@ Future<Directory> prepareSplashModel({
   }
 
   checkCancellation();
-  final stem = artifact.name
-      .toLowerCase()
-      .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
-      .replaceAll(RegExp(r'^-+|-+$'), '');
-  final localName = stem.isEmpty ? 'model' : stem;
   final result = await io.run(python.path, [
     '-B',
     '-P',
@@ -38,15 +44,15 @@ Future<Directory> prepareSplashModel({
     jsonEncode({
       'engine': engine.path,
       'root': root.path,
-      'model':
-          artifact.repoId ??
-          'local/${localName.length > 80 ? localName.substring(0, 80) : localName}',
+      'model': splashModelName(artifact),
       'files': [
         for (final file in artifact.files)
           if (file.path.endsWith('.gguf') || file.path.endsWith('.safetensors'))
             file.realPath,
       ],
       'previous': previous?.path,
+      'requires_public_preparation':
+          recognition?.usesSplashModelRootTokenizer ?? false,
       'drafter': drafter?.toJson(),
       'compact': {
         'enabled':
@@ -200,10 +206,79 @@ def check_model(config, metadata, draft):
         raise ValueError(f'{family} 需要匹配的 drafter；请选择本地目录并启用 drafter')
     return family
 
+def select_draft():
+    policy = request.get('drafter')
+    previous = request.get('previous')
+    old = {}
+    if policy is None and previous and (Path(previous) / 'model.json').is_file():
+        try:
+            old = read_json(Path(previous) / 'model.json')
+        except (ValueError, OSError):
+            pass  # An obsolete directory is only a hint, never a dependency.
+    recorded = (old.get('sources') or {}).get('draft')
+    if policy is None and recorded:
+        raise ValueError(f'旧 drafter 绑定待修复：{recorded.get("repo", "未知目录")}；请选择本地目录，或在支持的模型上关闭 drafter')
+    policy = policy or dict(enabled=False, path=None)
+    chosen = None
+    selected_files = {}
+    draft_type = None
+    if policy['enabled']:
+        location = policy.get('path')
+        if not location or not Path(location).is_absolute():
+            raise ValueError('已启用 drafter，请选择本地绝对目录')
+        try:
+            chosen = Path(location).resolve(strict=True)
+            if not stable(chosen): raise ValueError('drafter 不能保存在临时 worktree 中')
+            draft = read_json(chosen / 'config.json')
+            draft_type = ', '.join(draft.get('architectures', []))
+            found = draft_files(chosen)
+            selected_files = {name: path.resolve(strict=True) for name, path in found.items()}
+        except (ValueError, OSError, TypeError, KeyError) as error:
+            raise ValueError(f'drafter 文件检查失败：{location}：{error}') from error
+    return policy, chosen, draft_type, selected_files
+
+def prepare_public(targets):
+    from install.local import prepare_local_model
+
+    _, chosen, _, selected_files = select_draft()
+    before = {str(path): identity(path) for path in set(targets) | set(selected_files.values())}
+    target = targets[0] if all(path.suffix == '.gguf' for path in targets) else targets[0].parent
+    if target.is_dir() and any(path.parent != target for path in targets):
+        raise ValueError('Selected MLX shards must share one model directory')
+    directory = Path(prepare_local_model(
+        target, draft=chosen, language_only=True, models_dir=root)).resolve(strict=True)
+    if not directory.is_relative_to(root.resolve()):
+        raise ValueError('Splash public preparation returned a directory outside GMD ownership')
+    record = read_json(directory / 'model.json')
+    entries = record['files']
+    actual_targets = {(directory / name).resolve(strict=True) for name in entries
+                      if name.startswith('target/') and name.endswith(('.gguf', '.safetensors'))}
+    if actual_targets != set(targets):
+        raise ValueError('Splash public preparation target differs from the selected model')
+    actual_draft = {name: (directory / name).resolve(strict=True)
+                    for name in entries if name.startswith('draft/')}
+    # The public installer resolves an index into weight shards; the index is
+    # an input to validate/protect, not a file the native assembly loads.
+    expected_draft = {name: path for name, path in selected_files.items()
+                      if name != 'draft/model.safetensors.index.json'}
+    if actual_draft != expected_draft:
+        raise ValueError('Splash public preparation drafter differs from the explicit selection; '
+                         'no cached or implicit drafter is accepted')
+    if record.get('vision_format') != 'none':
+        raise ValueError('Splash public preparation must serve text only')
+    check_compact(read_json(directory / 'config.json'), chosen)
+    if before != {path: identity(Path(path)) for path in before}:
+        raise ValueError('Model files changed during public preparation')
+    return directory
+
 def prepare():
     targets = [Path(path).resolve(strict=True) for path in request['files']]
     if not targets or any(not stable(path) for path in targets):
         raise ValueError('Selected model must be stored outside temporary worktrees')
+    if (engine / 'install' / 'local.py').is_file():
+        return prepare_public(targets)
+    if request.get('requires_public_preparation'):
+        raise ValueError('当前 Splash 模型目录接口需要 install.local.prepare_local_model；请修复引擎安装')
     files = {'target/' + path.name: path for path in targets}
     if len(files) != len(targets):
         raise ValueError('Duplicate model shard names')
@@ -230,33 +305,8 @@ def prepare():
         if 'tokenizer/tokenizer.json' not in generated and 'tokenizer/tokenizer.model' not in generated:
             raise ValueError('Selected model has no local tokenizer files')
 
-    policy = request.get('drafter')
-    previous = request.get('previous')
-    old = {}
-    if policy is None and previous and (Path(previous) / 'model.json').is_file():
-        try:
-            old = read_json(Path(previous) / 'model.json')
-        except (ValueError, OSError):
-            pass  # An obsolete directory is only a hint, never a dependency.
-    recorded = (old.get('sources') or {}).get('draft')
-    if policy is None and recorded:
-        raise ValueError(f'旧 drafter 绑定待修复：{recorded.get("repo", "未知目录")}；请选择本地目录，或在支持的模型上关闭 drafter')
-    policy = policy or dict(enabled=False, path=None)
-    chosen = None
-    draft_type = None
-    if policy['enabled']:
-        location = policy.get('path')
-        if not location or not Path(location).is_absolute():
-            raise ValueError('已启用 drafter，请选择本地绝对目录')
-        try:
-            chosen = Path(location).resolve(strict=True)
-            if not stable(chosen): raise ValueError('drafter 不能保存在临时 worktree 中')
-            draft = read_json(chosen / 'config.json')
-            draft_type = ', '.join(draft.get('architectures', []))
-            found = draft_files(chosen)
-            files.update({name: path.resolve(strict=True) for name, path in found.items()})
-        except (ValueError, OSError, TypeError, KeyError) as error:
-            raise ValueError(f'drafter 文件检查失败：{location}：{error}') from error
+    policy, chosen, draft_type, selected_files = select_draft()
+    files.update(selected_files)
     check_compact(config, chosen)
     family = check_model(config, metadata, chosen)
 

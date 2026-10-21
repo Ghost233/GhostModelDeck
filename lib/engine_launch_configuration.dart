@@ -224,6 +224,7 @@ class EngineLaunchConfiguration {
         if (!definitions.containsKey(key)) key: key,
     };
     final configurationOnly = family == EngineFamily.omlx;
+    final heldModelTokenizer = rules.usesSplashModelRootTokenizer;
     final tokens = parseLaunchArgumentText(argumentText);
     final ngram = <String>{};
     var textSpecType = false;
@@ -312,6 +313,9 @@ class EngineLaunchConfiguration {
     final managedNames = <String>{};
     final overridden = <String>{};
     final notices = <String>{...rules.notices};
+    if (heldModelTokenizer) {
+      notices.add('分词器来自 Splash 锁定的模型目录；不传递独立 --tokenizer。');
+    }
     final unsupportedQuantizedFfn =
         validateSupport &&
         family == EngineFamily.splash &&
@@ -507,7 +511,7 @@ class EngineLaunchConfiguration {
                   (executableArguments.isEmpty ||
                       ![
                         '--model',
-                        '--tokenizer',
+                        if (!heldModelTokenizer) '--tokenizer',
                         '--binary',
                       ].every(managedArguments.containsKey))),
       isConfigurationOnly: configurationOnly,
@@ -516,6 +520,8 @@ class EngineLaunchConfiguration {
         for (final name in managedNames)
           configurationOnly
               ? '$name 由软件管理；在实例运行时分配实际值。'
+              : heldModelTokenizer && name == '--tokenizer'
+              ? '--tokenizer 由锁定的模型目录提供，文本设置不应用。'
               : '$name 由软件管理，实际采用 ${managed[name]}',
         ...notices,
       ],
@@ -541,7 +547,11 @@ class EngineLaunchConfiguration {
                 .arguments(formValues[name]!),
         ...arguments,
         if (family == EngineFamily.splash)
-          for (final entry in managed.entries) ...[entry.key, entry.value],
+          for (final entry in managed.entries)
+            if (!(heldModelTokenizer && entry.key == '--tokenizer')) ...[
+              entry.key,
+              entry.value,
+            ],
       ],
     );
   }

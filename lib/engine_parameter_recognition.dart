@@ -43,6 +43,15 @@ class EngineParameterRecognition {
   final List<String> notices;
   final Set<String> _observedNames;
 
+  /// A positive CLI anchor distinguishes the held-model interface from partial
+  /// older help; built-in tokenizer rules remain for managed-input stripping.
+  bool get usesSplashModelRootTokenizer =>
+      family == EngineFamily.splash &&
+      _observedNames.contains('--chat-template') &&
+      _observedNames.contains('--model') &&
+      _observedNames.contains('--binary') &&
+      !_observedNames.contains('--tokenizer');
+
   static const _llamaAliases = {
     '-c': '--ctx-size',
     '-b': '--batch-size',
