@@ -570,6 +570,30 @@ class PublicGatewayServer {
     }
   }
 
+  /// Display metadata only; embedding requests still resolve at admission.
+  PublicRouteTarget? readyEmbeddingModel(String publicId) {
+    try {
+      return _routes.resolve(
+        publicId,
+        requiredCapability: RuntimeCapability.embeddings,
+      );
+    } on PublicRequestException {
+      return null;
+    }
+  }
+
+  List<String> get readyTextModelNames => [
+    for (final model in _routes.listModels())
+      if (readyTextModel(model.publicId) != null) model.publicId,
+  ];
+
+  List<String> get readyEmbeddingModelNames => [
+    for (final model in _routes.listModels(
+      requiredCapability: RuntimeCapability.embeddings,
+    ))
+      if (readyEmbeddingModel(model.publicId) != null) model.publicId,
+  ];
+
   int get activeOwnedRequests =>
       _inflight.where((r) => r.ownedId != null).length;
 

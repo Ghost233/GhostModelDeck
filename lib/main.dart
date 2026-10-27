@@ -27,6 +27,7 @@ import 'runtime_autostart.dart';
 import 'launch_instances.dart';
 import 'desktop_home_route.dart';
 import 'instances_page.dart';
+import 'model_connections_page.dart';
 import 'engine_page.dart';
 import 'engine_source_build.dart';
 import 'embedding_page.dart';
@@ -442,7 +443,7 @@ class _ManagerShellState extends State<_ManagerShell>
   void _navigate(int page) => setState(() {
     _page = page;
     _openedPages.add(page);
-    if ((page <= 6 || page == 11 || page == 12) && page != 4) {
+    if ((page <= 6 || page == 11 || page == 12 || page == 13) && page != 4) {
       _enginePage = page;
       _workspaceTabs.index = 0;
     } else if (page >= 7) {
@@ -656,6 +657,7 @@ class _ManagerShellState extends State<_ManagerShell>
                                 _groupLabel('服务'),
                                 _navigation('引擎管理', Icons.memory_outlined, 3),
                                 _navigation('实例', Icons.layers_outlined, 11),
+                                _navigation('模型连接', Icons.link_rounded, 13),
                                 _navigation(
                                   '运行监控',
                                   Icons.monitor_heart_outlined,
@@ -811,6 +813,14 @@ class _ManagerShellState extends State<_ManagerShell>
                             RuntimeMonitorPage(
                               instances: _instances,
                               active: _workspaceTabs.index == 0 && _page == 12,
+                            )
+                          else
+                            const SizedBox.shrink(),
+                          if (_openedPages.contains(13))
+                            ModelConnectionsPage(
+                              instances: _instances,
+                              gateway: _publicGateway,
+                              mcp: _mcp,
                             )
                           else
                             const SizedBox.shrink(),

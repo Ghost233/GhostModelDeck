@@ -11,6 +11,7 @@ import 'package:ghost_model_deck/jev_playground_page.dart';
 import 'package:ghost_model_deck/settings_page.dart';
 import 'package:ghost_model_deck/council_page.dart';
 import 'package:ghost_model_deck/instances_page.dart';
+import 'package:ghost_model_deck/model_connections_page.dart';
 
 import 'fixtures/actual_app_environment.dart';
 
@@ -18,6 +19,28 @@ void main() {
   late ActualAppEnvironment environment;
   setUp(() async => environment = await ActualAppEnvironment.create());
   tearDown(() => environment.close());
+  testWidgets('模型连接是独立页面并在切换工作区后保持', (tester) async {
+    tester.view.physicalSize = const Size(900, 560);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await _runWithCleanup(tester, () async {
+      await _openApp(tester);
+      await tester.scrollUntilVisible(
+        _navigation('模型连接'),
+        100,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await _tap(tester, _navigation('模型连接'));
+      expect(find.byType(ModelConnectionsPage), findsOneWidget);
+      expect(find.byKey(const Key('connection:overview-http')), findsOneWidget);
+      expect(find.byKey(const Key('connection:overview-mcp')), findsOneWidget);
+      await _tap(tester, find.text('测试场'));
+      await _tap(tester, find.text('引擎'));
+      expect(find.byType(ModelConnectionsPage), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  });
   for (final (description, readDelay) in const [
     ('实例入口属于引擎区并在切换区域后保持', Duration.zero),
     ('实例导航等待真实登记文件读取后保持页面和资源归属', Duration(milliseconds: 100)),
