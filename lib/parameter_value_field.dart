@@ -352,7 +352,10 @@ class _ParameterValueFieldState extends State<ParameterValueField> {
     widget.onChanged(switch (_quantityMode) {
       'inherit' => null,
       'auto' => 'auto',
-      'off' => d.kind == ParameterKind.duration ? 'off' : '0',
+      'off' =>
+        d.kind == ParameterKind.duration || d.name == '--expert-memory'
+            ? 'off'
+            : '0',
       _ => _amount.text.isEmpty ? null : '${_amount.text}$_unit',
     });
   }
@@ -379,8 +382,16 @@ class _ParameterValueFieldState extends State<ParameterValueField> {
         '--idle-release',
         '--max-cache-disk',
         '--max-cache-disk-writes',
+        '--expert-memory',
       ].contains(d.name))
-        ('off', d.name == '--max-cache-disk-writes' ? '不限' : '关闭'),
+        (
+          'off',
+          d.name == '--max-cache-disk-writes'
+              ? '不限'
+              : d.name == '--expert-memory'
+              ? '加载全部专家'
+              : '关闭',
+        ),
       ('custom', '指定数值'),
     ];
     return Column(

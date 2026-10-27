@@ -20,3 +20,4 @@ dist/
 
 # 本地检查与验收的原始材料
 .scratch/
+/.ghswitch

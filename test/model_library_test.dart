@@ -944,6 +944,31 @@ void main() {
     );
   });
 
+  test('unrecognized native decision layouts remain eligible for engine validation', () async {
+    final root = await Directory.systemTemp.createTemp('gmd-native-decision-');
+    addTearDown(() => root.delete(recursive: true));
+    for (final type in ['vllm-d3', 'other-native-decision']) {
+      await _writeGguf(
+        root,
+        '$type/model.gguf',
+        metadata: {..._kevMetadata(), 'qwen35.decision.type': type},
+        tensors: _kevTensors()
+          ..removeWhere((name, _) => name.startsWith('cls.'))
+          ..['output.weight'] = [1, 1],
+      );
+    }
+    final library = ModelLibrary();
+    addTearDown(library.close);
+    final assets = await library.scan(root, verifyFiles: true);
+    expect(assets, hasLength(2));
+    for (final asset in assets) {
+      expect(asset.kind, AssetKind.decision);
+      expect(asset.integrity, AssetIntegrity.unknown);
+      expect(asset.engineCapability, EngineCapability.awaitingVerification);
+      expect(asset.diagnostics, contains('架构或决策布局尚未核验'));
+    }
+  });
+
   test('Laya accepts the scalar scorer layout stored in the real Q8 GGUF', () async {
     final root = await Directory.systemTemp.createTemp('jev-library-');
     addTearDown(() => root.delete(recursive: true));

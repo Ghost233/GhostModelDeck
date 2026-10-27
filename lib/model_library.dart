@@ -2123,6 +2123,9 @@ LibraryArtifact _ggufArtifact(List<_ScannedFile> files) {
       kind = AssetKind.encoder;
       missing('Encoder 尚未关联决策 head');
     } else {
+      if (decisionType != null && decisionType.trim().isNotEmpty) {
+        kind = AssetKind.decision;
+      }
       if (integrity != AssetIntegrity.corrupt) {
         integrity = AssetIntegrity.unknown;
       }
