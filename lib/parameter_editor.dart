@@ -858,7 +858,12 @@ class _ParameterEditorState extends State<ParameterEditor> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (widget.legacyDrafter)
-          _notice('旧草稿绑定待确认或修复。请选择本地来源，或在支持的模型上关闭草稿。', error: true),
+          _notice(
+            unsupported
+                ? '旧草稿绑定待确认或修复。请关闭草稿以保存配置。'
+                : '旧草稿绑定待确认或修复。请选择本地来源，或在支持的模型上关闭草稿。',
+            error: true,
+          ),
         if (unsupported)
           _notice('当前决策路径不支持草稿模型。保存的来源不会自动应用。')
         else
@@ -872,7 +877,7 @@ class _ParameterEditorState extends State<ParameterEditor> {
           contentPadding: EdgeInsets.zero,
           title: const Text('使用草稿模型'),
           value: d?.enabled ?? false,
-          onChanged: !widget.enabled || unsupported
+          onChanged: !widget.enabled || unsupported && d?.enabled != true
               ? null
               : (v) => _setDraft(enabled: v),
         ),
