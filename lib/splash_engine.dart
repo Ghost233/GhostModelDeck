@@ -2049,15 +2049,46 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
     roles['model.json'] = manifest.path;
     hashes[manifest.path] = manifestHash;
     sizes[manifest.path] = manifestBytes.length;
+    final assets = library.state.artifacts
+        .where((asset) => asset.id == artifactId)
+        .toList();
+    if (assets.length != 1) {
+      throw const SplashEngineException('目标模型资产不在当前模型库中或已发生变化，请重新扫描并选择。');
+    }
+    final asset = assets.single;
+    if (![AssetKind.chat, AssetKind.decision].contains(asset.kind) ||
+        ![
+          AssetIntegrity.complete,
+          AssetIntegrity.unknown,
+        ].contains(asset.integrity)) {
+      final kind = switch (asset.kind) {
+        AssetKind.chat => '文本模型',
+        AssetKind.decision => '决策模型',
+        AssetKind.embedding => '嵌入模型',
+        AssetKind.adapter => '适配器',
+        AssetKind.encoder => '编码器',
+        AssetKind.unknown => '未知',
+      };
+      final integrity = switch (asset.integrity) {
+        AssetIntegrity.complete => '完整',
+        AssetIntegrity.incomplete => '不完整',
+        AssetIntegrity.corrupt => '损坏',
+        AssetIntegrity.unknown => '未知',
+      };
+      final diagnostics = asset.diagnostics.isEmpty
+          ? ''
+          : '；诊断：${asset.diagnostics.join('；')}';
+      throw SplashEngineException(
+        '目标模型资产不符合 Splash 准备要求：类型：$kind；完整性：$integrity；架构：${asset.architecture ?? '未知'}$diagnostics',
+      );
+    }
     final binding = SplashModelBinding.fromJson({
       'artifact_id': artifactId,
       'assembly': assembly.path,
       'tokenizer': await Directory('${assembly.path}/tokenizer')
           .resolveSymbolicLinks(),
       'native_model': _string(row['model']).startsWith('/')
-          ? splashModelName(
-              library.state.artifacts.singleWhere((a) => a.id == artifactId),
-            )
+          ? splashModelName(asset)
           : row['model'],
       'assembly_model': row['model'],
       'family': row['family'],
@@ -2066,18 +2097,7 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
       'source_sizes': sizes,
       'roles': roles,
     });
-    final assets = library.state.artifacts
-        .where((asset) => asset.id == artifactId)
-        .toList();
-    if (assets.length != 1 ||
-        ![AssetKind.chat, AssetKind.decision].contains(assets.single.kind) ||
-        ![
-          AssetIntegrity.complete,
-          AssetIntegrity.unknown,
-        ].contains(assets.single.integrity)) {
-      throw const SplashEngineException('请选择已完整验证的文本或决策模型资产');
-    }
-    final weights = assets.single.files
+    final weights = asset.files
         .where(
           (file) =>
               file.path.endsWith('.gguf') || file.path.endsWith('.safetensors'),

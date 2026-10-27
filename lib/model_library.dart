@@ -2104,6 +2104,7 @@ LibraryArtifact _ggufArtifact(List<_ScannedFile> files) {
     } else if (!decisionMarker &&
         [
           'qwen35',
+          'qwen35moe',
           'qwen2',
           'qwen3',
           'llama',

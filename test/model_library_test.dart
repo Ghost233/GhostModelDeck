@@ -6,9 +6,12 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart' show debugPrintSynchronously;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ghost_model_deck/engine_launch_configuration.dart';
+import 'package:ghost_model_deck/engine_runtime.dart';
 import 'package:ghost_model_deck/model_library.dart';
 
 import 'fixtures/qwen2_mlx_layout.dart';
+import 'splash_engine_test.dart' show SplashRuntimeFixture;
 
 void main() {
   test(
@@ -943,6 +946,162 @@ void main() {
       isTrue,
     );
   });
+
+  test(
+    'Qwen3.5 MoE GGUF is classified as text while retaining asset checks',
+    () async {
+      final root = await Directory.systemTemp.createTemp('gmd-qwen35moe-');
+      addTearDown(() => root.delete(recursive: true));
+      final metadata = _kevMetadata()
+        ..removeWhere((key, _) => key.contains('.decision.'))
+        ..['general.architecture'] = 'qwen35moe'
+        ..['tokenizer.chat_template'] = '{{ messages }}';
+      final tensors = _kevTensors()
+        ..removeWhere((name, _) => name.startsWith('cls.'));
+      await _writeGguf(
+        root,
+        'valid/model.gguf',
+        metadata: metadata,
+        tensors: tensors,
+      );
+      await _writeGguf(
+        root,
+        'missing/model.gguf',
+        metadata: {...metadata}..remove('tokenizer.chat_template'),
+        tensors: tensors,
+      );
+      await _writeGguf(
+        root,
+        'decision/model.gguf',
+        metadata: {...metadata, 'qwen35moe.decision.type': 'unrecognized'},
+        tensors: tensors,
+      );
+      final library = ModelLibrary();
+      addTearDown(library.close);
+      final assets = await library.scan(root, verifyFiles: true);
+      LibraryArtifact asset(String name) => assets.singleWhere(
+        (a) => a.files.any((f) => f.path.contains('/$name/')),
+      );
+      expect(asset('valid').kind, AssetKind.chat);
+      expect(asset('valid').integrity, AssetIntegrity.complete);
+      expect(
+        asset('valid').engineCapability,
+        EngineCapability.awaitingVerification,
+      );
+      expect(asset('missing').kind, AssetKind.chat);
+      expect(asset('missing').integrity, AssetIntegrity.incomplete);
+      expect(asset('decision').kind, AssetKind.decision);
+      expect(asset('decision').integrity, AssetIntegrity.unknown);
+    },
+  );
+
+  test('Splash prepares Qwen3.5 MoE target with selected drafter', () async {
+    final fixture = await SplashRuntimeFixture.create();
+    addTearDown(fixture.close);
+    final metadata = _kevMetadata()
+      ..removeWhere((key, _) => key.contains('.decision.'))
+      ..['general.architecture'] = 'qwen35moe'
+      ..['tokenizer.chat_template'] = '{{ messages }}';
+    final target = await _writeGguf(
+      fixture.root,
+      'moe/model.gguf',
+      metadata: metadata,
+      tensors: _kevTensors()..removeWhere((name, _) => name.startsWith('cls.')),
+    );
+    final asset = (await fixture.library.scan(target.parent)).single;
+    await fixture.writeAssembly(target);
+    final engine = fixture.engine();
+    addTearDown(() async {
+      await engine.shutdown();
+      await engine.close();
+    });
+    final draft = '${fixture.assembly.path}/draft';
+    final binding = await engine.prepareModelBinding(
+      asset.id,
+      configuration: EngineLaunchConfiguration(
+        family: EngineFamily.splash,
+        drafter: DrafterConfiguration(enabled: true, path: draft),
+      ),
+    );
+    expect(
+      binding.roles['target/model.gguf'],
+      await target.resolveSymbolicLinks(),
+    );
+    expect(
+      binding.roles['draft/config.json'],
+      await File('$draft/config.json').resolveSymbolicLinks(),
+    );
+    expect(fixture.io.starts, 0);
+  });
+
+  test(
+    'Splash reports the rejected target type and integrity details',
+    () async {
+      final fixture = await SplashRuntimeFixture.create();
+      addTearDown(fixture.close);
+      final metadata = _kevMetadata()
+        ..removeWhere((key, _) => key.contains('.decision.'))
+        ..['tokenizer.chat_template'] = '{{ messages }}';
+      final tensors = _kevTensors()
+        ..removeWhere((name, _) => name.startsWith('cls.'));
+      final unknown = await _writeGguf(
+        fixture.root,
+        'targets/unknown.gguf',
+        metadata: {...metadata, 'general.architecture': 'other'},
+        tensors: tensors,
+      );
+      final incomplete = await _writeGguf(
+        fixture.root,
+        'targets/incomplete.gguf',
+        metadata: {...metadata}..remove('tokenizer.chat_template'),
+        tensors: tensors,
+      );
+      final assets = await fixture.library.scan(unknown.parent);
+      final engine = fixture.engine();
+      addTearDown(() async {
+        await engine.shutdown();
+        await engine.close();
+      });
+      final unknownAsset = assets.singleWhere(
+        (a) => a.files.single.path == unknown.path,
+      );
+      await fixture.writeAssembly(unknown);
+      await expectLater(
+        engine.bindModel(unknownAsset.id, fixture.assembly),
+        throwsA(
+          predicate(
+            (error) =>
+                error.toString().contains('目标模型资产') &&
+                error.toString().contains('类型：未知') &&
+                error.toString().contains('架构：other') &&
+                error.toString().contains('架构或决策布局尚未核验'),
+          ),
+        ),
+      );
+      final incompleteAsset = assets.singleWhere(
+        (a) => a.files.single.path == incomplete.path,
+      );
+      await fixture.writeAssembly(incomplete);
+      await expectLater(
+        engine.bindModel(incompleteAsset.id, fixture.assembly),
+        throwsA(
+          predicate(
+            (error) =>
+                error.toString().contains('目标模型资产') &&
+                error.toString().contains('完整性：不完整') &&
+                error.toString().contains('缺少普通 chat 模板'),
+          ),
+        ),
+      );
+      await expectLater(
+        engine.bindModel('missing', fixture.assembly),
+        throwsA(
+          predicate((error) => error.toString().contains('目标模型资产不在当前模型库中')),
+        ),
+      );
+      expect(fixture.io.starts, 0);
+    },
+  );
 
   test('unrecognized native decision layouts remain eligible for engine validation', () async {
     final root = await Directory.systemTemp.createTemp('gmd-native-decision-');
