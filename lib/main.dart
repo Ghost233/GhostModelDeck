@@ -34,6 +34,9 @@ import 'embedding_page.dart';
 import 'omlx_engine.dart';
 import 'hf_model_browser.dart';
 import 'public_gateway.dart';
+import 'prefill_operation_ledger.dart';
+import 'public_prefill_route.dart';
+import 'public_prefill_service.dart';
 import 'public_model_names.dart';
 import 'library_directory_settings.dart';
 import 'library_page.dart';
@@ -222,6 +225,26 @@ class _ManagerShellState extends State<_ManagerShell>
     _publicGateway = PublicGatewayServer(
       routes: _publicRoutes,
       jevModels: _council.models,
+      prefillServiceFactory: () async {
+        final ledger = await PrefillOperationLedger.open(
+          File('${_settings.file.parent.path}/prefill-operations.json'),
+        );
+        try {
+          final resolver = PublicPrefillRouteResolver(
+            routes: _publicRoutes,
+            ledger: ledger,
+            jevModels: _council.models,
+          );
+          return PublicPrefillService(
+            ledger: ledger,
+            resolve: resolver.resolve,
+            enabled: true,
+          );
+        } catch (_) {
+          await ledger.close();
+          rethrow;
+        }
+      },
     );
     _benchmarkResources = BenchmarkResources(
       Directory('${_settings.file.parent.path}/benchmark-cache'),

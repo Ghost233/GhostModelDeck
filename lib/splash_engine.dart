@@ -18,6 +18,7 @@ import 'decision_protocol.dart';
 import 'decision_runtime.dart';
 import 'jev_debug.dart';
 import 'runtime_monitor.dart';
+import 'splash_operation_client.dart';
 
 class SplashEngineException implements Exception {
   const SplashEngineException(this.message);
@@ -586,6 +587,61 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
       );
   int? pidFor(String id) => _runs[id]?.child?.pid;
   Uri? endpointFor(String id) => _runs[id]?.endpoint;
+
+  /// The callback owns this permit until it returns and must stop its I/O when
+  /// [DecisionCancellation] fires. Releasing this local permit does not prove
+  /// native completion or cache release; the operation ledger keeps that state.
+  Future<T> withTrackedClient<T>(
+    String instanceId, {
+    required int expectedGeneration,
+    required Future<T> Function(
+      SplashOperationClient client,
+      String nativeModel,
+      String responseModel,
+      DecisionCancellation cancellation,
+    )
+    work,
+    Duration timeout = const Duration(seconds: 60),
+    DecisionCancellation? cancellation,
+  }) async {
+    if (timeout <= Duration.zero) {
+      throw const FormatException('Splash追踪请求时限无效');
+    }
+    final run = _admit(instanceId);
+    if (run.generation != expectedGeneration) {
+      throw const SplashRequestException(
+        'Splash运行代次已变化',
+        kind: DecisionFailureKind.notReady,
+      );
+    }
+    final permit = _permit(run, cancellation);
+    final budget = _SplashBudget(timeout, permit.cancellation);
+    try {
+      await _checkedIdentity(run, budget: budget);
+      final client = SplashOperationClient(
+        endpoint: run.endpoint,
+        headers: run.headers,
+        timeout: budget.remaining,
+      );
+      final responseModel = run.responseModel;
+      if (responseModel == null) {
+        throw const SplashEngineException('Splash响应模型身份未确认');
+      }
+      final result = await work(
+        client,
+        run.id,
+        responseModel,
+        permit.cancellation,
+      );
+      budget.remaining;
+      await _checkedIdentity(run, budget: budget);
+      return result;
+    } finally {
+      budget.close();
+      _release(run, permit);
+    }
+  }
+
   @override
   bool get supportsSystemone => _installation.supportsSystemone;
   @override

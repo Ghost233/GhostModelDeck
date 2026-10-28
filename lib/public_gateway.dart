@@ -18,6 +18,11 @@ import 'omlx_engine.dart';
 import 'splash_engine.dart';
 import 'launch_instances.dart';
 import 'public_model_names.dart';
+import 'public_prefill_control.dart';
+import 'public_prefill_request.dart';
+import 'public_prefill_service.dart';
+import 'prefill_operation_ledger.dart';
+import 'splash_operation_client.dart';
 import 'model_scenarios.dart';
 
 /// Public business rejection with an HTTP verdict, never a silent fallback.
@@ -29,6 +34,8 @@ class PublicRequestException implements Exception {
   @override
   String toString() => message;
 }
+
+class _PrefillCleanupFailure implements Exception {}
 
 class PublicModelEntry {
   const PublicModelEntry({required this.publicId, required this.artifactId});
@@ -525,9 +532,12 @@ class PublicGatewayServer {
   PublicGatewayServer({
     required this._routes,
     this.jevModels,
+    this.prefillControl,
+    this.prefillService,
+    this.prefillServiceFactory,
     this.port = defaultPort,
     this.heartbeatInterval = const Duration(seconds: 15),
-  });
+  }) : assert(prefillService == null || prefillServiceFactory == null);
 
   static const defaultPort = 54841;
   static const ownedRequestHeader = 'x-gmd-owned-jev-request';
@@ -535,6 +545,14 @@ class PublicGatewayServer {
 
   final PublicModelRoutes _routes;
   final JevModels? jevModels;
+  final PublicPrefillControl? prefillControl;
+  final PublicPrefillService? prefillService;
+  final Future<PublicPrefillService> Function()? prefillServiceFactory;
+  PublicPrefillService? _managedPrefillService;
+  PublicPrefillService? get _prefillService =>
+      prefillService ?? _managedPrefillService;
+  PublicPrefillControl? get _prefillControl =>
+      prefillControl ?? _prefillService?.control;
   final int port;
 
   /// SSE comment-frame cadence. dart:io only surfaces a dead client on the
@@ -544,6 +562,7 @@ class PublicGatewayServer {
   final _changes = StreamController<PublicGatewayState>.broadcast();
   final _inflight = <_InflightRequest>{};
   HttpServer? _listener;
+  Future<void>? _starting;
   Future<void>? _stopping;
   PublicGatewayState _state = PublicGatewayState.stopped;
   String? _error;
@@ -614,33 +633,76 @@ class PublicGatewayServer {
     if (!request.drained.isCompleted) request.drained.complete();
   }
 
-  Future<void> start() async {
+  Future<void> start() {
     if (_state == PublicGatewayState.running) {
-      throw StateError('公开 API 已在运行：$baseUrl');
+      return Future.error(StateError('公开 API 已在运行：$baseUrl'));
     }
     if (_state == PublicGatewayState.failed) {
-      throw StateError(_error ?? '公开 API 启动已失败');
+      return Future.error(StateError(_error ?? '公开 API 启动已失败'));
     }
     if (_state != PublicGatewayState.stopped) {
-      throw StateError('公开 API 状态不允许启动：$_state');
+      return Future.error(StateError('公开 API 状态不允许启动：$_state'));
     }
+    _sealed = false;
     _setState(PublicGatewayState.starting);
+    final starting = _start();
+    _starting = starting;
+    return starting.whenComplete(() {
+      if (identical(_starting, starting)) _starting = null;
+    });
+  }
+
+  Future<void> _start() async {
     HttpServer listener;
     try {
       await _routes.load();
       await jevModels?.load();
+      if (_sealed) throw StateError('公开 API 启动已取消');
+      if (prefillServiceFactory != null) {
+        try {
+          _managedPrefillService = await prefillServiceFactory!();
+        } catch (_) {
+          // The ordinary gateway remains available when optional setup fails.
+          _managedPrefillService = null;
+        }
+      }
+      if (_sealed) throw StateError('公开 API 启动已取消');
       listener = await HttpServer.bind(InternetAddress.loopbackIPv4, port);
+      if (_sealed) {
+        await listener.close(force: true);
+        throw StateError('公开 API 启动已取消');
+      }
     } on SocketException {
-      _error = '公开 API 端口 $port 被占用或不可用，不做端口漂移';
+      Object? cleanup;
+      try {
+        await _closeManagedPrefill();
+      } catch (error) {
+        cleanup = error;
+      }
+      if (_sealed) {
+        if (cleanup != null) throw _PrefillCleanupFailure();
+        rethrow;
+      }
+      _error =
+          '公开 API 端口 $port 被占用或不可用，不做端口漂移${cleanup == null ? '' : '；预填收尾失败'}';
       _setState(PublicGatewayState.failed);
       throw StateError(_error!);
     } catch (_) {
-      _error = '公开 API 启动失败';
+      Object? cleanup;
+      try {
+        await _closeManagedPrefill();
+      } catch (error) {
+        cleanup = error;
+      }
+      if (_sealed) {
+        if (cleanup != null) throw _PrefillCleanupFailure();
+        rethrow;
+      }
+      _error = '公开 API 启动失败${cleanup == null ? '' : '；预填收尾失败'}';
       _setState(PublicGatewayState.failed);
       rethrow;
     }
     _listener = listener;
-    _sealed = false;
     _setState(PublicGatewayState.running);
     listener.listen((request) {
       unawaited(_handle(request));
@@ -665,6 +727,16 @@ class PublicGatewayServer {
   Future<void> _stop() async {
     _setState(PublicGatewayState.stopping);
     beginShutdown();
+    final starting = _starting;
+    if (starting != null) {
+      try {
+        await starting;
+      } on _PrefillCleanupFailure {
+        _error = '预填服务收尾失败';
+        _setState(PublicGatewayState.failed);
+        rethrow;
+      } catch (_) {}
+    }
     final listener = _listener;
     _listener = null;
     await listener?.close(force: true);
@@ -673,12 +745,29 @@ class PublicGatewayServer {
         for (final request in _inflight) request.drained.future,
       ]);
     }
+    await _closeManagedPrefill();
     _stopping = null;
     _setState(PublicGatewayState.stopped);
   }
 
+  Future<void> _closeManagedPrefill() async {
+    final service = _managedPrefillService;
+    if (service == null) return;
+    try {
+      await service.close();
+    } finally {
+      await service.ledger.close();
+    }
+    _managedPrefillService = null;
+  }
+
   void close() {
-    unawaited(stop().whenComplete(_changes.close));
+    unawaited(
+      stop().then<void>(
+        (_) => _changes.close(),
+        onError: (Object _, StackTrace _) => _changes.close(),
+      ),
+    );
   }
 
   Future<void> _handle(HttpRequest request) async {
@@ -698,6 +787,45 @@ class PublicGatewayServer {
         return;
       }
       final path = request.uri.path;
+      final segments = request.uri.pathSegments;
+      if (_prefillControl != null &&
+          segments.length >= 5 &&
+          segments.take(4).join('/') == 'api/v1/inference/requests' &&
+          (request.method == 'GET' && segments.length == 5 ||
+              request.method == 'POST' &&
+                  segments.length == 6 &&
+                  segments[5] == 'cancel')) {
+        final tokens = request.headers['x-gmd-operation-token'];
+        if (tokens == null ||
+            tokens.length != 1 ||
+            tokens.single.contains(',')) {
+          _sendPrefillForbidden(request.response);
+          return;
+        }
+        try {
+          final view = request.method == 'GET'
+              ? await _prefillControl!.status(segments[4], tokens.single)
+              : await _prefillControl!.cancel(segments[4], tokens.single);
+          _sendJson(
+            request.response,
+            request.method == 'POST' && !view.terminal ? 202 : 200,
+            _prefillControl!.toJson(view),
+          );
+        } on PrefillOperationForbidden {
+          _sendPrefillForbidden(request.response);
+        } on FormatException {
+          _sendPrefillForbidden(request.response);
+        } catch (_) {
+          _sendJson(request.response, 503, {
+            'error': {
+              'code': 'prefill_capability_unconfirmed',
+              'type': 'prefill_capability_unconfirmed',
+              'message': '操作状态暂不可确认',
+            },
+          });
+        }
+        return;
+      }
       final handles = request.headers[ownedRequestHeader];
       if (handles != null) {
         if (request.method != 'POST' ||
@@ -771,13 +899,56 @@ class PublicGatewayServer {
         return;
       }
       if (request.method == 'GET' && path == '/api/v1/models') {
+        Future<Map<String, Object?>> prefillCapability(
+          Map<String, Object?> model,
+        ) async {
+          final type = model['type'];
+          if (type != 'llm' && type != 'decision') return model;
+          final mode = type == 'llm'
+              ? SplashOperationPath.chat
+              : SplashOperationPath.systemone;
+          final capability = _prefillService == null || model['key'] is! String
+              ? <String, Object?>{
+                  'protocol': 'gmd-prefill/1',
+                  'supported': false,
+                  'mode': type == 'llm'
+                      ? 'chat_max_tokens_zero'
+                      : 'systemone_state',
+                  'reason': 'gmd_prefill_unavailable',
+                }
+              : await _prefillService!.capability(mode, model['key'] as String);
+          return {
+            ...model,
+            'capabilities': {'prefill': capability},
+          };
+        }
+
+        final models = <Map<String, Object?>>[
+          ..._routes.capacityModels(),
+          ...?jevModels?.capacityModels(),
+        ];
         _sendJson(request.response, 200, {
           'source': 'ghost-model-deck',
-          'models': [
-            ..._routes.capacityModels(),
-            ...?jevModels?.capacityModels(),
-          ],
+          'models': await Future.wait(models.map(prefillCapability)),
         });
+        return;
+      }
+      if (request.method == 'POST' &&
+          (path == '/v1/chat/completions' || path == '/v1/systemone') &&
+          [
+            'x-gmd-operation-token',
+            'x-gmd-runtime-generation',
+          ].any((header) => request.headers[header] != null)) {
+        if (_prefillService == null) {
+          _sendJson(request.response, 503, {
+            'error': {
+              'code': 'prefill_capability_unconfirmed',
+              'message': '预填服务暂不可用',
+            },
+          });
+          return;
+        }
+        await _trackedPrefill(request, path, inflight.cancellation);
         return;
       }
       if (request.method == 'POST' &&
@@ -811,6 +982,152 @@ class PublicGatewayServer {
       _sendError(request.response, error.statusCode, error.type, error.message);
     } finally {
       _finish(inflight);
+    }
+  }
+
+  Future<void> _trackedPrefill(
+    HttpRequest request,
+    String path,
+    DecisionCancellation cancellation,
+  ) async {
+    String? header(String name) {
+      final values = request.headers[name];
+      if (values == null || values.length != 1 || values.single.contains(',')) {
+        return null;
+      }
+      return values.single;
+    }
+
+    final id = header('idempotency-key');
+    final token = header('x-gmd-operation-token');
+    final generation = header('x-gmd-runtime-generation');
+    if (id == null || token == null || generation == null) {
+      _sendPrefillForbidden(request.response);
+      return;
+    }
+    try {
+      final bytes = BytesBuilder(copy: false);
+      await for (final chunk in request) {
+        bytes.add(chunk);
+        if (bytes.length > _bodyLimit) {
+          request.response.persistentConnection = false;
+          await _sendTrackedRejection(
+            request.response,
+            id,
+            token,
+            generation,
+            413,
+            'invalid_prefill_request',
+            '请求体超过 1MiB 上限',
+          );
+          await request.response.done;
+          return;
+        }
+      }
+      final value = decodeGenerationRequest(utf8.decode(bytes.takeBytes()));
+      if (value is! Map || value.keys.any((key) => key is! String)) {
+        throw const FormatException('请求需要 JSON 对象');
+      }
+      final parsed = PublicPrefillRequest.parse(
+        path == '/v1/systemone'
+            ? SplashOperationPath.systemone
+            : SplashOperationPath.chat,
+        Map<String, Object?>.from(value),
+      );
+      final reply = await _prefillService!.submit(
+        operationId: id,
+        token: token,
+        generation: generation,
+        request: parsed,
+        cancellation: cancellation,
+      );
+      _sendJson(request.response, reply.status, reply.body);
+    } on PrefillOperationForbidden {
+      _sendPrefillForbidden(request.response);
+    } on PrefillCapacityUnavailable catch (error) {
+      final body = _prefillService!.control.toJson(error.operation);
+      body['error'] = {
+        'code': 'capacity_unavailable',
+        'stage': 'admission',
+        'message': '请求登记容量不足',
+      };
+      _sendJson(request.response, 503, body);
+    } on PrefillAdmissionNotAdmitted catch (error) {
+      _sendJson(
+        request.response,
+        409,
+        _prefillService!.control.toJson(error.operation),
+      );
+    } on PrefillCacheBusy {
+      await _sendTrackedRejection(
+        request.response,
+        id,
+        token,
+        generation,
+        409,
+        'prefill_context_busy',
+        '同一缓存仍被占用',
+      );
+    } on PrefillOperationConflict {
+      _sendJson(request.response, 409, {
+        'error': {'code': 'idempotency_conflict', 'message': '操作身份或运行绑定冲突'},
+      });
+    } on PrefillOperationExpired {
+      _sendJson(request.response, 409, {
+        'error': {'code': 'operation_expired', 'message': '操作身份已过期'},
+      });
+    } on FormatException {
+      await _sendTrackedRejection(
+        request.response,
+        id,
+        token,
+        generation,
+        400,
+        'invalid_prefill_request',
+        '请求格式或参数无效',
+      );
+    } catch (_) {
+      _sendJson(request.response, 503, {
+        'error': {
+          'code': 'prefill_capability_unconfirmed',
+          'message': '操作状态暂不可确认',
+        },
+      });
+    }
+  }
+
+  Future<void> _sendTrackedRejection(
+    HttpResponse response,
+    String id,
+    String token,
+    String generation,
+    int status,
+    String code,
+    String message,
+  ) async {
+    try {
+      final proof = await _prefillService!.refuseUnadmitted(
+        id,
+        token,
+        generation,
+      );
+      if (proof.identityOnly) {
+        final body = _prefillService!.control.toJson(proof);
+        body['error'] = {
+          'code': code,
+          'stage': 'admission',
+          'message': message,
+        };
+        _sendJson(response, status, body);
+      } else {
+        _sendJson(response, 409, {
+          'error': {'code': 'idempotency_conflict', 'message': '操作身份已登记'},
+        });
+      }
+    } catch (_) {
+      _sendJson(response, status, {
+        'error': {'code': code, 'message': message},
+      });
     }
   }
 
@@ -940,16 +1257,102 @@ class PublicGatewayServer {
     } on TextProtocolException catch (error) {
       throw PublicRequestException(400, 'invalid_request_error', error.message);
     }
-    if (parsed.stream) {
-      unawaited(
-        request.response.done.then(
-          (_) => cancellation.cancel(),
-          onError: (Object _) => cancellation.cancel(),
-        ),
-      );
-      await _chatStream(request, parsed, target, cancellation);
-    } else {
-      await _chatOnce(request, parsed, target, cancellation);
+    PrefillLegacyLease? lease;
+    var releaseConfirmed = false;
+    var protocolConfirmed = false;
+    final salt = parsed.request.parameters.values['cache_salt'];
+    if (_prefillService?.enabled == true &&
+        target.runtime is SplashEngine &&
+        salt is String &&
+        salt.isNotEmpty) {
+      var definitelyUnsupported = false;
+      try {
+        final runtime = await _prefillService!.resolve(
+          SplashOperationPath.chat,
+          target.publicId,
+        );
+        if (runtime is SplashPublicPrefillRuntime &&
+            identical(runtime.engine, target.runtime) &&
+            runtime.instance.id == target.instance.id &&
+            runtime.instance.generation == target.instance.generation &&
+            await runtime.isCurrent() &&
+            runtime.identity.capabilities.declared) {
+          protocolConfirmed =
+              runtime.supportsPrefill(SplashOperationPath.chat) ||
+              runtime.supportsPrefill(SplashOperationPath.systemone);
+          definitelyUnsupported = !protocolConfirmed;
+        }
+      } on SplashPrefillEndpointMissing catch (missing) {
+        // The engine identity was rechecked after the endpoint returned 404.
+        definitelyUnsupported =
+            missing.instanceId == target.instance.id &&
+            missing.generation == target.instance.generation;
+      } catch (_) {
+        // An unconfirmed protocol retains the reservation conservatively.
+      }
+      try {
+        final owner = SplashPublicPrefillRuntime.ownerFor(target.instance);
+        if (definitelyUnsupported) {
+          await _prefillService!.ledger.assertNoTracked(
+            owner: owner,
+            cacheSalt: salt,
+          );
+        } else {
+          lease = await _prefillService!.ledger.reserveLegacy(
+            owner: owner,
+            cacheSalt: salt,
+          );
+        }
+      } on PrefillCacheBusy {
+        throw const PublicRequestException(
+          409,
+          'prefill_context_busy',
+          '同一缓存仍被占用',
+        );
+      } on PrefillLegacyCapacityUnavailable {
+        throw const PublicRequestException(
+          503,
+          'capacity_unavailable',
+          '请求登记容量不足',
+        );
+      }
+    }
+    try {
+      if (parsed.stream) {
+        unawaited(
+          request.response.done.then(
+            (_) => cancellation.cancel(),
+            onError: (Object _) => cancellation.cancel(),
+          ),
+        );
+        await _chatStream(
+          request,
+          parsed,
+          target,
+          cancellation,
+          onNativeComplete: () => releaseConfirmed = true,
+        );
+      } else {
+        await _chatOnce(
+          request,
+          parsed,
+          target,
+          cancellation,
+          onNativeComplete: () => releaseConfirmed = true,
+        );
+      }
+    } finally {
+      if (lease != null) {
+        try {
+          await _prefillService!.ledger.finishLegacy(
+            lease,
+            released: protocolConfirmed && releaseConfirmed,
+          );
+        } catch (_) {
+          _error = '普通请求缓存占用记录无法更新，释放状态未确认';
+          _changes.add(_state);
+        }
+      }
     }
   }
 
@@ -1193,8 +1596,9 @@ class PublicGatewayServer {
     HttpRequest request,
     _ParsedChat parsed,
     PublicRouteTarget target,
-    DecisionCancellation cancellation,
-  ) async {
+    DecisionCancellation cancellation, {
+    void Function()? onNativeComplete,
+  }) async {
     await _jsonConnection(request, cancellation, () async {
       try {
         final timeout = _splashRequestTimeout(parsed, target);
@@ -1210,6 +1614,7 @@ class PublicGatewayServer {
                 timeout: timeout,
                 cancellation: cancellation,
               ));
+        onNativeComplete?.call();
         return (
           200,
           sealDebugJson({
@@ -1239,8 +1644,9 @@ class PublicGatewayServer {
     HttpRequest request,
     _ParsedChat parsed,
     PublicRouteTarget target,
-    DecisionCancellation cancellation,
-  ) async {
+    DecisionCancellation cancellation, {
+    void Function()? onNativeComplete,
+  }) async {
     final response = request.response;
     var started = false;
     StreamSubscription<TextStreamEvent>? subscription;
@@ -1266,6 +1672,7 @@ class PublicGatewayServer {
           try {
             final result = event.result;
             if (result != null) {
+              onNativeComplete?.call();
               final write = started ? _writeSseFrame : _writeSseChunk;
               started = true;
               write(response, target.publicId, {
@@ -1429,6 +1836,16 @@ class PublicGatewayServer {
   ) {
     _sendJson(response, status, {
       'error': {'message': message, 'type': type},
+    });
+  }
+
+  void _sendPrefillForbidden(HttpResponse response) {
+    _sendJson(response, 403, {
+      'error': {
+        'code': 'operation_forbidden',
+        'type': 'operation_forbidden',
+        'message': '操作不可查询或凭证无效',
+      },
     });
   }
 

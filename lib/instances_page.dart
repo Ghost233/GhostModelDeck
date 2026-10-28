@@ -117,21 +117,88 @@ class _InstancesPageState extends State<InstancesPage> {
   Future<void> _edit({LaunchInstance? existing, String? artifactId}) async {
     final store = widget.instances;
     final models = store.catalog.library.state.artifacts
-        .where((a) => ['GGUF', 'Safetensors'].contains(a.format))
+        .where(
+          (a) =>
+              ['GGUF', 'Safetensors'].contains(a.format) &&
+              a.architecture != 'clip' &&
+              !RegExp(
+                r'^mmproj(?:[-_.]|$)',
+                caseSensitive: false,
+              ).hasMatch(a.name),
+        )
         .toList();
-    final asset = existing == null
-        ? models.where((a) => a.id == artifactId).firstOrNull ??
-              models.firstOrNull
-        : models.where((a) => a.id == existing.artifactId).firstOrNull ??
-              models.firstOrNull;
-    if (asset == null) {
-      setState(() => _error = '请先关联模型；缺失实例的配置继续保留');
+    var asset = existing == null
+        ? artifactId == null
+              ? models.firstOrNull
+              : models.where((a) => a.id == artifactId).firstOrNull
+        : models.where((a) => a.id == existing.artifactId).firstOrNull;
+    if (asset == null && existing != null && models.isNotEmpty) {
+      String? selected;
+      final chosen = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, update) => AlertDialog(
+            key: const Key('instance-rebind-dialog'),
+            title: const Text('重新关联目标模型'),
+            content: SizedBox(
+              width: 560,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('原模型文件已缺失或不能作为主模型，请明确选择新的目标模型。'),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    key: const Key('instance-rebind-choice'),
+                    initialValue: selected,
+                    isExpanded: true,
+                    decoration: const InputDecoration(labelText: '目标模型'),
+                    items: [
+                      for (final model in models)
+                        DropdownMenuItem(
+                          value: model.id,
+                          child: Tooltip(
+                            message: model.files.first.path,
+                            child: Text(
+                              model.name,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                    ],
+                    onChanged: (value) => update(() => selected = value),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                key: const Key('instance-rebind-confirm'),
+                onPressed: selected == null
+                    ? null
+                    : () => Navigator.pop(dialogContext, selected),
+                child: const Text('继续'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (!mounted || chosen == null) return;
+      asset = models.where((model) => model.id == chosen).firstOrNull;
+    }
+    final selectedAsset = asset;
+    if (selectedAsset == null) {
+      setState(() => _error = '请先关联可用的主模型；缺失实例的配置继续保留');
       return;
     }
     final variant = LocalModelVariant(
-      id: asset.id,
-      label: '${asset.format} · ${asset.quantization ?? ''}',
-      artifacts: [asset],
+      id: selectedAsset.id,
+      label: '${selectedAsset.format} · ${selectedAsset.quantization ?? ''}',
+      artifacts: [selectedAsset],
     );
     await showDialog<void>(
       context: context,
@@ -139,8 +206,8 @@ class _InstancesPageState extends State<InstancesPage> {
         catalog: store.catalog,
         library: store.catalog.library,
         modelPackage: LocalModelPackage(
-          directoryPath: File(asset.files.first.path).parent.path,
-          name: asset.name,
+          directoryPath: File(selectedAsset.files.first.path).parent.path,
+          name: selectedAsset.name,
           variants: [variant],
           details: [],
         ),

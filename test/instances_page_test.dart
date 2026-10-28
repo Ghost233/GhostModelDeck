@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -16,6 +18,162 @@ import 'fixtures/council_runtime.dart';
 import 'fixtures/test_environment.dart';
 
 void main() {
+  testWidgets(
+    'missing instance requires explicit main model and excludes projector',
+    (tester) async {
+      final verified = await tester.runAsync(
+        () => HttpOverrides.runWithHttpOverrides(() async {
+          final runtime = await CouncilRuntime.create(
+            modelCount: 1,
+            sourceSystemone: true,
+          );
+          final store = LaunchInstances(
+            catalog: runtime.catalog,
+            file: File('${runtime.root.path}/rebind.json'),
+          );
+          try {
+            final original = runtime.library.state.artifacts.single;
+            final definition = await store.save(
+              name: 'Moved model',
+              artifactId: original.id,
+              engineId: EngineCatalog.officialId,
+              configuration: EngineLaunchConfiguration(),
+            );
+            final source = File(original.files.first.path);
+            final moved = await source.copy(
+              '${source.parent.path}/Relocated-Q8_0.gguf',
+            );
+            await source.delete();
+            List<int> u32(int n) => (ByteData(
+              4,
+            )..setUint32(0, n, Endian.little)).buffer.asUint8List();
+            List<int> u64(int n) => (ByteData(
+              8,
+            )..setUint64(0, n, Endian.little)).buffer.asUint8List();
+            final key = utf8.encode('general.architecture');
+            final projectorBytes = BytesBuilder()
+              ..add(ascii.encode('GGUF'))
+              ..add(u32(3))
+              ..add(u64(0))
+              ..add(u64(1))
+              ..add(u64(key.length))
+              ..add(key)
+              ..add(u32(8))
+              ..add(u64(4))
+              ..add(ascii.encode('clip'));
+            await File('${source.parent.path}/mmproj-F16.gguf')
+                .writeAsBytes(projectorBytes.takeBytes());
+            await runtime.library.scan(
+              Directory('${runtime.root.path}/models'),
+            );
+            await tester.pumpWidget(
+              MaterialApp(
+                home: Scaffold(body: InstancesPage(instances: store)),
+              ),
+            );
+            await tester.pumpAndSettle();
+            final edit = find.byKey(
+              ValueKey('instance-parameters:${definition.id}'),
+            );
+            await tester.ensureVisible(edit);
+            await tester.tap(edit);
+            for (var i = 0; i < 20; i++) {
+              await tester.pump(const Duration(milliseconds: 16));
+              await Future<void>.delayed(const Duration(milliseconds: 5));
+            }
+            expect(
+              find.byKey(const Key('instance-rebind-dialog')),
+              findsOneWidget,
+            );
+            expect(find.text('mmproj-F16.gguf'), findsNothing);
+            final confirm = tester.widget<FilledButton>(
+              find.byKey(const Key('instance-rebind-confirm')),
+            );
+            expect(confirm.onPressed, isNull);
+            await tester.tap(find.text('取消').last);
+            await tester.pumpAndSettle();
+            expect(store.find(definition.id)!.artifactId, original.id);
+            await tester.tap(edit);
+            await tester.pumpAndSettle();
+            await tester.tap(find.byKey(const Key('instance-rebind-choice')));
+            await tester.pumpAndSettle();
+            expect(
+              find.descendant(
+                of: find.byType(DropdownMenuItem<String>),
+                matching: find.text('mmproj-F16.gguf'),
+              ),
+              findsNothing,
+            );
+            await tester.tap(find.text(moved.uri.pathSegments.last).last);
+            await tester.pumpAndSettle();
+            await tester.tap(find.byKey(const Key('instance-rebind-confirm')));
+            for (var i = 0; i < 20; i++) {
+              await tester.pump(const Duration(milliseconds: 16));
+              await Future<void>.delayed(const Duration(milliseconds: 5));
+            }
+            expect(find.text('实例配置'), findsOneWidget);
+            expect(store.find(definition.id)!.artifactId, original.id);
+            for (var i = 0; i < 100; i++) {
+              await tester.pump(const Duration(milliseconds: 16));
+              await Future<void>.delayed(const Duration(milliseconds: 5));
+              final save = find.widgetWithText(FilledButton, '保存');
+              if (save.evaluate().isNotEmpty &&
+                  tester.widget<FilledButton>(save).onPressed != null) {
+                break;
+              }
+            }
+            final saved = store.changes.firstWhere(
+              (_) => store.find(definition.id)!.artifactId != original.id,
+            );
+            await tester.tap(find.widgetWithText(FilledButton, '保存'));
+            await saved.timeout(const Duration(seconds: 5));
+            expect(
+              store.find(definition.id)!.artifactId,
+              runtime.library.state.artifacts
+                  .singleWhere((a) => a.files.first.path == moved.path)
+                  .id,
+            );
+            final projector = runtime.library.state.artifacts.singleWhere(
+              (a) => a.files.first.path.endsWith('/mmproj-F16.gguf'),
+            );
+            final wrong = await store.save(
+              name: 'Projector bound',
+              artifactId: projector.id,
+              engineId: EngineCatalog.officialId,
+              configuration: EngineLaunchConfiguration(),
+            );
+            await tester.pumpAndSettle();
+            final editWrong = find.byKey(
+              ValueKey('instance-parameters:${wrong.id}'),
+            );
+            await tester.ensureVisible(editWrong);
+            await tester.tap(editWrong);
+            await tester.pumpAndSettle();
+            expect(
+              find.byKey(const Key('instance-rebind-dialog')),
+              findsOneWidget,
+            );
+            await tester.tap(find.byKey(const Key('instance-rebind-choice')));
+            await tester.pumpAndSettle();
+            expect(
+              find.descendant(
+                of: find.byType(DropdownMenuItem<String>),
+                matching: find.text('mmproj-F16.gguf'),
+              ),
+              findsNothing,
+            );
+            return true;
+          } finally {
+            await tester.pumpWidget(const SizedBox.shrink());
+            await store.close();
+            await runtime.close();
+          }
+        }, _NetworkBoundary()),
+      );
+      expect(verified, isTrue);
+    },
+  );
+
   testWidgets(
     'missing saved resources remain distinct from the live owner state',
     (tester) async {

@@ -2345,6 +2345,8 @@ class SplashTestProcessIO implements SplashProcessIO {
   String? statusModel;
   String? statusServerId;
   int transportRestarts = 0;
+  Map<String, Object?>? prefillCapabilities;
+  bool runtimeEndpointMissing = false;
   bool emptyText = false;
   bool unknownGroup = false;
   final groupSignals = <int>[];
@@ -2629,6 +2631,18 @@ class SplashTestProcessIO implements SplashProcessIO {
                 'stopped': false,
                 'restarts': transportRestarts,
               },
+            };
+          case '/v1/splash/runtime':
+            if (runtimeEndpointMissing) {
+              request.response.statusCode = 404;
+              request.response.write('{}');
+              await request.response.close();
+              return;
+            }
+            response = {
+              'service_instance': 'service-${child.pid}',
+              'runtime_generation': transportRestarts + 1,
+              'prefill_capabilities': ?prefillCapabilities,
             };
           case '/v1/models':
             response = {
