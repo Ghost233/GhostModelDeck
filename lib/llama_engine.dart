@@ -202,6 +202,20 @@ final embeddingLlamaRelease = LlamaRelease(
   sizeBytes: 12007659,
 );
 
+final mainlineLlamaRelease = LlamaRelease(
+  tag: 'v0.9.0',
+  artifactTag: 'b12110',
+  expectedBuild: 12110,
+  supportsSystemone: true,
+  installationVersionTimeout: const Duration(seconds: 60),
+  commit: 'cd959bae99ff4bed22bef2604f45241c09bbb8c8',
+  url: Uri.parse(
+    'https://github.com/ggml-org/llama.cpp/releases/download/b12110/llama-b12110-bin-macos-arm64.tar.gz',
+  ),
+  sha256: '4f5b8de12e0b9516658ca6a5764c6ffb3d7c659c3dd538556b1413c7b4050662',
+  sizeBytes: 16650691,
+);
+
 /// Facts parsed from successful native output; never inferred from a tag.
 class LlamaBinaryVersion {
   const LlamaBinaryVersion(
@@ -605,7 +619,7 @@ class LlamaEngine
            (linkedInstallation == null
                ? 'official-llama-${(release ?? officialLlamaRelease).tag}'
                : null),
-       release = release ?? officialLlamaRelease,
+       _selectedRelease = release ?? officialLlamaRelease,
        io = io ?? NativeEngineProcessIO(),
        useRegistry = useRegistry ?? ModelUseRegistry(library),
        _parameterRecognition = linkedInstallation?.helpOutput == null
@@ -619,7 +633,17 @@ class LlamaEngine
   final ModelLibrary library;
   final Directory installationDirectory;
   final EngineProcessIO io;
-  final LlamaRelease release;
+  LlamaRelease _selectedRelease;
+  LlamaRelease get release => _selectedRelease;
+  void selectRelease(LlamaRelease value) {
+    if (linkedInstallation != null ||
+        hasLiveInstances ||
+        state.installation == LlamaInstallationStatus.installing) {
+      throw const LlamaEngineException('请先停止该引擎的模型实例和安装任务');
+    }
+    _selectedRelease = value;
+  }
+
   EngineParameterRecognition _parameterRecognition;
   EngineParameterRecognition get parameterRecognition => _parameterRecognition;
   EngineLaunchConfiguration Function(String artifactId)?

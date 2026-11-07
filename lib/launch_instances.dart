@@ -264,6 +264,15 @@ class LaunchInstances {
       }
       final parsed = (value['instances'] as List)
           .map(LaunchInstance.fromJson)
+          .map((instance) {
+            final engine = catalog.canonicalManagedId(instance.engineId);
+            return engine == instance.engineId
+                ? instance
+                : LaunchInstance.fromJson({
+                    ...instance.toJson(),
+                    'engine_id': engine,
+                  });
+          })
           .toList();
       if (parsed.map((v) => v.id).toSet().length != parsed.length) {
         throw const FormatException('实例身份重复');
@@ -273,6 +282,12 @@ class LaunchInstances {
           'instance:${definition.id}': definition.publicName,
       });
       _definitions = parsed;
+      if ((value['instances'] as List).asMap().entries.any(
+        (entry) =>
+            (entry.value as Map)['engine_id'] != parsed[entry.key].engineId,
+      )) {
+        await _write(parsed);
+      }
     } else {
       await _write([]);
     }

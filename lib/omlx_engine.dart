@@ -16,6 +16,7 @@ import 'model_library.dart';
 import 'model_use_registry.dart';
 import 'runtime_monitor.dart';
 import 'engine_install_progress.dart';
+import 'managed_engine_release.dart';
 
 class OmlxException implements Exception {
   const OmlxException(this.message);
@@ -334,13 +335,23 @@ class OmlxRequestException implements Exception {
 class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
   OmlxEngine({
     required this.installationDirectory,
+    ManagedEngineRelease? release,
     OmlxProcessIO? io,
     this._library,
     OmlxPoolIO? poolIo,
     this._useRegistry,
     this._poolLoadTimeout = const Duration(seconds: 120),
     this._poolStopTimeout = const Duration(seconds: 20),
-  }) : io = io ?? NativeOmlxProcessIO(),
+  }) : _selectedRelease =
+           release ??
+           ManagedEngineRelease(
+             family: EngineFamily.omlx,
+             tag: 'v0.7.0',
+             url: Uri.parse(artifactUrl),
+             sha256: dmgDigest,
+             sizeBytes: 830879938,
+           ),
+       io = io ?? NativeOmlxProcessIO(),
        _poolIo = poolIo ?? const NativeOmlxPoolIO();
   static const dmgDigest =
       '2e3bb06ac6ee7f50986ba1417e909d432ccd2be471db752a4a2d3b5651e3bce0';
@@ -350,6 +361,17 @@ class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
       '/Users/cryingneko/Workspace/omlx/omlx/packaging/_export/cpython-3.11/lib/python3.11/site-packages';
   final OmlxProcessIO io;
   final Directory installationDirectory;
+  ManagedEngineRelease _selectedRelease;
+  ManagedEngineRelease get release => _selectedRelease;
+  void selectRelease(ManagedEngineRelease value) {
+    assertRemovable();
+    if (value.family != EngineFamily.omlx ||
+        state.status == OmlxInstallationStatus.installing) {
+      throw const OmlxException('oMLX 发行选择无效或安装尚未结束');
+    }
+    _selectedRelease = value;
+  }
+
   final _changes = StreamController<OmlxState>.broadcast();
   OmlxState _state = const OmlxState(
     status: OmlxInstallationStatus.notInstalled,
@@ -374,7 +396,7 @@ class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
     installationProgress = EngineInstallProgress(
       phase,
       received: bytes,
-      total: 830879938,
+      total: release.sizeBytes,
       bytesPerSecond: bytesPerSecond,
       error: error,
     );
@@ -425,7 +447,7 @@ class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
   }
 
   Directory get _versionDirectory =>
-      Directory('${installationDirectory.path}/0.7.0');
+      Directory('${installationDirectory.path}/${release.version}');
   Directory get bundle =>
       _selectedBundle ?? Directory('${_versionDirectory.path}/oMLX.app');
   File get _marker => File('${_versionDirectory.path}/installation.json');
@@ -956,7 +978,7 @@ class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
         if (io case OmlxProgressiveDownload downloader) {
           final clock = Stopwatch()..start();
           await downloader.downloadWithProgress(
-            Uri.parse(artifactUrl),
+            release.url,
             artifact,
             cancellation: cancellation,
             onProgress: (bytes) => _installProgress(
@@ -969,7 +991,7 @@ class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
             ),
           );
         } else {
-          await io.download(Uri.parse(artifactUrl), artifact);
+          await io.download(release.url, artifact);
         }
       }
       _installProgress(EngineInstallPhase.verifying, await artifact.length());
@@ -1056,7 +1078,7 @@ class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
         'go-w',
         copied.path,
       ], timeout: const Duration(seconds: 180));
-      await _inspect(copied, epoch, dmgSha256: dmgDigest);
+      await _inspect(copied, epoch, dmgSha256: release.sha256);
       // No publication while an owned device still needs cleanup.
       await _detach(device, mount.path);
       detached = true;
@@ -1071,7 +1093,7 @@ class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
       publishedManifest = await _inventory(copied);
       await staging.rename(_versionDirectory.path);
       published = true;
-      final receipt = await _inspect(bundle, epoch, dmgSha256: dmgDigest);
+      final receipt = await _inspect(bundle, epoch, dmgSha256: release.sha256);
       final temporary = File('${_marker.path}.tmp');
       final metadata = jsonEncode({'schema': 1, 'receipt': receipt.toJson()});
       await temporary.writeAsString(metadata, flush: true);
@@ -1186,9 +1208,9 @@ class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
     }
   });
   Future<void> _verifyArtifact(File artifact) async {
-    if (await artifact.length() != 830879938 ||
+    if (await artifact.length() != release.sizeBytes ||
         (await sha256.bind(artifact.openRead()).first).toString() !=
-            dmgDigest) {
+            release.sha256) {
       throw const OmlxException('oMLX 官方 DMG 摘要或大小不符');
     }
   }
@@ -1622,6 +1644,7 @@ class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
     final child =
         OmlxEngine(
             installationDirectory: installationDirectory,
+            release: release,
             io: io,
             library: library,
             poolIo: _poolIo,

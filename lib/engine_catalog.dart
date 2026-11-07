@@ -12,6 +12,7 @@ import 'model_library.dart';
 import 'omlx_engine.dart';
 import 'model_use_registry.dart';
 import 'splash_engine.dart';
+import 'managed_engine_release.dart';
 
 enum EngineSource { managed, linked }
 
@@ -140,6 +141,7 @@ class EngineCatalog {
     this.standardEngine,
     this.embeddingEngine,
     this.omlxEngine,
+    this.releaseClient,
     this.startStartluxReadout,
     this.sourceBuilder,
     this.splashIO,
@@ -175,6 +177,7 @@ class EngineCatalog {
     });
   }
   static const omlxId = 'official-omlx-v0.7.0';
+  // Keep the persisted identity while the app now supplies the mainline release.
   static const officialId = 'official-llama-b11381';
   static const standardId = 'official-llama-v0.5.0';
   static const embeddingId = 'official-llama-b11457';
@@ -192,6 +195,16 @@ class EngineCatalog {
   final LlamaEngine? standardEngine;
   final LlamaEngine? embeddingEngine;
   final OmlxEngine? omlxEngine;
+  final ManagedEngineReleaseClient? releaseClient;
+  final _managedReleases = <String, ManagedEngineRelease>{};
+  bool canUpdateManaged(String id) =>
+      releaseClient != null &&
+      (id == officialId || id == omlxId && omlxEngine != null);
+  bool managedOperationActive(String id) => _installations.containsKey(id);
+  String canonicalManagedId(String id) =>
+      [standardId, embeddingId].contains(id) && !_managed.containsKey(id)
+      ? officialId
+      : id;
   final StartluxReadoutStarter? startStartluxReadout;
   final EngineSourceBuilder? sourceBuilder;
   Iterable<EngineRuntime> get runtimes => {
@@ -365,7 +378,7 @@ class EngineCatalog {
       if (omlxEngine != null)
         EngineRegistration(
           id: omlxId,
-          name: 'oMLX · 0.7.0',
+          name: 'oMLX · ${omlxEngine!.release.version}',
           source: EngineSource.managed,
           family: EngineFamily.omlx,
           status: switch (omlxEngine!.state.status) {
@@ -404,11 +417,8 @@ class EngineCatalog {
       for (final entry in _managed.entries)
         EngineRegistration(
           id: entry.key,
-          name: entry.key == officialId
-              ? 'llama.cpp · JEV b11381'
-              : entry.key == embeddingId
-              ? 'llama.cpp · 嵌入 b11457'
-              : 'llama.cpp · b11146',
+          name:
+              'llama.cpp · ${entry.value.release.artifactTag ?? entry.value.release.tag}',
           source: EngineSource.managed,
           status: entry.value.state.installation,
           version: entry.value.observedVersion,
@@ -551,6 +561,22 @@ class EngineCatalog {
       final splashRows =
           <String, (SplashInstallation, List<SplashModelBinding>)>{};
       final sourceRows = <String, Map<String, Object?>>{};
+      final managedReleases = <String, ManagedEngineRelease>{};
+      final savedReleases = value['managedReleases'];
+      if (savedReleases != null) {
+        if (savedReleases is! Map<String, Object?>) {
+          throw const LlamaEngineException('主线引擎发行记录无效');
+        }
+        for (final entry in savedReleases.entries) {
+          final release = ManagedEngineRelease.fromJson(entry.value);
+          if (!(entry.key == officialId &&
+                  release.family == EngineFamily.llamaCpp ||
+              entry.key == omlxId && release.family == EngineFamily.omlx)) {
+            throw const LlamaEngineException('主线引擎发行与来源不符');
+          }
+          managedReleases[entry.key] = release;
+        }
+      }
       final launchDefaults = <String, EngineLaunchConfiguration>{};
       if ([3, 4, 5].contains(value['schema'])) {
         final configurations = value['launchDefaults'];
@@ -718,6 +744,14 @@ class EngineCatalog {
       }
       _sourceBuilds.addAll(sourceRows);
       _preferredModelEngines.addAll(preferred.cast<String, String>());
+      for (final entry in managedReleases.entries) {
+        if (entry.key == officialId) {
+          officialEngine.selectRelease(_llamaRelease(entry.value));
+        } else {
+          omlxEngine?.selectRelease(entry.value);
+        }
+      }
+      _managedReleases.addAll(managedReleases);
       _launchDefaults.addAll(launchDefaults);
       _modelLaunchOverrides.addAll(modelOverrides);
       _configurationVersions.addAll(configurationVersions);
@@ -786,6 +820,7 @@ class EngineCatalog {
     Map<String, String?>? configurationVersions,
     (String, SplashModelBinding)? splashBinding,
     Map<String, String>? preferredModelEngines,
+    Map<String, ManagedEngineRelease>? managedReleases,
   }) async {
     final configurations = launchDefaults ?? _launchDefaults;
     final modelConfigurations = modelLaunchOverrides ?? _modelLaunchOverrides;
@@ -794,6 +829,11 @@ class EngineCatalog {
     final temporary = File('${registryFile.path}.tmp');
     await temporary.writeAsString(
       jsonEncode({
+        if ((managedReleases ?? _managedReleases).isNotEmpty)
+          'managedReleases': {
+            for (final entry in (managedReleases ?? _managedReleases).entries)
+              entry.key: entry.value.toJson(),
+          },
         'schema': versions.isNotEmpty
             ? 5
             : modelConfigurations.isNotEmpty
@@ -1230,6 +1270,86 @@ class EngineCatalog {
   Future<void> redownloadManaged(String id, {File? verifiedArchive}) =>
       installManaged(id, verifiedArchive: verifiedArchive, redownload: true);
 
+  Future<void> updateManaged(String id, {File? verifiedArchive}) {
+    if (!canUpdateManaged(id)) {
+      return Future.error(const LlamaEngineException('该来源不支持主线更新'));
+    }
+    return installManaged(
+      id,
+      verifiedArchive: verifiedArchive,
+      checkLatest: true,
+    );
+  }
+
+  LlamaRelease _llamaRelease(ManagedEngineRelease release) {
+    final build = int.parse(release.artifactTag!.substring(1));
+    return LlamaRelease(
+      tag: release.tag,
+      artifactTag: release.artifactTag,
+      expectedBuild: build,
+      commit: release.commit!,
+      url: release.url,
+      sha256: release.sha256,
+      sizeBytes: release.sizeBytes,
+      supportsSystemone: build >= 11773,
+      installationVersionTimeout: const Duration(seconds: 60),
+    );
+  }
+
+  Future<void> _installLatestManaged(String id, File? archive) async {
+    if (!canUpdateManaged(id)) throw const LlamaEngineException('该来源不支持主线更新');
+    final family = id == omlxId ? EngineFamily.omlx : EngineFamily.llamaCpp;
+    final candidate = await releaseClient!.latest(family);
+    if (_shuttingDown || _recycling) {
+      throw const LlamaEngineException('引擎安装准入已关闭');
+    }
+    assertRedownloadable(id);
+    final cpp = _managed[id];
+    final omlx = id == omlxId ? omlxEngine : null;
+    final oldCpp = cpp?.release;
+    final oldOmlx = omlx?.release;
+    final digest = oldCpp?.sha256 ?? oldOmlx!.sha256;
+    final installed = cpp != null
+        ? cpp.state.installation == LlamaInstallationStatus.installed
+        : omlx!.state.status == OmlxInstallationStatus.installed;
+    if (candidate.sha256 == digest &&
+        candidate.tag == (oldCpp?.tag ?? oldOmlx!.tag) &&
+        installed) {
+      return;
+    }
+    final releaseAdmission =
+        cpp?.holdStartAdmission() ?? omlx!.holdStartAdmission();
+    try {
+      if (cpp != null) {
+        cpp.selectRelease(_llamaRelease(candidate));
+        await cpp.install(verifiedArchive: archive);
+      } else {
+        omlx!.selectRelease(candidate);
+        await omlx.install(verifiedArtifact: archive);
+      }
+      await _serial(() async {
+        final updated = {..._managedReleases, id: candidate};
+        await _save(managedReleases: updated);
+        _managedReleases.addAll(updated);
+      });
+    } catch (error, stack) {
+      try {
+        if (cpp != null) {
+          cpp.selectRelease(oldCpp!);
+          await cpp.refreshInstallation();
+        } else {
+          omlx!.selectRelease(oldOmlx!);
+          await omlx.refreshInstallation();
+        }
+      } catch (rollback) {
+        throw LlamaEngineException('引擎更新失败：$error；恢复原安装状态失败：$rollback');
+      }
+      Error.throwWithStackTrace(error, stack);
+    } finally {
+      releaseAdmission();
+    }
+  }
+
   void assertRedownloadable(String id) {
     if (id == omlxId && omlxEngine != null) {
       omlxEngine!.assertRemovable();
@@ -1246,11 +1366,16 @@ class EngineCatalog {
     String id, {
     File? verifiedArchive,
     bool redownload = false,
+    bool checkLatest = false,
   }) {
     if (_installations.containsKey(id)) return _installations[id]!;
     final operation =
         _serial(() async {
           await _load();
+          if (canUpdateManaged(id) &&
+              (checkLatest || verifiedArchive == null && !redownload)) {
+            return () => _installLatestManaged(id, verifiedArchive);
+          }
           if (id == omlxId && omlxEngine != null) {
             return () => redownload
                 ? omlxEngine!.redownload(verifiedArtifact: verifiedArchive)
@@ -1268,10 +1393,18 @@ class EngineCatalog {
           }
           return install();
         });
-    final tracked = operation.whenComplete(() {
-      _installations.remove(id);
-    });
+    final tracked = operation
+        .catchError((Object error, StackTrace stack) {
+          _error = error.toString();
+          _publish();
+          Error.throwWithStackTrace(error, stack);
+        })
+        .whenComplete(() {
+          _installations.remove(id);
+          _publish();
+        });
     _installations[id] = tracked;
+    _publish();
     return tracked;
   }
 

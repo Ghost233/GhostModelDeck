@@ -9,7 +9,6 @@ import 'management_table.dart';
 import 'engine_launch_editor.dart';
 import 'engine_runtime.dart';
 import 'engine_source_dialog.dart';
-import 'omlx_engine.dart';
 import 'llama_engine.dart';
 
 class EnginePage extends StatefulWidget {
@@ -77,6 +76,23 @@ class _EnginePageState extends State<EnginePage> {
       }),
     );
     widget.onDownloadStarted?.call();
+  }
+
+  void _update(EngineRegistration entry) {
+    unawaited(
+      widget.catalog
+          .updateManaged(entry.id)
+          .then((_) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('主线引擎已就绪，当前使用上游最新发行')),
+              );
+            }
+          })
+          .catchError((Object error) {
+            if (mounted) setState(() => _error = error.toString());
+          }),
+    );
   }
 
   void _redownload(EngineRegistration entry) {
@@ -180,7 +196,9 @@ class _EnginePageState extends State<EnginePage> {
                   '构建日志 ${sourceBuild['log_path']}',
                 ],
                 if (entry.family == EngineFamily.omlx) ...[
-                  OmlxEngine.artifactUrl,
+                  entry.source == EngineSource.managed
+                      ? widget.catalog.omlxEngine!.release.url.toString()
+                      : entry.path ?? '',
                   if (entry.omlxReceipt != null) ...[
                     '发行标签 ${entry.omlxReceipt!.releaseLabel} · app 构建 ${entry.omlxReceipt!.build}',
                     'DMG SHA-256 ${entry.omlxReceipt!.dmgSha256 ?? '本地关联：未验证发行 DMG'}',
@@ -217,6 +235,7 @@ class _EnginePageState extends State<EnginePage> {
   }
 
   Widget _tableActions(EngineRegistration entry, bool busy) {
+    busy = busy || widget.catalog.managedOperationActive(entry.id);
     final linked = entry.source == EngineSource.linked;
     final installed = entry.status == LlamaInstallationStatus.installed;
     return Wrap(
@@ -247,7 +266,21 @@ class _EnginePageState extends State<EnginePage> {
                 ? null
                 : () => _install(entry),
             child: Text(
-              entry.status == LlamaInstallationStatus.installing ? '安装中' : '安装',
+              entry.status == LlamaInstallationStatus.installing
+                  ? '安装中'
+                  : widget.catalog.canUpdateManaged(entry.id)
+                  ? '下载最新'
+                  : '安装',
+            ),
+          ),
+        if (!linked && installed && widget.catalog.canUpdateManaged(entry.id))
+          TextButton(
+            key: ValueKey('engine-update:${entry.id}'),
+            onPressed: busy ? null : () => _update(entry),
+            child: Text(
+              widget.catalog.managedOperationActive(entry.id)
+                  ? '检查更新中'
+                  : '检查更新',
             ),
           ),
         if (!linked &&

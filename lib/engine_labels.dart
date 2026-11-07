@@ -8,11 +8,7 @@ String engineDisplayName(EngineRegistration entry) {
     EngineFamily.splash => 'Splash',
   };
   final release = entry.release?.artifactTag ?? entry.release?.tag;
-  return '$family${release == null
-      ? ''
-      : entry.id == EngineCatalog.officialId
-      ? ' · JEV $release'
-      : ' · $release'}';
+  return '$family${release == null ? '' : ' · $release'}';
 }
 
 String engineSourceLabel(EngineRegistration entry) {

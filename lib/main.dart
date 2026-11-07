@@ -22,6 +22,7 @@ import 'application_configuration.dart';
 import 'download_preferences.dart';
 import 'download_tasks_page.dart';
 import 'engine_catalog.dart';
+import 'managed_engine_release.dart';
 import 'engine_runtime_switch.dart';
 import 'runtime_autostart.dart';
 import 'launch_instances.dart';
@@ -91,8 +92,6 @@ class _ManagerShellState extends State<_ManagerShell>
   late final DownloadTaskController _downloads;
   late final ModelUseRegistry _useRegistry;
   late final LlamaEngine _officialEngine;
-  late final LlamaEngine _standardEngine;
-  late final LlamaEngine _embeddingEngine;
   late final StartluxRuntime _startluxRuntime;
   StartluxReadoutFactory? _startluxReadoutFactory;
   Future<void> _startluxPreparation = Future.value();
@@ -149,22 +148,8 @@ class _ManagerShellState extends State<_ManagerShell>
       ),
       useRegistry: _useRegistry,
       startStartluxReadout: _startStartluxReadout,
-    );
-    _standardEngine = LlamaEngine(
-      library: _library,
-      installationDirectory: _officialEngine.installationDirectory,
-      useRegistry: _useRegistry,
-      release: standardLlamaRelease,
-      installationId: EngineCatalog.standardId,
-      startStartluxReadout: _startStartluxReadout,
-    );
-    _embeddingEngine = LlamaEngine(
-      library: _library,
-      installationDirectory: _officialEngine.installationDirectory,
-      useRegistry: _useRegistry,
-      release: embeddingLlamaRelease,
-      installationId: EngineCatalog.embeddingId,
-      startStartluxReadout: _startStartluxReadout,
+      release: mainlineLlamaRelease,
+      installationId: EngineCatalog.officialId,
     );
     _omlxEngine = OmlxEngine(
       library: _library,
@@ -179,8 +164,7 @@ class _ManagerShellState extends State<_ManagerShell>
       onRuntimeClosing: () => _benchmarks.cancel(),
       library: _library,
       officialEngine: _officialEngine,
-      standardEngine: _standardEngine,
-      embeddingEngine: _embeddingEngine,
+      releaseClient: ManagedEngineReleaseClient(),
       omlxEngine: _omlxEngine,
       useRegistry: _useRegistry,
       registryFile: File('${_settings.file.parent.path}/engines.json'),
@@ -213,12 +197,7 @@ class _ManagerShellState extends State<_ManagerShell>
       library: _library,
       instances: _instances,
       scenarios: _council.scenarios,
-      runtimes: [
-        _officialEngine,
-        _standardEngine,
-        _embeddingEngine,
-        _omlxEngine,
-      ],
+      runtimes: [_officialEngine, _omlxEngine],
       runtimeSources: () => _engines.runtimes.toList(),
       registryFile: File('${_settings.file.parent.path}/public_models.json'),
     );
@@ -528,8 +507,6 @@ class _ManagerShellState extends State<_ManagerShell>
     unawaited(_council.close().catchError((Object _) {}));
     _engines.close();
     _officialEngine.close();
-    _standardEngine.close();
-    _embeddingEngine.close();
     _library.close();
     _preferences.dispose();
     super.dispose();
