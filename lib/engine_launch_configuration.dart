@@ -52,7 +52,7 @@ class EngineLaunchConfiguration {
     '--max-context': '最大上下文',
     '--max-memory': '最大内存',
     '--kv-format': 'KV 缓存格式',
-    '--queue-size': '请求队列大小',
+    '--queue-size': '同时接纳请求数',
   };
   static Map<String, String> labelsFor(EngineFamily family) => {
     for (final field in EngineParameterDefinitions.known(family))
@@ -152,12 +152,19 @@ class EngineLaunchConfiguration {
       recognition: recognition,
     )?.trim().toUpperCase();
     final match = RegExp(
-      family == EngineFamily.splash ? r'^(\d+)(K)?$' : r'^(\d+)$',
+      family == EngineFamily.splash ? r'^(\d+)(K|M)?$' : r'^(\d+)$',
     ).firstMatch(normalized ?? '');
     if (match == null) return null;
     final count = int.tryParse(match[1]!);
     if (count == null || count <= 0) return null;
-    return count * (match.groupCount > 1 && match[2] == 'K' ? 1024 : 1);
+    return count *
+        (match.groupCount > 1
+            ? switch (match[2]) {
+                'K' => 1024,
+                'M' => 1000000,
+                _ => 1,
+              }
+            : 1);
   }
 
   /// Native inference parallelism; HTTP admission and queue sizes are separate.
@@ -337,6 +344,15 @@ class EngineLaunchConfiguration {
       final argument = tokens[index].value;
       final name = argument.split('=').first;
       var controlled = controlledName(name);
+      if (rules.isRetiredSplashMemoryOption(controlled)) {
+        notices.add('$name 已由 Splash 统一内存规划替代；原配置保留，不传递此参数。');
+        if (!argument.contains('=') &&
+            index + 1 < tokens.length &&
+            _isValue(tokens[index + 1])) {
+          index++;
+        }
+        continue;
+      }
       if (unsupportedQuantizedFfn &&
           controlled == '--experimental-quantized-ffn') {
         final separator = argument.indexOf('=');
@@ -470,6 +486,10 @@ class EngineLaunchConfiguration {
       checkQuantizedFfn(unsupportedQuantizedFfnTextValue);
     }
     for (final entry in formValues.entries) {
+      if (rules.isRetiredSplashMemoryOption(entry.key)) {
+        notices.add('${entry.key} 已由 Splash 统一内存规划替代；原配置保留，不传递此参数。');
+        continue;
+      }
       if (overridden.contains(entry.key) || entry.value.isEmpty) continue;
       if (unsupportedQuantizedFfn &&
           entry.key == '--experimental-quantized-ffn') {
@@ -531,6 +551,7 @@ class EngineLaunchConfiguration {
           for (final entry in managed.entries) ...[entry.key, entry.value],
         for (final name in labels.keys)
           if (!overridden.contains(name) &&
+              !rules.isRetiredSplashMemoryOption(name) &&
               !(unsupportedQuantizedFfn &&
                   name == '--experimental-quantized-ffn') &&
               !managedForm(name) &&
@@ -592,15 +613,47 @@ class EngineLaunchConfiguration {
     }
     if (family == EngineFamily.splash) {
       final normalized = value.trim().toUpperCase();
-      if (name == '--max-context' || name == '--max-memory') {
+      if (name == '--max-context') {
         if (normalized == 'AUTO') return null;
-        final suffix = name == '--max-context'
-            ? RegExp(r'K$')
-            : RegExp(r'[KMG](?:IB|B)?$');
-        final count = normalized.replaceFirst(suffix, '').trim();
-        if (!RegExp(r'^[+]?\d+$').hasMatch(count) ||
-            (int.tryParse(count) ?? 0) <= 0) {
-          return '$name 通常需要 auto 或正整数及受支持的单位，仍保留并交由引擎判断。';
+        final match = RegExp(r'^[+]?(\d+)(K|M)?$').firstMatch(normalized);
+        final tokens = match == null
+            ? 0
+            : (int.tryParse(match[1]!) ?? 0) *
+                  switch (match[2]) {
+                    'K' => 1024,
+                    'M' => 1000000,
+                    _ => 1,
+                  };
+        if (tokens <= 0 || tokens > 1010000) {
+          return '$name 通常需要 auto 或不超过 1010000 的正整数 token 数，可用 K（1024）或 M（1000000）；仍保留并交由引擎判断。';
+        }
+      } else if (const {
+        '--max-memory',
+        '--ple-memory',
+        '--expert-memory',
+        '--sparse-kv-memory',
+        '--max-cache-disk',
+        '--max-cache-disk-writes',
+        '--max-request-size',
+      }.contains(name)) {
+        if (normalized == 'AUTO' &&
+            !['--max-request-size', '--max-cache-disk-writes'].contains(name)) {
+          return null;
+        }
+        if (normalized == 'OFF' &&
+            ['--ple-memory', '--expert-memory'].contains(name)) {
+          return null;
+        }
+        if (normalized == '0' &&
+            ['--max-cache-disk', '--max-cache-disk-writes'].contains(name)) {
+          return null;
+        }
+        final match = RegExp(r'^(\d+(?:\.\d+)?)([KMG](?:IB|B)?)?$')
+            .firstMatch(normalized);
+        if (match == null ||
+            (double.tryParse(match[1]!) ?? 0) <= 0 ||
+            match[1]!.contains('.') && match[2] == null) {
+          return '$name 通常需要正整数字节或带单位的容量（如 2.5G），仍保留并交由引擎判断。';
         }
       } else if (name == '--kv-format' &&
           !['int8', 'bf16', 'q4h', 'q4_0', 'q4_0_unrotated'].contains(value)) {

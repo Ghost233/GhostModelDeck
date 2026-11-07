@@ -177,7 +177,10 @@ void main() {
       ]),
     );
     expect(invalid.notices, contains(contains('--max-context')));
-    expect(invalid.notices, contains(contains('--max-memory')));
+    expect(
+      invalid.notices.where((notice) => notice.contains('--max-memory')),
+      isEmpty,
+    );
     expect(invalid.notices, contains(contains('--kv-format 缺少值')));
     expect(invalid.notices, contains(contains('--queue-size')));
     final directory = await Directory.systemTemp.createTemp('gmd-splash-lex-');
@@ -470,7 +473,10 @@ print(json.dumps(vars(p.parse_args())))
       '--kv-format',
       '--queue-size',
     });
-    expect(command.notices, contains(contains('--max-memory')));
+    expect(
+      command.notices.where((notice) => notice.contains('--max-memory')),
+      isEmpty,
+    );
     expect(command.notices, contains(contains('--kv-format')));
     expect(command.notices, contains(contains('--queue-size')));
     expect(command.notices, isNot(contains(contains('--max-context 通常'))));

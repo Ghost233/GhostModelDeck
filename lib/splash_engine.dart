@@ -2223,9 +2223,13 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
     final expectedPrefix = await Directory(
       '${root.path}/${packaged ? 'python' : '.venv'}',
     ).resolveSymbolicLinks();
-    final supportsSystemone = (await File(
-      '${root.path}/server/server.py',
-    ).readAsString()).contains('"/v1/systemone": PostRoute(');
+    final serverSource = await File('${root.path}/server/server.py')
+        .readAsString();
+    final supportsSystemone =
+        serverSource.contains('"/v1/systemone": PostRoute(') ||
+        RegExp(
+          r'''\(\s*["']POST["']\s*,\s*["']/v1/systemone["']\s*\)\s*:\s*Route\(''',
+        ).hasMatch(serverSource);
     var help = '';
     String? helpError;
     if (readParameters) {

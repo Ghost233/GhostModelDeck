@@ -6,6 +6,7 @@ import 'package:ghost_model_deck/engine_parameter_recognition.dart';
 import 'package:ghost_model_deck/engine_runtime.dart';
 
 import 'fixtures/parameter_editor_navigation.dart';
+import 'fixtures/splash_1_6_help.dart';
 
 void main() {
   testWidgets('Splash MoE settings save and produce the selected arguments', (
@@ -114,5 +115,78 @@ void main() {
       formValues: {'--moe-memory-pressure': 'on'},
     ).command(executable: 'splash', modelPath: 'model', recognition: oldHelp);
     expect(unsupported.notices, contains(contains('支持情况尚未')));
+  });
+  testWidgets('1.6 controls save PLE, sparse KV, context M and verify rows', (
+    tester,
+  ) async {
+    final recognition = EngineParameterRecognition.fromHelp(
+      splash16Help,
+      family: EngineFamily.splash,
+      version: '1.6.0',
+    );
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    EngineLaunchConfiguration? saved;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EngineLaunchEditor(
+          title: 'Splash 1.6 参数',
+          initialConfiguration: EngineLaunchConfiguration(
+            family: EngineFamily.splash,
+          ),
+          recognition: recognition,
+          onSave: (value) async => saved = value,
+        ),
+      ),
+    );
+    await selectParameterGroup(tester, '上下文与内存');
+    expect(
+      find.byKey(const Key('loading:--moe-memory-pressure')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const Key('loading:--host-memory-reserve')),
+      findsNothing,
+    );
+    Future<void> choose(String name, String label, {bool unit = false}) async {
+      final fields = find.byKey(Key('parameter-choice:$name'));
+      final field = unit ? fields.last : fields.first;
+      await Scrollable.ensureVisible(tester.element(field), alignment: .5);
+      await tester.pumpAndSettle();
+      await tester.tap(field);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(label).last);
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> amount(String name, String value) async {
+      final field = find.byKey(Key('parameter-quantity:$name'));
+      await Scrollable.ensureVisible(tester.element(field), alignment: .5);
+      await tester.pumpAndSettle();
+      await tester.enterText(field, value);
+    }
+
+    await choose('--ple-memory', '加载整个 PLE 表');
+    await choose('--sparse-kv-memory', '指定数值');
+    await amount('--sparse-kv-memory', '1200');
+    await choose('--sparse-kv-memory', 'M', unit: true);
+    await choose('--max-context', '指定数值');
+    await amount('--max-context', '1');
+    await choose('--max-context', 'M', unit: true);
+    await choose('--max-memory', '指定数值');
+    await amount('--max-memory', '2.5');
+    await choose('--max-memory', 'G', unit: true);
+    await selectParameterGroup(tester, '推测与采样优化');
+    await choose('--verify-rows', 'all');
+    await tester.tap(find.widgetWithText(FilledButton, '保存'));
+    await tester.pumpAndSettle();
+    expect(saved!.formValues['--ple-memory'], 'off');
+    expect(saved!.formValues['--sparse-kv-memory'], '1200M');
+    expect(saved!.formValues['--max-context'], '1M');
+    expect(saved!.contextLengthFor(recognition: recognition), 1000000);
+    expect(saved!.formValues['--max-memory'], '2.5G');
+    expect(saved!.formValues['--verify-rows'], 'all');
   });
 }

@@ -47,10 +47,20 @@ class EngineParameterRecognition {
   /// older help; built-in tokenizer rules remain for managed-input stripping.
   bool get usesSplashModelRootTokenizer =>
       family == EngineFamily.splash &&
-      _observedNames.contains('--chat-template') &&
-      _observedNames.contains('--model') &&
-      _observedNames.contains('--binary') &&
-      !_observedNames.contains('--tokenizer');
+      _splashModelRootTokenizer(_observedNames);
+
+  static bool _splashModelRootTokenizer(Set<String> names) =>
+      names.containsAll({'--chat-template', '--model', '--binary'}) &&
+      !names.contains('--tokenizer');
+
+  /// The unified memory planner replaces these controls. Older custom engines
+  /// that still advertise them keep receiving the user's original values.
+  bool isRetiredSplashMemoryOption(String name) =>
+      family == EngineFamily.splash &&
+      _observedNames.contains('--sparse-kv-memory') &&
+      _observedNames.contains('--verify-rows') &&
+      const {'--moe-memory-pressure', '--host-memory-reserve'}.contains(name) &&
+      !_observedNames.contains(name);
 
   static const _llamaAliases = {
     '-c': '--ctx-size',
@@ -115,10 +125,10 @@ class EngineParameterRecognition {
     '--host': '软件管理的监听地址',
     '--port': '软件管理的监听端口',
     '--served-model-name': '软件管理的服务模型标识',
-    '--max-context': '最大上下文；auto 或正整数，可用 K',
-    '--max-memory': '最大内存；auto 或正整数字节，可用 K/M/G',
-    '--kv-format': 'KV 缓存格式：int8 或 bf16',
-    '--queue-size': '请求队列大小',
+    '--max-context': '最大上下文；auto 或正整数，可用 K（1024）或 M（1000000）',
+    '--max-memory': '最大内存；auto 或容量，带 K/M/G 单位时支持小数',
+    '--kv-format': 'KV 缓存格式：int8、bf16、q4h、q4_0 或 q4_0_unrotated',
+    '--queue-size': '同时接纳请求数，包含运行和等待的请求',
     '--help': '显示当前引擎帮助',
   };
 
@@ -312,7 +322,13 @@ class EngineParameterRecognition {
                 : family == EngineFamily.splash
                 ? _splashDescriptions.keys
                 : builtIn.parameters.keys)
-            .where((name) => !observedNames.contains(name))
+            .where(
+              (name) =>
+                  !observedNames.contains(name) &&
+                  !(family == EngineFamily.splash &&
+                      name == '--tokenizer' &&
+                      _splashModelRootTokenizer(observedNames)),
+            )
             .toList();
     final notices = <String>[];
     final status = rows.isEmpty

@@ -353,7 +353,8 @@ class _ParameterValueFieldState extends State<ParameterValueField> {
       'inherit' => null,
       'auto' => 'auto',
       'off' =>
-        d.kind == ParameterKind.duration || d.name == '--expert-memory'
+        d.kind == ParameterKind.duration ||
+                ['--expert-memory', '--ple-memory'].contains(d.name)
             ? 'off'
             : '0',
       _ => _amount.text.isEmpty ? null : '${_amount.text}$_unit',
@@ -366,7 +367,7 @@ class _ParameterValueFieldState extends State<ParameterValueField> {
     final units = duration
         ? ['s', 'm', 'h']
         : context
-        ? ['', 'K']
+        ? ['', 'K', 'M']
         : ['', 'K', 'KB', 'KiB', 'M', 'MB', 'MiB', 'G', 'GB', 'GiB'];
     final unit = units.firstWhere(
       (value) => value.toLowerCase() == _unit.toLowerCase(),
@@ -383,6 +384,7 @@ class _ParameterValueFieldState extends State<ParameterValueField> {
         '--max-cache-disk',
         '--max-cache-disk-writes',
         '--expert-memory',
+        '--ple-memory',
       ].contains(d.name))
         (
           'off',
@@ -390,6 +392,8 @@ class _ParameterValueFieldState extends State<ParameterValueField> {
               ? '不限'
               : d.name == '--expert-memory'
               ? '加载全部专家'
+              : d.name == '--ple-memory'
+              ? '加载整个 PLE 表'
               : '关闭',
         ),
       ('custom', '指定数值'),
@@ -412,7 +416,7 @@ class _ParameterValueFieldState extends State<ParameterValueField> {
                     focusNode: _focus,
                     enabled: !widget.disabled,
                     keyboardType: TextInputType.numberWithOptions(
-                      decimal: duration,
+                      decimal: !context,
                     ),
                     decoration: const InputDecoration(hintText: '数值'),
                     onChanged: (_) => _quantityChanged(),

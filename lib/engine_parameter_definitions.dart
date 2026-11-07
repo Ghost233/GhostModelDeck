@@ -114,7 +114,7 @@ class EngineParameterDefinitions {
       'resources',
       ParameterKind.quantity,
       initial: 'auto',
-      help: 'auto 或正整数，可选 K；实际容量由引擎核对。',
+      help: 'auto 或正整数，可选 K（1024 token）或 M（1000000 token），最多 1010000，实际受模型限制。支持 YaRN 的模型超过原生窗口会启用静态缩放，影响所有长度的回答；仅在需要时增大。',
     ),
     EngineParameterDefinition(
       '--max-memory',
@@ -122,7 +122,15 @@ class EngineParameterDefinitions {
       'resources',
       ParameterKind.quantity,
       initial: 'auto',
-      help: '自动或容量；只能降低原生自动预算。',
+      help: 'auto 或容量，如 28G、2.5G；单位按 1024 换算，只能降低原生自动预算。',
+    ),
+    EngineParameterDefinition(
+      '--ple-memory',
+      'PLE 表缓存预算',
+      'resources',
+      ParameterKind.quantity,
+      initial: 'auto',
+      help: '仅适用于 Qwen3.8-Flash-Next GGUF。auto 自动规划，指定容量时从 SSD 流式读取；off 加载整个表，可能占用数十 GB。',
     ),
     EngineParameterDefinition(
       '--expert-memory',
@@ -130,7 +138,15 @@ class EngineParameterDefinitions {
       'resources',
       ParameterKind.quantity,
       initial: 'auto',
-      help: 'auto、off（加载全部专家）或指定容量；开启自动调节时须为 auto 或继承默认。',
+      help: 'auto 在内存允许时加载全部专家，否则使用可伸缩缓存，并在请求或其他应用需要内存时归还。指定容量固定预算；off 加载全部专家。',
+    ),
+    EngineParameterDefinition(
+      '--sparse-kv-memory',
+      '稀疏 KV 缓存预算',
+      'resources',
+      ParameterKind.quantity,
+      initial: 'auto',
+      help: '用于 Qwen3.8-Flash-Next 等块稀疏模型，从 SSD 读取 KV 块的内存缓存。auto 使用原生最低预算；指定容量不能低于该下限。',
     ),
     EngineParameterDefinition(
       '--moe-memory-pressure',
@@ -139,7 +155,7 @@ class EngineParameterDefinitions {
       ParameterKind.toggle,
       choices: ['on', 'off'],
       initial: 'off',
-      help: '按系统内存压力调整本实例的 MoE 缓存；须使用自动专家预算。默认关闭，下次启动生效。需要支持此参数的 Splash 版本。',
+      help: '旧版自定义引擎的开关。1.6 统一内存规划已由 expert-memory auto 自动调节，不再需要此参数。',
     ),
     EngineParameterDefinition(
       '--host-memory-reserve',
@@ -147,7 +163,7 @@ class EngineParameterDefinitions {
       'resources',
       ParameterKind.quantity,
       initial: 'auto',
-      help: 'auto 或指定容量；指定容量时须开启 MoE 内存自动调节。',
+      help: '旧版自定义引擎的系统预留值；1.6 统一内存规划不再提供此参数。',
     ),
     EngineParameterDefinition(
       '--kv-format',
@@ -206,10 +222,11 @@ class EngineParameterDefinitions {
     ),
     EngineParameterDefinition(
       '--queue-size',
-      '请求队列大小',
+      '同时接纳请求数',
       'limits',
       ParameterKind.integer,
       initial: '32',
+      help: '包含运行和等待的请求；超过此数量返回 503。不是原生推理并发槽数。',
     ),
     EngineParameterDefinition(
       '--max-request-size',
@@ -231,7 +248,7 @@ class EngineParameterDefinitions {
       '服务请求时限',
       'limits',
       ParameterKind.duration,
-      help: '留空使用原生默认预算。',
+      help: '留空不设服务时限；指定正时长后，从排队开始计时，超时返回 504。支持秒或 s、m、h。',
     ),
     EngineParameterDefinition(
       '--decode-share',
@@ -239,6 +256,7 @@ class EngineParameterDefinitions {
       'limits',
       ParameterKind.decimal,
       initial: '0.5',
+      help: '其他请求正在解码时，每单位预填充时间应分配的解码时间。可为任意非负数；0 表示各交替执行一条命令。',
     ),
     EngineParameterDefinition(
       '--disable-ane',
@@ -261,7 +279,8 @@ class EngineParameterDefinitions {
       'ANE 最小提交行数',
       'compute',
       ParameterKind.integer,
-      help: '实际最大值取决于当前原生编译；同时设置 FFN 分担比例。',
+      initial: '512',
+      help: '512–8192；需要固定 FFN 分担比例，实际最大值仍取决于原生编译的预填充预算。',
     ),
     EngineParameterDefinition(
       '--experimental-quantized-ffn',
@@ -309,11 +328,12 @@ class EngineParameterDefinitions {
     ),
     EngineParameterDefinition(
       '--allow-idle-sleep',
-      '允许空闲睡眠',
+      '允许请求期间自动睡眠',
       'compute',
       ParameterKind.flag,
       initial: 'false',
       advanced: true,
+      help: '默认在请求执行期间阻止 Mac 自动睡眠；开启后允许系统睡眠，屏幕休眠不受此开关影响。',
     ),
     EngineParameterDefinition(
       '--prompt-lookup',
@@ -341,6 +361,15 @@ class EngineParameterDefinitions {
       choices: ['on', 'off'],
       initial: 'off',
       help: '重启后生效；仅采样 lane、Top K 1～32 且 Min P 0 可使用，实际命中以原生计数为准。',
+    ),
+    EngineParameterDefinition(
+      '--verify-rows',
+      '草稿验证行数',
+      'lookup',
+      ParameterKind.choice,
+      choices: ['auto', 'all'],
+      initial: 'auto',
+      help: 'auto 为 MoE 自适应选择验证行，速度更快，但 greedy 或固定 seed 输出仍可能变化。all 验证全部行，并固定 MoE 预填充分区；在单请求和相同前缀缓存条件下支持重复输出。',
     ),
     EngineParameterDefinition(
       '--compact-draft-head',
@@ -393,6 +422,22 @@ class EngineParameterDefinitions {
       'network',
       ParameterKind.flag,
       initial: 'false',
+    ),
+    EngineParameterDefinition(
+      '--chat-template',
+      '聊天模板文件',
+      'thinking',
+      ParameterKind.file,
+      advanced: true,
+      help: '在内存中覆盖聊天模板；分词器仍来自锁定的模型目录，下次启动生效。',
+    ),
+    EngineParameterDefinition(
+      '--serve-record',
+      '服务诊断记录文件',
+      'extra',
+      ParameterKind.file,
+      advanced: true,
+      help: '可选的本地服务启动与失败诊断记录路径，下次启动生效。',
     ),
     EngineParameterDefinition(
       '--default-reasoning-effort',
@@ -897,7 +942,11 @@ class EngineParameterDefinitions {
     EngineFamily family, {
     EngineParameterRecognition? recognition,
   }) {
-    final result = {for (final field in known(family)) field.name: field};
+    final result = {
+      for (final field in known(family))
+        if (recognition?.isRetiredSplashMemoryOption(field.name) != true)
+          field.name: field,
+    };
     if (recognition != null) {
       for (final entry in recognition.parameters.entries) {
         final name = recognition.canonicalName(entry.key);

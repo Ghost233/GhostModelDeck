@@ -312,7 +312,10 @@ void main() {
       expect(tester.widget<TextField>(capacity).controller!.text, '33024');
       await tester.tap(find.text('上下文与内存').first);
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('parameter-choice:--kv-format')));
+      final kvFormat = find.byKey(const Key('parameter-choice:--kv-format'));
+      await Scrollable.ensureVisible(tester.element(kvFormat), alignment: .5);
+      await tester.pumpAndSettle();
+      await tester.tap(kvFormat);
       await tester.pumpAndSettle();
       await tester.tap(find.text('q4h').last);
       await tester.pumpAndSettle();
