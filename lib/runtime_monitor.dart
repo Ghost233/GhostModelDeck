@@ -30,6 +30,9 @@ class RequestProgress {
 /// A read-only engine observation. Null means the engine did not supply it.
 class RuntimeTelemetry {
   RuntimeTelemetry({
+    this.isEncoder = false,
+    this.completedScoringTasks,
+    this.prefillGpuSeconds,
     this.capacity,
     this.running,
     this.queued,
@@ -45,6 +48,9 @@ class RuntimeTelemetry {
     List<RequestProgress> requests = const [],
     this.notice,
   }) : requests = List.unmodifiable(requests);
+  final bool isEncoder;
+  final int? completedScoringTasks;
+  final double? prefillGpuSeconds;
   final int? capacity;
   final int? running;
   final int? queued;
@@ -70,6 +76,12 @@ class RuntimeTelemetry {
     final metrics = _map(row['metrics']);
     final totals = _map(row['requests']);
     final plan = _map(_map(row['memory_plan'])['budget']);
+    final encoder = _map(row['telemetry']);
+    final isEncoder =
+        row['generation'] == false ||
+        row['generation'] == null &&
+            row['active_requests'] is int &&
+            encoder.isNotEmpty;
     if (scheduler.isEmpty &&
         metrics.isEmpty &&
         row['active_requests'] is! int &&
@@ -96,7 +108,14 @@ class RuntimeTelemetry {
     final prefill = _int(scheduler['prefilling']);
     final decode = _int(scheduler['decoding']);
     return RuntimeTelemetry(
-      capacity: _int(plan['maximum_batch_width']),
+      isEncoder: isEncoder,
+      completedScoringTasks: isEncoder
+          ? _int(encoder['completed_requests'])
+          : null,
+      prefillGpuSeconds: isEncoder
+          ? _number(encoder['total_prefill_gpu_seconds'])
+          : null,
+      capacity: isEncoder ? null : _int(plan['maximum_batch_width']),
       running: row['active_requests'] is List
           ? progress.where((p) => p.phase != RequestPhase.queued).length
           : _int(row['active_requests']),
@@ -110,13 +129,19 @@ class RuntimeTelemetry {
       ]),
       prefilling: prefill,
       decoding: decode,
-      totalRequests: _int(totals['submitted']),
-      promptTokens: _int(metrics['prefill_input_tokens']),
-      generatedTokens: _int(metrics['decode_output_tokens']),
+      totalRequests: isEncoder ? null : _int(totals['submitted']),
+      promptTokens: isEncoder
+          ? _int(encoder['total_input_tokens'])
+          : _int(metrics['prefill_input_tokens']),
+      generatedTokens: isEncoder ? 0 : _int(metrics['decode_output_tokens']),
       prefillPerSecond: _number(metrics['prefill_tokens_per_second']),
-      decodePerSecond: _number(metrics['decode_tokens_per_second']),
-      prefillSeconds: _seconds(metrics['prefill_wall_ms']),
-      decodeSeconds: _seconds(metrics['decode_wall_ms']),
+      decodePerSecond: isEncoder
+          ? null
+          : _number(metrics['decode_tokens_per_second']),
+      prefillSeconds: isEncoder
+          ? _number(encoder['total_prefill_wall_seconds'])
+          : _seconds(metrics['prefill_wall_ms']),
+      decodeSeconds: isEncoder ? null : _seconds(metrics['decode_wall_ms']),
       requests: progress,
     );
   }

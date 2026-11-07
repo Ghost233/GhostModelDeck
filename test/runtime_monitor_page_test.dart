@@ -14,7 +14,8 @@ import 'package:ghost_model_deck/runtime_monitor_page.dart';
 import 'package:ghost_model_deck/runtime_monitor.dart';
 
 import 'fixtures/test_environment.dart';
-import 'runtime_monitor_test.dart' show target, TestMonitorSource;
+import 'runtime_monitor_test.dart'
+    show target, TestMonitorSource, encoderStatus;
 
 void main() {
   setUpAll(() async {
@@ -278,6 +279,60 @@ void main() {
           expect(
             find.descendant(of: slots, matching: find.text('空闲')),
             findsNWidgets(3),
+          );
+          source.response = RuntimeTelemetry.splash(
+            encoderStatus(
+              inputTokens: 285,
+              wallSeconds: 0.6,
+              gpuSeconds: 0.579168,
+              completed: 7,
+            ),
+          );
+          await controller.refresh();
+          await tester.pump();
+          expect(
+            find.descendant(of: slots, matching: find.text('活动任务 0')),
+            findsOneWidget,
+          );
+          expect(
+            find.descendant(of: slots, matching: find.text('评分任务 7')),
+            findsOneWidget,
+          );
+          expect(
+            find.descendant(of: slots, matching: find.text('原生槽位未提供')),
+            findsOneWidget,
+          );
+          expect(find.byKey(const Key('monitor-slot:0:0')), findsNothing);
+          expect(
+            find.descendant(of: summary, matching: find.text('输入 285')),
+            findsOneWidget,
+          );
+          expect(
+            find.descendant(of: summary, matching: find.text('输出 0（无文本生成）')),
+            findsOneWidget,
+          );
+          expect(
+            find.descendant(of: summary, matching: find.text('decode 不适用')),
+            findsOneWidget,
+          );
+          expect(
+            find.descendant(of: summary, matching: find.text('GPU 前向 0.579 s')),
+            findsOneWidget,
+          );
+          now = now.add(const Duration(seconds: 1));
+          source.response = RuntimeTelemetry.splash(
+            encoderStatus(
+              inputTokens: 570,
+              wallSeconds: 1.2,
+              gpuSeconds: 0.6,
+              completed: 10,
+            ),
+          );
+          await controller.refresh();
+          await tester.pump();
+          expect(
+            find.descendant(of: summary, matching: find.text('prefill 475.0')),
+            findsOneWidget,
           );
           source.response = RuntimeTelemetry(
             capacity: 10000,

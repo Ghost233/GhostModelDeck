@@ -67,7 +67,7 @@ class _RuntimeMonitorPageState extends State<RuntimeMonitorPage> {
         const SizedBox(height: 12),
         Text('运行实例 ${all.length}'),
         const SizedBox(height: 6),
-        const Text('按原生推理槽位显示阶段；速度为最近一分钟平均 token/s。未提供的字段显示 —。'),
+        const Text('生成模型按原生推理槽位显示阶段，决策模型显示评分任务；速度为最近一分钟平均 token/s。未提供的字段显示 —。'),
         const SizedBox(height: 16),
         Expanded(
           child: all.isEmpty
@@ -119,10 +119,12 @@ class _InstanceMonitor extends StatelessWidget {
   Widget build(BuildContext context) {
     final data = reading.telemetry;
     final target = reading.target;
-    final capacity =
-        data?.capacity ??
-        target.run?.inferenceConcurrency ??
-        target.configuredConcurrency;
+    final encoder = data?.isEncoder == true;
+    final capacity = encoder
+        ? data?.capacity
+        : data?.capacity ??
+              target.run?.inferenceConcurrency ??
+              target.configuredConcurrency;
     final scale = math.max(
       1.0,
       MediaQuery.textScalerOf(context).scale(12) / 12,
@@ -180,7 +182,12 @@ class _InstanceMonitor extends StatelessWidget {
           Row(
             key: Key('monitor-slots:${target.id}'),
             children: [
-              Text('并发 ${capacity ?? '—'}', style: theme.textTheme.bodySmall),
+              Text(
+                encoder
+                    ? '活动任务 ${data?.running ?? '—'}'
+                    : '并发 ${capacity ?? '—'}',
+                style: theme.textTheme.bodySmall,
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: SizedBox(
@@ -189,7 +196,11 @@ class _InstanceMonitor extends StatelessWidget {
                       ? Align(
                           alignment: Alignment.centerLeft,
                           child: Text(
-                            reading.error == null ? '槽位 —' : '读取失败',
+                            reading.error != null
+                                ? '读取失败'
+                                : encoder
+                                ? '原生槽位未提供'
+                                : '槽位 —',
                             style: theme.textTheme.bodySmall,
                           ),
                         )
@@ -228,7 +239,9 @@ class _InstanceMonitor extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Text(
-                '排队 ${data?.queued ?? '—'}',
+                encoder
+                    ? '评分任务 ${data?.completedScoringTasks ?? '—'}'
+                    : '排队 ${data?.queued ?? '—'}',
                 style: theme.textTheme.bodySmall,
               ),
             ],
@@ -266,13 +279,22 @@ class _InstanceMonitor extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 12),
+                  if (encoder) ...[
+                    Text(
+                      'GPU 前向 ${data?.prefillGpuSeconds?.toStringAsFixed(3) ?? '—'} s',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                    const SizedBox(width: 12),
+                  ],
                   Text(
                     '输入 ${data?.promptTokens ?? '—'}',
                     style: theme.textTheme.bodySmall,
                   ),
                   const SizedBox(width: 12),
                   Text(
-                    '输出 ${data?.generatedTokens ?? '—'}',
+                    encoder
+                        ? '输出 0（无文本生成）'
+                        : '输出 ${data?.generatedTokens ?? '—'}',
                     style: theme.textTheme.bodySmall,
                   ),
                   const SizedBox(width: 12),
@@ -282,7 +304,9 @@ class _InstanceMonitor extends StatelessWidget {
                   ),
                   const SizedBox(width: 12),
                   Text(
-                    'decode ${_rate(reading.minuteDecodePerSecond)}',
+                    encoder
+                        ? 'decode 不适用'
+                        : 'decode ${_rate(reading.minuteDecodePerSecond)}',
                     style: theme.textTheme.bodySmall,
                   ),
                   if (reading.error != null || data?.notice != null)

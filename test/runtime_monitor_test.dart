@@ -16,6 +16,96 @@ import 'package:ghost_model_deck/model_scenarios.dart';
 import 'fixtures/council_runtime.dart';
 
 void main() {
+  test('Splash encoder input tokens and wall time reach the monitor without inventing inference slots', () {
+    final data = RuntimeTelemetry.splash({
+      'ready': true,
+      'generation': false,
+      'model_kind': 'h2o-lightning',
+      'active_requests': 0,
+      'telemetry': {
+        'completed_requests': 7,
+        'total_input_tokens': 285,
+        'total_prefill_gpu_seconds': 0.579168,
+        'total_prefill_wall_seconds': 0.6,
+      },
+      'features': {'encoder_submit_batch_limit': 4},
+      'http': {
+        'requests': {'capacity': 1},
+      },
+      'frontend': {'waiting': 0},
+    });
+    expect(data.promptTokens, 285);
+    expect(data.prefillSeconds, 0.6);
+    expect(data.capacity, isNull);
+    expect(data.generatedTokens, 0);
+    expect(data.decodeSeconds, isNull);
+    expect(data.totalRequests, isNull);
+    expect(data.isEncoder, isTrue);
+    expect(data.completedScoringTasks, 7);
+    expect(data.prefillGpuSeconds, 0.579168);
+  });
+  test('older Splash encoder counters remain readable while unreported token and wall totals stay unknown', () {
+    final data = RuntimeTelemetry.splash({
+      'active_requests': 0,
+      'model_kind': 'h2o-lightning',
+      'telemetry': {
+        'completed_requests': 7,
+        'total_prefill_gpu_seconds': 0.579168,
+      },
+    });
+    expect(data.isEncoder, isTrue);
+    expect(data.running, 0);
+    expect(data.completedScoringTasks, 7);
+    expect(data.prefillGpuSeconds, 0.579168);
+    expect(data.promptTokens, isNull);
+    expect(data.prefillSeconds, isNull);
+    expect(data.generatedTokens, 0);
+    expect(data.decodeSeconds, isNull);
+    expect(data.capacity, isNull);
+    expect(data.totalRequests, isNull);
+  });
+  test('invalid encoder statistics are unknown rather than zero or a fabricated rate', () {
+    final data = RuntimeTelemetry.splash({
+      'generation': false,
+      'active_requests': 0,
+      'telemetry': {
+        'completed_requests': -1,
+        'total_input_tokens': 1.5,
+        'total_prefill_gpu_seconds': double.nan,
+        'total_prefill_wall_seconds': '0.6',
+      },
+    });
+    expect(data.completedScoringTasks, isNull);
+    expect(data.promptTokens, isNull);
+    expect(data.prefillSeconds, isNull);
+    expect(data.prefillGpuSeconds, isNull);
+  });
+  test('encoder minute speed uses cumulative input tokens and wall seconds rather than GPU time', () async {
+    var now = DateTime.utc(2026, 11, 7);
+    final source = TestMonitorSource()
+      ..response = RuntimeTelemetry.splash(encoderStatus());
+    final controller = RuntimeMonitorController(
+      targets: () => [target('encoder', source)],
+      interval: const Duration(hours: 1),
+      now: () => now,
+    );
+    addTearDown(controller.dispose);
+    controller.setActive(true);
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.readings.single.minutePrefillPerSecond, isNull);
+    now = now.add(const Duration(seconds: 1));
+    source.response = RuntimeTelemetry.splash(
+      encoderStatus(
+        inputTokens: 285,
+        wallSeconds: 0.6,
+        gpuSeconds: 0.1,
+        completed: 3,
+      ),
+    );
+    await controller.refresh();
+    expect(controller.readings.single.minutePrefillPerSecond, 475);
+    expect(controller.readings.single.minuteDecodePerSecond, isNull);
+  });
   test('a model-scoped oMLX response restores its own totals without using session speed as a minute rate', () {
     final data = RuntimeTelemetry.omlx(
       {
@@ -424,6 +514,23 @@ void main() {
     expect(controller.readings.first.minuteDecodePerSecond, isNull);
   });
 }
+
+Map<String, Object?> encoderStatus({
+  int inputTokens = 0,
+  double wallSeconds = 0,
+  double gpuSeconds = 0,
+  int completed = 0,
+}) => {
+  'generation': false,
+  'model_kind': 'h2o-lightning',
+  'active_requests': 0,
+  'telemetry': {
+    'completed_requests': completed,
+    'total_input_tokens': inputTokens,
+    'total_prefill_wall_seconds': wallSeconds,
+    'total_prefill_gpu_seconds': gpuSeconds,
+  },
+};
 
 Map<String, Object?> splashStatus() => {
   'memory_plan': {
