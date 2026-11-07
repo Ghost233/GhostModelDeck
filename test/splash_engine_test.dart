@@ -19,6 +19,36 @@ import 'fixtures/decision_gguf.dart';
 import 'fixtures/splash_help.dart';
 
 void main() {
+  test(
+    'native logs capture Splash output and redact the live owner key',
+    () async {
+      final fixture = await SplashRuntimeFixture.create();
+      addTearDown(fixture.close);
+      fixture.io.launchStderr = 'Splash loaded owner-private-key\n';
+      final engine = fixture.engine(
+        configurationFor: (_) => EngineLaunchConfiguration(
+          family: EngineFamily.splash,
+          formValues: {'--api-key': 'owner-private-key'},
+        ),
+      );
+      addTearDown(() async {
+        await engine.shutdown();
+        await engine.close();
+      });
+      await engine.bindModel(fixture.asset.id, fixture.assembly);
+      final run = await engine.startRuntime(fixture.asset.id);
+      await Future<void>.delayed(Duration.zero);
+      final entry = engine.engineLogs.entries.single;
+      expect(entry.message, 'Splash loaded [redacted]');
+      expect(entry.channel, 'stderr');
+      expect(entry.instance, contains(run.id));
+      await engine.stop(run.id);
+      expect(
+        engine.engineLogs.entries.single.message,
+        'Splash loaded [redacted]',
+      );
+    },
+  );
   test('public preparation protects an existing target deletion plan before external preparation finishes', () async {
     final fixture = await SplashRuntimeFixture.create();
     addTearDown(fixture.close);

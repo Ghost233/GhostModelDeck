@@ -10,6 +10,8 @@ import 'package:crypto/crypto.dart';
 
 import 'chat_protocol.dart';
 import 'engine_runtime.dart';
+import 'engine_logs.dart';
+import 'jev_debug.dart';
 import 'engine_launch_configuration.dart';
 import 'engine_parameter_recognition.dart';
 import 'model_library.dart';
@@ -332,7 +334,8 @@ class OmlxRequestException implements Exception {
 /// Owns the native oMLX installation, its exact validation lifecycle, and the
 /// owned front-end model pool: one supervised serve process per generation,
 /// pin-only enablement, fenced routing, and exact stop/recycle semantics.
-class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
+class OmlxEngine
+    implements EngineRuntime, RuntimeMonitorSource, EngineLogSource {
   OmlxEngine({
     required this.installationDirectory,
     ManagedEngineRelease? release,
@@ -342,6 +345,7 @@ class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
     this._useRegistry,
     this._poolLoadTimeout = const Duration(seconds: 120),
     this._poolStopTimeout = const Duration(seconds: 20),
+    EngineLogBuffer? engineLogs,
   }) : _selectedRelease =
            release ??
            ManagedEngineRelease(
@@ -352,7 +356,12 @@ class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
              sizeBytes: 830879938,
            ),
        io = io ?? NativeOmlxProcessIO(),
-       _poolIo = poolIo ?? const NativeOmlxPoolIO();
+       _poolIo = poolIo ?? const NativeOmlxPoolIO(),
+       engineLogs = engineLogs ?? EngineLogBuffer(),
+       _ownsLogs = engineLogs == null;
+  @override
+  final EngineLogBuffer engineLogs;
+  final bool _ownsLogs;
   static const dmgDigest =
       '2e3bb06ac6ee7f50986ba1417e909d432ccd2be471db752a4a2d3b5651e3bce0';
   static const artifactUrl =
@@ -1651,6 +1660,7 @@ class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
             useRegistry: _useRegistry,
             poolLoadTimeout: _poolLoadTimeout,
             poolStopTimeout: _poolStopTimeout,
+            engineLogs: engineLogs,
           )
           .._selectedBundle = sourceBundle
           .._selectedConfiguration = configuration
@@ -1922,11 +1932,29 @@ class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
         signingSecret: signingSecret,
         client: HttpClient(),
       );
-      // Watch natural exit before any traffic; stdout/stderr are drained, not
-      // logged, so credentials can never reach logs through the child.
+      // Bind redaction to this pool's credentials before consuming any output.
       unawaited(child.exitCode.then((code) => _onPoolExit(pool, code)));
-      unawaited(child.stdout.drain<void>());
-      unawaited(child.stderr.drain<void>());
+      for (final output in [
+        (child.stdout, 'stdout'),
+        (child.stderr, 'stderr'),
+      ]) {
+        engineLogs.capture(
+          output.$1,
+          engine: 'oMLX · ${release.tag}',
+          instance: _launchInstanceId ?? 'oMLX 服务 $generation',
+          channel: output.$2,
+          redact: (line) =>
+              sealDebugJson({
+                    'credentials': [
+                      {'api_key': pool.apiKey},
+                      {'api_key': pool.signingSecret},
+                      {'cookie': pool.cookie},
+                    ],
+                    'message': line,
+                  })['message']
+                  as String,
+        );
+      }
       _startingPool = pool;
       await _awaitHealth(pool);
       pool.cookie = await _login(pool);
@@ -2665,6 +2693,7 @@ class OmlxEngine implements EngineRuntime, RuntimeMonitorSource {
     for (final child in _configured.values) {
       child.close();
     }
+    if (_ownsLogs) unawaited(engineLogs.close());
     _changes.close();
   }
 }

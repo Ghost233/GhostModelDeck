@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -69,6 +70,13 @@ void main() {
             );
           }))!;
           final instances = resources.instances;
+          resources.cpp.engineLogs.capture(
+            Stream.value(utf8.encode('native engine ready\n')),
+            engine: 'llama.cpp',
+            instance: 'embedding',
+            channel: 'stderr',
+            redact: (line) => line,
+          );
           final source = TestMonitorSource();
           var now = DateTime.utc(2026, 10, 17);
           final controller = RuntimeMonitorController(
@@ -111,6 +119,22 @@ void main() {
           await tester.pump();
           await tester.pump(const Duration(milliseconds: 30));
           expect(find.text('运行监控'), findsOneWidget);
+          expect(find.text('引擎日志'), findsOneWidget);
+          expect(find.textContaining('native engine ready'), findsOneWidget);
+          expect(
+            find.textContaining('[llama.cpp] [embedding] stderr'),
+            findsOneWidget,
+          );
+          resources.cpp.engineLogs.capture(
+            Stream.value(utf8.encode('live log update\n')),
+            engine: 'llama.cpp',
+            instance: 'embedding',
+            channel: 'stdout',
+            redact: (line) => line,
+          );
+          await tester.pump();
+          await tester.pump();
+          expect(find.textContaining('live log update'), findsOneWidget);
           expect(find.text('运行实例 25'), findsOneWidget);
           expect(find.text('instance-24'), findsNothing);
           expect(find.byType(ExpansionTile), findsNothing);
@@ -295,11 +319,11 @@ void main() {
             findsOneWidget,
           );
           expect(
-            find.descendant(of: slots, matching: find.text('评分任务 7')),
+            find.descendant(of: slots, matching: find.text('排队 — · 评分任务 7')),
             findsOneWidget,
           );
           expect(
-            find.descendant(of: slots, matching: find.text('原生槽位未提供')),
+            find.descendant(of: slots, matching: find.text('评分进度未提供')),
             findsOneWidget,
           );
           expect(find.byKey(const Key('monitor-slot:0:0')), findsNothing);
@@ -334,6 +358,68 @@ void main() {
             find.descendant(of: summary, matching: find.text('prefill 475.0')),
             findsOneWidget,
           );
+          source.response = RuntimeTelemetry.splash({
+            ...encoderStatus(completed: 10),
+            'features': {'encoder_submit_batch_limit': 4},
+            'active_requests': 2,
+            'encoder_requests': [
+              {'id': 41, 'phase': 'prefill', 'prompt_tokens': 8192},
+              {'id': 42, 'phase': 'queued', 'prompt_tokens': 10},
+            ],
+          });
+          await controller.refresh();
+          await tester.pump();
+          expect(
+            find.descendant(of: slots, matching: find.text('排队 1 · 评分任务 10')),
+            findsOneWidget,
+          );
+          final task = find.byKey(const Key('monitor-task:0:41'));
+          expect(find.descendant(of: task, matching: find.text('评分中')), findsOneWidget);
+          expect(
+            find.descendant(of: task, matching: find.text('输入 8192 token')),
+            findsOneWidget,
+          );
+          expect(find.byKey(const Key('monitor-slot:0:0')), findsNothing);
+          expect(
+            find.descendant(of: slots, matching: find.text('评分批量 4')),
+            findsOneWidget,
+          );
+          expect(find.descendant(of: slots, matching: find.text('排队')), findsOneWidget);
+          expect(
+            find.descendant(of: slots, matching: find.text('空闲')),
+            findsAtLeastNWidgets(1),
+          );
+          final scoreCards = find.descendant(
+            of: slots,
+            matching: find.byType(ListView),
+          );
+          expect(tester.widget<ListView>(scoreCards).semanticChildCount, 4);
+          source.response = RuntimeTelemetry.splash({
+            ...encoderStatus(completed: 10),
+            'features': {'encoder_submit_batch_limit': 1},
+            'active_requests': 2,
+            'encoder_requests': [
+              {'id': 41, 'phase': 'prefill', 'prompt_tokens': 8192},
+              {'id': 42, 'phase': 'queued', 'prompt_tokens': 10},
+            ],
+          });
+          await controller.refresh();
+          await tester.pump();
+          expect(tester.widget<ListView>(scoreCards).semanticChildCount, 2);
+          expect(find.byKey(const Key('monitor-task:0:42')), findsOneWidget);
+          source.response = RuntimeTelemetry.splash({
+            ...encoderStatus(completed: 12),
+            'features': {'encoder_submit_batch_limit': 4},
+            'encoder_requests': <Object?>[],
+          });
+          await controller.refresh();
+          await tester.pump();
+          expect(find.byKey(const Key('monitor-task:0:41')), findsNothing);
+          expect(
+            find.descendant(of: slots, matching: find.text('空闲')),
+            findsAtLeastNWidgets(1),
+          );
+          expect(tester.widget<ListView>(scoreCards).semanticChildCount, 4);
           source.response = RuntimeTelemetry(
             capacity: 10000,
             running: 0,

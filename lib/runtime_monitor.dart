@@ -33,6 +33,7 @@ class RuntimeTelemetry {
     this.isEncoder = false,
     this.completedScoringTasks,
     this.prefillGpuSeconds,
+    this.scoringBatchCapacity,
     this.capacity,
     this.running,
     this.queued,
@@ -51,6 +52,9 @@ class RuntimeTelemetry {
   final bool isEncoder;
   final int? completedScoringTasks;
   final double? prefillGpuSeconds;
+
+  /// Encoder submission batch width; independent of native generation slots.
+  final int? scoringBatchCapacity;
   final int? capacity;
   final int? running;
   final int? queued;
@@ -88,8 +92,10 @@ class RuntimeTelemetry {
         row['active_requests'] is! List) {
       throw const FormatException('Splash 未提供监控数据');
     }
+    final nativeRequests =
+        row[isEncoder ? 'encoder_requests' : 'active_requests'];
     final progress = [
-      for (final request in _rows(row['active_requests']).where(
+      for (final request in _rows(nativeRequests).where(
         (request) => !const [
           'completed',
           'cancelled',
@@ -107,6 +113,9 @@ class RuntimeTelemetry {
     ];
     final prefill = _int(scheduler['prefilling']);
     final decode = _int(scheduler['decoding']);
+    final scoringBatchCapacity = _int(
+      _map(row['features'])['encoder_submit_batch_limit'],
+    );
     return RuntimeTelemetry(
       isEncoder: isEncoder,
       completedScoringTasks: isEncoder
@@ -116,18 +125,30 @@ class RuntimeTelemetry {
           ? _number(encoder['total_prefill_gpu_seconds'])
           : null,
       capacity: isEncoder ? null : _int(plan['maximum_batch_width']),
-      running: row['active_requests'] is List
+      scoringBatchCapacity:
+          isEncoder && scoringBatchCapacity != null && scoringBatchCapacity > 0
+          ? scoringBatchCapacity
+          : null,
+      running: nativeRequests is List
           ? progress.where((p) => p.phase != RequestPhase.queued).length
           : _int(row['active_requests']),
-      queued: _sum([
-        scheduler['queued'],
-        scheduler['waiting_resources'],
-        scheduler['waiting_prefix'],
-        scheduler['waiting_mask'],
-        if (_map(row['frontend']).containsKey('waiting'))
-          _map(row['frontend'])['waiting'],
-      ]),
-      prefilling: prefill,
+      queued: isEncoder && nativeRequests is! List
+          ? null
+          : _sum([
+              if (isEncoder)
+                progress.where((p) => p.phase == RequestPhase.queued).length
+              else ...[
+                scheduler['queued'],
+                scheduler['waiting_resources'],
+                scheduler['waiting_prefix'],
+                scheduler['waiting_mask'],
+              ],
+              if (_map(row['frontend']).containsKey('waiting'))
+                _map(row['frontend'])['waiting'],
+            ]),
+      prefilling: isEncoder && nativeRequests is List
+          ? progress.where((p) => p.phase == RequestPhase.prefill).length
+          : prefill,
       decoding: decode,
       totalRequests: isEncoder ? null : _int(totals['submitted']),
       promptTokens: isEncoder
@@ -143,6 +164,9 @@ class RuntimeTelemetry {
           : _seconds(metrics['prefill_wall_ms']),
       decodeSeconds: isEncoder ? null : _seconds(metrics['decode_wall_ms']),
       requests: progress,
+      notice: isEncoder && nativeRequests is! List
+          ? '当前引擎未提供评分任务阶段和队列；更新 Splash 后可读取。'
+          : null,
     );
   }
 

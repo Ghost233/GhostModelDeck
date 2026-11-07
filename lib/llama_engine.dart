@@ -16,6 +16,7 @@ import 'embedding_protocol.dart';
 import 'startlux_readout.dart';
 import 'startlux_runtime.dart' show StartluxRuntimeCleanupException;
 import 'engine_runtime.dart';
+import 'engine_logs.dart';
 import 'engine_launch_configuration.dart';
 import 'engine_parameter_recognition.dart';
 import 'jev_debug.dart';
@@ -601,7 +602,11 @@ typedef StartluxReadoutStarter = Future<StartluxReadout?> Function(
 );
 
 class LlamaEngine
-    implements EmbeddingRuntime, DecisionRuntime, RuntimeMonitorSource {
+    implements
+        EmbeddingRuntime,
+        DecisionRuntime,
+        RuntimeMonitorSource,
+        EngineLogSource {
   LlamaEngine({
     required this.library,
     required this.installationDirectory,
@@ -631,6 +636,8 @@ class LlamaEngine
                contentFingerprint: linkedInstallation.sha256,
              );
   final ModelLibrary library;
+  @override
+  final engineLogs = EngineLogBuffer();
   final Directory installationDirectory;
   final EngineProcessIO io;
   LlamaRelease _selectedRelease;
@@ -1024,9 +1031,10 @@ class LlamaEngine
           managedArguments: {
             if (draftFiles.isNotEmpty) '--spec-draft-model': draftFiles.first,
           },
-          executableArguments: asset.kind == AssetKind.embedding
-              ? const ['--embedding']
-              : const [],
+          executableArguments: [
+            '--metrics',
+            if (asset.kind == AssetKind.embedding) '--embedding',
+          ],
         );
         var instance = LlamaInstance(
           id: alias,
@@ -1061,14 +1069,28 @@ class LlamaEngine
         _running[alias] = running;
         _instances[alias] = instance;
         _publishInstances();
-        child.stdout.listen((_) {});
         final owned = running;
-        child.stderr.listen((bytes) {
-          final next = owned.log + utf8.decode(bytes, allowMalformed: true);
-          owned.log = next.length > 4096
-              ? next.substring(next.length - 4096)
-              : next;
-        });
+        for (final output in [
+          (child.stdout, 'stdout'),
+          (child.stderr, 'stderr'),
+        ]) {
+          engineLogs.capture(
+            output.$1,
+            engine: 'llama.cpp · ${release.artifactTag ?? release.tag}',
+            instance: '$alias · ${asset.name}',
+            channel: output.$2,
+            redact: owned.safe,
+            onBytes: output.$2 != 'stderr'
+                ? null
+                : (bytes) {
+                    final next =
+                        owned.log + utf8.decode(bytes, allowMalformed: true);
+                    owned.log = next.length > 4096
+                        ? next.substring(next.length - 4096)
+                        : next;
+                  },
+          );
+        }
         child.exitCode.then((code) async {
           owned.exitCode = code;
           // A native argument rejection seals admission too. Remember whether
@@ -2992,5 +3014,8 @@ class LlamaEngine
     if (!_changes.isClosed) _changes.add(_state);
   }
 
-  void close() => _changes.close();
+  void close() {
+    unawaited(engineLogs.close());
+    _changes.close();
+  }
 }

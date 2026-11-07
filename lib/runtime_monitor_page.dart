@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 
 import 'launch_instances.dart';
+import 'engine_logs.dart';
+import 'engine_logs_panel.dart';
 import 'runtime_monitor.dart';
 import 'runtime_monitor_controller.dart';
 
@@ -32,9 +34,10 @@ class _RuntimeMonitorPageState extends State<RuntimeMonitorPage> {
         widget.controller ??
         RuntimeMonitorController.forInstances(widget.instances);
     _controller.addListener(_changed);
-    _subscription = widget.instances.changes.listen(
-      (_) => unawaited(_controller.refresh()),
-    );
+    _subscription = widget.instances.changes.listen((_) {
+      unawaited(_controller.refresh());
+      _changed();
+    });
     _controller.setActive(widget.active);
   }
 
@@ -70,6 +73,7 @@ class _RuntimeMonitorPageState extends State<RuntimeMonitorPage> {
         const Text('生成模型按原生推理槽位显示阶段，决策模型显示评分任务；速度为最近一分钟平均 token/s。未提供的字段显示 —。'),
         const SizedBox(height: 16),
         Expanded(
+          flex: 3,
           child: all.isEmpty
               ? const Center(child: Text('暂无运行实例'))
               : ListView.builder(
@@ -106,6 +110,15 @@ class _RuntimeMonitorPageState extends State<RuntimeMonitorPage> {
             ),
           ],
         ),
+        const SizedBox(height: 8),
+        Expanded(
+          flex: 2,
+          child: EngineLogsPanel(
+            sources: widget.instances.catalog.runtimes
+                .whereType<EngineLogSource>(),
+            active: widget.active,
+          ),
+        ),
       ],
     );
   }
@@ -121,7 +134,7 @@ class _InstanceMonitor extends StatelessWidget {
     final target = reading.target;
     final encoder = data?.isEncoder == true;
     final capacity = encoder
-        ? data?.capacity
+        ? data?.scoringBatchCapacity
         : data?.capacity ??
               target.run?.inferenceConcurrency ??
               target.configuredConcurrency;
@@ -129,19 +142,28 @@ class _InstanceMonitor extends StatelessWidget {
       1.0,
       MediaQuery.textScalerOf(context).scale(12) / 12,
     );
-    final active =
-        data?.requests
-            .where((request) => request.phase != RequestPhase.queued)
-            .toList() ??
-        <RequestProgress>[];
+    final active = [
+      ...?data?.requests.where(
+        (request) => request.phase != RequestPhase.queued,
+      ),
+      if (encoder)
+        ...?data?.requests.where(
+          (request) => request.phase == RequestPhase.queued,
+        ),
+    ];
+    final cardCount = capacity == null
+        ? null
+        : encoder
+        ? math.max(capacity, active.length)
+        : capacity;
     final assigned = <int, RequestProgress>{};
     final unassigned = <RequestProgress>[];
-    if (capacity != null) {
+    if (cardCount != null) {
       for (final request in active) {
         final slot = request.slotIndex;
         if (slot != null &&
             slot >= 0 &&
-            slot < capacity &&
+            slot < cardCount &&
             !assigned.containsKey(slot)) {
           assigned[slot] = request;
         } else {
@@ -150,10 +172,10 @@ class _InstanceMonitor extends StatelessWidget {
       }
       var slot = 0;
       for (final request in unassigned) {
-        while (slot < capacity && assigned.containsKey(slot)) {
+        while (slot < cardCount && assigned.containsKey(slot)) {
           slot++;
         }
-        if (slot >= capacity) break;
+        if (slot >= cardCount) break;
         assigned[slot++] = request;
       }
     }
@@ -161,11 +183,12 @@ class _InstanceMonitor extends StatelessWidget {
     final unreported = capacity == null || running == null
         ? 0
         : math.max(0, math.min(capacity, running) - assigned.length);
-    final idleKnown =
-        capacity != null &&
-        running != null &&
-        running >= active.length &&
-        running <= capacity;
+    final idleKnown = encoder
+        ? data?.notice == null && running != null && data?.queued != null
+        : capacity != null &&
+              running != null &&
+              running >= active.length &&
+              running <= capacity;
     final theme = Theme.of(context);
     return Container(
       key: Key('monitor-instance:${target.id}'),
@@ -182,24 +205,54 @@ class _InstanceMonitor extends StatelessWidget {
           Row(
             key: Key('monitor-slots:${target.id}'),
             children: [
-              Text(
-                encoder
-                    ? '活动任务 ${data?.running ?? '—'}'
-                    : '并发 ${capacity ?? '—'}',
-                style: theme.textTheme.bodySmall,
+              Tooltip(
+                message: encoder && capacity != null
+                    ? '单个评分批次最多处理 $capacity 个任务；较长输入可能单独处理。'
+                    : '原生推理并发',
+                child: Text(
+                  encoder
+                      ? capacity == null
+                            ? '活动任务 ${data?.running ?? '—'}'
+                            : '评分批量 $capacity'
+                      : '并发 ${capacity ?? '—'}',
+                  style: theme.textTheme.bodySmall,
+                ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: SizedBox(
                   height: 56 * scale,
-                  child: capacity == null
+                  child:
+                      encoder && capacity == null && data!.requests.isNotEmpty
+                      ? ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: data.requests.length,
+                          itemBuilder: (context, index) => Padding(
+                            padding: const EdgeInsets.only(right: 4),
+                            child: SizedBox(
+                              width: 140 * scale,
+                              child: _Slot(
+                                key: Key(
+                                  'monitor-task:${target.id}:${data.requests[index].id}',
+                                ),
+                                request: data.requests[index],
+                                encoder: true,
+                                idle: false,
+                                unknownLabel: '处理中',
+                              ),
+                            ),
+                          ),
+                        )
+                      : capacity == null
                       ? Align(
                           alignment: Alignment.centerLeft,
                           child: Text(
                             reading.error != null
                                 ? '读取失败'
                                 : encoder
-                                ? '原生槽位未提供'
+                                ? data?.notice != null
+                                      ? '评分进度未提供'
+                                      : '空闲'
                                 : '槽位 —',
                             style: theme.textTheme.bodySmall,
                           ),
@@ -207,7 +260,7 @@ class _InstanceMonitor extends StatelessWidget {
                       : ListView.builder(
                           scrollDirection: Axis.horizontal,
                           scrollCacheExtent: const ScrollCacheExtent.pixels(0),
-                          itemCount: capacity,
+                          itemCount: cardCount,
                           itemBuilder: (context, index) {
                             var request = assigned[index];
                             final gap =
@@ -222,14 +275,30 @@ class _InstanceMonitor extends StatelessWidget {
                               );
                             }
                             return Padding(
+                              key: encoder
+                                  ? Key(
+                                      'monitor-score-card:${target.id}:$index',
+                                    )
+                                  : null,
                               padding: const EdgeInsets.only(right: 4),
                               child: SizedBox(
-                                width: 100 * scale,
+                                width: (encoder ? 140 : 100) * scale,
                                 child: _Slot(
-                                  key: Key('monitor-slot:${target.id}:$index'),
+                                  key: Key(
+                                    encoder
+                                        ? request == null
+                                              ? 'monitor-score-idle:${target.id}:$index'
+                                              : 'monitor-task:${target.id}:${request.id}'
+                                        : 'monitor-slot:${target.id}:$index',
+                                  ),
                                   request: request,
                                   idle: request == null && idleKnown,
-                                  unknownLabel: target.status,
+                                  encoder: encoder,
+                                  unknownLabel: encoder
+                                      ? request == null
+                                            ? '阶段 —'
+                                            : '处理中'
+                                      : target.status,
                                 ),
                               ),
                             );
@@ -240,7 +309,7 @@ class _InstanceMonitor extends StatelessWidget {
               const SizedBox(width: 8),
               Text(
                 encoder
-                    ? '评分任务 ${data?.completedScoringTasks ?? '—'}'
+                    ? '排队 ${data?.queued ?? '—'} · 评分任务 ${data?.completedScoringTasks ?? '—'}'
                     : '排队 ${data?.queued ?? '—'}',
                 style: theme.textTheme.bodySmall,
               ),
@@ -339,23 +408,31 @@ class _Slot extends StatelessWidget {
     required this.request,
     required this.idle,
     required this.unknownLabel,
+    this.encoder = false,
   });
   final RequestProgress? request;
   final bool idle;
   final String unknownLabel;
+  final bool encoder;
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final phase = request?.phase;
     final label = idle
         ? '空闲'
+        : phase == RequestPhase.queued
+        ? '排队'
         : phase == RequestPhase.prefill
-        ? 'prefill'
+        ? encoder
+              ? '评分中'
+              : 'prefill'
         : phase == RequestPhase.decode
         ? 'decode'
         : unknownLabel;
     final amount = request == null
         ? null
+        : encoder
+        ? '输入 ${request!.promptTokens ?? '—'} token'
         : phase == RequestPhase.prefill
         ? request!.promptTokens == null
               ? '${request!.processedTokens ?? '—'} token'
@@ -364,7 +441,12 @@ class _Slot extends StatelessWidget {
         ? '${request!.generatedTokens ?? '—'} token'
         : '—';
     final active =
-        phase == RequestPhase.prefill || phase == RequestPhase.decode;
+        phase == RequestPhase.prefill ||
+        phase == RequestPhase.decode ||
+        encoder && phase == RequestPhase.running;
+    final textStyle = theme.textTheme.bodySmall?.copyWith(
+      color: active ? theme.colorScheme.onPrimaryContainer : null,
+    );
     return DecoratedBox(
       decoration: BoxDecoration(
         color: active
@@ -386,14 +468,14 @@ class _Slot extends StatelessWidget {
               label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall,
+              style: textStyle,
             ),
             if (amount != null)
               Text(
                 amount,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall,
+                style: textStyle,
               ),
           ],
         ),

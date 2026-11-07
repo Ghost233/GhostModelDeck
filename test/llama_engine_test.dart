@@ -9,6 +9,8 @@ import 'package:ghost_model_deck/chat_protocol.dart';
 import 'package:ghost_model_deck/council.dart';
 import 'package:ghost_model_deck/decision_protocol.dart';
 import 'package:ghost_model_deck/engine_catalog.dart';
+import 'package:ghost_model_deck/engine_launch_configuration.dart';
+import 'package:ghost_model_deck/engine_runtime.dart';
 import 'package:ghost_model_deck/model_use_registry.dart';
 import 'package:ghost_model_deck/llama_engine.dart';
 import 'package:ghost_model_deck/model_library.dart';
@@ -18,6 +20,34 @@ import 'fixtures/engine_archive.dart';
 import 'fixtures/typed_answers.dart';
 
 void main() {
+  test('managed llama enables native monitoring metrics at startup', () async {
+    final fixture = await _Fixture.create(ordinaryChat: true);
+    addTearDown(fixture.close);
+    final run = await fixture.engine.start(fixture.asset.id);
+    expect(run.launchCommand!.arguments, contains('--metrics'));
+  });
+  test('native logs retain both channels with owner key redaction', () async {
+    final fixture = await _Fixture.create(ordinaryChat: true);
+    addTearDown(fixture.close);
+    fixture.io.nativeLog = 'native started owner-private-key\n';
+    final run = await fixture.engine.start(
+      fixture.asset.id,
+      configuration: EngineLaunchConfiguration(
+        family: EngineFamily.llamaCpp,
+        formValues: {'--api-key': 'owner-private-key'},
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+    final entries = fixture.engine.engineLogs.entries;
+    expect(entries.map((entry) => entry.channel), ['stdout', 'stderr']);
+    expect(
+      entries.every((entry) => entry.message == 'native started [redacted]'),
+      isTrue,
+    );
+    expect(entries.every((entry) => entry.instance.contains(run.id)), isTrue);
+    await fixture.engine.stop(run.id);
+    expect(fixture.engine.engineLogs.entries.length, 2);
+  });
   test(
     'normal startup verifies health and identity without inference probes',
     () async {
@@ -1879,6 +1909,7 @@ class _Fixture {
 }
 
 class _InstallIO implements EngineProcessIO {
+  String? nativeLog;
   int versions = 0;
   EngineCommandResult? versionResponse;
   TimeoutException? versionFailure;
@@ -1917,6 +1948,7 @@ class _InstallIO implements EngineProcessIO {
       server,
       pid: 12345 + children.length,
       stopServer: !foreignEndpoint,
+      nativeLog: nativeLog,
     );
     children.add(child!);
     server.listen((request) async {
@@ -2050,7 +2082,13 @@ class _InstallIO implements EngineProcessIO {
 }
 
 class _Child implements EngineChild {
-  _Child(this.server, {required this.pid, this.stopServer = true});
+  _Child(
+    this.server, {
+    required this.pid,
+    this.stopServer = true,
+    this.nativeLog,
+  });
+  final String? nativeLog;
   final HttpServer server;
   final bool stopServer;
   final exited = Completer<int>();
@@ -2060,9 +2098,13 @@ class _Child implements EngineChild {
   @override
   Future<int> get exitCode => exited.future;
   @override
-  Stream<List<int>> get stdout => const Stream.empty();
+  Stream<List<int>> get stdout => nativeLog == null
+      ? const Stream.empty()
+      : Stream.value(utf8.encode(nativeLog!));
   @override
-  Stream<List<int>> get stderr => const Stream.empty();
+  Stream<List<int>> get stderr => nativeLog == null
+      ? const Stream.empty()
+      : Stream.value(utf8.encode(nativeLog!));
   @override
   bool kill(ProcessSignal signal) {
     onKill?.call();

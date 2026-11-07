@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart';
 
 import 'engine_parameter_recognition.dart';
 import 'engine_runtime.dart';
+import 'engine_logs.dart';
 import 'engine_launch_configuration.dart';
 import 'launch_argument_text.dart';
 import 'llama_engine.dart';
@@ -524,7 +525,8 @@ class _SplashLoading implements Exception {
   const _SplashLoading();
 }
 
-class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
+class SplashEngine
+    implements DecisionRuntime, RuntimeMonitorSource, EngineLogSource {
   SplashEngine({
     required SplashInstallation installation,
     required this.library,
@@ -548,6 +550,8 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
   bool _installationVerified;
   SplashInstallation get installation => _installation;
   final ModelLibrary library;
+  @override
+  final engineLogs = EngineLogBuffer();
   final ModelUseRegistry useRegistry;
   final Directory runtimeDirectory;
   final Directory modelDirectory;
@@ -941,12 +945,27 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
             run.command.arguments,
           );
           run.groupLive = true;
-          run.child!.stdout.listen((_) {});
-          run.child!.stderr.listen((bytes) {
-            if (run.stderr.length < 65536) {
-              run.stderr.write(utf8.decode(bytes, allowMalformed: true));
-            }
-          });
+          for (final output in [
+            (run.child!.stdout, 'stdout'),
+            (run.child!.stderr, 'stderr'),
+          ]) {
+            engineLogs.capture(
+              output.$1,
+              engine: 'Splash · ${run.version}',
+              instance: '${run.id} · ${run.asset.name}',
+              channel: output.$2,
+              redact: run.safe,
+              onBytes: output.$2 != 'stderr'
+                  ? null
+                  : (bytes) {
+                      if (run.stderr.length < 65536) {
+                        run.stderr.write(
+                          utf8.decode(bytes, allowMalformed: true),
+                        );
+                      }
+                    },
+            );
+          }
           unawaited(
             run.child!.exitCode.then((code) {
               run.exit = code;
@@ -1538,7 +1557,10 @@ class SplashEngine implements DecisionRuntime, RuntimeMonitorSource {
     _publish();
   });
 
-  Future<void> close() => _changes.close();
+  Future<void> close() async {
+    await engineLogs.close();
+    await _changes.close();
+  }
 
   Future<void> _verifyBinding(SplashModelBinding binding) async {
     final current = await _readBinding(binding.artifactId, binding.assembly);

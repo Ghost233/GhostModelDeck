@@ -16,6 +16,78 @@ import 'package:ghost_model_deck/model_scenarios.dart';
 import 'fixtures/council_runtime.dart';
 
 void main() {
+  test('encoder scoring batch width is separate from inference slots and HTTP admission', () {
+    for (final width in [1, 2, 4]) {
+      final data = RuntimeTelemetry.splash({
+        ...encoderStatus(),
+        'encoder_requests': <Object?>[],
+        'features': {'encoder_submit_batch_limit': width},
+        'http': {
+          'requests': {'capacity': 256},
+        },
+      });
+      expect(data.scoringBatchCapacity, width);
+      expect(data.capacity, isNull);
+    }
+    for (final width in [null, 0, -1, 1.5, '4']) {
+      final data = RuntimeTelemetry.splash({
+        ...encoderStatus(),
+        'features': {'encoder_submit_batch_limit': width},
+      });
+      expect(data.scoringBatchCapacity, isNull);
+    }
+  });
+  test(
+    'Splash encoder tasks expose native queue and scoring phases without slots',
+    () {
+      final data = RuntimeTelemetry.splash({
+        ...encoderStatus(),
+        'active_requests': 3,
+        'encoder_requests': [
+          {
+            'id': 41,
+            'phase': 'prefill',
+            'prompt_tokens': 8192,
+            'prompt_processed': null,
+            'generated_tokens': 0,
+          },
+          {
+            'id': 42,
+            'phase': 'queued',
+            'prompt_tokens': 10,
+            'prompt_processed': null,
+            'generated_tokens': 0,
+          },
+          {
+            'id': 43,
+            'phase': 'running',
+            'prompt_tokens': 20,
+            'prompt_processed': null,
+            'generated_tokens': 0,
+          },
+        ],
+        'frontend': {'waiting': 2},
+      });
+      expect(data.capacity, isNull);
+      expect(data.running, 2);
+      expect(data.queued, 3);
+      expect(data.prefilling, 1);
+      expect(data.requests.map((request) => request.phase), [
+        RequestPhase.prefill,
+        RequestPhase.queued,
+        RequestPhase.running,
+      ]);
+      expect(data.requests.first.promptTokens, 8192);
+      expect(data.requests.first.processedTokens, isNull);
+      final idle = RuntimeTelemetry.splash({
+        ...encoderStatus(),
+        'encoder_requests': <Object?>[],
+      });
+      expect(idle.running, 0);
+      expect(idle.queued, 0);
+      expect(idle.requests, isEmpty);
+    },
+  );
   test('Splash encoder input tokens and wall time reach the monitor without inventing inference slots', () {
     final data = RuntimeTelemetry.splash({
       'ready': true,

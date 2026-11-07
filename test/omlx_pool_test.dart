@@ -864,6 +864,32 @@ Matcher _requestKind(OmlxRequestKind kind) =>
     isA<OmlxRequestException>().having((e) => e.kind, 'kind', kind);
 
 void main() {
+  test('configured oMLX instances share redacted native logs across restart', () async {
+    final fixture = await _PoolFixture.create();
+    addTearDown(fixture.dispose);
+    for (var i = 0; i < 2; i++) {
+      final run = await fixture.engine.startWithConfiguration(
+        fixture.artifact('model-a').id,
+        EngineLaunchConfiguration(family: EngineFamily.omlx),
+        launchInstanceId: 'logged',
+        launchRevision: i + 1,
+      );
+      final child = fixture.poolIo.children.last;
+      child._stdout.add(utf8.encode('ready ${child.server.apiKey}\n'));
+      child._stderr.add(
+        utf8.encode(
+          'session ${child.server.cookieValue} ${child.server.signingSecret}\n',
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      final entries = fixture.engine.engineLogs.entries;
+      expect(entries.length, (i + 1) * 2);
+      expect(entries.last.message, 'session [redacted] [redacted]');
+      expect(entries[entries.length - 2].message, 'ready [redacted]');
+      expect(entries.every((entry) => entry.instance == 'logged'), isTrue);
+      await fixture.engine.stop(run.id);
+    }
+  });
   test('master off cancels pending native and configured oMLX loads and keeps later starts sealed', () async {
     for (final configured in [false, true]) {
       final fixture = await _PoolFixture.create();
