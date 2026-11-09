@@ -790,6 +790,14 @@ class SplashEngine
   }
 
   EngineLaunchCommand? actualCommandFor(String id) => _runs[id]?.command;
+  Future<String> detectVisionProjector(LibraryArtifact asset) =>
+      detectSplashProjector(
+        io: io,
+        python: _installation.python,
+        engine: _installation.root,
+        artifact: asset,
+      );
+
   String? actualVisionFor(String launchInstanceId) {
     final run = _runs.values
         .where(

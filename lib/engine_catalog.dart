@@ -16,6 +16,19 @@ import 'managed_engine_release.dart';
 
 enum EngineSource { managed, linked }
 
+typedef ManagedEngineUpdate = ({String version, bool updated});
+typedef _ManagedVersion = ({String tag, String sha256, bool installed});
+
+class ManagedEngineUpdateCandidate {
+  const ManagedEngineUpdateCandidate._(this._id, this._release, this._baseline);
+
+  final String _id;
+  final ManagedEngineRelease _release;
+  final _ManagedVersion _baseline;
+
+  String get version => _release.artifactTag ?? _release.version;
+}
+
 class ModelLaunchOverrides {
   const ModelLaunchOverrides({this.enabled = false, this.configuration});
   final bool enabled;
@@ -339,7 +352,7 @@ class EngineCatalog {
   final _admissionReleases = <LlamaEngine, void Function()>{};
   bool _busy = false;
   String? _error;
-  final _installations = <String, Future<void>>{};
+  final _installations = <String, Future<ManagedEngineUpdate?>>{};
   StreamSubscription<EngineSourceBuildProgress>? _sourceSubscription;
   Future<EngineRegistration>? _sourceOperation;
   EngineSourceBuildRequest? _sourceRequest;
@@ -1270,16 +1283,61 @@ class EngineCatalog {
   Future<void> redownloadManaged(String id, {File? verifiedArchive}) =>
       installManaged(id, verifiedArchive: verifiedArchive, redownload: true);
 
-  Future<void> updateManaged(String id, {File? verifiedArchive}) {
+  Future<ManagedEngineUpdateCandidate?> checkManagedUpdate(String id) async {
+    await _serial(_load);
+    final release = await _latestManagedRelease(id);
+    final current = _managedVersion(id);
+    return _matchesManagedRelease(current, release)
+        ? null
+        : ManagedEngineUpdateCandidate._(id, release, current);
+  }
+
+  Future<ManagedEngineUpdate?> updateManaged(
+    String id, {
+    File? verifiedArchive,
+    ManagedEngineUpdateCandidate? candidate,
+  }) {
     if (!canUpdateManaged(id)) {
       return Future.error(const LlamaEngineException('该来源不支持主线更新'));
     }
-    return installManaged(
+    return _installManaged(
       id,
       verifiedArchive: verifiedArchive,
       checkLatest: true,
+      candidate: candidate,
     );
   }
+
+  Future<ManagedEngineRelease> _latestManagedRelease(String id) {
+    if (!canUpdateManaged(id)) throw const LlamaEngineException('该来源不支持主线更新');
+    final family = id == omlxId ? EngineFamily.omlx : EngineFamily.llamaCpp;
+    return releaseClient!.latest(family);
+  }
+
+  _ManagedVersion _managedVersion(String id) {
+    final cpp = _managed[id];
+    if (cpp != null) {
+      return (
+        tag: cpp.release.tag,
+        sha256: cpp.release.sha256,
+        installed: cpp.state.installation == LlamaInstallationStatus.installed,
+      );
+    }
+    final omlx = omlxEngine!;
+    return (
+      tag: omlx.release.tag,
+      sha256: omlx.release.sha256,
+      installed: omlx.state.status == OmlxInstallationStatus.installed,
+    );
+  }
+
+  bool _matchesManagedRelease(
+    _ManagedVersion current,
+    ManagedEngineRelease release,
+  ) =>
+      current.installed &&
+      current.tag == release.tag &&
+      current.sha256 == release.sha256;
 
   LlamaRelease _llamaRelease(ManagedEngineRelease release) {
     final build = int.parse(release.artifactTag!.substring(1));
@@ -1296,27 +1354,32 @@ class EngineCatalog {
     );
   }
 
-  Future<void> _installLatestManaged(String id, File? archive) async {
+  Future<ManagedEngineUpdate> _installLatestManaged(
+    String id,
+    File? archive,
+    ManagedEngineUpdateCandidate? checked,
+  ) async {
     if (!canUpdateManaged(id)) throw const LlamaEngineException('该来源不支持主线更新');
-    final family = id == omlxId ? EngineFamily.omlx : EngineFamily.llamaCpp;
-    final candidate = await releaseClient!.latest(family);
+    if (checked != null && checked._id != id) {
+      throw const LlamaEngineException('所选版本与引擎不匹配');
+    }
+    final candidate = checked?._release ?? await _latestManagedRelease(id);
+    final version = candidate.artifactTag ?? candidate.tag;
     if (_shuttingDown || _recycling) {
       throw const LlamaEngineException('引擎安装准入已关闭');
+    }
+    final current = _managedVersion(id);
+    if (_matchesManagedRelease(current, candidate)) {
+      return (version: version, updated: false);
+    }
+    if (checked != null && checked._baseline != current) {
+      throw const LlamaEngineException('引擎版本已变化，请重新检查更新');
     }
     assertRedownloadable(id);
     final cpp = _managed[id];
     final omlx = id == omlxId ? omlxEngine : null;
     final oldCpp = cpp?.release;
     final oldOmlx = omlx?.release;
-    final digest = oldCpp?.sha256 ?? oldOmlx!.sha256;
-    final installed = cpp != null
-        ? cpp.state.installation == LlamaInstallationStatus.installed
-        : omlx!.state.status == OmlxInstallationStatus.installed;
-    if (candidate.sha256 == digest &&
-        candidate.tag == (oldCpp?.tag ?? oldOmlx!.tag) &&
-        installed) {
-      return;
-    }
     final releaseAdmission =
         cpp?.holdStartAdmission() ?? omlx!.holdStartAdmission();
     try {
@@ -1348,6 +1411,7 @@ class EngineCatalog {
     } finally {
       releaseAdmission();
     }
+    return (version: version, updated: true);
   }
 
   void assertRedownloadable(String id) {
@@ -1367,25 +1431,44 @@ class EngineCatalog {
     File? verifiedArchive,
     bool redownload = false,
     bool checkLatest = false,
+  }) => _installManaged(
+    id,
+    verifiedArchive: verifiedArchive,
+    redownload: redownload,
+    checkLatest: checkLatest,
+  );
+
+  Future<ManagedEngineUpdate?> _installManaged(
+    String id, {
+    File? verifiedArchive,
+    bool redownload = false,
+    bool checkLatest = false,
+    ManagedEngineUpdateCandidate? candidate,
   }) {
     if (_installations.containsKey(id)) return _installations[id]!;
     final operation =
-        _serial(() async {
+        _serial<Future<ManagedEngineUpdate?> Function()>(() async {
           await _load();
           if (canUpdateManaged(id) &&
               (checkLatest || verifiedArchive == null && !redownload)) {
-            return () => _installLatestManaged(id, verifiedArchive);
+            return () => _installLatestManaged(id, verifiedArchive, candidate);
           }
           if (id == omlxId && omlxEngine != null) {
-            return () => redownload
-                ? omlxEngine!.redownload(verifiedArtifact: verifiedArchive)
-                : omlxEngine!.install(verifiedArtifact: verifiedArchive);
+            return () async {
+              await (redownload
+                  ? omlxEngine!.redownload(verifiedArtifact: verifiedArchive)
+                  : omlxEngine!.install(verifiedArtifact: verifiedArchive));
+              return null;
+            };
           }
           final provider = _managed[id];
           if (provider == null) throw const LlamaEngineException('请选择受管引擎安装');
-          return () => redownload
-              ? provider.redownload(verifiedArchive: verifiedArchive)
-              : provider.install(verifiedArchive: verifiedArchive);
+          return () async {
+            await (redownload
+                ? provider.redownload(verifiedArchive: verifiedArchive)
+                : provider.install(verifiedArchive: verifiedArchive));
+            return null;
+          };
         }).then((install) {
           if (_shuttingDown || _recycling) {
             if (id == omlxId) throw const OmlxException('oMLX 安装准入已关闭');

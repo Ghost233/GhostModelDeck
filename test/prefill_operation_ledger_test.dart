@@ -667,7 +667,8 @@ void main() {
   );
 
   test(
-    'native release evidence gates completion, replay and cache reuse',
+    'native release evidence gates completion and preserves cache reuse after restart',
+    // Reopen the same persisted ledger after proving native release.
     () async {
       await HttpOverrides.runWithHttpOverrides(() async {
         final root = await Directory.systemTemp.createTemp(
@@ -847,10 +848,26 @@ void main() {
             operationId('op-2', 'public-generation'),
             token,
           );
-          expect(restored.state, PrefillOperationState.unknown);
+          expect(restored.state, PrefillOperationState.failed);
+          expect(restored.resultFailure, PrefillResultFailure.unavailable);
           expect(restored.response, isNull);
           expect(restored.nativeEvidence, isNull);
-          expect(restored.leaseReleased, isFalse);
+          expect(restored.leaseReleased, isTrue);
+
+          final generation = reopened.publicGeneration('native-runtime');
+          final freshId =
+              'gmd1.${sha256.convert(utf8.encode(generation))}.1000000.${PrefillOperationId.nonceForToken(token)}';
+          final fresh = await reopened.admit(
+            operationId: freshId,
+            token: token,
+            model: 'model',
+            owner: 'run',
+            generation: generation,
+            cacheSalt: 'salt',
+            request: {'body': 'new private input'},
+            kind: PrefillOperationKind.prefill,
+          );
+          expect(fresh.created, isTrue);
         } finally {
           await reopened.close();
         }

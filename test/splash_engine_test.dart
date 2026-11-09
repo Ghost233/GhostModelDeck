@@ -2403,6 +2403,9 @@ class SplashTestProcessIO implements SplashProcessIO {
     )) {
       final request = jsonDecode(arguments.last) as Map;
       await beforePreparation?.call(Map<String, dynamic>.from(request));
+      if (request['probe_projector'] != null) {
+        return EngineCommandResult(0, jsonEncode((request['projectors'] as List).single), '');
+      }
       if (preparationFailure) {
         return const EngineCommandResult(70, '', 'native preparation failed');
       }

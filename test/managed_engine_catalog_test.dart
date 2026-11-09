@@ -66,6 +66,7 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
       final fixture = (await tester.runAsync(_Fixture.create))!;
       addTearDown(() => tester.runAsync(fixture.close));
+      final latest = fixture.client.release;
       await tester.runAsync(() async {
         await fixture.catalog.installManaged(
           EngineCatalog.officialId,
@@ -105,7 +106,59 @@ void main() {
       });
       await tester.pumpAndSettle();
       expect(fixture.client.calls, 1);
-      expect(find.textContaining('当前使用上游最新发行'), findsOneWidget);
+      expect(find.widgetWithText(TextButton, '无需更新'), findsOneWidget);
+      expect(fixture.engine.release, same(fixture.initialRelease));
+
+      var downloads = 0;
+      final server = (await tester.runAsync(() async {
+        final listener = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        final bytes = await fixture.newArchive.readAsBytes();
+        listener.listen((request) async {
+          downloads++;
+          request.response.add(bytes);
+          await request.response.close();
+        });
+        return listener;
+      }))!;
+      addTearDown(() => tester.runAsync(() => server.close(force: true)));
+      final installedRelease = fixture.client.release;
+      fixture.client.release = ManagedEngineRelease(
+        family: latest.family,
+        tag: latest.tag,
+        artifactTag: latest.artifactTag,
+        commit: latest.commit,
+        sha256: latest.sha256,
+        sizeBytes: latest.sizeBytes,
+        url: Uri.http('127.0.0.1:${server.port}', '/engine.tar.gz'),
+      );
+      await tester.runAsync(() async {
+        await tester.tap(update);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      });
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(TextButton, '最新版本 b12110'), findsOneWidget);
+      expect(fixture.engine.release, same(fixture.initialRelease));
+      expect(downloads, 0);
+      expect(fixture.client.calls, 2);
+
+      fixture.client.release = installedRelease;
+      await tester.runAsync(
+        () => HttpOverrides.runWithHttpOverrides(() async {
+          final finished = fixture.catalog.changes.firstWhere(
+            (_) =>
+                fixture.engine.release.tag == latest.tag &&
+                !fixture.catalog.managedOperationActive(
+                  EngineCatalog.officialId,
+                ),
+          );
+          await tester.tap(update);
+          await finished.timeout(const Duration(seconds: 5));
+        }, _LoopbackHttp()),
+      );
+      await tester.pumpAndSettle();
+      expect(downloads, 1);
+      expect(fixture.client.calls, 2);
+      expect(find.widgetWithText(TextButton, '无需更新'), findsOneWidget);
       await tester.pumpWidget(const SizedBox.shrink());
     },
   );
@@ -137,10 +190,11 @@ void main() {
       verifiedArchive: fixture.oldArchive,
     );
     final oldBinary = fixture.engine.executablePath!;
-    await fixture.catalog.updateManaged(
+    final outcome = await fixture.catalog.updateManaged(
       EngineCatalog.officialId,
       verifiedArchive: fixture.newArchive,
     );
+    expect(outcome, (version: 'b12110', updated: true));
     expect(fixture.engine.release.tag, 'v0.9.0');
     expect(fixture.engine.release.supportsSystemone, isTrue);
     expect(fixture.engine.installationId, EngineCatalog.officialId);
@@ -237,6 +291,8 @@ void main() {
     );
   });
 }
+
+class _LoopbackHttp extends HttpOverrides {}
 
 class _ReleaseClient extends ManagedEngineReleaseClient {
   _ReleaseClient(this.release);

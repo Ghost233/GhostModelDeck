@@ -518,6 +518,8 @@ class ParameterEditor extends StatefulWidget {
     this.splashVision,
     this.initialSplashVision,
     this.splashVisionUsesProjector = false,
+    this.detectingSplashVision = false,
+    this.splashVisionDetectionError,
     this.actualSplashVision,
     this.onSplashVisionChanged,
   });
@@ -541,6 +543,8 @@ class ParameterEditor extends StatefulWidget {
   final bool enabled, showGeneration, showDrafter, decisionModel, legacyDrafter;
   final SplashVision? splashVision, initialSplashVision;
   final bool splashVisionUsesProjector;
+  final bool detectingSplashVision;
+  final String? splashVisionDetectionError;
   final String? actualSplashVision;
   final ValueChanged<SplashVision>? onSplashVisionChanged;
   @override
@@ -1076,10 +1080,10 @@ class _ParameterEditorState extends State<ParameterEditor> {
               inheritLabel: '自动识别',
               definition: const EngineParameterDefinition(
                 'splash-vision-projector',
-                '手动选择视觉投影文件',
+                '视觉投影文件',
                 'vision',
                 ParameterKind.file,
-                help: '选择配套的 GGUF mmproj。留空时自动识别。',
+                help: '可手动选择配套的 GGUF mmproj。清空路径后重新自动识别。',
               ),
               value: vision.projector,
               disabled: !widget.enabled || !vision.enabled,
@@ -1091,6 +1095,9 @@ class _ParameterEditorState extends State<ParameterEditor> {
                 ));
               },
             ),
+          if (widget.detectingSplashVision) _notice('正在自动识别视觉投影文件…'),
+          if (widget.splashVisionDetectionError case final String error)
+            _notice(error, error: true),
           if (widget.actualSplashVision != null)
             _statusRow('当前运行', widget.actualSplashVision!),
         ],

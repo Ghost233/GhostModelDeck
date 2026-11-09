@@ -119,6 +119,12 @@ def select_vision(files):
         predicate((Object error) => '$error'.contains('ambiguous projector')),
       ),
     );
+    await expectLater(
+      engine.detectVisionProjector(asset),
+      throwsA(
+        predicate((Object error) => '$error'.contains('ambiguous projector')),
+      ),
+    );
     final manual = await File('${fixture.root.path}/chosen-projector.gguf')
         .writeAsString('manual');
     final selected = EngineLaunchConfiguration.fromJson(
@@ -136,6 +142,7 @@ def select_vision(files):
     );
     expect((await _call(fixture))['mmproj'], manual.path);
     await ambiguous.delete();
+    expect(await engine.detectVisionProjector(asset), automatic.path);
     fixture.io.monitorStatus = {
       'vision': true,
       'input_modalities': ['text', 'image', 'pdf'],

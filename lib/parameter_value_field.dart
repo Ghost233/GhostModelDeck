@@ -88,7 +88,12 @@ class _ParameterValueFieldState extends State<ParameterValueField> {
   @override
   void didUpdateWidget(ParameterValueField old) {
     super.didUpdateWidget(old);
-    if (old.value != widget.value && (!_focus.hasFocus || widget.disabled)) {
+    final filledFile =
+        d.kind == ParameterKind.file &&
+        old.value == null &&
+        _text.text.trim().isEmpty;
+    if (old.value != widget.value &&
+        (!_focus.hasFocus || widget.disabled || filledFile)) {
       _text.text = _display(widget.value);
       _readQuantity();
     }
@@ -542,12 +547,18 @@ class _ParameterValueFieldState extends State<ParameterValueField> {
       control = SizedBox(width: 245, child: _quantity());
     } else if (kind == ParameterKind.file || kind == ParameterKind.directory) {
       control = Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
             child: TextField(
               key: Key('parameter-path:${widget.id}'),
               controller: _text,
               focusNode: _focus,
+              minLines: 1,
+              maxLines: null,
+              inputFormatters: [
+                FilteringTextInputFormatter.singleLineFormatter,
+              ],
               enabled: !widget.disabled,
               decoration: InputDecoration(
                 hintText: kind == ParameterKind.file ? '选择本地文件' : '选择本地目录',

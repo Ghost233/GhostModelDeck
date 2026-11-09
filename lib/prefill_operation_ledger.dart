@@ -151,41 +151,55 @@ class _Record {
   final SplashOperationSnapshot? nativeEvidence;
   final bool cancelRequested;
   final PrefillResultFailure? resultFailure;
-  PrefillOperationView get view => PrefillOperationView(
-    id: id,
-    state: state,
-    response: response,
-    nativeEvidence: nativeEvidence,
-    cancelRequested: cancelRequested,
-    model: model,
-    generation: generation,
-    cacheSaltHash: saltHash,
-    resultFailure: resultFailure,
-    nativeDispatchNotStarted:
-        state == PrefillOperationState.rejected ||
-        state == PrefillOperationState.cancelled &&
-            nativeServiceInstance == null,
-  );
-  _Record afterRestart(int elapsed) => _Record(
-    id: id,
-    tokenHash: tokenHash,
-    model: model,
-    owner: owner,
-    generation: generation,
-    saltHash: saltHash,
-    requestHash: requestHash,
-    kind: kind,
-    state: state == PrefillOperationState.rejected
-        ? PrefillOperationState.rejected
-        : PrefillOperationState.unknown,
-    nativeServiceInstance: nativeServiceInstance,
-    nativeRuntimeGeneration: nativeRuntimeGeneration,
-    finishedAtMs: state == PrefillOperationState.rejected ? finishedAtMs : null,
-    finishedAtElapsedMs: state == PrefillOperationState.rejected
-        ? elapsed
-        : null,
-    cancelRequested: cancelRequested,
-  );
+  PrefillOperationView get view {
+    final resultUnavailable =
+        state == PrefillOperationState.completed && response == null;
+    return PrefillOperationView(
+      id: id,
+      state: resultUnavailable ? PrefillOperationState.failed : state,
+      response: response,
+      nativeEvidence: nativeEvidence,
+      cancelRequested: cancelRequested,
+      model: model,
+      generation: generation,
+      cacheSaltHash: saltHash,
+      resultFailure: resultUnavailable
+          ? PrefillResultFailure.unavailable
+          : resultFailure,
+      nativeDispatchNotStarted:
+          state == PrefillOperationState.rejected ||
+          state == PrefillOperationState.cancelled &&
+              nativeServiceInstance == null,
+    );
+  }
+
+  _Record afterRestart(int elapsed) {
+    // Terminal records are persisted only after native release or proof that
+    // dispatch never started. The response and native payload stay in memory.
+    final releaseConfirmed =
+        finishedAtMs != null &&
+        view.terminal &&
+        (nativeServiceInstance != null ||
+            state == PrefillOperationState.cancelled ||
+            state == PrefillOperationState.rejected);
+    return _Record(
+      id: id,
+      tokenHash: tokenHash,
+      model: model,
+      owner: owner,
+      generation: generation,
+      saltHash: saltHash,
+      requestHash: requestHash,
+      kind: kind,
+      state: releaseConfirmed ? state : PrefillOperationState.unknown,
+      nativeServiceInstance: nativeServiceInstance,
+      nativeRuntimeGeneration: nativeRuntimeGeneration,
+      finishedAtMs: releaseConfirmed ? finishedAtMs : null,
+      finishedAtElapsedMs: releaseConfirmed ? elapsed : null,
+      cancelRequested: cancelRequested,
+    );
+  }
+
   _Record update({
     PrefillOperationState? state,
     String? nativeServiceInstance,

@@ -26,6 +26,8 @@ class EnginePage extends StatefulWidget {
 }
 
 class _EnginePageState extends State<EnginePage> {
+  final _updateChecks = <String, ManagedEngineUpdateCandidate?>{};
+  final _checkingUpdates = <String>{};
   String? _error;
   bool _working = false;
   @override
@@ -70,6 +72,7 @@ class _EnginePageState extends State<EnginePage> {
   }
 
   void _install(EngineRegistration entry) {
+    _updateChecks.remove(entry.id);
     unawaited(
       widget.catalog.installManaged(entry.id).catchError((Object error) {
         if (mounted) setState(() => _error = error.toString());
@@ -78,15 +81,34 @@ class _EnginePageState extends State<EnginePage> {
     widget.onDownloadStarted?.call();
   }
 
-  void _update(EngineRegistration entry) {
+  Future<void> _checkUpdate(EngineRegistration entry) async {
+    if (!_checkingUpdates.add(entry.id)) return;
+    setState(() {
+      _updateChecks.remove(entry.id);
+      _error = null;
+    });
+    try {
+      final candidate = await widget.catalog.checkManagedUpdate(entry.id);
+      if (mounted) setState(() => _updateChecks[entry.id] = candidate);
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      _checkingUpdates.remove(entry.id);
+      if (mounted) setState(() {});
+    }
+  }
+
+  void _update(
+    EngineRegistration entry,
+    ManagedEngineUpdateCandidate candidate,
+  ) {
+    setState(() => _error = null);
     unawaited(
       widget.catalog
-          .updateManaged(entry.id)
-          .then((_) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('主线引擎已就绪，当前使用上游最新发行')),
-              );
+          .updateManaged(entry.id, candidate: candidate)
+          .then((result) {
+            if (mounted && result != null) {
+              setState(() => _updateChecks[entry.id] = null);
             }
           })
           .catchError((Object error) {
@@ -102,6 +124,7 @@ class _EnginePageState extends State<EnginePage> {
       setState(() => _error = '$error');
       return;
     }
+    _updateChecks.remove(entry.id);
     unawaited(
       widget.catalog.redownloadManaged(entry.id).catchError((Object error) {
         if (mounted) setState(() => _error = error.toString());
@@ -174,6 +197,7 @@ class _EnginePageState extends State<EnginePage> {
         ),
       );
       await widget.catalog.remove(plan, confirmed: confirmed == true);
+      if (confirmed == true) _updateChecks.remove(entry.id);
     });
   }
 
@@ -235,9 +259,16 @@ class _EnginePageState extends State<EnginePage> {
   }
 
   Widget _tableActions(EngineRegistration entry, bool busy) {
-    busy = busy || widget.catalog.managedOperationActive(entry.id);
+    final checking = _checkingUpdates.contains(entry.id);
+    final installing = widget.catalog.managedOperationActive(entry.id);
+    busy = busy || checking || installing;
     final linked = entry.source == EngineSource.linked;
     final installed = entry.status == LlamaInstallationStatus.installed;
+    final failed = entry.status == LlamaInstallationStatus.failed;
+    final canUpdate = widget.catalog.canUpdateManaged(entry.id);
+    final canRedownload = !linked && (installed || failed);
+    final candidate = _updateChecks[entry.id];
+    final checked = _updateChecks.containsKey(entry.id);
     return Wrap(
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
@@ -268,41 +299,61 @@ class _EnginePageState extends State<EnginePage> {
             child: Text(
               entry.status == LlamaInstallationStatus.installing
                   ? '安装中'
-                  : widget.catalog.canUpdateManaged(entry.id)
-                  ? '下载最新'
-                  : '安装',
+                  : canUpdate
+                  ? (failed ? '重试下载' : '下载最新')
+                  : (failed ? '重试安装' : '安装'),
             ),
           ),
-        if (!linked && installed && widget.catalog.canUpdateManaged(entry.id))
-          TextButton(
-            key: ValueKey('engine-update:${entry.id}'),
-            onPressed: busy ? null : () => _update(entry),
-            child: Text(
-              widget.catalog.managedOperationActive(entry.id)
-                  ? '检查更新中'
-                  : '检查更新',
+        if (!linked && installed && canUpdate)
+          Tooltip(
+            message: candidate != null
+                ? '点击下载安装 ${candidate.version}'
+                : checked
+                ? '点击重新检查更新'
+                : '检查上游是否有新版本',
+            child: TextButton(
+              key: ValueKey('engine-update:${entry.id}'),
+              onPressed: busy
+                  ? null
+                  : () {
+                      if (candidate == null) {
+                        unawaited(_checkUpdate(entry));
+                      } else {
+                        _update(entry, candidate);
+                      }
+                    },
+              child: Text(
+                checking
+                    ? '检查更新中'
+                    : candidate != null
+                    ? (installing ? '更新中' : '最新版本 ${candidate.version}')
+                    : checked
+                    ? '无需更新'
+                    : '检查更新',
+              ),
             ),
           ),
-        if (!linked &&
-            (installed || entry.status == LlamaInstallationStatus.failed))
-          TextButton(
-            onPressed:
-                busy || entry.status == LlamaInstallationStatus.installing
-                ? null
-                : () => _redownload(entry),
-            child: const Text('重新下载'),
-          ),
-        if (linked || installed)
+        if (linked || canRedownload)
           PopupMenuButton<String>(
             key: ValueKey('engine-more:${entry.id}'),
             tooltip: '更多',
             enabled: !busy,
-            onSelected: (_) => _remove(entry),
+            onSelected: (action) {
+              switch (action) {
+                case 'redownload':
+                  _redownload(entry);
+                case 'remove':
+                  unawaited(_remove(entry));
+              }
+            },
             itemBuilder: (_) => [
-              PopupMenuItem(
-                value: 'remove',
-                child: Text(linked ? '解除关联' : '删除'),
-              ),
+              if (canRedownload)
+                const PopupMenuItem(value: 'redownload', child: Text('重新下载')),
+              if (linked || installed)
+                PopupMenuItem(
+                  value: 'remove',
+                  child: Text(linked ? '解除关联' : '删除'),
+                ),
             ],
           ),
       ],
@@ -337,7 +388,12 @@ class _EnginePageState extends State<EnginePage> {
               children: [
                 IconButton(
                   tooltip: '刷新引擎',
-                  onPressed: busy ? null : () => _run(widget.catalog.refresh),
+                  onPressed: busy || _checkingUpdates.isNotEmpty
+                      ? null
+                      : () => _run(() async {
+                          _updateChecks.clear();
+                          await widget.catalog.refresh();
+                        }),
                   icon: const Icon(Icons.refresh, size: 18),
                 ),
                 const SizedBox(width: 8),

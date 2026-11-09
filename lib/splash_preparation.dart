@@ -70,6 +70,35 @@ Future<List<String>> splashProjectorCandidates(
   return candidates.values.toList()..sort();
 }
 
+Future<String> detectSplashProjector({
+  required EngineProcessIO io,
+  required File python,
+  required Directory engine,
+  required LibraryArtifact artifact,
+}) async {
+  final candidates = await splashProjectorCandidates(artifact, (
+    enabled: true,
+    projector: null,
+  ));
+  final result = await io.run(python.path, [
+    '-B',
+    '-P',
+    '-c',
+    splashPreparationProgram,
+    jsonEncode({
+      'engine': engine.path,
+      'probe_projector': artifact.files.first.path,
+      'projectors': candidates,
+    }),
+  ], timeout: const Duration(seconds: 15));
+  if (result.exitCode != 0) throw StateError(result.stderr.trim());
+  final path = jsonDecode(result.stdout);
+  if (path is! String || !candidates.contains(path)) {
+    throw const FormatException('Splash 自动识别返回了无效的视觉投影文件');
+  }
+  return path;
+}
+
 /// Uses the engine's public local preparer when available. New preparations may
 /// read source digests; subsequent preparations reuse the engine's inventory.
 Future<Directory> prepareSplashModel({
@@ -156,8 +185,6 @@ from pathlib import Path
 
 request = json.loads(sys.argv[1])
 engine = Path(request['engine']).resolve(strict=True)
-root = Path(request['root']).absolute()
-root.mkdir(parents=True, exist_ok=True)
 sys.path.insert(0, str(engine))
 
 def encoded(value):
@@ -295,6 +322,24 @@ def select_draft():
             raise ValueError(f'drafter 文件检查失败：{location}：{error}') from error
     return policy, chosen, draft_type, selected_files
 
+def select_projector(target):
+    candidates = [Path(path) for path in request['projectors']]
+    if request.get('manual_projector'):
+        projector, = candidates
+    else:
+        names = {path.name: path for path in candidates}
+        if len(names) != len(candidates):
+            raise ValueError('检测到同名 mmproj，请手动选择视觉投影文件')
+        try:
+            from install import hub, upstream
+            name, _ = upstream.select_vision(hub.Repository.local_files(str(target), names))
+        except (ValueError, RuntimeError, OSError, ImportError) as error:
+            raise ValueError(f'无法自动识别 mmproj，请手动选择视觉投影文件：{error}') from error
+        projector = names[name]
+    if not stable(projector.resolve(strict=True)):
+        raise ValueError('视觉投影文件不能保存在临时 worktree 中')
+    return projector
+
 def prepare_public(targets):
     from install.local import prepare_local_model
 
@@ -303,23 +348,7 @@ def prepare_public(targets):
     target = targets[0] if all(path.suffix == '.gguf' for path in targets) else targets[0].parent
     if target.is_dir() and any(path.parent != target for path in targets):
         raise ValueError('Selected MLX shards must share one model directory')
-    projector = None
-    if vision and target.is_file():
-        candidates = [Path(path) for path in request['projectors']]
-        if request['manual_projector']:
-            projector, = candidates
-        else:
-            from install import hub, upstream
-            names = {path.name: path for path in candidates}
-            if len(names) != len(candidates):
-                raise ValueError('检测到同名 mmproj，请手动选择视觉投影文件')
-            try:
-                name, _ = upstream.select_vision(hub.Repository.local_files(str(target), names))
-            except (ValueError, RuntimeError, OSError, ImportError) as error:
-                raise ValueError(f'无法自动识别 mmproj，请手动选择视觉投影文件：{error}') from error
-            projector = names[name]
-        if not stable(projector.resolve(strict=True)):
-            raise ValueError('视觉投影文件不能保存在临时 worktree 中')
+    projector = select_projector(target) if vision and target.is_file() else None
     inputs = set(targets) | set(selected_files.values())
     if projector is not None:
         inputs.add(projector.resolve(strict=True))
@@ -463,10 +492,15 @@ def prepare():
     return destination
 
 try:
-    with (root / '.prepare.lock').open('a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        directory = prepare()
-    print(json.dumps(dict(directory=str(directory))))
+    if 'probe_projector' in request:
+        print(json.dumps(str(select_projector(request['probe_projector']))))
+    else:
+        root = Path(request['root']).absolute()
+        root.mkdir(parents=True, exist_ok=True)
+        with (root / '.prepare.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            directory = prepare()
+        print(json.dumps(dict(directory=str(directory))))
 except Exception as error:
     print(str(error), file=sys.stderr)
     sys.exit(1)

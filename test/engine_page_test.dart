@@ -46,9 +46,14 @@ void main() {
         await fixture.catalog.refresh();
       });
       await tester.pumpAndSettle();
-      expect(find.widgetWithText(TextButton, '重新下载'), findsOneWidget);
-      await tester.ensureVisible(find.widgetWithText(TextButton, '重新下载'));
-      await tester.tap(find.widgetWithText(TextButton, '重新下载'));
+      expect(find.text('重新下载'), findsNothing);
+      final more = find.byKey(
+        ValueKey('engine-more:${EngineCatalog.officialId}'),
+      );
+      await tester.ensureVisible(more);
+      await tester.tap(more);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('重新下载'));
       await tester.pumpAndSettle();
       expect(find.textContaining('请先停止该引擎'), findsOneWidget);
       expect(navigations, 0);

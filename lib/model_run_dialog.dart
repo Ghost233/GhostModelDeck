@@ -101,6 +101,9 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
   final _argumentText = TextEditingController();
   DrafterConfiguration? _drafter;
   SplashVision _splashVision = (enabled: false, projector: null);
+  int _visionDetectionGeneration = 0;
+  bool _detectingVision = false;
+  String? _visionDetectionError;
   bool _legacyDrafter = false;
   EngineLaunchConfiguration? _defaults;
   DecisionCancellation? _testCancellation;
@@ -128,6 +131,9 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
   }
 
   void _loadDraft(String? engineId) {
+    _visionDetectionGeneration++;
+    _detectingVision = false;
+    _visionDetectionError = null;
     _formValues.clear();
     final asset = _configurationAsset;
     _defaults = engineId == null
@@ -203,6 +209,7 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
         _preview = preview;
         _loading = false;
       });
+      unawaited(_detectVisionProjector());
     } catch (error) {
       if (mounted) {
         setState(() {
@@ -294,7 +301,52 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
         });
       }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+        unawaited(_detectVisionProjector());
+      }
+    }
+  }
+
+  void _changeSplashVision(SplashVision value) {
+    setState(() {
+      _splashVision = value;
+      _detectingVision = false;
+      _visionDetectionError = null;
+    });
+    unawaited(_detectVisionProjector());
+  }
+
+  Future<void> _detectVisionProjector() async {
+    final generation = ++_visionDetectionGeneration;
+    final engineId = _engineId;
+    final asset = _configurationAsset;
+    if (!_splashVision.enabled ||
+        _splashVision.projector != null ||
+        _defaults?.family != EngineFamily.splash ||
+        engineId == null ||
+        asset == null ||
+        asset.format != 'GGUF' ||
+        asset.kind == AssetKind.decision) {
+      return;
+    }
+    setState(() => _detectingVision = true);
+    try {
+      final runtime = widget.catalog.runtimeFor(engineId) as SplashEngine;
+      final path = await runtime.detectVisionProjector(asset);
+      if (!mounted || generation != _visionDetectionGeneration) return;
+      setState(() => _splashVision = (enabled: true, projector: path));
+    } catch (error) {
+      if (!mounted || generation != _visionDetectionGeneration) return;
+      setState(() {
+        _visionDetectionError = error is StateError
+            ? error.message.toString()
+            : '无法自动识别视觉投影文件，请手动选择。';
+      });
+    } finally {
+      if (mounted && generation == _visionDetectionGeneration) {
+        setState(() => _detectingVision = false);
+      }
     }
   }
 
@@ -304,6 +356,7 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
     final draft = _draft;
     if (_working ||
         _loading ||
+        _detectingVision ||
         id == null ||
         asset == null ||
         draft == null ||
@@ -669,9 +722,9 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
                                   widget.initialInstanceId!,
                                 )
                               : null,
-                          onSplashVisionChanged: (value) => setState(() {
-                            _splashVision = value;
-                          }),
+                          onSplashVisionChanged: _changeSplashVision,
+                          detectingSplashVision: _detectingVision,
+                          splashVisionDetectionError: _visionDetectionError,
                           check: check,
                           actualDrafter: widget.initialInstanceId == null
                               ? null
@@ -797,6 +850,7 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
                     OutlinedButton(
                       onPressed:
                           busy ||
+                              _detectingVision ||
                               _engineId == null ||
                               _previewBlocked ||
                               _generationError != null ||
@@ -809,6 +863,7 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
                     FilledButton(
                       onPressed:
                           busy ||
+                              _detectingVision ||
                               draft == null ||
                               asset == null ||
                               _generationError != null
