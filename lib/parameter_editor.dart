@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'drafter_configuration.dart';
 import 'engine_launch_configuration.dart'
-    show EngineLaunchCommand, LaunchArgumentTextException;
+    show EngineLaunchCommand, LaunchArgumentTextException, SplashVision;
 import 'engine_parameter_definitions.dart';
 import 'engine_parameter_recognition.dart';
 import 'engine_runtime.dart';
@@ -515,6 +515,11 @@ class ParameterEditor extends StatefulWidget {
     this.showDrafter = true,
     this.decisionModel = false,
     this.legacyDrafter = false,
+    this.splashVision,
+    this.initialSplashVision,
+    this.splashVisionUsesProjector = false,
+    this.actualSplashVision,
+    this.onSplashVisionChanged,
   });
   final EngineFamily family;
   final Map<String, String> formValues, initialFormValues;
@@ -534,6 +539,10 @@ class ParameterEditor extends StatefulWidget {
   final EngineLaunchCommand? command;
   final Widget? argumentEditor;
   final bool enabled, showGeneration, showDrafter, decisionModel, legacyDrafter;
+  final SplashVision? splashVision, initialSplashVision;
+  final bool splashVisionUsesProjector;
+  final String? actualSplashVision;
+  final ValueChanged<SplashVision>? onSplashVisionChanged;
   @override
   State<ParameterEditor> createState() => _ParameterEditorState();
 }
@@ -568,6 +577,7 @@ class _ParameterEditorState extends State<ParameterEditor> {
         key: key == 'compute' && widget.family == EngineFamily.splash
             ? '计算与 ANE'
             : EngineParameterDefinitions.groupLabels[key]!,
+    if (widget.splashVision != null) 'vision': '视觉输入',
     if (widget.argumentEditor != null) 'command': '参数文本与命令',
   };
   void _setForm(String key, Object? value) {
@@ -1037,6 +1047,55 @@ class _ParameterEditorState extends State<ParameterEditor> {
   }
 
   Widget _groupBody(String id) {
+    if (id == 'vision') {
+      final vision = widget.splashVision!;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SwitchListTile(
+            key: const Key('splash-vision-enabled'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('挂载视觉'),
+            subtitle: Text(
+              widget.splashVisionUsesProjector
+                  ? '自动识别同目录的视觉投影文件，也可手动选择。'
+                  : '从所选 MLX 模型识别内置视觉塔。',
+            ),
+            value: vision.enabled,
+            onChanged: widget.enabled
+                ? (enabled) => widget.onSplashVisionChanged?.call((
+                    enabled: enabled,
+                    projector: vision.projector,
+                  ))
+                : null,
+          ),
+          if (widget.splashVisionUsesProjector)
+            ParameterValueField(
+              key: const Key('splash-vision-projector'),
+              id: 'splash-vision-projector',
+              inheritLabel: '自动识别',
+              definition: const EngineParameterDefinition(
+                'splash-vision-projector',
+                '手动选择视觉投影文件',
+                'vision',
+                ParameterKind.file,
+                help: '选择配套的 GGUF mmproj。留空时自动识别。',
+              ),
+              value: vision.projector,
+              disabled: !widget.enabled || !vision.enabled,
+              onChanged: (value) {
+                final path = value?.toString().trim();
+                widget.onSplashVisionChanged?.call((
+                  enabled: vision.enabled,
+                  projector: path?.isNotEmpty == true ? path : null,
+                ));
+              },
+            ),
+          if (widget.actualSplashVision != null)
+            _statusRow('当前运行', widget.actualSplashVision!),
+        ],
+      );
+    }
     if (id.startsWith('generation-')) {
       if (widget.decisionModel) return _notice('当前决策路径不使用普通文本生成参数。');
       return GenerationSettingsFields(
@@ -1106,6 +1165,7 @@ class _ParameterEditorState extends State<ParameterEditor> {
     ],
   );
   List<String> get _changes => [
+    if (widget.splashVision != widget.initialSplashVision) '加载 · 视觉输入',
     if (jsonEncode(widget.drafter?.toJson()) !=
         jsonEncode(widget.initialDrafter?.toJson()))
       '加载 · 草稿模型配置',
@@ -1291,6 +1351,10 @@ class _ParameterEditorState extends State<ParameterEditor> {
                                     (id.startsWith('generation-')
                                         ? generationFields(widget.family).any(
                                             (f) => f.group == id && _matches(f),
+                                          )
+                                        : id == 'vision'
+                                        ? '视觉输入 挂载视觉 mmproj vision'.contains(
+                                            _query.toLowerCase().trim(),
                                           )
                                         : _definitions.any(
                                             (f) => f.group == id && _matches(f),

@@ -8,6 +8,7 @@ import 'package:crypto/crypto.dart';
 import 'engine_parameter_recognition.dart';
 import 'engine_runtime.dart';
 import 'engine_logs.dart';
+import 'native_text_api.dart';
 import 'engine_launch_configuration.dart';
 import 'launch_argument_text.dart';
 import 'llama_engine.dart';
@@ -176,6 +177,7 @@ class SplashModelBinding {
   final Map<String, String> sourceHashes;
   final Map<String, int> sourceSizes;
   final Map<String, String> roles;
+  bool get hasVision => roles.keys.any((role) => role.startsWith('vision/'));
 
   Map<String, Object?> toJson() => {
     'artifact_id': artifactId,
@@ -382,6 +384,7 @@ class _SplashRun {
   final String? binarySha256;
   RuntimeCapacity? capacity;
   int? inferenceConcurrency;
+  List<String>? inputModalities;
   final SplashModelBinding binding;
   final EngineLaunchCommand command;
   final int generation;
@@ -412,6 +415,9 @@ class _SplashRun {
     launchRevision: launchRevision,
     capacity: status == RuntimeInstanceStatus.ready ? capacity : null,
     inferenceConcurrency: inferenceConcurrency,
+    inputModalities: status == RuntimeInstanceStatus.ready
+        ? inputModalities
+        : null,
     capabilities: status == RuntimeInstanceStatus.ready
         ? {
             RuntimeCapability.textGeneration,
@@ -526,7 +532,11 @@ class _SplashLoading implements Exception {
 }
 
 class SplashEngine
-    implements DecisionRuntime, RuntimeMonitorSource, EngineLogSource {
+    implements
+        DecisionRuntime,
+        RuntimeMonitorSource,
+        EngineLogSource,
+        NativeTextRuntime {
   SplashEngine({
     required SplashInstallation installation,
     required this.library,
@@ -780,6 +790,19 @@ class SplashEngine
   }
 
   EngineLaunchCommand? actualCommandFor(String id) => _runs[id]?.command;
+  String? actualVisionFor(String launchInstanceId) {
+    final run = _runs.values
+        .where(
+          (run) =>
+              run.launchInstanceId == launchInstanceId &&
+              run.status == RuntimeInstanceStatus.ready,
+        )
+        .singleOrNull;
+    if (run == null) return null;
+    if (run.inputModalities?.contains('image') != true) return '纯文本';
+    return run.binding.roles['vision/mmproj.gguf'] ?? '已挂载模型内置视觉塔';
+  }
+
   String? actualVersionFor(String id) => _runs[id]?.version;
   void _publish() {
     if (!_changes.isClosed) _changes.add(state);
@@ -1149,6 +1172,43 @@ class SplashEngine
         run.safe('Splash Ready身份失效：$error'),
         kind: DecisionFailureKind.notReady,
       );
+    }
+  }
+
+  @override
+  Future<void> runNativeText(
+    String instanceId, {
+    required int expectedGeneration,
+    required NativeTextCall call,
+    required DecisionCancellation cancellation,
+    required NativeTextConsumer consume,
+  }) async {
+    final run = _admit(instanceId);
+    if (run.generation != expectedGeneration ||
+        !run.snapshot().capabilities.contains(
+          RuntimeCapability.textGeneration,
+        )) {
+      throw const NativeTextFailure(DecisionFailureKind.notReady);
+    }
+    final permit = _permit(run, cancellation);
+    final budget = _SplashBudget(call.timeout, permit.cancellation);
+    try {
+      await _checkedIdentity(run, budget: budget);
+      await call.forward(
+        address: run.endpoint,
+        model: run.id,
+        authentication: run.headers,
+        redact: run.safe,
+        remaining: budget.remaining,
+        cancellation: permit.cancellation,
+        consume: consume,
+      );
+    } catch (error) {
+      if (budget.timedOut) throw budget.terminal;
+      rethrow;
+    } finally {
+      budget.close();
+      _release(run, permit);
     }
   }
 
@@ -1653,6 +1713,20 @@ class SplashEngine
         transport['stopped'] != false) {
       throw const _SplashLoading();
     }
+    final modalities = status['input_modalities'];
+    final nativeVision =
+        status['vision'] == true &&
+        modalities is List &&
+        modalities.contains('image');
+    if (run.binding.hasVision != nativeVision ||
+        !run.binding.hasVision && status['vision'] == true) {
+      throw const SplashEngineException('Splash 实际加载的视觉能力与装配不符');
+    }
+    run.inputModalities = [
+      'text',
+      if (nativeVision) 'image',
+      if (nativeVision && modalities.contains('pdf')) 'pdf',
+    ];
     _recordNativeFeatures(run, status);
     final models = await _json(run, '/v1/models', budget: budget);
     final data = models['data'];
@@ -1876,33 +1950,32 @@ class SplashEngine
       return Future.error(const SplashEngineException('Splash配置family不符'));
     }
     final epoch = _startEpoch;
-    final operation = _withPreparationLease(
-      artifactId,
-      configuration,
-      () async {
-        final binding = await _prepareBindingRequest(
-          artifactId,
-          previous: previous,
-          configuration: configuration,
-          cancellation: cancellation,
-        );
-        if (_shuttingDown ||
-            epoch != _startEpoch ||
-            (cancellation?.isCancelled ?? false)) {
-          throw const SplashEngineException('Splash 模型准备已取消');
+    final operation = _withPreparationLease(artifactId, configuration, (
+      projectors,
+    ) async {
+      final binding = await _prepareBindingRequest(
+        artifactId,
+        previous: previous,
+        configuration: configuration,
+        projectors: projectors,
+        cancellation: cancellation,
+      );
+      if (_shuttingDown ||
+          epoch != _startEpoch ||
+          (cancellation?.isCancelled ?? false)) {
+        throw const SplashEngineException('Splash 模型准备已取消');
+      }
+      if (forStart) {
+        _preparing.add(binding);
+        try {
+          await _syncUses();
+        } catch (_) {
+          _preparing.remove(binding);
+          rethrow;
         }
-        if (forStart) {
-          _preparing.add(binding);
-          try {
-            await _syncUses();
-          } catch (_) {
-            _preparing.remove(binding);
-            rethrow;
-          }
-        }
-        return binding;
-      },
-    );
+      }
+      return binding;
+    });
     _preparationJobs.add(operation);
     unawaited(
       operation.then<void>(
@@ -1922,7 +1995,7 @@ class SplashEngine
   Future<SplashModelBinding> _withPreparationLease(
     String artifactId,
     EngineLaunchConfiguration configuration,
-    Future<SplashModelBinding> Function() prepare,
+    Future<SplashModelBinding> Function(List<String> projectors) prepare,
   ) async {
     final asset = library.state.artifacts
         .where((asset) => asset.id == artifactId)
@@ -1934,6 +2007,13 @@ class SplashEngine
     final paths = {for (final file in asset.files) file.realPath};
     await useRegistry.update(owner, paths);
     try {
+      final projectors = await splashProjectorCandidates(
+        asset,
+        configuration.splashVision,
+      );
+      for (final projector in projectors) {
+        paths.add(await File(projector).resolveSymbolicLinks());
+      }
       final draft = configuration.drafter;
       if (draft?.enabled == true && draft?.path != null) {
         final directory = Directory(draft!.path!);
@@ -1943,10 +2023,10 @@ class SplashEngine
               paths.add(entry.path);
             }
           }
-          await useRegistry.update(owner, paths);
         }
       }
-      return await prepare();
+      await useRegistry.update(owner, paths);
+      return await prepare(projectors);
     } finally {
       await useRegistry.update(owner, const []);
     }
@@ -1956,6 +2036,7 @@ class SplashEngine
     String artifactId, {
     Directory? previous,
     required EngineLaunchConfiguration configuration,
+    required List<String> projectors,
     DecisionCancellation? cancellation,
   }) async {
     if (cancellation?.isCancelled ?? false) {
@@ -1984,10 +2065,14 @@ class SplashEngine
     }
     final selected = configuration;
     final hint = previous ?? recorded?.assembly;
-    final key = jsonEncode([_drafterKey(artifactId, selected), hint?.path]);
+    final key = jsonEncode([
+      _drafterKey(artifactId, selected),
+      hint?.path,
+      projectors,
+    ]);
     final pending = _modelPreparations.putIfAbsent(
       key,
-      () => _prepareModelBinding(artifactId, hint, selected),
+      () => _prepareModelBinding(artifactId, hint, selected, projectors),
     );
     try {
       final binding = await pending;
@@ -2007,6 +2092,7 @@ class SplashEngine
     String artifactId,
     Directory? previous,
     EngineLaunchConfiguration configuration,
+    List<String> projectors,
   ) async {
     final key = _drafterKey(artifactId, configuration);
     _drafterChecks[key] = const DrafterCheck();
@@ -2040,8 +2126,12 @@ class SplashEngine
         nativeBinary: _installation.nativeBinary,
         configuration: configuration,
         recognition: _installation.recognition,
+        projectors: projectors,
       );
       final binding = await _readBinding(artifactId, directory);
+      if (binding.hasVision != configuration.splashVision.enabled) {
+        throw const SplashEngineException('Splash 实际准备的视觉组件与实例配置不符');
+      }
       final draftConfig = binding.roles['draft/config.json'];
       final requested = configuration.drafter;
       if (requested != null && requested.enabled != (draftConfig != null)) {
@@ -2092,9 +2182,7 @@ class SplashEngine
     final manifestText = utf8.decode(manifestBytes);
     final manifestHash = sha256.convert(manifestBytes).toString();
     final row = _object(jsonDecode(manifestText), 'Splash assembly');
-    if (row['vision_format'] != 'none') {
-      throw const SplashEngineException('首期Splash仅支持纯文本assembly');
-    }
+    final visionFormat = row['vision_format'];
     final roles = <String, String>{};
     final hashes = <String, String>{};
     final sizes = <String, int>{};
@@ -2175,6 +2263,22 @@ class SplashEngine
       'source_sizes': sizes,
       'roles': roles,
     });
+    final vision = roles.entries
+        .where((entry) => entry.key.startsWith('vision/'))
+        .toList();
+    if (vision.isEmpty
+        ? visionFormat != 'none'
+        : asset.kind == AssetKind.decision ||
+              (asset.format == 'GGUF'
+                  ? visionFormat != 'gguf' ||
+                        vision.length != 1 ||
+                        vision.single.key != 'vision/mmproj.gguf'
+                  : visionFormat != 'safetensors' ||
+                        vision.any(
+                          (file) => !file.key.endsWith('.safetensors'),
+                        ))) {
+      throw const SplashEngineException('Splash 模型装配中的视觉组件无效');
+    }
     final weights = asset.files
         .where(
           (file) =>
@@ -2190,9 +2294,14 @@ class SplashEngine
         )
         .map((entry) => entry.value)
         .toSet();
-    if (weights.isEmpty ||
-        targets.length != weights.length ||
-        weights.any((file) => !targets.contains(file.realPath))) {
+    final selectedWeights = weights.map((file) => file.realPath).toSet();
+    final coveredWeights = {
+      ...targets,
+      if (visionFormat == 'safetensors') ...vision.map((entry) => entry.value),
+    };
+    if (targets.isEmpty ||
+        !selectedWeights.containsAll(targets) ||
+        !coveredWeights.containsAll(selectedWeights)) {
       throw const SplashEngineException('Splash assembly target不是所选模型文件');
     }
     return binding;

@@ -8,10 +8,12 @@ import 'package:ghost_model_deck/engine_runtime.dart';
 import 'package:ghost_model_deck/llama_engine.dart';
 import 'package:ghost_model_deck/model_library.dart';
 import 'package:ghost_model_deck/model_use_registry.dart';
+import 'package:ghost_model_deck/public_gateway.dart';
 import 'package:ghost_model_deck/splash_engine.dart';
 import 'package:ghost_model_deck/splash_preparation.dart';
 
 import 'fixtures/splash_1_4_help.dart';
+import 'fixtures/native_text_api.dart';
 import 'splash_engine_test.dart' show SplashRuntimeFixture, SplashTestProcessIO;
 
 // External installer I/O seam; GMD's preparation runs in a real Python process.
@@ -26,7 +28,7 @@ def prepare_local_model(target, draft=None, *, mmproj=None, language_only=False,
     if mode.get('failure'): raise ModelError(mode['failure'])
     target, root = Path(target), Path(models_dir)
     if mode.get('implicit_draft'): draft = Path(mode['implicit_draft'])
-    key = hashlib.sha256(json.dumps([str(target), str(draft), mode], sort_keys=True).encode()).hexdigest()
+    key = hashlib.sha256(json.dumps([str(target), str(draft), mmproj, language_only, mode], sort_keys=True).encode()).hexdigest()
     directory = root / '.resolved' / key
     if mode.get('outside'): directory = engine / 'outside'
     if directory.exists(): return directory
@@ -42,6 +44,14 @@ def prepare_local_model(target, draft=None, *, mmproj=None, language_only=False,
         extra.write_text('unselected')
         targets.append(extra)
     paths = {'target/' + p.name:p for p in targets}
+    vision_format = 'none'
+    if not language_only:
+        if target.is_dir():
+            vision_format = 'safetensors'
+            paths['vision/b.safetensors'] = paths.pop('target/b.safetensors')
+        else:
+            vision_format = 'gguf'
+            paths['vision/mmproj.gguf'] = Path(mmproj)
     paths.update({'config.json':metadata / 'config.json', 'tokenizer/config.json':metadata / 'config.json', 'tokenizer/tokenizer.json':metadata / 'tokenizer.json', 'tokenizer/tokenizer_config.json':metadata / 'tokenizer_config.json'})
     if draft:
         for p in Path(draft).iterdir():
@@ -54,12 +64,174 @@ def prepare_local_model(target, draft=None, *, mmproj=None, language_only=False,
         link.symlink_to(path)
         stat = path.stat()
         files[name] = dict(path=str(path), bytes=stat.st_size, mtime_ns=stat.st_mtime_ns, ctime_ns=stat.st_ctime_ns, digest=hashlib.sha256(path.read_bytes()).hexdigest())
-    record = dict(version=1, model=str(target), family=mode.get('family','Qwen3.5-4B'), target_format='mlx-affine' if target.is_dir() else 'gguf', vision_format='none', sources=dict(target=dict(repo=str(target),revision=None), draft=dict(repo=str(draft),revision=None) if draft else None), files=files)
+    record = dict(version=1, model=str(target), family=mode.get('family','Qwen3.5-4B'), target_format='mlx-affine' if target.is_dir() else 'gguf', vision_format=vision_format, sources=dict(target=dict(repo=str(target),revision=None), draft=dict(repo=str(draft),revision=None) if draft else None), files=files)
     (directory / 'model.json').write_text(json.dumps(record))
     return directory
 ''';
 
 void main() {
+  test('Splash vision detects a projector, accepts manual override and reports loaded images', () async {
+    final fixture = await _fixture();
+    addTearDown(fixture.close);
+    final install = fixture.source.path;
+    await File('$install/install/hub.py').writeAsString('''
+class Repository:
+    @staticmethod
+    def local_files(name, files): return files
+''');
+    await File('$install/install/upstream.py').writeAsString('''
+def select_vision(files):
+    if len(files) != 1: raise RuntimeError('ambiguous projector')
+    return next(iter(files)), None
+''');
+    EngineLaunchConfiguration config({
+      String? projector,
+      bool enabled = true,
+    }) => EngineLaunchConfiguration(
+      family: EngineFamily.splash,
+      drafter: const DrafterConfiguration(enabled: false),
+      splashVision: (enabled: enabled, projector: projector),
+    );
+    final engine = SplashEngine(
+      installation: fixture.installation,
+      library: fixture.library,
+      useRegistry: ModelUseRegistry(fixture.library),
+      io: _PublicProcessIO(fixture.io),
+      runtimeDirectory: Directory('${fixture.root.path}/vision-runtime'),
+      configurationFor: (_) => config(enabled: false),
+      saveBinding: (_) async {},
+    );
+    addTearDown(engine.close);
+    addTearDown(engine.shutdown);
+    final asset = fixture.asset;
+    await expectLater(
+      engine.prepareModelBinding(asset.id, configuration: config()),
+      throwsA(predicate((Object error) => '$error'.contains('手动选择视觉投影文件'))),
+    );
+    final folder = File(asset.files.single.path).parent;
+    final automatic = await File('${folder.path}/target-mmproj-BF16.gguf')
+        .writeAsString('auto');
+    final ambiguous = await File('${folder.path}/mmproj-alternate.gguf')
+        .writeAsString('alternate');
+    await expectLater(
+      engine.prepareModelBinding(asset.id, configuration: config()),
+      throwsA(
+        predicate((Object error) => '$error'.contains('ambiguous projector')),
+      ),
+    );
+    final manual = await File('${fixture.root.path}/chosen-projector.gguf')
+        .writeAsString('manual');
+    final selected = EngineLaunchConfiguration.fromJson(
+      config(projector: manual.path).toJson(),
+    );
+    expect(selected.splashVision.projector, manual.path);
+    expect(selected.loadingIdentity, isNot(config().loadingIdentity));
+    final manualBinding = await engine.prepareModelBinding(
+      asset.id,
+      configuration: selected,
+    );
+    expect(
+      manualBinding.roles['vision/mmproj.gguf'],
+      await manual.resolveSymbolicLinks(),
+    );
+    expect((await _call(fixture))['mmproj'], manual.path);
+    await ambiguous.delete();
+    fixture.io.monitorStatus = {
+      'vision': true,
+      'input_modalities': ['text', 'image', 'pdf'],
+    };
+    final run = await engine.startWithConfiguration(
+      asset.id,
+      config(),
+      launchInstanceId: 'visual',
+    );
+    expect((await _call(fixture))['mmproj'], automatic.path);
+    expect(run.inputModalities, ['text', 'image', 'pdf']);
+    expect(
+      engine.actualVisionFor('visual'),
+      await automatic.resolveSymbolicLinks(),
+    );
+
+    final routes = PublicModelRoutes(
+      library: fixture.library,
+      runtimes: [engine],
+    );
+    addTearDown(routes.close);
+    await routes.enable(asset.id);
+    final gateway = PublicGatewayServer(routes: routes, port: 0);
+    addTearDown(gateway.stop);
+    await gateway.start();
+    final model = routes.publicIdFor(asset.id);
+    expect(gateway.readyTextModel(model)!.instance.inputModalities, [
+      'text',
+      'image',
+      'pdf',
+    ]);
+    final client = HttpClient();
+    try {
+      final request = await client.getUrl(
+        gateway.baseUrl!.resolve('/v1/models'),
+      );
+      final result = await request.close();
+      final models = jsonDecode(await utf8.decoder.bind(result).join()) as Map;
+      expect(models['data'][0]['vision'], isTrue);
+      expect(models['data'][0]['input_modalities'], ['text', 'image', 'pdf']);
+    } finally {
+      client.close(force: true);
+    }
+    final parts = [
+      {'type': 'text', 'text': 'Describe this image'},
+      {
+        'type': 'image_url',
+        'image_url': {'url': 'data:image/png;base64,AAAA'},
+      },
+    ];
+    fixture.io.nativeText = (request, alias) async {
+      final input = jsonDecode(await utf8.decoder.bind(request).join()) as Map;
+      expect(input['model'], alias);
+      expect(input['messages'][0]['content'], parts);
+      request.response.write(
+        jsonEncode({
+          'object': 'chat.completion',
+          'model': alias,
+          'choices': [],
+        }),
+      );
+      await request.response.close();
+    };
+    final imageRequest = {
+      'model': model,
+      'messages': [
+        {'role': 'user', 'content': parts},
+      ],
+    };
+    final reply = await postNativeText(
+      gateway.baseUrl!,
+      '/v1/chat/completions',
+      imageRequest,
+    );
+    expect(reply.status, 200);
+    expect(jsonDecode(reply.body)['model'], model);
+
+    await engine.stop(run.id);
+    fixture.io.monitorStatus = {
+      'vision': false,
+      'input_modalities': ['text'],
+    };
+    final textRun = await engine.startWithConfiguration(
+      asset.id,
+      config(enabled: false, projector: manual.path),
+    );
+    expect(textRun.inputModalities, ['text']);
+    expect((await _call(fixture))['mmproj'], isNull);
+    expect((await _call(fixture))['language_only'], isTrue);
+    final denied = await postNativeText(
+      gateway.baseUrl!,
+      '/v1/chat/completions',
+      imageRequest,
+    );
+    expect(denied.status, 400);
+  });
   test(
     'public launches refresh stale or unread help before composing argv',
     () async {
@@ -362,6 +534,27 @@ void main() {
     expect(
       (record['files'] as Map).keys,
       containsAll(['target/a.safetensors', 'target/b.safetensors']),
+    );
+    final visual = await prepareSplashModel(
+      io: NativeEngineProcessIO(),
+      python: File(Platform.environment['GMD_TEST_PYTHON']!),
+      engine: fixture.source,
+      root: Directory('${fixture.root.path}/public-models'),
+      artifact: asset,
+      configuration: EngineLaunchConfiguration(
+        family: EngineFamily.splash,
+        splashVision: (enabled: true, projector: null),
+      ),
+      recognition: fixture.installation.recognition,
+    );
+    expect((await _call(fixture))['language_only'], isFalse);
+    final visualRecord = jsonDecode(
+      await File('${visual.path}/model.json').readAsString(),
+    ) as Map;
+    expect(visualRecord['vision_format'], 'safetensors');
+    expect(
+      (visualRecord['files'] as Map).keys,
+      containsAll(['target/a.safetensors', 'vision/b.safetensors']),
     );
   });
 }

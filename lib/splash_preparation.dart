@@ -16,6 +16,60 @@ String splashModelName(LibraryArtifact artifact) {
       'local/${name.length > 80 ? name.substring(0, 80) : name}';
 }
 
+/// Find local projector candidates without expanding into linked target folders.
+Future<List<String>> splashProjectorCandidates(
+  LibraryArtifact asset,
+  SplashVision vision,
+) async {
+  if (!vision.enabled) return const [];
+  if (asset.kind == AssetKind.decision) {
+    throw StateError('当前 Splash 决策模型只支持文本输入');
+  }
+  if (asset.format != 'GGUF') {
+    if (vision.projector != null) throw StateError('MLX 使用模型内置视觉塔');
+    return const [];
+  }
+  final manual = vision.projector;
+  if (manual != null) {
+    if (!File(manual).isAbsolute ||
+        !manual.toLowerCase().endsWith('.gguf') ||
+        !await File(manual).exists()) {
+      throw StateError('请选择存在的本地 GGUF 视觉投影文件');
+    }
+    return [manual];
+  }
+  final folders = <String>{};
+  for (final file in asset.files.where((file) => file.path.endsWith('.gguf'))) {
+    final target = File(file.path);
+    folders.add(target.parent.path);
+    final shard = RegExp(r'^(.*)-\d{5}-of-\d{5}\.gguf$')
+        .firstMatch(target.uri.pathSegments.last);
+    if (shard != null &&
+        target.parent.uri.pathSegments
+                .where((part) => part.isNotEmpty)
+                .lastOrNull ==
+            shard[1]) {
+      folders.add(target.parent.parent.path);
+    }
+  }
+  final candidates = <String, String>{};
+  for (final folder in folders) {
+    await for (final entry in Directory(folder).list(followLinks: false)) {
+      final name = entry.uri.pathSegments.last.toLowerCase();
+      if (name.contains('mmproj') &&
+          name.endsWith('.gguf') &&
+          await File(entry.path).exists()) {
+        candidates.putIfAbsent(
+          await entry.resolveSymbolicLinks(),
+          () => entry.path,
+        );
+      }
+    }
+  }
+  if (candidates.isEmpty) throw StateError('未自动找到配套的 mmproj，请手动选择视觉投影文件');
+  return candidates.values.toList()..sort();
+}
+
 /// Uses the engine's public local preparer when available. New preparations may
 /// read source digests; subsequent preparations reuse the engine's inventory.
 Future<Directory> prepareSplashModel({
@@ -29,6 +83,7 @@ Future<Directory> prepareSplashModel({
   File? nativeBinary,
   EngineLaunchConfiguration? configuration,
   EngineParameterRecognition? recognition,
+  List<String> projectors = const [],
   DecisionCancellation? cancellation,
 }) async {
   void checkCancellation() {
@@ -54,6 +109,9 @@ Future<Directory> prepareSplashModel({
       'requires_public_preparation':
           recognition?.usesSplashModelRootTokenizer ?? false,
       'drafter': drafter?.toJson(),
+      'vision': configuration?.splashVision.enabled == true,
+      'manual_projector': configuration?.splashVision.projector != null,
+      'projectors': projectors,
       'compact': {
         'enabled':
             configuration?.argumentValue(
@@ -241,19 +299,58 @@ def prepare_public(targets):
     from install.local import prepare_local_model
 
     _, chosen, _, selected_files = select_draft()
-    before = {str(path): identity(path) for path in set(targets) | set(selected_files.values())}
+    vision = request['vision']
     target = targets[0] if all(path.suffix == '.gguf' for path in targets) else targets[0].parent
     if target.is_dir() and any(path.parent != target for path in targets):
         raise ValueError('Selected MLX shards must share one model directory')
+    projector = None
+    if vision and target.is_file():
+        candidates = [Path(path) for path in request['projectors']]
+        if request['manual_projector']:
+            projector, = candidates
+        else:
+            from install import hub, upstream
+            names = {path.name: path for path in candidates}
+            if len(names) != len(candidates):
+                raise ValueError('检测到同名 mmproj，请手动选择视觉投影文件')
+            try:
+                name, _ = upstream.select_vision(hub.Repository.local_files(str(target), names))
+            except (ValueError, RuntimeError, OSError, ImportError) as error:
+                raise ValueError(f'无法自动识别 mmproj，请手动选择视觉投影文件：{error}') from error
+            projector = names[name]
+        if not stable(projector.resolve(strict=True)):
+            raise ValueError('视觉投影文件不能保存在临时 worktree 中')
+    inputs = set(targets) | set(selected_files.values())
+    if projector is not None:
+        inputs.add(projector.resolve(strict=True))
+    before = {str(path): identity(path) for path in inputs}
+    vision_args = {'mmproj': str(projector)} if projector is not None else {}
     directory = Path(prepare_local_model(
-        target, draft=chosen, language_only=True, models_dir=root)).resolve(strict=True)
+        target, draft=chosen, language_only=not vision, models_dir=root,
+        **vision_args)).resolve(strict=True)
     if not directory.is_relative_to(root.resolve()):
         raise ValueError('Splash public preparation returned a directory outside GMD ownership')
     record = read_json(directory / 'model.json')
     entries = record['files']
     actual_targets = {(directory / name).resolve(strict=True) for name in entries
                       if name.startswith('target/') and name.endswith(('.gguf', '.safetensors'))}
-    if actual_targets != set(targets):
+    actual_vision = {name: (directory / name).resolve(strict=True) for name in entries
+                     if name.startswith('vision/')}
+    expected_format = ('gguf' if target.is_file() else 'safetensors') if vision else 'none'
+    if record.get('vision_format') != expected_format or bool(actual_vision) != vision:
+        raise ValueError('Splash 实际准备的视觉组件与实例配置不符')
+    if projector is not None and actual_vision != {'vision/mmproj.gguf': projector.resolve(strict=True)}:
+        raise ValueError('Splash 实际挂载的 mmproj 与选择不符')
+    if vision and target.is_dir():
+        for role, path in actual_vision.items():
+            local = target / role.removeprefix('vision/')
+            if not local.is_relative_to(target) or '..' in local.parts or local.resolve(strict=True) != path:
+                raise ValueError('Splash 视觉塔不属于所选 MLX 模型')
+        expected_targets = set(targets)
+        matching_targets = actual_targets <= expected_targets and expected_targets <= actual_targets | set(actual_vision.values())
+    else:
+        matching_targets = actual_targets == set(targets)
+    if not matching_targets:
         raise ValueError('Splash public preparation target differs from the selected model')
     actual_draft = {name: (directory / name).resolve(strict=True)
                     for name in entries if name.startswith('draft/')}
@@ -264,8 +361,6 @@ def prepare_public(targets):
     if actual_draft != expected_draft:
         raise ValueError('Splash public preparation drafter differs from the explicit selection; '
                          'no cached or implicit drafter is accepted')
-    if record.get('vision_format') != 'none':
-        raise ValueError('Splash public preparation must serve text only')
     check_compact(read_json(directory / 'config.json'), chosen)
     if before != {path: identity(Path(path)) for path in before}:
         raise ValueError('Model files changed during public preparation')
@@ -277,6 +372,8 @@ def prepare():
         raise ValueError('Selected model must be stored outside temporary worktrees')
     if (engine / 'install' / 'local.py').is_file():
         return prepare_public(targets)
+    if request['vision']:
+        raise ValueError('当前 Splash 安装缺少视觉准备接口')
     if request.get('requires_public_preparation'):
         raise ValueError('当前 Splash 模型目录接口需要 install.local.prepare_local_model；请修复引擎安装')
     files = {'target/' + path.name: path for path in targets}

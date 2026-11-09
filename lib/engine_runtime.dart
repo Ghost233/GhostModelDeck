@@ -62,10 +62,14 @@ class RuntimeInstance {
     this.error,
     this.capacity,
     this.inferenceConcurrency,
+    List<String>? inputModalities,
     this.temporaryTest = false,
     this.launchInstanceId,
     this.launchRevision,
-  }) : capabilities = Set.unmodifiable(capabilities);
+  }) : capabilities = Set.unmodifiable(capabilities),
+       inputModalities = inputModalities == null
+           ? null
+           : List.unmodifiable(inputModalities);
   final String id;
   final String artifactId;
   final RuntimeInstanceStatus status;
@@ -79,6 +83,7 @@ class RuntimeInstance {
   final String? launchInstanceId;
   final int? launchRevision;
   final RuntimeCapacity? capacity;
+  final List<String>? inputModalities;
 
   /// Native execution slots, separate from HTTP request admission capacity.
   final int? inferenceConcurrency;

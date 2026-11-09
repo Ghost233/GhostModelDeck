@@ -12,12 +12,15 @@ export 'drafter_configuration.dart';
 
 export 'launch_argument_text.dart' show LaunchArgumentTextException;
 
+typedef SplashVision = ({bool enabled, String? projector});
+
 class EngineLaunchConfiguration {
   EngineLaunchConfiguration({
     Map<String, String>? formValues,
     this.family = EngineFamily.llamaCpp,
     this.argumentText = '',
     this.drafter,
+    this.splashVision = (enabled: false, projector: null),
     this.generation = const GenerationConfiguration.empty(),
   }) : formValues = Map.unmodifiable(
          formValues ??
@@ -65,6 +68,7 @@ class EngineLaunchConfiguration {
 
   /// Null preserves an unmigrated selection; false explicitly ignores old drafts.
   final DrafterConfiguration? drafter;
+  final SplashVision splashVision;
   final GenerationConfiguration generation;
 
   /// Request defaults do not change the identity of a loaded configuration.
@@ -76,6 +80,7 @@ class EngineLaunchConfiguration {
     },
     'argumentText': argumentText,
     'drafter': drafter?.toJson(),
+    if (splashVision.enabled) 'splashVision': splashVision.projector ?? true,
   });
   void validateArgumentText() => parseLaunchArgumentText(argumentText);
 
@@ -699,11 +704,29 @@ class EngineLaunchConfiguration {
     }
     final text = value.containsKey('argumentText') ? value['argumentText'] : '';
     if (text is! String) throw const FormatException('引擎启动文本无效');
+    final vision = value['splashVision'];
+    if (vision != null &&
+        (family != EngineFamily.splash ||
+            vision is! Map ||
+            vision['enabled'] is! bool)) {
+      throw const FormatException('Splash 视觉配置无效');
+    }
+    final projector = vision is Map ? vision['projector'] : null;
+    if (projector != null &&
+        (projector is! String ||
+            !projector.startsWith('/') ||
+            !projector.toLowerCase().endsWith('.gguf'))) {
+      throw const FormatException('请选择本地 GGUF 视觉投影文件');
+    }
     return EngineLaunchConfiguration(
       family: family,
       formValues: values,
       argumentText: text,
       generation: GenerationConfiguration.fromJson(value['generation']),
+      splashVision: (
+        enabled: vision is Map && vision['enabled'] == true,
+        projector: projector as String?,
+      ),
       drafter: (value['drafter'] ?? value['splashDrafter']) == null
           ? null
           : DrafterConfiguration.fromJson(
@@ -717,6 +740,11 @@ class EngineLaunchConfiguration {
     'formValues': formValues,
     'argumentText': argumentText,
     if (drafter != null) 'drafter': drafter!.toJson(),
+    if (splashVision.enabled || splashVision.projector != null)
+      'splashVision': {
+        'enabled': splashVision.enabled,
+        if (splashVision.projector != null) 'projector': splashVision.projector,
+      },
     if (generation.values.isNotEmpty) 'generation': generation.toJson(),
   };
 }

@@ -14,6 +14,7 @@ import 'jev_models.dart';
 import 'jev_debug.dart';
 import 'llama_engine.dart';
 import 'model_library.dart';
+import 'native_text_api.dart';
 import 'omlx_engine.dart';
 import 'splash_engine.dart';
 import 'launch_instances.dart';
@@ -38,9 +39,14 @@ class PublicRequestException implements Exception {
 class _PrefillCleanupFailure implements Exception {}
 
 class PublicModelEntry {
-  const PublicModelEntry({required this.publicId, required this.artifactId});
+  const PublicModelEntry({
+    required this.publicId,
+    required this.artifactId,
+    this.inputModalities,
+  });
   final String publicId;
   final String artifactId;
+  final List<String>? inputModalities;
 }
 
 /// A resolved route binds one exact runtime instance/generation per request.
@@ -297,6 +303,7 @@ class PublicModelRoutes {
           PublicModelEntry(
             publicId: entry.name,
             artifactId: ready.first.instance.artifactId,
+            inputModalities: ready.singleOrNull?.instance.inputModalities,
           ),
         );
       }
@@ -883,6 +890,11 @@ class PublicGatewayServer {
                   'id': entry.publicId,
                   'object': 'model',
                   'owned_by': 'ghostmodeldeck',
+                  if (entry.inputModalities
+                      case final List<String> modalities) ...{
+                    'vision': modalities.contains('image'),
+                    'input_modalities': modalities,
+                  },
                 },
             for (final entry in _routes.listModels(
               requiredCapability: RuntimeCapability.embeddings,
@@ -960,6 +972,15 @@ class PublicGatewayServer {
       if (request.method == 'POST' && path == '/v1/chat/completions') {
         await _chat(request, inflight.cancellation);
         return;
+      }
+      if (request.method == 'POST') {
+        final endpoint = NativeTextEndpoint.values
+            .where((value) => value.path == path)
+            .firstOrNull;
+        if (endpoint != null) {
+          await _nativeText(request, endpoint, inflight.cancellation);
+          return;
+        }
       }
       if (request.method == 'POST' && path == '/v1/embeddings') {
         await _embeddings(request, inflight.cancellation);
@@ -1189,6 +1210,39 @@ class PublicGatewayServer {
     DecisionCancellation cancellation,
     Future<(int, Object)> Function() operation,
   ) async {
+    await _withResponseSocket(request, cancellation, (
+      socket,
+      peerClosed,
+    ) async {
+      late (int, Object) reply;
+      try {
+        reply = await operation();
+      } on JevRequestException catch (error) {
+        reply = (error.statusCode, error.toJson());
+      }
+      if (!peerClosed()) await _writeSocketJson(socket, reply.$1, reply.$2);
+    });
+  }
+
+  Future<void> _writeSocketJson(Socket socket, int status, Object body) async {
+    final bytes = utf8.encode(jsonEncode(body));
+    socket.add(
+      ascii.encode(
+        'HTTP/1.1 $status Response\r\n'
+        'Content-Type: application/json; charset=utf-8\r\n'
+        'Content-Length: ${bytes.length}\r\n'
+        'Connection: close\r\n\r\n',
+      ),
+    );
+    socket.add(bytes);
+    await socket.flush();
+  }
+
+  Future<void> _withResponseSocket(
+    HttpRequest request,
+    DecisionCancellation cancellation,
+    Future<void> Function(Socket socket, bool Function() peerClosed) operation,
+  ) async {
     final socket = await request.response.detachSocket(writeHeaders: false);
     var peerClosed = false;
     void disconnected() {
@@ -1202,25 +1256,7 @@ class PublicGatewayServer {
       onError: (Object _) => disconnected(),
     );
     try {
-      late (int, Object) reply;
-      try {
-        reply = await operation();
-      } on JevRequestException catch (error) {
-        reply = (error.statusCode, error.toJson());
-      }
-      if (!peerClosed) {
-        final bytes = utf8.encode(jsonEncode(reply.$2));
-        socket.add(
-          ascii.encode(
-            'HTTP/1.1 ${reply.$1} Response\r\n'
-            'Content-Type: application/json; charset=utf-8\r\n'
-            'Content-Length: ${bytes.length}\r\n'
-            'Connection: close\r\n\r\n',
-          ),
-        );
-        socket.add(bytes);
-        await socket.flush();
-      }
+      await operation(socket, () => peerClosed);
     } on SocketException {
       cancellation.cancel();
     } finally {
@@ -1229,12 +1265,230 @@ class PublicGatewayServer {
     }
   }
 
+  Future<void> _nativeText(
+    HttpRequest request,
+    NativeTextEndpoint endpoint,
+    DecisionCancellation cancellation, {
+    Map<String, Object?>? parsedInput,
+  }) async {
+    late PublicRouteTarget target;
+    late NativeTextCall call;
+    try {
+      final input =
+          parsedInput ?? await _readModelBody(request, endpoint: endpoint);
+      if (input == null) return;
+      final model = input['model'];
+      if (model is! String || model.isEmpty) {
+        throw const FormatException('model 需要是非空字符串');
+      }
+      if (input['stream'] != null && input['stream'] is! bool) {
+        throw const FormatException('stream 需要是布尔值');
+      }
+      if (input.containsKey('id_slot')) {
+        throw const FormatException('公开 API 不接受原生槽位编号');
+      }
+      target = _routes.resolve(model);
+      if (target.runtime is! NativeTextRuntime) {
+        throw const PublicRequestException(
+          501,
+          'unsupported_protocol',
+          '所选引擎不支持此协议入口',
+        );
+      }
+      final splash = target.runtime is SplashEngine;
+      if (endpoint == NativeTextEndpoint.chat &&
+          (!splash ||
+              target.instance.inputModalities?.contains('image') != true)) {
+        throw const FormatException('当前实例未挂载视觉，无法接收图片');
+      }
+      final body = nativeTextBody(
+        endpoint,
+        input,
+        target.generationDefaults,
+        splash: splash,
+      );
+      final seconds = splash ? body['timeout'] : null;
+      if (seconds != null &&
+          (seconds is! num ||
+              !seconds.isFinite ||
+              seconds <= 0 ||
+              seconds * Duration.microsecondsPerSecond >=
+                  9223372036854775808.0)) {
+        throw const FormatException('timeout 需要是可表示的正有限秒数');
+      }
+      call = NativeTextCall(
+        endpoint,
+        body,
+        {
+          if (endpoint.isAnthropic)
+            for (final name in ['anthropic-version', 'anthropic-beta'])
+              if (request.headers[name] case final List<String> values)
+                name: values.join(','),
+        },
+        seconds is num
+            ? Duration(
+                microseconds: (seconds * Duration.microsecondsPerSecond).ceil(),
+              )
+            : const Duration(seconds: 120),
+      );
+    } on PublicRequestException catch (error) {
+      _sendJson(
+        request.response,
+        error.statusCode,
+        endpoint.errorBody(error.statusCode, error.type, error.message),
+      );
+      return;
+    } on FormatException catch (error) {
+      _sendJson(
+        request.response,
+        400,
+        endpoint.errorBody(400, 'invalid_request_error', error.message),
+      );
+      return;
+    }
+    await _withResponseSocket(request, cancellation, (
+      socket,
+      peerClosed,
+    ) async {
+      var started = false;
+      var completed = false;
+      (PrefillLegacyLease?, bool) lease = (null, false);
+      (int, Object)? reply;
+      try {
+        if (endpoint != NativeTextEndpoint.messagesCountTokens) {
+          lease = await _reserveSplashCache(target, call.body['cache_salt']);
+        }
+        await (target.runtime as NativeTextRuntime).runNativeText(
+          target.instance.id,
+          expectedGeneration: target.instance.generation,
+          call: call,
+          cancellation: cancellation,
+          consume: (upstream, redact, permit) async {
+            final status = upstream.statusCode;
+            final chunks = nativeTextChunks(upstream);
+            if (status == 200 &&
+                upstream.headers.contentType?.mimeType == 'text/event-stream') {
+              final cancelled = permit.whenCancelled.then((_) => false);
+              await for (final event in nativeTextEvents(
+                chunks,
+                target.publicId,
+                redact,
+                endpoint: endpoint,
+              )) {
+                if (permit.isCancelled) {
+                  throw const NativeTextFailure(DecisionFailureKind.cancelled);
+                }
+                if (!started) {
+                  started = true;
+                  socket.write(
+                    'HTTP/1.1 200 OK\r\nContent-Type: text/event-stream; charset=utf-8\r\n'
+                    'Cache-Control: no-cache\r\nConnection: close\r\n\r\n',
+                  );
+                }
+                socket.write(event.wire);
+                if (!await Future.any([
+                  socket.flush().then((_) => true),
+                  cancelled,
+                ])) {
+                  throw const NativeTextFailure(DecisionFailureKind.cancelled);
+                }
+                completed = completed || event.terminal;
+              }
+              if (!started) {
+                throw const NativeTextFailure(
+                  DecisionFailureKind.invalidResponse,
+                );
+              }
+            } else {
+              final raw = await chunks.join();
+              final Map<String, Object?> value;
+              try {
+                value = nativeTextReply(
+                  raw,
+                  target.publicId,
+                  redact,
+                  error: status >= 400,
+                );
+              } on FormatException {
+                if (status < 400) rethrow;
+                reply = (
+                  status,
+                  endpoint.errorBody(status, 'upstream_error', '上游引擎拒绝此请求'),
+                );
+                return;
+              }
+              if (status == 200 &&
+                  !switch (endpoint) {
+                    NativeTextEndpoint.responses =>
+                      value['object'] == 'response',
+                    NativeTextEndpoint.chat =>
+                      value['object'] == 'chat.completion',
+                    NativeTextEndpoint.messages => value['type'] == 'message',
+                    NativeTextEndpoint.messagesCountTokens =>
+                      value['input_tokens'] is int,
+                  }) {
+                throw const NativeTextFailure(
+                  DecisionFailureKind.invalidResponse,
+                );
+              }
+              reply = (status, value);
+              completed = status == 200 && value['status'] != 'failed';
+            }
+          },
+        );
+      } on PublicRequestException catch (error) {
+        reply = (
+          error.statusCode,
+          endpoint.errorBody(error.statusCode, error.type, error.message),
+        );
+      } catch (error) {
+        final kind = error is DecisionCallFailure
+            ? error.kind.name
+            : cancellation.isCancelled
+            ? 'cancelled'
+            : 'failed';
+        final (status, body) = _upstreamError(kind);
+        final details = body['error'] as Map<String, String>;
+        reply = (
+          status,
+          endpoint.errorBody(status, details['type']!, details['message']!),
+        );
+      } finally {
+        await _finishSplashCache(lease, completed);
+      }
+      final result = reply;
+      if (!peerClosed() && !started && result != null) {
+        await _writeSocketJson(socket, result.$1, result.$2);
+      }
+    });
+  }
+
   Future<void> _chat(
     HttpRequest request,
     DecisionCancellation cancellation,
   ) async {
-    var parsed = await _readChat(request);
-    if (parsed == null) return;
+    final input = await _readModelBody(request);
+    if (input == null) return;
+    final messages = input['messages'];
+    if (messages is List &&
+        messages.any((message) {
+          final content = message is Map ? message['content'] : null;
+          return content is List &&
+              content.any(
+                (part) =>
+                    part is Map &&
+                    (part['type'] == 'image_url' || part['type'] == 'file'),
+              );
+        })) {
+      await _nativeText(
+        request,
+        NativeTextEndpoint.chat,
+        cancellation,
+        parsedInput: input,
+      );
+      return;
+    }
+    var parsed = _parseChat(input);
     final target = _routes.resolve(parsed.model);
     try {
       final effective = parsed.request.withDefaults(target.generationDefaults);
@@ -1257,10 +1511,46 @@ class PublicGatewayServer {
     } on TextProtocolException catch (error) {
       throw PublicRequestException(400, 'invalid_request_error', error.message);
     }
-    PrefillLegacyLease? lease;
+    final lease = await _reserveSplashCache(
+      target,
+      parsed.request.parameters.values['cache_salt'],
+    );
     var releaseConfirmed = false;
+    try {
+      if (parsed.stream) {
+        unawaited(
+          request.response.done.then(
+            (_) => cancellation.cancel(),
+            onError: (Object _) => cancellation.cancel(),
+          ),
+        );
+        await _chatStream(
+          request,
+          parsed,
+          target,
+          cancellation,
+          onNativeComplete: () => releaseConfirmed = true,
+        );
+      } else {
+        await _chatOnce(
+          request,
+          parsed,
+          target,
+          cancellation,
+          onNativeComplete: () => releaseConfirmed = true,
+        );
+      }
+    } finally {
+      await _finishSplashCache(lease, releaseConfirmed);
+    }
+  }
+
+  Future<(PrefillLegacyLease?, bool)> _reserveSplashCache(
+    PublicRouteTarget target,
+    Object? salt,
+  ) async {
+    PrefillLegacyLease? lease;
     var protocolConfirmed = false;
-    final salt = parsed.request.parameters.values['cache_salt'];
     if (_prefillService?.enabled == true &&
         target.runtime is SplashEngine &&
         salt is String &&
@@ -1317,42 +1607,23 @@ class PublicGatewayServer {
         );
       }
     }
+    return (lease, protocolConfirmed);
+  }
+
+  Future<void> _finishSplashCache(
+    (PrefillLegacyLease?, bool) reservation,
+    bool completed,
+  ) async {
+    final (lease, protocolConfirmed) = reservation;
+    if (lease == null) return;
     try {
-      if (parsed.stream) {
-        unawaited(
-          request.response.done.then(
-            (_) => cancellation.cancel(),
-            onError: (Object _) => cancellation.cancel(),
-          ),
-        );
-        await _chatStream(
-          request,
-          parsed,
-          target,
-          cancellation,
-          onNativeComplete: () => releaseConfirmed = true,
-        );
-      } else {
-        await _chatOnce(
-          request,
-          parsed,
-          target,
-          cancellation,
-          onNativeComplete: () => releaseConfirmed = true,
-        );
-      }
-    } finally {
-      if (lease != null) {
-        try {
-          await _prefillService!.ledger.finishLegacy(
-            lease,
-            released: protocolConfirmed && releaseConfirmed,
-          );
-        } catch (_) {
-          _error = '普通请求缓存占用记录无法更新，释放状态未确认';
-          _changes.add(_state);
-        }
-      }
+      await _prefillService!.ledger.finishLegacy(
+        lease,
+        released: protocolConfirmed && completed,
+      );
+    } catch (_) {
+      _error = '普通请求缓存占用记录无法更新，释放状态未确认';
+      _changes.add(_state);
     }
   }
 
@@ -1431,7 +1702,10 @@ class PublicGatewayServer {
     });
   }
 
-  Future<_ParsedChat?> _readChat(HttpRequest request) async {
+  Future<Map<String, Object?>?> _readModelBody(
+    HttpRequest request, {
+    NativeTextEndpoint? endpoint,
+  }) async {
     final builder = BytesBuilder(copy: false);
     final body = StreamIterator<List<int>>(request);
     try {
@@ -1441,11 +1715,17 @@ class PublicGatewayServer {
           request.response.persistentConnection = false;
           // Cancelling an unread dart:io request destroys its socket. Finish
           // the bounded rejection first so clients receive the actual 413.
-          _sendError(
+          const message = '请求体超过 1MiB 上限';
+          _sendJson(
             request.response,
             413,
-            'invalid_request_error',
-            '请求体超过 1MiB 上限',
+            endpoint?.errorBody(413, 'invalid_request_error', message) ??
+                {
+                  'error': {
+                    'type': 'invalid_request_error',
+                    'message': message,
+                  },
+                },
           );
           await request.response.done;
           return null;
@@ -1471,6 +1751,10 @@ class PublicGatewayServer {
         '请求体需要是 JSON 对象',
       );
     }
+    return Map<String, Object?>.from(decoded);
+  }
+
+  _ParsedChat _parseChat(Map<String, Object?> decoded) {
     if (decoded['seed'] is String) {
       throw const PublicRequestException(
         400,

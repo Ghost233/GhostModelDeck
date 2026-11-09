@@ -17,6 +17,7 @@ import 'startlux_readout.dart';
 import 'startlux_runtime.dart' show StartluxRuntimeCleanupException;
 import 'engine_runtime.dart';
 import 'engine_logs.dart';
+import 'native_text_api.dart';
 import 'engine_launch_configuration.dart';
 import 'engine_parameter_recognition.dart';
 import 'jev_debug.dart';
@@ -606,6 +607,7 @@ class LlamaEngine
         EmbeddingRuntime,
         DecisionRuntime,
         RuntimeMonitorSource,
+        NativeTextRuntime,
         EngineLogSource {
   LlamaEngine({
     required this.library,
@@ -1670,6 +1672,49 @@ class LlamaEngine
         kind: DecisionFailureKind.invalidResponse,
         rawResponse: running.safe(raw),
       );
+    }
+  }
+
+  @override
+  Future<void> runNativeText(
+    String instanceId, {
+    required int expectedGeneration,
+    required NativeTextCall call,
+    required DecisionCancellation cancellation,
+    required NativeTextConsumer consume,
+  }) async {
+    final running = _running[instanceId];
+    if (_shuttingDown ||
+        running == null ||
+        running.instance.generation != expectedGeneration ||
+        !_isCurrent(running) ||
+        running.instance.status != LlamaInstanceStatus.ready ||
+        !running.instance.capabilities.contains(
+          LlamaCapability.textGeneration,
+        ) ||
+        running.stopping ||
+        running.exitCode != null) {
+      throw const NativeTextFailure(DecisionFailureKind.notReady);
+    }
+    final permit = _admit(running, cancellation);
+    final watch = Stopwatch()..start();
+    try {
+      await _identity(running, call.timeout, cancellation: permit.cancellation);
+      await call.forward(
+        address: running.instance.endpoint,
+        model: running.instance.id,
+        authentication: running.headers,
+        redact: running.safe,
+        remaining: call.timeout - watch.elapsed,
+        cancellation: permit.cancellation,
+        consume: consume,
+      );
+    } on _InstanceIdentityException catch (error) {
+      _release(running, permit);
+      await _fail(running, error.message);
+      throw const NativeTextFailure(DecisionFailureKind.notReady);
+    } finally {
+      _release(running, permit);
     }
   }
 

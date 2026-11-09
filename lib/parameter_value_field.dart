@@ -128,7 +128,11 @@ class _ParameterValueFieldState extends State<ParameterValueField> {
           await const MethodChannel('com.ghost233.ghostmodeldeck/native')
               .invokeMethod<String>(
                 method,
-                d.name == 'drafter-path' && d.kind == ParameterKind.file
+                const {
+                          'drafter-path',
+                          'splash-vision-projector',
+                        }.contains(d.name) &&
+                        d.kind == ParameterKind.file
                     ? {
                         'extensions': ['gguf'],
                       }

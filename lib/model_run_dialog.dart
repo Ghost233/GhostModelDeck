@@ -100,6 +100,7 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
   EngineLaunchConfiguration? _baseline;
   final _argumentText = TextEditingController();
   DrafterConfiguration? _drafter;
+  SplashVision _splashVision = (enabled: false, projector: null);
   bool _legacyDrafter = false;
   EngineLaunchConfiguration? _defaults;
   DecisionCancellation? _testCancellation;
@@ -121,6 +122,7 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
       formValues: _formValues,
       argumentText: _argumentText.text,
       drafter: _drafter,
+      splashVision: _splashVision,
       generation: generation,
     );
   }
@@ -146,6 +148,7 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
     _baseline = config;
     _argumentText.text = config.argumentText;
     _drafter = config.drafter ?? config.legacyLlamaDrafter;
+    _splashVision = config.splashVision;
     _legacyDrafter =
         remembered?.legacyDrafter == true ||
         (config.drafter == null && config.legacyLlamaDrafter != null);
@@ -319,6 +322,9 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
       }
       if (draft.drafter != null) {
         DrafterConfiguration.fromJson(draft.drafter!.toJson());
+      }
+      if (draft.splashVision.enabled || draft.splashVision.projector != null) {
+        EngineLaunchConfiguration.fromJson(draft.toJson());
       }
       if (test) draft.validateArgumentText();
       if (test) {
@@ -643,6 +649,29 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
                               _baseline?.generation.values ?? const {},
                           drafter: _drafter,
                           initialDrafter: _baseline?.drafter,
+                          splashVision:
+                              draft.family == EngineFamily.splash &&
+                                  (!decisionModel || _splashVision.enabled) &&
+                                  asset.kind != AssetKind.embedding
+                              ? _splashVision
+                              : null,
+                          initialSplashVision:
+                              draft.family == EngineFamily.splash &&
+                                  (!decisionModel || _splashVision.enabled) &&
+                                  asset.kind != AssetKind.embedding
+                              ? _baseline?.splashVision
+                              : null,
+                          splashVisionUsesProjector: asset.format == 'GGUF',
+                          actualSplashVision:
+                              widget.initialInstanceId != null &&
+                                  activeRuntime is SplashEngine
+                              ? activeRuntime.actualVisionFor(
+                                  widget.initialInstanceId!,
+                                )
+                              : null,
+                          onSplashVisionChanged: (value) => setState(() {
+                            _splashVision = value;
+                          }),
                           check: check,
                           actualDrafter: widget.initialInstanceId == null
                               ? null

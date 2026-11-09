@@ -20,10 +20,189 @@ import 'package:ghost_model_deck/public_gateway.dart';
 
 import 'fixtures/decision_gguf.dart';
 import 'fixtures/engine_archive.dart';
+import 'fixtures/native_text_api.dart';
 import 'fixtures/playground_runtime.dart';
 import 'fixtures/typed_answers.dart';
 
 void main() {
+  test('native llama protocols forward schema constraints and retain JSON and SSE shapes', () async {
+    final fixture = await _GatewayFixture.create();
+    addTearDown(fixture.close);
+    await fixture.routes.enable(fixture.asset.id);
+    await fixture.engine.start(
+      fixture.asset.id,
+      configuration: EngineLaunchConfiguration(
+        formValues: {'--api-key': 'llama-owner-key'},
+      ),
+    );
+    await fixture.gateway.start();
+    final model = fixture.routes.publicIdFor(fixture.asset.id);
+    final requests = <String, Map>{};
+    final schema = {
+      'type': 'object',
+      'properties': {
+        'ok': {'type': 'boolean'},
+      },
+    };
+    fixture.io.nativeText = (request, alias) async {
+      final body = jsonDecode(await utf8.decoder.bind(request).join()) as Map;
+      final path = request.uri.path;
+      requests[path] = body;
+      expect(body['model'], alias);
+      expect(request.headers.value('Authorization'), 'Bearer llama-owner-key');
+      expect(request.headers.value('x-api-key'), isNull);
+      if (path == '/v1/responses') {
+        request.response.headers.contentType = ContentType.json;
+        if (body['input'] == 'error') {
+          request.response.statusCode = 400;
+          request.response.write(
+            jsonEncode({
+              'error': {
+                'type': 'invalid_request_error',
+                'message': 'rejected llama-owner-key',
+              },
+            }),
+          );
+        } else {
+          request.response.write(
+            jsonEncode({
+              'object': 'response',
+              'id': 'resp-1',
+              'model': alias,
+              'output': [
+                {
+                  'type': 'function_call',
+                  'name': 'probe',
+                  'arguments': '{"ok":true}',
+                },
+              ],
+            }),
+          );
+        }
+      } else {
+        expect(request.headers.value('anthropic-version'), '2023-06-01');
+        request.response.headers.contentType = ContentType(
+          'text',
+          'event-stream',
+        );
+        request.response.write(
+          'event: message_start\n'
+          'data: {"type":"message_start","message":{"id":"msg-1","model":"$alias"}}\n\n'
+          'event: content_block_delta\n'
+          'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Hello."}}\n\n'
+          'event: message_stop\n'
+          'data: {"type":"message_stop"}\n\n',
+        );
+      }
+      await request.response.close();
+    };
+    final responses = await postNativeText(
+      fixture.gateway.baseUrl!,
+      '/v1/responses',
+      {
+        'model': model,
+        'input': 'hello',
+        'text': {
+          'format': {'type': 'json_schema', 'name': 'answer', 'schema': schema},
+        },
+      },
+    );
+    expect(responses.status, 200);
+    expect(jsonDecode(responses.body), {
+      'object': 'response',
+      'id': 'resp-1',
+      'model': model,
+      'output': [
+        {'type': 'function_call', 'name': 'probe', 'arguments': '{"ok":true}'},
+      ],
+    });
+    expect(requests['/v1/responses']!['extra_params']['response_format'], {
+      'type': 'json_schema',
+      'json_schema': {'name': 'answer', 'schema': schema},
+    });
+    final messages = await postNativeText(
+      fixture.gateway.baseUrl!,
+      '/v1/messages',
+      {
+        'model': model,
+        'max_tokens': 12,
+        'stream': true,
+        'messages': [
+          {'role': 'user', 'content': 'hello'},
+        ],
+        'output_config': {
+          'format': {'type': 'json_schema', 'schema': schema},
+        },
+      },
+    );
+    expect(messages.status, 200);
+    expect(messages.mime, 'text/event-stream');
+    expect(messages.body, contains('event: message_start'));
+    expect(messages.body, contains('"model":"$model"'));
+    expect(messages.body, contains('event: message_stop'));
+    expect(requests['/v1/messages']!['extra_params']['response_format'], {
+      'type': 'json_schema',
+      'json_schema': {'schema': schema},
+    });
+    final rejected = await postNativeText(
+      fixture.gateway.baseUrl!,
+      '/v1/responses',
+      {'model': model, 'input': 'error'},
+    );
+    expect(rejected.status, 400);
+    expect(rejected.body, contains('rejected'));
+    expect(rejected.body, isNot(contains('llama-owner-key')));
+    final override = await postNativeText(
+      fixture.gateway.baseUrl!,
+      '/v1/responses',
+      {
+        'model': model,
+        'input': 'hello',
+        'extra_params': {'model': 'foreign'},
+      },
+    );
+    expect(override.status, 400);
+    expect(requests['/v1/responses']!['input'], 'error');
+  });
+
+  test('native llama Responses disconnect drains the permit before the first event', () async {
+    final fixture = await _GatewayFixture.create();
+    addTearDown(fixture.close);
+    await fixture.enableReady();
+    final entered = Completer<void>();
+    final release = Completer<void>();
+    addTearDown(() => release.complete());
+    fixture.io.nativeText = (request, _) async {
+      await request.drain<void>();
+      entered.complete();
+      await release.future;
+      try {
+        await request.response.close();
+      } on HttpException {
+        // The caller already disconnected.
+      }
+    };
+    final client = HttpClient();
+    addTearDown(() => client.close(force: true));
+    final request = await client.postUrl(
+      fixture.gateway.baseUrl!.resolve('/v1/responses'),
+    );
+    request.headers.contentType = ContentType.json;
+    request.write(
+      jsonEncode({
+        'model': fixture.routes.publicIdFor(fixture.asset.id),
+        'input': 'hold',
+        'stream': true,
+      }),
+    );
+    final response = expectLater(request.close(), throwsA(anything));
+    await entered.future.timeout(const Duration(seconds: 5));
+    expect(fixture.engine.runtimeInstances.single.activeRequests, 1);
+    client.close(force: true);
+    await response;
+    await fixture.drain();
+    expect(fixture.engine.runtimeInstances.single.activeRequests, 0);
+  });
   test(
     'native Ready stays usable when the requested drafter is not active',
     () async {
@@ -2117,6 +2296,7 @@ class _GatewayFixture {
 class _GatewayIO implements EngineProcessIO {
   _GatewayIO(this.events);
   final List<String> events;
+  Future<void> Function(HttpRequest request, String alias)? nativeText;
   int textRequests = 0;
   final textBodies = <Map>[];
   bool speculativeActive = false;
@@ -2163,6 +2343,11 @@ class _GatewayIO implements EngineProcessIO {
             {'id': 0, 'speculative': speculativeActive},
           ]),
         );
+      } else if (nativeText != null && {
+        '/v1/responses', '/v1/messages', '/v1/messages/count_tokens',
+      }.contains(request.uri.path)) {
+        await nativeText!(request, arg('--alias'));
+        return;
       } else if (request.uri.path == '/v1/chat/completions') {
         textRequests++;
         final body = jsonDecode(await utf8.decoder.bind(request).join()) as Map;

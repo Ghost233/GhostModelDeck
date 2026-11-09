@@ -2336,6 +2336,7 @@ class SplashTestProcessIO implements SplashProcessIO {
   final bool wrongPrefix;
   final calls = <List<String>>[];
   final httpPaths = <String>[];
+  Future<void> Function(HttpRequest request, String alias)? nativeText;
   final chatModels = <String>[];
   final chatBodies = <Map>[];
   final rawChatBodies = <String>[];
@@ -2582,6 +2583,12 @@ class SplashTestProcessIO implements SplashProcessIO {
           request.response.statusCode = 401;
           request.response.write('{"error":"invalid or missing API key"}');
           await request.response.close();
+          return;
+        }
+        if (nativeText != null && {
+          '/v1/chat/completions', '/v1/responses', '/v1/messages', '/v1/messages/count_tokens',
+        }.contains(request.uri.path)) {
+          await nativeText!(request, alias);
           return;
         }
         switch (request.uri.path) {
