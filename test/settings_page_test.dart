@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/app_theme.dart';
 import 'package:ghost_model_deck/download_preferences.dart';
@@ -55,7 +56,7 @@ void main() {
   );
 
   testWidgets(
-    'the complete shared library path is visible on hover at minimum desktop size',
+    'the complete shared library path wraps at minimum desktop size and remains available on hover',
     (tester) async {
       const path =
           '/Users/model-owner/Library/Application Support/shared-with-LM-Studio/models/a-very-long-model-library-directory/another-long-component/full-location';
@@ -82,6 +83,16 @@ void main() {
           ),
         ),
       );
+      final RenderParagraph pathText = tester.renderObject(find.text(path));
+      expect(pathText.didExceedMaxLines, isFalse);
+      expect(
+        pathText
+            .getBoxesForSelection(
+              TextSelection(baseOffset: 0, extentOffset: path.length),
+            )
+            .length,
+        greaterThan(2),
+      );
       final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
       await mouse.addPointer(location: Offset.zero);
       await mouse.moveTo(tester.getCenter(find.text(path)));
@@ -90,7 +101,7 @@ void main() {
       expect(
         find.text(path),
         findsNWidgets(2),
-        reason: 'Hover reveals the complete path alongside the truncated row',
+        reason: 'Hover keeps the complete path available alongside the wrapping row',
       );
       expect(tester.takeException(), isNull);
       await mouse.removePointer();

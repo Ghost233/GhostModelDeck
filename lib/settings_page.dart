@@ -206,6 +206,8 @@ class _SettingsPageState extends State<SettingsPage> {
                             key: ValueKey(widget.preferences.source),
                             initialValue: widget.preferences.source,
                             isExpanded: true,
+                            isDense: false,
+                            itemHeight: null,
                             decoration: const InputDecoration(
                               isDense: true,
                               contentPadding: EdgeInsets.symmetric(
@@ -252,8 +254,8 @@ class _SettingsPageState extends State<SettingsPage> {
                           message: widget.libraryPath,
                           child: Text(
                             widget.libraryPath,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
+                            softWrap: true,
+                            overflow: TextOverflow.visible,
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: theme.colorScheme.onSurfaceVariant,
                             ),

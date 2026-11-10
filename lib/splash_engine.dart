@@ -790,6 +790,14 @@ class SplashEngine
   }
 
   EngineLaunchCommand? actualCommandFor(String id) => _runs[id]?.command;
+  Future<SplashVision> detectVision(LibraryArtifact asset) =>
+      detectSplashVision(
+        io: io,
+        python: _installation.python,
+        engine: _installation.root,
+        artifact: asset,
+      );
+
   Future<String> detectVisionProjector(LibraryArtifact asset) =>
       detectSplashProjector(
         io: io,
@@ -2276,15 +2284,12 @@ class SplashEngine
         .toList();
     if (vision.isEmpty
         ? visionFormat != 'none'
-        : asset.kind == AssetKind.decision ||
-              (asset.format == 'GGUF'
-                  ? visionFormat != 'gguf' ||
-                        vision.length != 1 ||
-                        vision.single.key != 'vision/mmproj.gguf'
-                  : visionFormat != 'safetensors' ||
-                        vision.any(
-                          (file) => !file.key.endsWith('.safetensors'),
-                        ))) {
+        : (asset.format == 'GGUF'
+              ? visionFormat != 'gguf' ||
+                    vision.length != 1 ||
+                    vision.single.key != 'vision/mmproj.gguf'
+              : visionFormat != 'safetensors' ||
+                    vision.any((file) => !file.key.endsWith('.safetensors')))) {
       throw const SplashEngineException('Splash 模型装配中的视觉组件无效');
     }
     final weights = asset.files

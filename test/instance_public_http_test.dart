@@ -120,7 +120,14 @@ void main() {
       expect(response['choices'].single['message']['content'], 'OK');
     }
     expect(fixture.io.chatModels, [firstRun.id, secondRun.id]);
-    await instances.renamePublicName(first.id, 'fast');
+    await instances.save(
+      id: first.id,
+      name: first.name,
+      publicName: 'fast',
+      artifactId: first.artifactId,
+      engineId: first.engineId,
+      configuration: first.configuration,
+    );
     expect((await post(first.publicName)).$1, 404);
     expect(fixture.io.chatModels, [firstRun.id, secondRun.id]);
     expect((await post('fast')).$1, 200);

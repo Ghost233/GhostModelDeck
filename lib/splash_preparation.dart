@@ -22,9 +22,6 @@ Future<List<String>> splashProjectorCandidates(
   SplashVision vision,
 ) async {
   if (!vision.enabled) return const [];
-  if (asset.kind == AssetKind.decision) {
-    throw StateError('当前 Splash 决策模型只支持文本输入');
-  }
   if (asset.format != 'GGUF') {
     if (vision.projector != null) throw StateError('MLX 使用模型内置视觉塔');
     return const [];
@@ -68,6 +65,41 @@ Future<List<String>> splashProjectorCandidates(
   }
   if (candidates.isEmpty) throw StateError('未自动找到配套的 mmproj，请手动选择视觉投影文件');
   return candidates.values.toList()..sort();
+}
+
+Future<SplashVision> detectSplashVision({
+  required EngineProcessIO io,
+  required File python,
+  required Directory engine,
+  required LibraryArtifact artifact,
+}) async {
+  if (artifact.format == 'GGUF') {
+    return (
+      enabled: true,
+      projector: await detectSplashProjector(
+        io: io,
+        python: python,
+        engine: engine,
+        artifact: artifact,
+      ),
+    );
+  }
+  final result = await io.run(python.path, [
+    '-B',
+    '-P',
+    '-c',
+    splashPreparationProgram,
+    jsonEncode({
+      'engine': engine.path,
+      'probe_mlx_vision': File(artifact.files.first.path).parent.path,
+    }),
+  ], timeout: const Duration(seconds: 15));
+  if (result.exitCode != 0) throw StateError(result.stderr.trim());
+  final vision = jsonDecode(result.stdout);
+  if (vision is! bool) {
+    throw const FormatException('Splash 自动识别返回了无效的视觉状态');
+  }
+  return (enabled: vision, projector: null);
 }
 
 Future<String> detectSplashProjector({
@@ -492,7 +524,11 @@ def prepare():
     return destination
 
 try:
-    if 'probe_projector' in request:
+    if 'probe_mlx_vision' in request:
+        from install import hub, upstream
+        target = upstream.mlx_target(hub.Repository.local_directory(Path(request['probe_mlx_vision'])), False)
+        print(json.dumps(target.vision_format == 'safetensors'))
+    elif 'probe_projector' in request:
         print(json.dumps(str(select_projector(request['probe_projector']))))
     else:
         root = Path(request['root']).absolute()

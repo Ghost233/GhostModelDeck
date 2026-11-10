@@ -19,6 +19,111 @@ import 'fixtures/test_environment.dart';
 
 void main() {
   testWidgets(
+    'instance parameters edit and save the API model name while engines are off',
+    (tester) async {
+      tester.view.physicalSize = const Size(1500, 1100);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.runAsync(
+        () => HttpOverrides.runWithHttpOverrides(() async {
+          final runtime = await CouncilRuntime.create(
+            modelCount: 1,
+            sourceSystemone: true,
+          );
+          final store = LaunchInstances(
+            catalog: runtime.catalog,
+            file: File('${runtime.root.path}/editable-model-name.json'),
+          );
+          try {
+            await runtime.catalog.setRuntimeEnabled(false);
+            final asset = runtime.library.state.artifacts.single;
+            final original = await store.save(
+              name: 'Original',
+              artifactId: asset.id,
+              engineId: EngineCatalog.officialId,
+              configuration: EngineLaunchConfiguration(),
+            );
+            final other = await store.save(
+              name: 'Reserved',
+              artifactId: asset.id,
+              engineId: EngineCatalog.officialId,
+              configuration: EngineLaunchConfiguration(),
+            );
+            await tester.pumpWidget(
+              MaterialApp(
+                home: Scaffold(body: InstancesPage(instances: store)),
+              ),
+            );
+            await tester.pumpAndSettle();
+            await tester.tap(
+              find.byKey(ValueKey('instance-parameters:${original.id}')),
+            );
+            final save = find.widgetWithText(FilledButton, '保存');
+            Future<void> waitFor(bool Function() condition) async {
+              for (var i = 0; i < 120; i++) {
+                await tester.pump(const Duration(milliseconds: 16));
+                if (condition()) return;
+                await Future<void>.delayed(const Duration(milliseconds: 5));
+              }
+              fail('Instance editor did not reach the expected state');
+            }
+
+            await waitFor(
+              () =>
+                  save.evaluate().isNotEmpty &&
+                  tester.widget<FilledButton>(save).onPressed != null,
+            );
+            final field = find.byKey(const Key('launch-model-name'));
+            expect(field, findsOneWidget);
+            expect(
+              tester.widget<TextField>(field).controller!.text,
+              original.publicName,
+            );
+            await tester.enterText(
+              find.byKey(const Key('launch-instance-name')),
+              'Changed display',
+            );
+            await tester.enterText(field, other.publicName);
+            await tester.tap(save);
+            await waitFor(
+              () => find.textContaining('已存在').evaluate().isNotEmpty,
+            );
+            expect(store.find(original.id)!.name, original.name);
+            expect(store.find(original.id)!.publicName, original.publicName);
+            await tester.enterText(field, 'My Vision Model');
+            await tester.tap(save);
+            await waitFor(
+              () => store.find(original.id)!.publicName == 'my-vision-model',
+            );
+            final reopened = LaunchInstances(
+              catalog: runtime.catalog,
+              file: store.file,
+            );
+            try {
+              await reopened.load();
+              expect(reopened.find(original.id)!.publicName, 'my-vision-model');
+              expect(reopened.find(original.id)!.name, 'Changed display');
+              expect(
+                reopened.find(original.id)!.configuration.toJson(),
+                original.configuration.toJson(),
+              );
+            } finally {
+              await reopened.close();
+            }
+            expect(runtime.catalog.runtimeEnabled, isFalse);
+            expect(runtime.io.requests, isEmpty);
+          } finally {
+            await tester.pumpWidget(const SizedBox.shrink());
+            await store.close();
+            await runtime.close();
+          }
+        }, _NetworkBoundary()),
+      );
+    },
+  );
+
+  testWidgets(
     'missing instance requires explicit main model and excludes projector',
     (tester) async {
       final verified = await tester.runAsync(

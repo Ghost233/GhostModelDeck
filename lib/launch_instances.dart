@@ -333,6 +333,7 @@ class LaunchInstances {
     required String artifactId,
     required String engineId,
     required EngineLaunchConfiguration configuration,
+    String? publicName,
     String? splashAssembly,
     int? jevRequestTimeoutSeconds,
   }) => _serial(() async {
@@ -369,18 +370,22 @@ class LaunchInstances {
       }
     }
     final identity = id ?? _newId();
-    final publicName =
-        previous?.publicName ??
-        names.suggest(
-          catalog.library.state.artifacts
-              .singleWhere((a) => a.id == artifactId)
-              .name,
-        );
-    names.claim('instance:$identity', publicName);
+    if (publicName != null && publicName.trim().isEmpty) {
+      throw ArgumentError('请输入模型名字');
+    }
+    final selectedPublicName = publicName != null
+        ? PublicModelNames.normalize(publicName)
+        : previous?.publicName ??
+              names.suggest(
+                catalog.library.state.artifacts
+                    .singleWhere((a) => a.id == artifactId)
+                    .name,
+              );
+    names.claim('instance:$identity', selectedPublicName);
     final definition = LaunchInstance(
       id: identity,
       name: name.trim(),
-      publicName: publicName,
+      publicName: selectedPublicName,
       artifactId: artifactId,
       engineId: engineId,
       configuration: configuration,
@@ -401,8 +406,13 @@ class LaunchInstances {
         definition,
       ]);
     } catch (_) {
-      if (previous == null) names.release('instance:$identity', publicName);
+      if (previous?.publicName != selectedPublicName) {
+        names.release('instance:$identity', selectedPublicName);
+      }
       rethrow;
+    }
+    if (previous != null && previous.publicName != selectedPublicName) {
+      names.release('instance:$identity', previous.publicName);
     }
     return definition;
   });

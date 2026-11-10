@@ -937,6 +937,7 @@ class _ParameterEditorState extends State<ParameterEditor> {
                       child: DropdownButton<String>(
                         key: const Key('drafter-mode'),
                         isExpanded: true,
+                        itemHeight: null,
                         value: d?.mode ?? '',
                         items: [
                           const DropdownMenuItem(
@@ -1074,6 +1075,24 @@ class _ParameterEditorState extends State<ParameterEditor> {
                 : null,
           ),
           if (widget.splashVisionUsesProjector)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                key: const Key('splash-vision-detect'),
+                onPressed:
+                    widget.enabled &&
+                        vision.enabled &&
+                        !widget.detectingSplashVision
+                    ? () => widget.onSplashVisionChanged?.call((
+                        enabled: true,
+                        projector: null,
+                      ))
+                    : null,
+                icon: const Icon(Icons.search, size: 18),
+                label: const Text('自动识别'),
+              ),
+            ),
+          if (widget.splashVisionUsesProjector)
             ParameterValueField(
               key: const Key('splash-vision-projector'),
               id: 'splash-vision-projector',
@@ -1083,7 +1102,7 @@ class _ParameterEditorState extends State<ParameterEditor> {
                 '视觉投影文件',
                 'vision',
                 ParameterKind.file,
-                help: '可手动选择配套的 GGUF mmproj。清空路径后重新自动识别。',
+                help: '自动识别后显示完整路径，也可手动选择配套的 GGUF mmproj。',
               ),
               value: vision.projector,
               disabled: !widget.enabled || !vision.enabled,

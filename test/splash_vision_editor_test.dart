@@ -18,6 +18,170 @@ import 'fixtures/parameter_editor_navigation.dart';
 import 'splash_engine_test.dart' show SplashRuntimeFixture;
 
 void main() {
+  for (final scenario in [
+    (
+      name: 'detects the projector',
+      existing: false,
+      initiallyEnabled: false,
+      projector: true,
+      rejected: false,
+    ),
+    (
+      name: 'uses text when absent',
+      existing: false,
+      initiallyEnabled: false,
+      projector: false,
+      rejected: false,
+    ),
+    (
+      name: 'uses text when rejected',
+      existing: false,
+      initiallyEnabled: false,
+      projector: true,
+      rejected: true,
+    ),
+    (
+      name: 'preserves an existing instance',
+      existing: true,
+      initiallyEnabled: false,
+      projector: true,
+      rejected: false,
+    ),
+    (
+      name: 'preserves an existing visual instance',
+      existing: true,
+      initiallyEnabled: true,
+      projector: true,
+      rejected: false,
+    ),
+  ]) {
+    testWidgets('new Splash instance vision ${scenario.name}', (tester) async {
+      tester.view.physicalSize = const Size(1400, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final (
+        fixture,
+        cpp,
+        catalog,
+        entry,
+        projector,
+      ) = (await tester.runAsync(() async {
+        final fixture = await SplashRuntimeFixture.create(ordinaryChat: false);
+        final cpp = LlamaEngine(
+          library: fixture.library,
+          installationDirectory: Directory('${fixture.root.path}/cpp'),
+        );
+        final catalog = EngineCatalog(
+          library: fixture.library,
+          officialEngine: cpp,
+          useRegistry: ModelUseRegistry(fixture.library),
+          splashIO: fixture.io,
+          registryFile: File('${fixture.root.path}/engines.json'),
+          runtimeEnabled: false,
+        );
+        final entry = await catalog.link(fixture.source.path);
+        final projector = File(
+          '${File(fixture.asset.files.single.path).parent.path}/mmproj-BF16.gguf',
+        );
+        if (scenario.projector) await projector.writeAsString('test projector');
+        return (fixture, cpp, catalog, entry, projector.path);
+      }))!;
+      addTearDown(
+        () => tester.runAsync(() async {
+          await tester.pumpWidget(const SizedBox.shrink());
+          await catalog.shutdown();
+          catalog.close();
+          cpp.close();
+          await fixture.close();
+        }),
+      );
+      var probes = 0;
+      fixture.io.beforePreparation = (request) async {
+        expect(request['probe_projector'], fixture.asset.files.single.path);
+        probes++;
+        if (scenario.rejected) throw StateError('incompatible projector');
+      };
+      EngineLaunchConfiguration? saved;
+      final variant = LocalModelVariant(
+        id: fixture.asset.id,
+        label: 'GGUF',
+        artifacts: [fixture.asset],
+      );
+      await tester.runAsync(() async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: ModelRunDialog(
+              catalog: catalog,
+              library: fixture.library,
+              modelPackage: LocalModelPackage(
+                directoryPath: fixture.source.path,
+                name: 'Vision target',
+                variants: [variant],
+                details: [],
+              ),
+              variant: variant,
+              initialEngineId: entry.id,
+              initialInstanceId: scenario.existing ? 'saved-instance' : null,
+              initialConfiguration: EngineLaunchConfiguration(
+                family: EngineFamily.splash,
+                drafter: const DrafterConfiguration(enabled: false),
+                splashVision: (
+                  enabled: scenario.initiallyEnabled,
+                  projector: null,
+                ),
+              ),
+              onSaveInstance: (_, _, _, configuration) async =>
+                  saved = configuration,
+            ),
+          ),
+        );
+        for (var i = 0; i < 120; i++) {
+          await tester.pump(const Duration(milliseconds: 16));
+          if (tester
+                  .widget<FilledButton>(find.widgetWithText(FilledButton, '保存'))
+                  .onPressed !=
+              null) {
+            break;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+      });
+      await selectParameterGroup(tester, '视觉输入');
+      final detected =
+          scenario.projector && !scenario.rejected && !scenario.existing;
+      final expected = scenario.initiallyEnabled || detected;
+      expect(
+        tester
+            .widget<SwitchListTile>(
+              find.byKey(const Key('splash-vision-enabled')),
+            )
+            .value,
+        expected,
+      );
+      expect(
+        tester
+            .widget<TextField>(
+              find.byKey(const Key('parameter-path:splash-vision-projector')),
+            )
+            .controller!
+            .text,
+        detected ? projector : '',
+      );
+      expect(probes, scenario.projector && !scenario.existing ? 1 : 0);
+      await tester.runAsync(() async {
+        await tester.tap(find.widgetWithText(FilledButton, '保存'));
+        await tester.pump();
+      });
+      expect(saved!.splashVision, (
+        enabled: expected,
+        projector: detected ? projector : null,
+      ));
+      expect(catalog.runtimeFor(entry.id).runtimeInstances, isEmpty);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets(
     'Splash vision editor switches from automatic to a picked GGUF and back',
     (tester) async {
@@ -98,33 +262,38 @@ void main() {
   );
 
   testWidgets(
-    'Splash selects and saves the detected projector and respects a manual choice during a probe',
+    'Splash decision vision remains editable with engines off and saves the detected projector',
     (tester) async {
       tester.view.physicalSize = const Size(1400, 1000);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
-      final (fixture, catalog, cpp, entry, automatic) = (await tester.runAsync(
-        () async {
-          final fixture = await SplashRuntimeFixture.create();
-          final cpp = LlamaEngine(
-            library: fixture.library,
-            installationDirectory: Directory('${fixture.root.path}/cpp'),
-          );
-          final catalog = EngineCatalog(
-            library: fixture.library,
-            officialEngine: cpp,
-            useRegistry: ModelUseRegistry(fixture.library),
-            splashIO: fixture.io,
-            registryFile: File('${fixture.root.path}/engines.json'),
-          );
-          final entry = await catalog.link(fixture.source.path);
-          final folder = File(fixture.asset.files.single.path).parent;
-          final file = await File('${folder.path}/model-mmproj-BF16.gguf')
-              .writeAsString('test projector');
-          return (fixture, catalog, cpp, entry, file.path);
-        },
-      ))!;
+      final (
+        fixture,
+        catalog,
+        cpp,
+        entry,
+        automatic,
+      ) = (await tester.runAsync(() async {
+        final fixture = await SplashRuntimeFixture.create(ordinaryChat: false);
+        final cpp = LlamaEngine(
+          library: fixture.library,
+          installationDirectory: Directory('${fixture.root.path}/cpp'),
+        );
+        final catalog = EngineCatalog(
+          library: fixture.library,
+          officialEngine: cpp,
+          useRegistry: ModelUseRegistry(fixture.library),
+          splashIO: fixture.io,
+          registryFile: File('${fixture.root.path}/engines.json'),
+          runtimeEnabled: false,
+        );
+        final entry = await catalog.link(fixture.source.path);
+        final folder = File(fixture.asset.files.single.path).parent;
+        final file = await File('${folder.path}/model-mmproj-BF16.gguf')
+            .writeAsString('test projector');
+        return (fixture, catalog, cpp, entry, file.path);
+      }))!;
       addTearDown(
         () => tester.runAsync(() async {
           await tester.pumpWidget(const SizedBox.shrink());
@@ -179,6 +348,7 @@ void main() {
               ),
               variant: variant,
               initialEngineId: entry.id,
+              initialInstanceId: 'saved-instance',
               initialConfiguration: EngineLaunchConfiguration(
                 family: EngineFamily.splash,
                 drafter: const DrafterConfiguration(enabled: false),
@@ -212,7 +382,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(pathValue(), manual);
       await tester.runAsync(() async {
-        await tester.enterText(path, '');
+        await tester.tap(find.byKey(const Key('splash-vision-detect')));
         await waitFor(() => pathValue() == automatic);
         await tester.tap(save);
         await waitFor(() => saved != null);

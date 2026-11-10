@@ -45,6 +45,8 @@ class ModelRunDialog extends StatefulWidget {
     this.initialEngineId,
     this.initialConfiguration,
     this.initialName,
+    this.initialModelName,
+    this.onModelNameChanged,
     this.initialSplashAssembly,
     this.initialInstanceId,
     this.onSaveInstance,
@@ -58,6 +60,8 @@ class ModelRunDialog extends StatefulWidget {
   final String? initialEngineId;
   final EngineLaunchConfiguration? initialConfiguration;
   final String? initialName;
+  final String? initialModelName;
+  final ValueChanged<String>? onModelNameChanged;
   final String? initialInstanceId;
   final Directory? initialSplashAssembly;
   final List<({String label, int? before, int? after})> Function(
@@ -82,6 +86,9 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
   late final _instanceName = TextEditingController(
     text: widget.initialName ?? _package.name,
   );
+  late final _modelName = TextEditingController(
+    text: widget.initialModelName ?? '',
+  );
   final _drafts =
       <
         String,
@@ -101,6 +108,7 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
   final _argumentText = TextEditingController();
   DrafterConfiguration? _drafter;
   SplashVision _splashVision = (enabled: false, projector: null);
+  final _visionDefaultsChecked = <String>{};
   int _visionDetectionGeneration = 0;
   bool _detectingVision = false;
   String? _visionDetectionError;
@@ -166,6 +174,7 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
     unawaited(_catalogChanges?.cancel());
     _testCancellation?.cancel();
     _instanceName.dispose();
+    _modelName.dispose();
     _argumentText.dispose();
     super.dispose();
   }
@@ -209,7 +218,7 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
         _preview = preview;
         _loading = false;
       });
-      unawaited(_detectVisionProjector());
+      unawaited(_detectVision(initialize: true));
     } catch (error) {
       if (mounted) {
         setState(() {
@@ -303,7 +312,7 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
     } finally {
       if (mounted) {
         setState(() => _loading = false);
-        unawaited(_detectVisionProjector());
+        unawaited(_detectVision(initialize: true));
       }
     }
   }
@@ -314,34 +323,52 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
       _detectingVision = false;
       _visionDetectionError = null;
     });
-    unawaited(_detectVisionProjector());
+    unawaited(_detectVision());
   }
 
-  Future<void> _detectVisionProjector() async {
+  Future<void> _detectVision({bool initialize = false}) async {
     final generation = ++_visionDetectionGeneration;
     final engineId = _engineId;
     final asset = _configurationAsset;
-    if (!_splashVision.enabled ||
-        _splashVision.projector != null ||
-        _defaults?.family != EngineFamily.splash ||
+    if (initialize && widget.initialInstanceId != null) return;
+    if (_defaults?.family != EngineFamily.splash ||
         engineId == null ||
         asset == null ||
-        asset.format != 'GGUF' ||
-        asset.kind == AssetKind.decision) {
+        asset.kind == AssetKind.embedding) {
+      return;
+    }
+    final useDefault =
+        initialize &&
+        widget.onSaveInstance != null &&
+        _visionDefaultsChecked.add('$engineId/${asset.id}') &&
+        !_splashVision.enabled;
+    if (!useDefault &&
+        (!_splashVision.enabled ||
+            _splashVision.projector != null ||
+            asset.format != 'GGUF')) {
       return;
     }
     setState(() => _detectingVision = true);
     try {
       final runtime = widget.catalog.runtimeFor(engineId) as SplashEngine;
-      final path = await runtime.detectVisionProjector(asset);
+      final vision = useDefault
+          ? await runtime.detectVision(asset)
+          : (
+              enabled: true,
+              projector: await runtime.detectVisionProjector(asset),
+            );
       if (!mounted || generation != _visionDetectionGeneration) return;
-      setState(() => _splashVision = (enabled: true, projector: path));
+      setState(() => _splashVision = vision);
     } catch (error) {
       if (!mounted || generation != _visionDetectionGeneration) return;
       setState(() {
-        _visionDetectionError = error is StateError
-            ? error.message.toString()
-            : '无法自动识别视觉投影文件，请手动选择。';
+        if (useDefault) {
+          _splashVision = (enabled: false, projector: null);
+        } else {
+          _visionDetectionError = error is StateError
+              ? error.message.toString()
+              : '无法自动识别视觉投影文件，请手动选择。';
+        }
       });
     } finally {
       if (mounted && generation == _visionDetectionGeneration) {
@@ -578,7 +605,7 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
                         style: theme.textTheme.titleLarge,
                       ),
                     ),
-                    if (_loading)
+                    if (_loading || _detectingVision)
                       const SizedBox(
                         width: 18,
                         height: 18,
@@ -606,16 +633,17 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
                         key: ValueKey('instance-engine:$_engineId'),
                         initialValue: _engineId,
                         isExpanded: true,
+                        isDense: false,
                         decoration: const InputDecoration(labelText: '推理引擎'),
-                        itemHeight: 58,
+                        itemHeight: null,
                         selectedItemBuilder: (context) => [
                           for (final e in entries)
                             Align(
                               alignment: Alignment.centerLeft,
                               child: Text(
                                 '${engineDisplayName(e)} · ${engineVersionLabel(e.version)}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                                softWrap: true,
+                                overflow: TextOverflow.visible,
                                 style: theme.textTheme.bodyMedium,
                               ),
                             ),
@@ -625,18 +653,21 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
                             DropdownMenuItem(
                               value: e.id,
                               child: Column(
+                                mainAxisSize: MainAxisSize.min,
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
                                     engineDisplayName(e),
-                                    overflow: TextOverflow.ellipsis,
+                                    softWrap: true,
+                                    overflow: TextOverflow.visible,
                                     style: theme.textTheme.bodyMedium,
                                   ),
                                   const SizedBox(height: 3),
                                   Text(
                                     '${engineVersionLabel(e.version)} · ${engineSourceLabel(e)}',
-                                    overflow: TextOverflow.ellipsis,
+                                    softWrap: true,
+                                    overflow: TextOverflow.visible,
                                     style: theme.textTheme.bodySmall,
                                   ),
                                 ],
@@ -657,6 +688,8 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
                               ? asset?.id
                               : null,
                           isExpanded: true,
+                          isDense: false,
+                          itemHeight: null,
                           decoration: const InputDecoration(labelText: '目标模型'),
                           items: [
                             for (final a in choices)
@@ -664,7 +697,8 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
                                 value: a.id,
                                 child: Text(
                                   a.name,
-                                  overflow: TextOverflow.ellipsis,
+                                  softWrap: true,
+                                  overflow: TextOverflow.visible,
                                 ),
                               ),
                           ],
@@ -678,6 +712,20 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
                     ],
                   ],
                 ),
+                if (widget.initialModelName != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: TextField(
+                      key: const Key('launch-model-name'),
+                      controller: _modelName,
+                      onChanged: widget.onModelNameChanged,
+                      enabled: !busy,
+                      decoration: const InputDecoration(
+                        labelText: '模型名字',
+                        helperText: '客户端使用的 model 名字。修改后请同步更新客户端配置。',
+                      ),
+                    ),
+                  ),
                 if (choices == null)
                   Padding(
                     padding: const EdgeInsets.only(top: 9),
@@ -704,13 +752,11 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
                           initialDrafter: _baseline?.drafter,
                           splashVision:
                               draft.family == EngineFamily.splash &&
-                                  (!decisionModel || _splashVision.enabled) &&
                                   asset.kind != AssetKind.embedding
                               ? _splashVision
                               : null,
                           initialSplashVision:
                               draft.family == EngineFamily.splash &&
-                                  (!decisionModel || _splashVision.enabled) &&
                                   asset.kind != AssetKind.embedding
                               ? _baseline?.splashVision
                               : null,

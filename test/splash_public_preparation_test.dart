@@ -70,6 +70,119 @@ def prepare_local_model(target, draft=None, *, mmproj=None, language_only=False,
 ''';
 
 void main() {
+  test(
+    'Splash detects the native MLX vision tower without preparing a model',
+    () async {
+      final fixture = await _fixture();
+      addTearDown(fixture.close);
+      final directory = await Directory('${fixture.root.path}/mlx').create();
+      final weights = await File('${directory.path}/model.safetensors')
+          .writeAsString('fixture');
+      final config = File('${directory.path}/config.json');
+      await File('${fixture.source.path}/install/hub.py').writeAsString('''
+class Repository:
+    @staticmethod
+    def local_directory(path): return path
+''');
+      await File('${fixture.source.path}/install/upstream.py').writeAsString('''
+import json
+from types import SimpleNamespace
+def mlx_target(repo, language_only):
+    assert language_only is False
+    config = json.loads((repo / 'config.json').read_text())
+    if config.get('failure'): raise ValueError('no compatible vision tower')
+    return SimpleNamespace(vision_format=config['vision_format'])
+''');
+      final asset = LibraryArtifact(
+        id: 'mlx',
+        files: [
+          LibraryFile(path: weights.path, sizeBytes: await weights.length()),
+        ],
+        format: 'Safetensors',
+        kind: AssetKind.chat,
+        integrity: AssetIntegrity.unknown,
+        engineCapability: EngineCapability.awaitingVerification,
+      );
+      Future<SplashVision> detect() => detectSplashVision(
+        io: NativeEngineProcessIO(),
+        python: File(Platform.environment['GMD_TEST_PYTHON']!),
+        engine: fixture.source,
+        artifact: asset,
+      );
+      for (final format in ['safetensors', 'none']) {
+        await config.writeAsString(jsonEncode({'vision_format': format}));
+        expect(await detect(), (
+          enabled: format == 'safetensors',
+          projector: null,
+        ));
+      }
+      await config.writeAsString('{"failure":true}');
+      await expectLater(
+        detect(),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'native error',
+            contains('no compatible vision tower'),
+          ),
+        ),
+      );
+      expect(
+        await File('${fixture.source.path}/public-call.json').exists(),
+        isFalse,
+      );
+      expect(
+        await Directory('${fixture.root.path}/public-models').exists(),
+        isFalse,
+      );
+    },
+  );
+
+  test(
+    'Splash decision instances prepare and load the selected visual projector',
+    () async {
+      final fixture = await _fixture(
+        ordinaryChat: false,
+        mode: {'family': 'H2O-Lightning-4B'},
+      );
+      addTearDown(fixture.close);
+      final projector = await File('${fixture.root.path}/chosen-mmproj.gguf')
+          .writeAsString('vision fixture');
+      final config = EngineLaunchConfiguration(
+        family: EngineFamily.splash,
+        drafter: const DrafterConfiguration(enabled: false),
+        splashVision: (enabled: true, projector: projector.path),
+      );
+      final engine = SplashEngine(
+        installation: fixture.installation,
+        library: fixture.library,
+        useRegistry: ModelUseRegistry(fixture.library),
+        io: _PublicProcessIO(fixture.io),
+        runtimeDirectory: Directory(
+          '${fixture.root.path}/decision-vision-runtime',
+        ),
+        configurationFor: (_) => config,
+        saveBinding: (_) async {},
+      );
+      addTearDown(engine.close);
+      addTearDown(engine.shutdown);
+      fixture.io.monitorStatus = {
+        'vision': true,
+        'input_modalities': ['text', 'image'],
+      };
+      final run = await engine.startWithConfiguration(
+        fixture.asset.id,
+        config,
+        launchInstanceId: 'visual-decision',
+      );
+      expect(run.status, RuntimeInstanceStatus.ready);
+      expect(run.inputModalities, ['text', 'image']);
+      expect(engine.actualVisionFor('visual-decision'), projector.path);
+      expect((await _call(fixture))['language_only'], isFalse);
+      expect((await _call(fixture))['mmproj'], projector.path);
+    },
+  );
+
   test('Splash vision detects a projector, accepts manual override and reports loaded images', () async {
     final fixture = await _fixture();
     addTearDown(fixture.close);
@@ -568,8 +681,12 @@ def select_vision(files):
 
 Future<SplashRuntimeFixture> _fixture({
   Map<String, Object?> mode = const {},
+  bool ordinaryChat = true,
 }) async {
-  final f = await SplashRuntimeFixture.create(helpOutput: splash14Help);
+  final f = await SplashRuntimeFixture.create(
+    helpOutput: splash14Help,
+    ordinaryChat: ordinaryChat,
+  );
   await File('${f.source.path}/install/__init__.py').writeAsString('');
   await File('${f.source.path}/install/gguf.py')
       .writeAsString('raise RuntimeError("LEGACY FALLBACK")');

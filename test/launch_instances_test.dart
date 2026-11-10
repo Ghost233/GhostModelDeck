@@ -18,6 +18,43 @@ import 'splash_engine_test.dart' show SplashRuntimeFixture;
 import 'fixtures/council_runtime.dart';
 
 void main() {
+  test('saving model names rolls back reservations on failure and releases the previous name on success', () async {
+    final runtime = await CouncilRuntime.create(
+      modelCount: 1,
+      sourceSystemone: true,
+    );
+    addTearDown(runtime.close);
+    final store = LaunchInstances(
+      catalog: runtime.catalog,
+      file: File('${runtime.root.path}/rename-save.json'),
+    );
+    addTearDown(store.close);
+    final asset = runtime.library.state.artifacts.single;
+    Future<LaunchInstance> save({String? id, required String publicName}) =>
+        store.save(
+          id: id,
+          name: 'Editable model',
+          publicName: publicName,
+          artifactId: asset.id,
+          engineId: EngineCatalog.officialId,
+          configuration: EngineLaunchConfiguration(),
+        );
+    final original = await save(publicName: 'original');
+    final obstruction = await Directory('${store.file.path}.tmp').create();
+    await expectLater(
+      save(id: original.id, publicName: 'desired'),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect(store.find(original.id)!.publicName, 'original');
+    await obstruction.delete();
+    final other = await save(publicName: 'desired');
+    expect(other.publicName, 'desired');
+    await expectLater(save(publicName: 'original'), throwsA(isA<StateError>()));
+    final renamed = await save(id: original.id, publicName: 'final-name');
+    expect(renamed.publicName, 'final-name');
+    expect((await save(publicName: 'original')).publicName, 'original');
+  });
+
   for (final observed in <int?>[4096, null]) {
     test(
       'applied context uses ${observed ?? 'successful configuration fallback'} and survives pending save and reopen',

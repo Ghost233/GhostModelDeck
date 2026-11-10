@@ -88,13 +88,12 @@ class _ParameterValueFieldState extends State<ParameterValueField> {
   @override
   void didUpdateWidget(ParameterValueField old) {
     super.didUpdateWidget(old);
-    final filledFile =
-        d.kind == ParameterKind.file &&
-        old.value == null &&
-        _text.text.trim().isEmpty;
+    final path =
+        d.kind == ParameterKind.file || d.kind == ParameterKind.directory;
     if (old.value != widget.value &&
-        (!_focus.hasFocus || widget.disabled || filledFile)) {
-      _text.text = _display(widget.value);
+        (!_focus.hasFocus || widget.disabled || path)) {
+      final text = _display(widget.value);
+      if (_text.text != text) _text.text = text;
       _readQuantity();
     }
   }
@@ -168,6 +167,7 @@ class _ParameterValueFieldState extends State<ParameterValueField> {
         child: DropdownButton<String>(
           key: Key('parameter-choice:${widget.id}'),
           isExpanded: true,
+          itemHeight: null,
           value: selected,
           items: [
             for (final row in rows)
@@ -175,8 +175,8 @@ class _ParameterValueFieldState extends State<ParameterValueField> {
                 value: row.$1,
                 child: Text(
                   row.$2,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+                  softWrap: true,
+                  overflow: TextOverflow.visible,
                 ),
               ),
           ],

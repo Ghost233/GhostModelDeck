@@ -200,6 +200,7 @@ class _InstancesPageState extends State<InstancesPage> {
       label: '${selectedAsset.format} · ${selectedAsset.quantization ?? ''}',
       artifacts: [selectedAsset],
     );
+    var modelName = existing?.publicName;
     await showDialog<void>(
       context: context,
       builder: (_) => ModelRunDialog(
@@ -216,6 +217,8 @@ class _InstancesPageState extends State<InstancesPage> {
         initialEngineId: existing?.engineId,
         initialConfiguration: existing?.configuration,
         initialName: existing?.name,
+        initialModelName: existing?.publicName,
+        onModelNameChanged: (value) => modelName = value,
         initialInstanceId: existing?.id,
         initialSplashAssembly: existing?.splashAssembly == null
             ? null
@@ -235,6 +238,7 @@ class _InstancesPageState extends State<InstancesPage> {
             artifactId: model.id,
             engineId: engine,
             configuration: configuration,
+            publicName: modelName,
           );
         },
       ),
