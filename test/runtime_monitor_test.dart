@@ -295,15 +295,19 @@ void main() {
     expect(monitor.targets(), isEmpty);
     expect(runtime.io.requests, isEmpty);
   });
-  test('Splash inference slots come from the native memory plan and never the HTTP admission limit', () {
+  test('Splash inference slots respect the HTTP admission limit', () {
     final status = splashStatus();
-    status['memory_plan'] = {
-      'budget': {'maximum_batch_width': 4},
-    };
-    status['http'] = {
-      'requests': {'capacity': 256},
-    };
+    for (final (admission, expected) in [(2, 2), (4, 4), (256, 4), (0, 4)]) {
+      status['http'] = {
+        'requests': {'capacity': admission},
+      };
+      expect(RuntimeTelemetry.splash(status).capacity, expected);
+    }
+    status.remove('http');
     expect(RuntimeTelemetry.splash(status).capacity, 4);
+    status['http'] = {
+      'requests': {'capacity': 2},
+    };
     status.remove('memory_plan');
     expect(RuntimeTelemetry.splash(status).capacity, isNull);
   });

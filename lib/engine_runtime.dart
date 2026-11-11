@@ -85,7 +85,7 @@ class RuntimeInstance {
   final RuntimeCapacity? capacity;
   final List<String>? inputModalities;
 
-  /// Native execution slots, separate from HTTP request admission capacity.
+  /// Maximum simultaneous execution, bounded by request admission when known.
   final int? inferenceConcurrency;
 }
 

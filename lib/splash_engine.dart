@@ -1763,14 +1763,7 @@ class SplashEngine
     final http = status['http'];
     final requests = http is Map ? http['requests'] : null;
     final slots = requests is Map ? requests['capacity'] : null;
-    final plan = status['memory_plan'];
-    final nativeBudget = plan is Map ? plan['budget'] : null;
-    final nativeSlots = nativeBudget is Map
-        ? nativeBudget['maximum_batch_width']
-        : null;
-    run.inferenceConcurrency = nativeSlots is int && nativeSlots > 0
-        ? nativeSlots
-        : null;
+    run.inferenceConcurrency = RuntimeTelemetry.splashInferenceCapacity(status);
     run.capacity = context is int && context > 0 && slots is int && slots > 0
         ? RuntimeCapacity(contextPerSlot: context, slotCount: slots)
         : null;

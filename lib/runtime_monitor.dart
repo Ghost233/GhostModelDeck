@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'engine_runtime.dart';
 
@@ -70,6 +71,17 @@ class RuntimeTelemetry {
   final List<RequestProgress> requests;
   final String? notice;
 
+  static int? splashInferenceCapacity(Map<String, Object?> status) {
+    final budget = _map(_map(status['memory_plan'])['budget']);
+    final nativeSlots = _int(budget['maximum_batch_width']);
+    if (nativeSlots == null || nativeSlots == 0) return null;
+    final requests = _map(_map(status['http'])['requests']);
+    final admissionLimit = _int(requests['capacity']);
+    return admissionLimit != null && admissionLimit > 0
+        ? math.min(nativeSlots, admissionLimit)
+        : nativeSlots;
+  }
+
   factory RuntimeTelemetry.splash(Object? value) {
     final row = _map(value);
     final transport = _map(row['transport']);
@@ -79,7 +91,6 @@ class RuntimeTelemetry {
     final scheduler = _map(row['scheduler']);
     final metrics = _map(row['metrics']);
     final totals = _map(row['requests']);
-    final plan = _map(_map(row['memory_plan'])['budget']);
     final encoder = _map(row['telemetry']);
     final isEncoder =
         row['generation'] == false ||
@@ -124,7 +135,7 @@ class RuntimeTelemetry {
       prefillGpuSeconds: isEncoder
           ? _number(encoder['total_prefill_gpu_seconds'])
           : null,
-      capacity: isEncoder ? null : _int(plan['maximum_batch_width']),
+      capacity: isEncoder ? null : splashInferenceCapacity(row),
       scoringBatchCapacity:
           isEncoder && scoringBatchCapacity != null && scoringBatchCapacity > 0
           ? scoringBatchCapacity

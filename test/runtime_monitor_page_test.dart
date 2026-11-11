@@ -16,7 +16,7 @@ import 'package:ghost_model_deck/runtime_monitor.dart';
 
 import 'fixtures/test_environment.dart';
 import 'runtime_monitor_test.dart'
-    show target, TestMonitorSource, encoderStatus;
+    show target, TestMonitorSource, encoderStatus, splashStatus;
 
 void main() {
   setUpAll(() async {
@@ -304,6 +304,32 @@ void main() {
             find.descendant(of: slots, matching: find.text('空闲')),
             findsNWidgets(3),
           );
+          source.response = RuntimeTelemetry.splash({
+            ...splashStatus(),
+            'http': {
+              'requests': {'capacity': 2},
+            },
+            'active_requests': [
+              {'id': 1, 'phase': 'prefill'},
+              {'id': 2, 'phase': 'waiting_resources'},
+            ],
+            'scheduler': {
+              'prefilling': 1,
+              'waiting_resources': 1,
+              'queued': 0,
+              'waiting_prefix': 0,
+              'waiting_mask': 0,
+            },
+          });
+          await controller.refresh();
+          await tester.pump();
+          for (final label in ['并发 2', 'prefill', '空闲', '排队 1']) {
+            expect(
+              find.descendant(of: slots, matching: find.text(label)),
+              findsOneWidget,
+            );
+          }
+          expect(find.byKey(const Key('monitor-slot:0:2')), findsNothing);
           source.response = RuntimeTelemetry.splash(
             encoderStatus(
               inputTokens: 285,
@@ -374,7 +400,10 @@ void main() {
             findsOneWidget,
           );
           final task = find.byKey(const Key('monitor-task:0:41'));
-          expect(find.descendant(of: task, matching: find.text('评分中')), findsOneWidget);
+          expect(
+            find.descendant(of: task, matching: find.text('评分中')),
+            findsOneWidget,
+          );
           expect(
             find.descendant(of: task, matching: find.text('输入 8192 token')),
             findsOneWidget,
@@ -384,7 +413,10 @@ void main() {
             find.descendant(of: slots, matching: find.text('评分批量 4')),
             findsOneWidget,
           );
-          expect(find.descendant(of: slots, matching: find.text('排队')), findsOneWidget);
+          expect(
+            find.descendant(of: slots, matching: find.text('排队')),
+            findsOneWidget,
+          );
           expect(
             find.descendant(of: slots, matching: find.text('空闲')),
             findsAtLeastNWidgets(1),
