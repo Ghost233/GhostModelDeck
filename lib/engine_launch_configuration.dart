@@ -332,6 +332,12 @@ class EngineLaunchConfiguration {
         validateSupport &&
         family == EngineFamily.splash &&
         !rules.recognizes('--experimental-quantized-ffn');
+    final unsupportedActivations =
+        validateSupport &&
+        family == EngineFamily.splash &&
+        !rules.supportsSplashActivations;
+    const activationsNotice =
+        '当前 Splash 引擎帮助未确认支持 --activations；保留设置，本次启动使用引擎默认激活精度。';
     String? unsupportedQuantizedFfnTextValue;
     void checkQuantizedFfn(String? value) {
       if (value != 'off') {
@@ -349,6 +355,16 @@ class EngineLaunchConfiguration {
       final argument = tokens[index].value;
       final name = argument.split('=').first;
       var controlled = controlledName(name);
+      if (unsupportedActivations && controlled == '--activations') {
+        overridden.add(controlled);
+        notices.add(activationsNotice);
+        if (!argument.contains('=') &&
+            index + 1 < tokens.length &&
+            _isValue(tokens[index + 1])) {
+          index++;
+        }
+        continue;
+      }
       if (rules.isRetiredSplashMemoryOption(controlled)) {
         notices.add('$name 已由 Splash 统一内存规划替代；原配置保留，不传递此参数。');
         if (!argument.contains('=') &&
@@ -496,6 +512,13 @@ class EngineLaunchConfiguration {
         continue;
       }
       if (overridden.contains(entry.key) || entry.value.isEmpty) continue;
+      if (family == EngineFamily.splash && entry.key == '--activations') {
+        if (entry.value == 'auto') continue;
+        if (unsupportedActivations) {
+          notices.add(activationsNotice);
+          continue;
+        }
+      }
       if (unsupportedQuantizedFfn &&
           entry.key == '--experimental-quantized-ffn') {
         checkQuantizedFfn(entry.value);
@@ -559,6 +582,9 @@ class EngineLaunchConfiguration {
               !rules.isRetiredSplashMemoryOption(name) &&
               !(unsupportedQuantizedFfn &&
                   name == '--experimental-quantized-ffn') &&
+              !(family == EngineFamily.splash &&
+                  name == '--activations' &&
+                  (unsupportedActivations || formValues[name] == 'auto')) &&
               !managedForm(name) &&
               (formValues[name]?.isNotEmpty ?? false) &&
               !(definitions[name]?.group == 'draft' &&
@@ -663,6 +689,9 @@ class EngineLaunchConfiguration {
       } else if (name == '--kv-format' &&
           !['int8', 'bf16', 'q4h', 'q4_0', 'q4_0_unrotated'].contains(value)) {
         return '$name 不属于当前内置格式，仍保留并交由引擎判断。';
+      } else if (name == '--activations' &&
+          !const ['auto', 'bf16'].contains(value)) {
+        return '$name 支持 auto 或 bf16，仍保留并交由引擎判断。';
       } else if (name == '--queue-size' &&
           (!RegExp(r'^[+]?\d+$').hasMatch(value.trim()) ||
               (int.tryParse(value) ?? 0) <= 0)) {

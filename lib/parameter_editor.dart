@@ -9,6 +9,7 @@ import 'engine_parameter_definitions.dart';
 import 'engine_parameter_recognition.dart';
 import 'engine_runtime.dart';
 import 'generation_configuration.dart';
+import 'model_library.dart';
 import 'parameter_value_field.dart';
 
 const _generationFields = <EngineParameterDefinition>[
@@ -516,6 +517,7 @@ class ParameterEditor extends StatefulWidget {
     this.decisionModel = false,
     this.legacyDrafter = false,
     this.splashVision,
+    this.splashModel,
     this.initialSplashVision,
     this.splashVisionUsesProjector = false,
     this.detectingSplashVision = false,
@@ -542,6 +544,7 @@ class ParameterEditor extends StatefulWidget {
   final Widget? argumentEditor;
   final bool enabled, showGeneration, showDrafter, decisionModel, legacyDrafter;
   final SplashVision? splashVision, initialSplashVision;
+  final LibraryArtifact? splashModel;
   final bool splashVisionUsesProjector;
   final bool detectingSplashVision;
   final String? splashVisionDetectionError;
@@ -568,6 +571,7 @@ class _ParameterEditorState extends State<ParameterEditor> {
       EngineParameterDefinitions.forEngine(
         widget.family,
         recognition: widget.recognition,
+        splashModel: widget.splashModel,
       );
   Map<String, String> get _groups => {
     if (widget.showGeneration)
@@ -775,6 +779,8 @@ class _ParameterEditorState extends State<ParameterEditor> {
     }
     final disabled =
         !widget.enabled ||
+        f.name == '--activations' &&
+            widget.recognition?.supportsSplashActivations != true ||
         f.name == '--experimental-quantized-ffn' &&
             widget.recognition?.recognizes(f.name) != true ||
         f.managed ||
@@ -804,6 +810,9 @@ class _ParameterEditorState extends State<ParameterEditor> {
           onChanged: (v) => _setForm(f.name, v),
         ),
         if (notice != null) _notice(notice),
+        if (f.name == '--activations' &&
+            widget.recognition?.supportsSplashActivations != true)
+          _notice('当前引擎帮助未确认支持激活精度设置。'),
         if (f.name == '--experimental-quantized-ffn') ...[
           if (widget.recognition?.recognizes(f.name) != true) ...[
             _notice('当前引擎不支持或尚未确认支持实验性量化 FFN，不传递此参数。'),

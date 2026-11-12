@@ -16,6 +16,16 @@ String splashModelName(LibraryArtifact artifact) {
       'local/${name.length > 80 ? name.substring(0, 80) : name}';
 }
 
+bool usesSplashQ4hLauncherDefault(LibraryArtifact artifact) =>
+    artifact.hasSplashPleTable ||
+    (artifact.format == 'GGUF' &&
+        artifact.architecture == 'qwen35moe' &&
+        artifact.files.any(
+          (file) => file.realPath.toLowerCase().endsWith(
+            '/axion-1.0-35b.apex-i-miniplus-v2.1.gguf',
+          ),
+        ));
+
 /// Find local projector candidates without expanding into linked target folders.
 Future<List<String>> splashProjectorCandidates(
   LibraryArtifact asset,

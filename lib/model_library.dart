@@ -24,6 +24,7 @@ class LibraryArtifact {
     required this.integrity,
     required this.engineCapability,
     this.architecture,
+    this.attentionHeadDimension,
     this.quantization,
     this.decisionType,
     this.embeddingDimensions,
@@ -42,6 +43,9 @@ class LibraryArtifact {
   final AssetIntegrity integrity;
   final EngineCapability engineCapability;
   final String? architecture;
+  final int? attentionHeadDimension;
+
+  bool get hasSplashPleTable => format == 'GGUF' && architecture == 'qwen4exp';
 
   /// Configuration evidence only; neither tensor validation nor engine support.
   final String? quantization;
@@ -848,6 +852,7 @@ Future<List<LibraryArtifact>> _applyManifests(
         integrity: integrity,
         engineCapability: artifact.engineCapability,
         architecture: artifact.architecture,
+        attentionHeadDimension: artifact.attentionHeadDimension,
         quantization: artifact.quantization,
         decisionType: artifact.decisionType,
         embeddingDimensions: artifact.embeddingDimensions,
@@ -1920,6 +1925,7 @@ LibraryArtifact _ggufArtifact(List<_ScannedFile> files) {
   final metadata = first.inspection.metadata;
   final architectureValue = metadata['general.architecture'];
   final architecture = architectureValue is String ? architectureValue : null;
+  final attentionHeadDimension = metadata['$architecture.attention.key_length'];
   final decision = architecture == null
       ? null
       : metadata['$architecture.decision.type'];
@@ -2105,6 +2111,7 @@ LibraryArtifact _ggufArtifact(List<_ScannedFile> files) {
         [
           'qwen35',
           'qwen35moe',
+          'qwen4exp',
           'qwen2',
           'qwen3',
           'llama',
@@ -2141,6 +2148,9 @@ LibraryArtifact _ggufArtifact(List<_ScannedFile> files) {
     kind: kind,
     integrity: integrity,
     architecture: architecture,
+    attentionHeadDimension: attentionHeadDimension is int
+        ? attentionHeadDimension
+        : null,
     decisionType: decisionType,
     embeddingDimensions: embeddingDimensions,
     engineCapability: EngineCapability.awaitingVerification,

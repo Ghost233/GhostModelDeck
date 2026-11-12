@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'engine_parameter_recognition.dart';
 import 'engine_runtime.dart';
 import 'launch_argument_text.dart';
+import 'model_library.dart';
 
 enum ParameterKind {
   integer,
@@ -130,7 +131,7 @@ class EngineParameterDefinitions {
       'resources',
       ParameterKind.quantity,
       initial: 'auto',
-      help: '仅适用于 Qwen3.8-Flash-Next GGUF。auto 自动规划，指定容量时从 SSD 流式读取；off 加载整个表，可能占用数十 GB。',
+      help: '适用于带 PLE 表的模型。Splash 1.6.1 起，auto 使用 SSD 行缓存，上限约 237 MiB，内存紧张时降低。指定容量使用固定预算；off 将整张表加载进内存，可能占用数十 GB。',
     ),
     EngineParameterDefinition(
       '--expert-memory',
@@ -171,7 +172,16 @@ class EngineParameterDefinitions {
       'resources',
       ParameterKind.choice,
       choices: ['int8', 'bf16', 'q4h', 'q4_0', 'q4_0_unrotated'],
-      initial: 'int8',
+      help: '留空时由当前启动入口决定。Splash 通用入口默认 int8；q4h 使用更少的 KV 内存。',
+    ),
+    EngineParameterDefinition(
+      '--activations',
+      '激活精度',
+      'compute',
+      ParameterKind.choice,
+      choices: ['auto', 'bf16'],
+      initial: 'auto',
+      help: 'Splash 1.6.1 起支持。auto 在 M5 及更新芯片的受支持 GPU 路径使用 INT8，其余保持 BF16。bf16 始终使用 BF16。',
     ),
     EngineParameterDefinition(
       '--state-format',
@@ -941,18 +951,44 @@ class EngineParameterDefinitions {
   static List<EngineParameterDefinition> forEngine(
     EngineFamily family, {
     EngineParameterRecognition? recognition,
+    LibraryArtifact? splashModel,
   }) {
     final result = {
       for (final field in known(family))
-        if (recognition?.isRetiredSplashMemoryOption(field.name) != true)
+        if (recognition?.isRetiredSplashMemoryOption(field.name) != true &&
+            !(field.name == '--ple-memory' &&
+                splashModel?.hasSplashPleTable == false))
           field.name: field,
     };
+    final kv = result['--kv-format'];
+    if (family == EngineFamily.splash && kv != null) {
+      final kvHint = recognition?.descriptionFor(kv.name)?.valueHint ?? '';
+      final supportsQ4Zero =
+          splashModel?.format == 'GGUF' &&
+          const {'qwen35', 'qwen35moe'}.contains(splashModel?.architecture) &&
+          splashModel?.attentionHeadDimension == 256;
+      result[kv.name] = EngineParameterDefinition(
+        kv.name,
+        kv.label,
+        kv.group,
+        kv.kind,
+        choices: [
+          for (final choice in kv.choices)
+            if (!choice.startsWith('q4_0') ||
+                supportsQ4Zero &&
+                    kvHint.split(RegExp(r'[^a-z0-9_]+')).contains(choice))
+              choice,
+        ],
+        help: kv.help,
+      );
+    }
     if (recognition != null) {
       for (final entry in recognition.parameters.entries) {
         final name = recognition.canonicalName(entry.key);
         if (!name.startsWith('--') ||
             result.containsKey(name) ||
             _actions.contains(name) ||
+            name == '--ple-memory' && splashModel?.hasSplashPleTable == false ||
             _modelSources.contains(name) ||
             entry.value.description.contains('argument has been removed') ||
             name == '--spec-draft-p-split') {

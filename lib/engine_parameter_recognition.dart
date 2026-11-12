@@ -43,6 +43,9 @@ class EngineParameterRecognition {
   final List<String> notices;
   final Set<String> _observedNames;
 
+  bool get supportsSplashActivations =>
+      family == EngineFamily.splash && _observedNames.contains('--activations');
+
   /// A positive CLI anchor distinguishes the held-model interface from partial
   /// older help; built-in tokenizer rules remain for managed-input stripping.
   bool get usesSplashModelRootTokenizer =>
@@ -128,6 +131,7 @@ class EngineParameterRecognition {
     '--max-context': '最大上下文；auto 或正整数，可用 K（1024）或 M（1000000）',
     '--max-memory': '最大内存；auto 或容量，带 K/M/G 单位时支持小数',
     '--kv-format': 'KV 缓存格式：int8、bf16、q4h、q4_0 或 q4_0_unrotated',
+    '--activations': '激活精度：auto 或 bf16',
     '--queue-size': '同时接纳请求数，包含运行和等待的请求',
     '--help': '显示当前引擎帮助',
   };
@@ -325,6 +329,7 @@ class EngineParameterRecognition {
             .where(
               (name) =>
                   !observedNames.contains(name) &&
+                  name != '--activations' &&
                   !(family == EngineFamily.splash &&
                       name == '--tokenizer' &&
                       _splashModelRootTokenizer(observedNames)),

@@ -563,7 +563,10 @@ print(json.dumps(vars(p.parse_args())))
         );
         await HttpOverrides.runWithHttpOverrides(() async {
           final instance = await fixture.engine.start(fixture.asset.id);
-          expect(fixture.io.started.single.skip(8), preview.arguments.skip(8));
+          expect(
+            _llamaParameters(fixture.io.started.single),
+            _llamaParameters(preview.arguments),
+          );
           expect(
             fixture.io.started.single.sublist(
               fixture.io.started.single.length - 2,
@@ -597,7 +600,10 @@ print(json.dumps(vars(p.parse_args())))
       expect(preview.arguments, containsAllInOrder(['--parallel', '1']));
       await HttpOverrides.runWithHttpOverrides(() async {
         final instance = await fixture.engine.start(fixture.asset.id);
-        expect(fixture.io.started.last.skip(8), preview.arguments.skip(8));
+        expect(
+          _llamaParameters(fixture.io.started.last),
+          _llamaParameters(preview.arguments),
+        );
         await fixture.engine.stop(instance.id);
       }, _NetworkBoundary());
     }
@@ -625,7 +631,10 @@ print(json.dumps(vars(p.parse_args())))
     expect(preview.arguments, containsAllInOrder(['--ctx-size', '4096']));
     await HttpOverrides.runWithHttpOverrides(() async {
       final instance = await current.engine.start(current.asset.id);
-      expect(current.io.started.single.skip(8), preview.arguments.skip(8));
+      expect(
+        _llamaParameters(current.io.started.single),
+        _llamaParameters(preview.arguments),
+      );
       await current.engine.stop(instance.id);
     }, _NetworkBoundary());
   });
@@ -656,7 +665,10 @@ print(json.dumps(vars(p.parse_args())))
     await HttpOverrides.runWithHttpOverrides(() async {
       final instance = await fixture.engine.start(fixture.asset.id);
       expect(instance.status, LlamaInstanceStatus.ready);
-      expect(fixture.io.started.single.skip(8), preview.arguments.skip(8));
+      expect(
+        _llamaParameters(fixture.io.started.single),
+        _llamaParameters(preview.arguments),
+      );
       await fixture.engine.stop(instance.id);
     }, _NetworkBoundary());
   });
@@ -904,7 +916,10 @@ print(json.dumps(vars(p.parse_args())))
           await HttpOverrides.runWithHttpOverrides(() async {
             final instance = await fixture.engine.start(fixture.asset.id);
             expect(instance.status, LlamaInstanceStatus.ready);
-            expect(fixture.io.started.last.skip(8), before.arguments.skip(8));
+            expect(
+              _llamaParameters(fixture.io.started.last),
+              _llamaParameters(before.arguments),
+            );
             await fixture.engine.stop(instance.id);
           }, _NetworkBoundary());
         }
@@ -1002,7 +1017,10 @@ print(json.dumps(vars(p.parse_args())))
       await HttpOverrides.runWithHttpOverrides(() async {
         final instance = await fixture.engine.start(fixture.asset.id);
         expect(instance.status, LlamaInstanceStatus.ready);
-        expect(fixture.io.started.single.skip(8), after.arguments.skip(8));
+        expect(
+          _llamaParameters(fixture.io.started.single),
+          _llamaParameters(after.arguments),
+        );
         await fixture.engine.stop(instance.id);
       }, _NetworkBoundary());
       expect(fixture.io.helpBudgets, isNotEmpty);
@@ -1034,7 +1052,7 @@ print(json.dumps(vars(p.parse_args())))
         '--no-perf',
       );
       expect(preview.overriddenForm, isEmpty);
-      expect(preview.arguments.skip(8), [
+      expect(_llamaParameters(preview.arguments), [
         '--ctx-size',
         '4096',
         '--batch-size',
@@ -1057,7 +1075,10 @@ print(json.dumps(vars(p.parse_args())))
       ]);
       await HttpOverrides.runWithHttpOverrides(() async {
         final instance = await fixture.engine.start(fixture.asset.id);
-        expect(fixture.io.started.single.skip(8), preview.arguments.skip(8));
+        expect(
+          _llamaParameters(fixture.io.started.single),
+          _llamaParameters(preview.arguments),
+        );
         expect(instance.launchCommand!.arguments, fixture.io.started.single);
         await fixture.engine.stop(instance.id);
       }, _NetworkBoundary());
@@ -1431,7 +1452,10 @@ print(json.dumps(vars(p.parse_args())))
           final preview = await fixture.engine.previewLaunch(fixture.asset.id);
           final run = await fixture.engine.start(fixture.asset.id);
           expect(run.status, LlamaInstanceStatus.ready);
-          expect(preview.arguments.skip(8), fixture.io.started.single.skip(8));
+          expect(
+            _llamaParameters(preview.arguments),
+            _llamaParameters(fixture.io.started.single),
+          );
           expect(
             fixture.io.started.single,
             containsAllInOrder([
@@ -1519,7 +1543,7 @@ print(json.dumps(vars(p.parse_args())))
           );
           final instance = await fixture.engine.start(fixture.asset.id);
           expect(instance.status, LlamaInstanceStatus.ready);
-          expect(fixture.io.started.single.skip(8), [
+          expect(_llamaParameters(fixture.io.started.single), [
             '--batch-size',
             '4096',
             '--ubatch-size',
@@ -1538,7 +1562,10 @@ print(json.dumps(vars(p.parse_args())))
             '--no-perf',
           ]);
           expect(instance.launchCommand!.arguments, fixture.io.started.single);
-          expect(preview.arguments.skip(8), fixture.io.started.single.skip(8));
+          expect(
+            _llamaParameters(preview.arguments),
+            _llamaParameters(fixture.io.started.single),
+          );
           await fixture.engine.stop(instance.id);
         }, _NetworkBoundary()),
       );
@@ -1567,6 +1594,12 @@ const _currentHelp = '''----- common params -----
 -kvo, --kv-offload, -nkvo, --no-kv-offload
                                        whether to offload KV cache
 ''';
+
+Iterable<String> _llamaParameters(List<String> arguments) {
+  final portFlag = arguments.indexOf('--port');
+  expect(portFlag, greaterThanOrEqualTo(0));
+  return arguments.skip(portFlag + 2);
+}
 
 const _requiredFlatHelp =
     '--model --alias --host --port --ctx-size --batch-size --ubatch-size '

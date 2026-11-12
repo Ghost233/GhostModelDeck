@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'engine_catalog.dart';
 import 'engine_labels.dart';
 import 'splash_engine.dart';
+import 'splash_preparation.dart';
 import 'omlx_engine.dart';
 import 'engine_launch_configuration.dart';
 import 'engine_launch_editor.dart';
@@ -149,15 +150,24 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
         : widget.catalog.launchDefaultsFor(engineId);
     if (_defaults == null || asset == null) return;
     final remembered = _drafts['$engineId/${asset.id}'];
-    final config =
+    final saved =
         remembered?.configuration ??
         (widget.initialEngineId == engineId && widget.variant.id == _variant.id
             ? widget.initialConfiguration
-            : null) ??
+            : null);
+    final config =
+        saved ??
         (widget.onSaveInstance == null
             ? widget.catalog.launchConfigurationFor(engineId!, asset.id)
             : _defaults!);
     _formValues.addAll(config.formValues);
+    if (config.family == EngineFamily.splash &&
+        saved == null &&
+        widget.onSaveInstance != null &&
+        widget.initialInstanceId == null &&
+        usesSplashQ4hLauncherDefault(asset)) {
+      _formValues.putIfAbsent('--kv-format', () => 'q4h');
+    }
     _generationValues = Map<String, Object?>.from(config.generation.values);
     _baseline = config;
     _argumentText.text = config.argumentText;
@@ -750,6 +760,9 @@ class _ModelRunDialogState extends State<ModelRunDialog> {
                               _baseline?.generation.values ?? const {},
                           drafter: _drafter,
                           initialDrafter: _baseline?.drafter,
+                          splashModel: draft.family == EngineFamily.splash
+                              ? asset
+                              : null,
                           splashVision:
                               draft.family == EngineFamily.splash &&
                                   asset.kind != AssetKind.embedding

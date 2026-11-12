@@ -931,6 +931,18 @@ class SplashEngine
     final epoch = _startEpoch;
     final operation = _operations.then((_) async {
       if (_shuttingDown) throw const SplashEngineException('Splash正在退出');
+      final activation = configuration.argumentValue(
+        '--activations',
+        recognition: _installation.recognition,
+      );
+      if (activation != null && activation != 'auto') {
+        // Saved instances can start before any editor has read current help.
+        _installation = await inspectInstallation(
+          _installation.root,
+          io: io,
+          readParameters: true,
+        );
+      }
       final binding = await _prepareBindingWithLease(
         artifactId,
         configuration: configuration,
@@ -1083,9 +1095,12 @@ class SplashEngine
           );
           run.status = RuntimeInstanceStatus.failed;
           final details = run.stderr.toString();
-          run.error = details.isEmpty
+          final failure = run.exit == null
               ? '$error'
-              : '$error\n启动日志：${details.length > 4000 ? details.substring(details.length - 4000) : details}';
+              : 'Splash启动进程退出（状态 ${run.exit}）：$error';
+          run.error = details.isEmpty
+              ? failure
+              : '$failure\n启动日志：${details.length > 4000 ? details.substring(details.length - 4000) : details}';
           try {
             await _stopRun(run);
           } catch (cleanup) {
