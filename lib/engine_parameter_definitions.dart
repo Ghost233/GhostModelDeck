@@ -197,7 +197,7 @@ class EngineParameterDefinitions {
       'resources',
       ParameterKind.duration,
       initial: '10m',
-      help: 'off 或正时长；支持 s、m、h。',
+      help: '默认 10m。空闲达到设定时长后，Splash 会释放模型权重。下一条请求会自动重新加载权重，首 token 可能更慢。支持正时长（如 90s、5m、1h）和 off（关闭自动释放）。',
     ),
     EngineParameterDefinition(
       '--max-cache-disk',
@@ -982,6 +982,19 @@ class EngineParameterDefinitions {
         help: kv.help,
       );
     }
+    final activations = result['--activations'];
+    if (activations != null &&
+        recognition?.supportsSplashQ4hActivations == true) {
+      result[activations.name] = EngineParameterDefinition(
+        activations.name,
+        activations.label,
+        activations.group,
+        activations.kind,
+        choices: [...activations.choices, 'q4h'],
+        initial: activations.initial,
+        help: '${activations.help} Q4H 仅量化注意力查询向量（Q）。',
+      );
+    }
     if (recognition != null) {
       for (final entry in recognition.parameters.entries) {
         final name = recognition.canonicalName(entry.key);
@@ -1001,19 +1014,7 @@ class EngineParameterDefinitions {
             observed.names.contains('--${name.substring(5)}')) {
           continue;
         }
-        final choiceMatch = RegExp(
-          r'^\{([^}]+)\}$|^\[([^\]]+\|[^\]]+)\]$|^<([^>]+\|[^>]+)>$',
-        ).firstMatch(hint);
-        final choiceText =
-            choiceMatch?.group(1) ??
-            choiceMatch?.group(2) ??
-            choiceMatch?.group(3);
-        final choices =
-            choiceText
-                ?.split(RegExp(r'[,|]'))
-                .map((value) => value.trim())
-                .toList() ??
-            <String>[];
+        final choices = observed.explicitChoices;
         if (choices.isEmpty && ['MODE', 'TYPE'].contains(hint)) {
           choices.addAll(
             RegExp(r'(?:^|\s)- ([a-z0-9_+.-]+):')

@@ -332,12 +332,16 @@ class EngineLaunchConfiguration {
         validateSupport &&
         family == EngineFamily.splash &&
         !rules.recognizes('--experimental-quantized-ffn');
-    final unsupportedActivations =
-        validateSupport &&
-        family == EngineFamily.splash &&
-        !rules.supportsSplashActivations;
-    const activationsNotice =
-        '当前 Splash 引擎帮助未确认支持 --activations；保留设置，本次启动使用引擎默认激活精度。';
+    String? activationOmission(String? value) {
+      if (!validateSupport || family != EngineFamily.splash) return null;
+      if (value == 'q4h' && !rules.supportsSplashQ4hActivations) {
+        return '当前 Splash 引擎帮助未确认支持 --activations q4h。已保留原设置，本次启动省略该值。';
+      }
+      return rules.supportsSplashActivations
+          ? null
+          : '当前 Splash 引擎帮助未确认支持 --activations。已保留原设置，本次启动使用引擎默认激活精度。';
+    }
+
     String? unsupportedQuantizedFfnTextValue;
     void checkQuantizedFfn(String? value) {
       if (value != 'off') {
@@ -355,15 +359,24 @@ class EngineLaunchConfiguration {
       final argument = tokens[index].value;
       final name = argument.split('=').first;
       var controlled = controlledName(name);
-      if (unsupportedActivations && controlled == '--activations') {
-        overridden.add(controlled);
-        notices.add(activationsNotice);
-        if (!argument.contains('=') &&
+      if (controlled == '--activations') {
+        final separator = argument.indexOf('=');
+        final separateValue =
+            separator < 0 &&
             index + 1 < tokens.length &&
-            _isValue(tokens[index + 1])) {
-          index++;
+            _isValue(tokens[index + 1]);
+        final value = separator >= 0
+            ? argument.substring(separator + 1)
+            : separateValue
+            ? tokens[index + 1].value
+            : null;
+        final notice = activationOmission(value);
+        if (notice != null) {
+          overridden.add(controlled);
+          notices.add(notice);
+          if (separateValue) index++;
+          continue;
         }
-        continue;
       }
       if (rules.isRetiredSplashMemoryOption(controlled)) {
         notices.add('$name 已由 Splash 统一内存规划替代；原配置保留，不传递此参数。');
@@ -514,8 +527,9 @@ class EngineLaunchConfiguration {
       if (overridden.contains(entry.key) || entry.value.isEmpty) continue;
       if (family == EngineFamily.splash && entry.key == '--activations') {
         if (entry.value == 'auto') continue;
-        if (unsupportedActivations) {
-          notices.add(activationsNotice);
+        final notice = activationOmission(entry.value);
+        if (notice != null) {
+          notices.add(notice);
           continue;
         }
       }
@@ -584,7 +598,8 @@ class EngineLaunchConfiguration {
                   name == '--experimental-quantized-ffn') &&
               !(family == EngineFamily.splash &&
                   name == '--activations' &&
-                  (unsupportedActivations || formValues[name] == 'auto')) &&
+                  (formValues[name] == 'auto' ||
+                      activationOmission(formValues[name]) != null)) &&
               !managedForm(name) &&
               (formValues[name]?.isNotEmpty ?? false) &&
               !(definitions[name]?.group == 'draft' &&
@@ -690,8 +705,8 @@ class EngineLaunchConfiguration {
           !['int8', 'bf16', 'q4h', 'q4_0', 'q4_0_unrotated'].contains(value)) {
         return '$name 不属于当前内置格式，仍保留并交由引擎判断。';
       } else if (name == '--activations' &&
-          !const ['auto', 'bf16'].contains(value)) {
-        return '$name 支持 auto 或 bf16，仍保留并交由引擎判断。';
+          !const ['auto', 'bf16', 'q4h'].contains(value)) {
+        return '$name 的可选值以引擎帮助为准，仍保留并交由引擎判断。';
       } else if (name == '--queue-size' &&
           (!RegExp(r'^[+]?\d+$').hasMatch(value.trim()) ||
               (int.tryParse(value) ?? 0) <= 0)) {

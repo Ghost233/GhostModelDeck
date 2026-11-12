@@ -15,6 +15,7 @@ import 'package:ghost_model_deck/llama_engine.dart';
 
 import 'splash_engine_test.dart' show SplashRuntimeFixture;
 import 'fixtures/parameter_editor_navigation.dart';
+import 'fixtures/splash_help.dart';
 
 void main() {
   testWidgets(
@@ -45,7 +46,10 @@ void main() {
         ),
       );
       final (fixture, cpp, catalog) = (await tester.runAsync(() async {
-        final fixture = await SplashRuntimeFixture.create(compactHelp: true);
+        final fixture = await SplashRuntimeFixture.create(
+          helpOutput:
+              '$splashCurrentHelp\n  --activations {auto,bf16,q4h}  Activation precision\n',
+        );
         final cpp = LlamaEngine(
           library: fixture.library,
           installationDirectory: fixture.source,
@@ -118,6 +122,8 @@ void main() {
                 expect(configuration.family, EngineFamily.splash);
                 expect(configuration.drafter!.enabled, isTrue);
                 expect(configuration.formValues['--kv-format'], 'q4h');
+                expect(configuration.formValues['--activations'], 'q4h');
+                expect(configuration.formValues['--idle-release'], '90s');
                 expect(
                   configuration.drafter!.path,
                   '/model-library/explicit-drafter',
@@ -319,6 +325,39 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('q4h').last);
       await tester.pumpAndSettle();
+      final idleChoices = find.byKey(
+        const Key('parameter-choice:--idle-release'),
+      );
+      await Scrollable.ensureVisible(
+        tester.element(idleChoices),
+        alignment: .5,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(idleChoices);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('指定数值').last);
+      await tester.pumpAndSettle();
+      final idleAmount = find.byKey(
+        const Key('parameter-quantity:--idle-release'),
+      );
+      await tester.ensureVisible(idleAmount);
+      await tester.enterText(idleAmount, '90');
+      await tester.ensureVisible(idleChoices.last);
+      await tester.tap(idleChoices.last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('s').last);
+      await tester.pumpAndSettle();
+
+      await selectParameterGroup(tester, '计算与 ANE');
+      final activation = find.byKey(
+        const Key('parameter-choice:--activations'),
+      );
+      await Scrollable.ensureVisible(tester.element(activation), alignment: .5);
+      await tester.pumpAndSettle();
+      await tester.tap(activation);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Q4H（4 位注意力 Q，实验性）').last);
+      await tester.pumpAndSettle();
       await tester.runAsync(
         () => tester.tap(find.widgetWithText(FilledButton, '保存')),
       );
@@ -335,6 +374,8 @@ void main() {
       );
       final savedBeforeCancel = jsonEncode(savedConfiguration!.toJson());
       var unexpectedSave = false;
+      fixture.io.helpOutput =
+          '$splashCurrentHelp\n  --activations {auto,bf16}  Activation precision\n';
       await tester.runAsync(() async {
         unawaited(
           showDialog<void>(
@@ -370,6 +411,18 @@ void main() {
           await Future<void>.delayed(const Duration(milliseconds: 5));
         }
       });
+      await selectParameterGroup(tester, '计算与 ANE');
+      final activationDropdown = tester.widget<DropdownButton<String>>(
+        activation,
+      );
+      expect(activationDropdown.value, 'q4h');
+      expect(
+        activationDropdown.items!
+            .singleWhere((item) => item.value == 'q4h')
+            .enabled,
+        isFalse,
+      );
+      expect(find.textContaining('当前引擎帮助未确认支持，本次启动省略该值'), findsOneWidget);
       await selectParameterGroup(tester, '草稿模型');
       await tester.tap(find.text('更多参数').first);
       await tester.pumpAndSettle();

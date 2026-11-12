@@ -173,6 +173,10 @@ class _ParameterValueFieldState extends State<ParameterValueField> {
             for (final row in rows)
               DropdownMenuItem(
                 value: row.$1,
+                enabled:
+                    d.name != '--activations' ||
+                    row.$1 != 'q4h' ||
+                    d.choices.contains('q4h'),
                 child: Text(
                   row.$2,
                   softWrap: true,
@@ -489,6 +493,7 @@ class _ParameterValueFieldState extends State<ParameterValueField> {
                   'off' => '关闭',
                   'auto' => '自动',
                   'none' => '关闭 / 无',
+                  'q4h' when d.name == '--activations' => 'Q4H（4 位注意力 Q，实验性）',
                   _ => choice,
                 },
               ),

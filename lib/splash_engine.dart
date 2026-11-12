@@ -931,11 +931,14 @@ class SplashEngine
     final epoch = _startEpoch;
     final operation = _operations.then((_) async {
       if (_shuttingDown) throw const SplashEngineException('Splash正在退出');
-      final activation = configuration.argumentValue(
-        '--activations',
-        recognition: _installation.recognition,
-      );
-      if (activation != null && activation != 'auto') {
+      final activation = configuration.formValues['--activations'];
+      final recognition = _installation.recognition;
+      if (activation != null && activation.isNotEmpty && activation != 'auto' ||
+          parseLaunchArgumentText(configuration.argumentText).any(
+            (token) =>
+                recognition.canonicalName(token.value.split('=').first) ==
+                '--activations',
+          )) {
         // Saved instances can start before any editor has read current help.
         _installation = await inspectInstallation(
           _installation.root,

@@ -813,6 +813,10 @@ class _ParameterEditorState extends State<ParameterEditor> {
         if (f.name == '--activations' &&
             widget.recognition?.supportsSplashActivations != true)
           _notice('当前引擎帮助未确认支持激活精度设置。'),
+        if (f.name == '--activations' &&
+            value == 'q4h' &&
+            widget.recognition?.supportsSplashQ4hActivations != true)
+          _notice('已保留 Q4H 激活设置。当前引擎帮助未确认支持，本次启动省略该值。'),
         if (f.name == '--experimental-quantized-ffn') ...[
           if (widget.recognition?.recognizes(f.name) != true) ...[
             _notice('当前引擎不支持或尚未确认支持实验性量化 FFN，不传递此参数。'),

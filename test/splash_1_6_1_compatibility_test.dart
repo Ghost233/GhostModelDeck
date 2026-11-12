@@ -13,6 +13,8 @@ import 'splash_engine_test.dart' show SplashRuntimeFixture;
 
 const _help =
     '$splash16Help\n  --activations {auto,bf16}  Activation precision\n';
+const _q4hHelp =
+    '$splash16Help\n  --activations {auto,bf16,q4h}  Activation precision\n';
 
 void main() {
   final current = EngineParameterRecognition.fromHelp(
@@ -144,6 +146,54 @@ void main() {
     expect(fields(other)['--kv-format']!.choices, ['int8', 'bf16', 'q4h']);
     expect(fields(null)['--kv-format']!.choices, ['int8', 'bf16', 'q4h']);
     expect(fields(null)['--activations']!.choices, ['auto', 'bf16']);
+  });
+
+  test('start refreshes Q4H activation support without changing KV or saved arguments', () async {
+    final fixture = await SplashRuntimeFixture.create(helpOutput: _help);
+    addTearDown(fixture.close);
+    final engine = fixture.engine();
+    addTearDown(engine.close);
+    addTearDown(engine.shutdown);
+    for (final (help, duration, text, activationArgument) in [
+      (_q4hHelp, '90s', '', '--activations'),
+      (_help, '5m', '', null),
+      (_q4hHelp, 'off', '--acti=q4h', '--acti=q4h'),
+      (_help, 'off', '--acti q4h --activations auto', null),
+      (splash16Help, 'off', '--activations=q4h', null),
+    ]) {
+      fixture.io.helpOutput = help;
+      final config = EngineLaunchConfiguration.fromJson({
+        'family': 'splash',
+        'formValues': {
+          '--kv-format': 'q4h',
+          '--state-format': 'bf16',
+          '--idle-release': duration,
+          if (text.isEmpty) '--activations': 'q4h',
+        },
+        'argumentText': text,
+        'drafter': {'enabled': false},
+      });
+      final run = await engine.startWithConfiguration(fixture.asset.id, config);
+      expect(run.status, RuntimeInstanceStatus.ready);
+      final command = engine.actualCommandFor(run.id)!;
+      final argv = fixture.io.launchArguments.last;
+      expect(argv, containsAllInOrder(['--kv-format', 'q4h']));
+      expect(argv, containsAllInOrder(['--state-format', 'bf16']));
+      expect(argv, containsAllInOrder(['--idle-release', duration]));
+      if (activationArgument == '--activations') {
+        expect(argv, containsAllInOrder(['--activations', 'q4h']));
+      } else if (activationArgument != null) {
+        expect(argv, contains(activationArgument));
+      } else {
+        expect(argv.where((arg) => arg == 'q4h'), hasLength(1));
+        expect(argv, isNot(contains('--acti')));
+        expect(argv, isNot(contains('--activations=q4h')));
+        expect(command.notices, contains(contains('--activations q4h')));
+      }
+      expect(config.argumentText, text);
+      if (text.isEmpty) expect(config.formValues['--activations'], 'q4h');
+      await engine.stop(run.id);
+    }
   });
 
   test(
