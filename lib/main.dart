@@ -29,6 +29,8 @@ import 'launch_instances.dart';
 import 'desktop_home_route.dart';
 import 'instances_page.dart';
 import 'model_connections_page.dart';
+import 'model_routers.dart';
+import 'model_routers_page.dart';
 import 'engine_page.dart';
 import 'engine_source_build.dart';
 import 'embedding_page.dart';
@@ -98,6 +100,7 @@ class _ManagerShellState extends State<_ManagerShell>
   late final OmlxEngine _omlxEngine;
   late final EngineCatalog _engines;
   late final LaunchInstances _instances;
+  late final ModelRouters _modelRouters;
   final _publicNames = PublicModelNames();
   String? _instanceArtifact;
   late final CouncilController _council;
@@ -193,10 +196,16 @@ class _ManagerShellState extends State<_ManagerShell>
       launchInstances: _instances,
     );
     _mcp = CouncilMcpServer(controller: _council);
+    _modelRouters = ModelRouters(
+      file: File('${_settings.file.parent.path}/model-routers.json'),
+      instances: _instances,
+      loadNames: _council.models.load,
+    );
     _publicRoutes = PublicModelRoutes(
       library: _library,
       instances: _instances,
       scenarios: _council.scenarios,
+      modelRouters: _modelRouters,
       runtimes: [_officialEngine, _omlxEngine],
       runtimeSources: () => _engines.runtimes.toList(),
       registryFile: File('${_settings.file.parent.path}/public_models.json'),
@@ -262,6 +271,7 @@ class _ManagerShellState extends State<_ManagerShell>
     );
     _lifecycle = ManagerLifecycle(
       instances: _instances,
+      modelRouters: _modelRouters,
       council: _council,
       mcp: _mcp,
       engines: _engines,
@@ -445,7 +455,7 @@ class _ManagerShellState extends State<_ManagerShell>
   void _navigate(int page) => setState(() {
     _page = page;
     _openedPages.add(page);
-    if ((page <= 6 || page == 11 || page == 12 || page == 13) && page != 4) {
+    if ((page <= 6 || page >= 11) && page != 4) {
       _enginePage = page;
       _workspaceTabs.index = 0;
     } else if (page >= 7) {
@@ -502,6 +512,7 @@ class _ManagerShellState extends State<_ManagerShell>
     _mcp.close();
     _publicGateway.close();
     _publicRoutes.close();
+    unawaited(_modelRouters.close().catchError((Object _) {}));
     unawaited(_instances.close().catchError((Object _) {}));
     unawaited(_startupSet.close().catchError((Object _) {}));
     unawaited(_council.close().catchError((Object _) {}));
@@ -664,6 +675,11 @@ class _ManagerShellState extends State<_ManagerShell>
                                   12,
                                 ),
                                 _navigation('委员会配置', Icons.groups_outlined, 5),
+                                _navigation(
+                                  '模型路由',
+                                  Icons.alt_route_outlined,
+                                  14,
+                                ),
                                 _navigation('MCP', Icons.cable_outlined, 6),
                               ] else ...[
                                 _groupLabel('测试'),
@@ -821,6 +837,13 @@ class _ManagerShellState extends State<_ManagerShell>
                               instances: _instances,
                               gateway: _publicGateway,
                               mcp: _mcp,
+                            )
+                          else
+                            const SizedBox.shrink(),
+                          if (_openedPages.contains(14))
+                            ModelRoutersPage(
+                              routers: _modelRouters,
+                              gateway: _publicGateway,
                             )
                           else
                             const SizedBox.shrink(),

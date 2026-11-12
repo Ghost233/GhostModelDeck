@@ -1,4 +1,4 @@
-/// Shared reservations for instance and committee public names.
+/// Shared reservations for public model names.
 class PublicModelNames {
   final _ownerByName = <String, String>{};
 
@@ -31,12 +31,16 @@ class PublicModelNames {
     return name;
   }
 
-  void claim(String owner, String name) => claimAll({owner: name});
+  void claim(String owner, String name, {bool allowUnderscore = false}) =>
+      claimAll({owner: name}, allowUnderscore: allowUnderscore);
 
-  void claimAll(Map<String, String> names) {
+  void claimAll(Map<String, String> names, {bool allowUnderscore = false}) {
     final proposed = {..._ownerByName};
     for (final entry in names.entries) {
-      if (!isValid(entry.value)) {
+      final name = allowUnderscore
+          ? entry.value.replaceAll('_', '-')
+          : entry.value;
+      if (!isValid(name)) {
         throw FormatException('公开调用名格式无效：${entry.value}');
       }
       final existing = proposed[entry.value];

@@ -20,7 +20,7 @@ class PublicPrefillRouteResolver {
     SplashOperationPath path,
     String model,
   ) async {
-    final target = routes.resolve(model);
+    final target = routes.resolve(model, allowModelRouter: false);
     final engine = target.runtime;
     if (engine is! SplashEngine) throw StateError('目标实例不是 Splash');
     if (path == SplashOperationPath.systemone) {

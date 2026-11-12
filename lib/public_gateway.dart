@@ -24,6 +24,7 @@ import 'public_prefill_request.dart';
 import 'public_prefill_service.dart';
 import 'prefill_operation_ledger.dart';
 import 'splash_operation_client.dart';
+import 'model_routers.dart';
 import 'model_scenarios.dart';
 
 /// Public business rejection with an HTTP verdict, never a silent fallback.
@@ -57,12 +58,15 @@ class PublicRouteTarget {
     required this.runtime,
     required this.instance,
     this.generationDefaults = const GenerationConfiguration.empty(),
+    this.instancePublicId,
   });
   final String publicId;
   final String artifactId;
   final EngineRuntime runtime;
   final RuntimeInstance instance;
   final GenerationConfiguration generationDefaults;
+  // Router requests use the selected instance's direct name for cache checks.
+  final String? instancePublicId;
   EngineFamily get family => runtime is SplashEngine
       ? EngineFamily.splash
       : runtime is OmlxEngine
@@ -84,6 +88,7 @@ class PublicModelRoutes {
     Set<String>? instanceIds,
     LaunchInstances? instances,
     this.scenarios,
+    this.modelRouters,
   }) : _runtimes = List.unmodifiable(runtimes),
        _instances = instances,
        _instanceIds = instanceIds == null
@@ -98,6 +103,9 @@ class PublicModelRoutes {
     _scenarioSubscription = scenarios?.changes.listen((_) {
       if (!_closed) _changes.add(null);
     });
+    _routerSubscription = modelRouters?.changes.listen((_) {
+      if (!_closed) _changes.add(null);
+    });
   }
 
   static const _schema = 2;
@@ -107,8 +115,10 @@ class PublicModelRoutes {
   final Set<String>? _instanceIds;
   final LaunchInstances? _instances;
   final ModelScenarios? scenarios;
+  final ModelRouters? modelRouters;
   StreamSubscription<void>? _instanceSubscription;
   StreamSubscription<void>? _scenarioSubscription;
+  StreamSubscription<void>? _routerSubscription;
   Iterable<String> get _registeredIds =>
       _instances?.definitions.map((definition) => definition.id) ?? _enabled;
   Iterable<({String id, String name})> get _registrations sync* {
@@ -201,6 +211,9 @@ class PublicModelRoutes {
     if (_instances != null) {
       await _instances.load();
       await scenarios?.load();
+      // Router configuration errors are reported on its page. Existing
+      // instance and scenario routes can still serve requests.
+      await modelRouters?.load().catchError((Object _) {});
       _loaded = true;
       return;
     }
@@ -308,6 +321,24 @@ class PublicModelRoutes {
         );
       }
     }
+    if (requiredCapability == RuntimeCapability.textGeneration) {
+      for (final router in modelRouters?.entries ?? const <ModelRouter>[]) {
+        if (!isEnabled(router.currentInstanceId)) continue;
+        final ready = _readyInstances(
+          router.currentInstanceId,
+          requiredCapability,
+        );
+        if (ready.length == 1) {
+          entries.add(
+            PublicModelEntry(
+              publicId: router.name,
+              artifactId: ready.single.instance.artifactId,
+              inputModalities: ready.single.instance.inputModalities,
+            ),
+          );
+        }
+      }
+    }
     return entries;
   }
 
@@ -315,20 +346,27 @@ class PublicModelRoutes {
   PublicRouteTarget resolve(
     String publicId, {
     RuntimeCapability requiredCapability = RuntimeCapability.textGeneration,
+    bool allowModelRouter = true,
   }) {
     _ensureOpen();
-    final artifactId = _registrations
-        .where((entry) => entry.name == publicId)
-        .firstOrNull
-        ?.id;
-    if (artifactId == null || !isEnabled(artifactId)) {
+    final router =
+        allowModelRouter &&
+            requiredCapability == RuntimeCapability.textGeneration
+        ? modelRouters?.find(publicId)
+        : null;
+    final artifactId =
+        router?.currentInstanceId ??
+        _registrations.where((entry) => entry.name == publicId).firstOrNull?.id;
+    if (artifactId == null || (router == null && !isEnabled(artifactId))) {
       throw const PublicRequestException(
         404,
         'model_not_found',
         '公开模型不存在或未启用公开访问',
       );
     }
-    final ready = _readyInstances(artifactId, requiredCapability);
+    final ready = isEnabled(artifactId)
+        ? _readyInstances(artifactId, requiredCapability)
+        : const [];
     if (ready.isEmpty) {
       throw const PublicRequestException(
         503,
@@ -346,6 +384,7 @@ class PublicModelRoutes {
     final hit = ready.single;
     return PublicRouteTarget(
       publicId: publicId,
+      instancePublicId: router == null ? null : publicIdFor(artifactId),
       artifactId: hit.instance.artifactId,
       runtime: hit.runtime,
       instance: hit.instance,
@@ -484,6 +523,7 @@ class PublicModelRoutes {
     unawaited(_librarySubscription.cancel());
     unawaited(_instanceSubscription?.cancel());
     unawaited(_scenarioSubscription?.cancel());
+    unawaited(_routerSubscription?.cancel());
     unawaited(_changes.close());
   }
 }
@@ -1287,7 +1327,10 @@ class PublicGatewayServer {
       if (input.containsKey('id_slot')) {
         throw const FormatException('公开 API 不接受原生槽位编号');
       }
-      target = _routes.resolve(model);
+      target = _routes.resolve(
+        model,
+        allowModelRouter: endpoint == NativeTextEndpoint.chat,
+      );
       if (target.runtime is! NativeTextRuntime) {
         throw const PublicRequestException(
           501,
@@ -1559,7 +1602,7 @@ class PublicGatewayServer {
       try {
         final runtime = await _prefillService!.resolve(
           SplashOperationPath.chat,
-          target.publicId,
+          target.instancePublicId ?? target.publicId,
         );
         if (runtime is SplashPublicPrefillRuntime &&
             identical(runtime.engine, target.runtime) &&

@@ -5,6 +5,7 @@ import 'council.dart';
 import 'council_mcp.dart';
 import 'engine_catalog.dart';
 import 'model_downloader.dart';
+import 'model_routers.dart';
 import 'public_gateway.dart';
 import 'sdk_service.dart';
 import 'launch_instances.dart';
@@ -23,6 +24,7 @@ class ManagerLifecycle {
     this.benchmarkResources,
     this.benchmarkGameWork,
     this.instances,
+    this.modelRouters,
   });
   final CouncilController council;
   final CouncilMcpServer mcp;
@@ -33,6 +35,7 @@ class ManagerLifecycle {
   final BenchmarkResources? benchmarkResources;
   final BenchmarkGameWork? benchmarkGameWork;
   final LaunchInstances? instances;
+  final ModelRouters? modelRouters;
 
   /// MacLauncher SDK 连接：仅明确退出时收尾（dispose 只关通信不回收业务）。
   final LauncherInferenceService? launcher;
@@ -84,6 +87,7 @@ class ManagerLifecycle {
       ('游戏资源', () => games),
       ('MCP', mcp.stop),
       ('公开 API', () => gateway?.stop() ?? Future<void>.value()),
+      ('模型路由', () => modelRouters?.close() ?? Future<void>.value()),
       ('委员会', council.shutdown),
       ('引擎', engines.shutdown),
       ('实例配置', () => instances?.close() ?? Future<void>.value()),

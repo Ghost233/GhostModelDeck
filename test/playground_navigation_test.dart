@@ -12,6 +12,7 @@ import 'package:ghost_model_deck/settings_page.dart';
 import 'package:ghost_model_deck/council_page.dart';
 import 'package:ghost_model_deck/instances_page.dart';
 import 'package:ghost_model_deck/model_connections_page.dart';
+import 'package:ghost_model_deck/model_routers_page.dart';
 
 import 'fixtures/actual_app_environment.dart';
 
@@ -19,6 +20,29 @@ void main() {
   late ActualAppEnvironment environment;
   setUp(() async => environment = await ActualAppEnvironment.create());
   tearDown(() => environment.close());
+  testWidgets('模型路由有独立入口和创建表单', (tester) async {
+    await _runWithCleanup(tester, () async {
+      await _openApp(tester);
+      await tester.scrollUntilVisible(
+        _navigation('模型路由'),
+        100,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await _tap(tester, _navigation('模型路由'));
+      expect(find.byType(ModelRoutersPage), findsOneWidget);
+      expect(find.text('还没有模型路由。'), findsOneWidget);
+      await _tap(tester, find.text('测试场'));
+      expect(find.byType(LlmPlaygroundPage), findsOneWidget);
+      await _tap(tester, find.text('引擎'));
+      expect(find.byType(ModelRoutersPage), findsOneWidget);
+      await _tap(tester, find.text('创建路由'));
+      expect(find.text('调用名'), findsOneWidget);
+      expect(find.text('候选实例'), findsOneWidget);
+      expect(find.text('当前实例'), findsOneWidget);
+      await _tap(tester, find.text('取消'));
+      expect(tester.takeException(), isNull);
+    });
+  });
   testWidgets('模型连接是独立页面并在切换工作区后保持', (tester) async {
     tester.view.physicalSize = const Size(900, 560);
     tester.view.devicePixelRatio = 1;
