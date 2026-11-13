@@ -175,7 +175,7 @@ class JevPlayground {
     return List.unmodifiable(models);
   }
 
-  /// HTTP publishes all callable models; MCP publishes only a scene shortlist.
+  /// HTTP publishes all callable models; MCP lists scenes and decision routers.
   /// Absence from that shortlist does not forbid a known model's tool call.
   bool discoveryExcludesTarget(
     JevPlaygroundMode mode,

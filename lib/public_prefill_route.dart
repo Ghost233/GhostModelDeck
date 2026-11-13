@@ -1,3 +1,4 @@
+import 'engine_runtime.dart';
 import 'jev_models.dart';
 import 'prefill_operation_ledger.dart';
 import 'public_gateway.dart';
@@ -20,19 +21,25 @@ class PublicPrefillRouteResolver {
     SplashOperationPath path,
     String model,
   ) async {
-    final target = routes.resolve(model, allowModelRouter: false);
+    final target = routes.resolve(
+      model,
+      requiredCapability: path == SplashOperationPath.systemone
+          ? RuntimeCapability.choiceProbability
+          : RuntimeCapability.textGeneration,
+    );
     final engine = target.runtime;
     if (engine is! SplashEngine) throw StateError('目标实例不是 Splash');
     if (path == SplashOperationPath.systemone) {
       final models = jevModels;
-      final definition = models?.definitionFor(model);
+      final decisionName = target.instancePublicId ?? model;
+      final definition = models?.definitionFor(decisionName);
       if (models == null ||
           definition == null ||
           definition.source != JevModelSource.native ||
           definition.bindings.length != 1 ||
           !engine.supportsSystemone ||
           !models.callableModels.any(
-            (entry) => entry.definition.name == model,
+            (entry) => entry.definition.name == decisionName,
           )) {
         throw StateError('目标不是就绪的原生决策实例');
       }

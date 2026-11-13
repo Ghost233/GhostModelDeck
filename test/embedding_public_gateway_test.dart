@@ -7,6 +7,7 @@ import 'package:ghost_model_deck/engine_catalog.dart';
 import 'package:ghost_model_deck/engine_launch_configuration.dart';
 import 'package:ghost_model_deck/launch_instances.dart';
 import 'package:ghost_model_deck/model_scenarios.dart';
+import 'package:ghost_model_deck/model_routers.dart';
 import 'package:ghost_model_deck/public_gateway.dart';
 
 import 'fixtures/embedding_runtime.dart';
@@ -30,6 +31,18 @@ void main() {
       names: instances.names,
       instances: instances,
     );
+    final routers = ModelRouters(
+      file: File('${fixture.root.path}/model-routers.json'),
+      instances: instances,
+    );
+    addTearDown(routers.close);
+    await routers.create(
+      ModelRouter(
+        name: 'embedding_router',
+        candidateIds: [definition.id],
+        currentInstanceId: definition.id,
+      ),
+    );
     addTearDown(scenarios.close);
     await scenarios.save(
       0,
@@ -44,6 +57,7 @@ void main() {
       runtimes: fixture.catalog.runtimes.toList(),
       instances: instances,
       scenarios: scenarios,
+      modelRouters: routers,
     );
     final gateway = PublicGatewayServer(routes: routes, port: 0);
     await gateway.start();
@@ -54,14 +68,14 @@ void main() {
     });
     final client = HttpClient();
     addTearDown(() => client.close(force: true));
-    Future<(int, Map)> post() async {
+    Future<(int, Map)> post([String name = 'embedding-fast']) async {
       final request = await client.postUrl(
         gateway.baseUrl!.resolve('/v1/embeddings'),
       );
       request.headers.contentType = ContentType.json;
       request.write(
         jsonEncode({
-          'model': 'embedding-fast',
+          'model': name,
           'input': ['first', 'second'],
         }),
       );
@@ -83,12 +97,20 @@ void main() {
       [0.0, 4.0],
     ]);
     expect(fixture.io.bodies.single['model'], run.id);
+    final routed = await post('embedding_router');
+    expect(routed.$1, 200);
+    expect(routed.$2['model'], 'embedding_router');
+    expect(fixture.io.bodies.last['model'], run.id);
     final request = await client.getUrl(gateway.baseUrl!.resolve('/v1/models'));
     final response = await request.close();
     final listing = jsonDecode(await utf8.decoder.bind(response).join()) as Map;
     expect(
       (listing['data'] as List).map((row) => row['id']),
-      containsAll([definition.publicName, 'embedding-fast']),
+      containsAll([
+        definition.publicName,
+        'embedding-fast',
+        'embedding_router',
+      ]),
     );
   });
   test('同源公开发现报告实际每槽容量，embedding不宣称文本或typed决策能力', () async {

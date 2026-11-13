@@ -15,6 +15,7 @@ import 'model_library.dart';
 import 'public_model_names.dart';
 import 'launch_instances.dart';
 import 'model_scenarios.dart';
+import 'model_routers.dart';
 
 enum JevModelSource { council, native }
 
@@ -172,6 +173,7 @@ class JevModels {
     this.registryFile,
     this.publicNames,
     this.instances,
+    this.modelRouters,
     JevRegistryIO? registryIO,
   }) : registryIO = registryIO ?? NativeJevRegistryIO() {
     _subscription = controller.catalog.changes.listen((_) => _publish());
@@ -179,16 +181,19 @@ class JevModels {
     _scenarioSubscription = controller.scenarios.changes.listen(
       (_) => _publish(),
     );
+    _routerSubscription = modelRouters?.changes.listen((_) => _publish());
   }
   final CouncilController controller;
   final File? registryFile;
   final PublicModelNames? publicNames;
   final LaunchInstances? instances;
+  final ModelRouters? modelRouters;
   final JevRegistryIO registryIO;
   final _changes = StreamController<void>.broadcast();
   late final StreamSubscription<EngineCatalogState> _subscription;
   StreamSubscription<void>? _instanceSubscription;
   StreamSubscription<void>? _scenarioSubscription;
+  StreamSubscription<void>? _routerSubscription;
   List<JevModelDefinition> _definitions = const [];
   bool _loaded = false;
   Future<void>? _loading;
@@ -204,6 +209,26 @@ class JevModels {
     yield* _definitions;
     yield* _instanceModels;
     yield* _scenarioModels;
+    yield* _routerModels;
+  }
+
+  Iterable<JevModelDefinition> get _routerModels sync* {
+    final routers = modelRouters?.entries;
+    if (routers == null || routers.isEmpty) return;
+    final byInstance = {
+      for (final model in _instanceModels)
+        model.bindings.single.instanceId: model,
+    };
+    for (final router in routers) {
+      final model = byInstance[router.currentInstanceId];
+      if (model != null) {
+        yield JevModelDefinition.native(
+          name: router.name,
+          binding: model.bindings.single,
+          timeout: model.timeout,
+        );
+      }
+    }
   }
 
   JevModelDefinition? definitionFor(String name) =>
@@ -508,8 +533,13 @@ class JevModels {
           if (model.definition.name == scenario.modelName) model,
   ];
 
+  List<JevModelAvailability> get discoverableModels => [
+    ...discoverableScenarios,
+    ..._routerModels.map(_availability).where((model) => model.available),
+  ];
+
   String get scenarioInstructions => [
-    '场景使用统一模型名字；默认发现只返回已启用且可用的场景。',
+    '默认发现返回已启用且可用的场景和具备决策能力的模型路由。',
     '场景文字由用户定义，不用于能力判断。已知有效模型名字可以直接调用。',
     for (final scenario in controller.scenarios.entries)
       '${scenario.displayName}：model=${scenario.modelName.isEmpty ? '未配置' : scenario.modelName}；'
@@ -870,11 +900,19 @@ class JevModels {
     bool debug = false,
   }) async {
     await load();
+    await modelRouters?.load().catchError((Object _) {});
     if (controller.isShuttingDown) {
       throw const JevRequestException(503, 'service_stopping', '应用正在退出');
     }
     final definition = definitionFor(name);
     if (definition == null) {
+      if (modelRouters?.find(name) != null) {
+        throw const JevRequestException(
+          503,
+          'model_not_ready',
+          '所选实例没有就绪的决策能力',
+        );
+      }
       throw const JevRequestException(404, 'model_not_found', '调用模型名不存在');
     }
     if (definition.source == JevModelSource.council) {
@@ -1326,6 +1364,7 @@ class JevModels {
       await _subscription.cancel();
       await _instanceSubscription?.cancel();
       await _scenarioSubscription?.cancel();
+      await _routerSubscription?.cancel();
       await _changes.close();
     }
   }

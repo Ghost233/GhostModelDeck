@@ -22,6 +22,7 @@ import 'public_model_names.dart';
 import 'public_prefill_control.dart';
 import 'public_prefill_request.dart';
 import 'public_prefill_service.dart';
+import 'routed_response_history.dart';
 import 'prefill_operation_ledger.dart';
 import 'splash_operation_client.dart';
 import 'model_routers.dart';
@@ -121,18 +122,25 @@ class PublicModelRoutes {
   StreamSubscription<void>? _routerSubscription;
   Iterable<String> get _registeredIds =>
       _instances?.definitions.map((definition) => definition.id) ?? _enabled;
-  Iterable<({String id, String name})> get _registrations sync* {
+  Iterable<({String id, String name, bool router})> get _registrations sync* {
     for (final id in _registeredIds.toList()..sort()) {
-      yield (id: id, name: publicIdFor(id));
+      yield (id: id, name: publicIdFor(id), router: false);
     }
     if (_instances != null && scenarios != null) {
       for (final scenario in scenarios!.entries) {
         if (scenario.enabled &&
             scenario.modelName.isNotEmpty &&
             scenario.instanceId != null) {
-          yield (id: scenario.instanceId!, name: scenario.modelName);
+          yield (
+            id: scenario.instanceId!,
+            name: scenario.modelName,
+            router: false,
+          );
         }
       }
+    }
+    for (final router in modelRouters?.entries ?? const <ModelRouter>[]) {
+      yield (id: router.currentInstanceId, name: router.name, router: true);
     }
   }
 
@@ -301,15 +309,16 @@ class PublicModelRoutes {
     }
   }
 
-  /// Enabled artifacts that currently have at least one ready text instance.
+  /// Public names with a ready instance for the requested capability.
   List<PublicModelEntry> listModels({
     RuntimeCapability requiredCapability = RuntimeCapability.textGeneration,
   }) {
     final entries = <PublicModelEntry>[];
     for (final entry in _registrations) {
       final artifactId = entry.id;
+      if (entry.router && !isEnabled(artifactId)) continue;
       final ready = _readyInstances(artifactId, requiredCapability);
-      if (requiredCapability == RuntimeCapability.embeddings
+      if (entry.router || requiredCapability == RuntimeCapability.embeddings
           ? ready.length == 1
           : ready.isNotEmpty) {
         entries.add(
@@ -321,24 +330,6 @@ class PublicModelRoutes {
         );
       }
     }
-    if (requiredCapability == RuntimeCapability.textGeneration) {
-      for (final router in modelRouters?.entries ?? const <ModelRouter>[]) {
-        if (!isEnabled(router.currentInstanceId)) continue;
-        final ready = _readyInstances(
-          router.currentInstanceId,
-          requiredCapability,
-        );
-        if (ready.length == 1) {
-          entries.add(
-            PublicModelEntry(
-              publicId: router.name,
-              artifactId: ready.single.instance.artifactId,
-              inputModalities: ready.single.instance.inputModalities,
-            ),
-          );
-        }
-      }
-    }
     return entries;
   }
 
@@ -346,24 +337,19 @@ class PublicModelRoutes {
   PublicRouteTarget resolve(
     String publicId, {
     RuntimeCapability requiredCapability = RuntimeCapability.textGeneration,
-    bool allowModelRouter = true,
   }) {
     _ensureOpen();
-    final router =
-        allowModelRouter &&
-            requiredCapability == RuntimeCapability.textGeneration
-        ? modelRouters?.find(publicId)
-        : null;
-    final artifactId =
-        router?.currentInstanceId ??
-        _registrations.where((entry) => entry.name == publicId).firstOrNull?.id;
-    if (artifactId == null || (router == null && !isEnabled(artifactId))) {
+    final entry = _registrations
+        .where((entry) => entry.name == publicId)
+        .firstOrNull;
+    if (entry == null || (!entry.router && !isEnabled(entry.id))) {
       throw const PublicRequestException(
         404,
         'model_not_found',
         '公开模型不存在或未启用公开访问',
       );
     }
+    final artifactId = entry.id;
     final ready = isEnabled(artifactId)
         ? _readyInstances(artifactId, requiredCapability)
         : const [];
@@ -384,7 +370,7 @@ class PublicModelRoutes {
     final hit = ready.single;
     return PublicRouteTarget(
       publicId: publicId,
-      instancePublicId: router == null ? null : publicIdFor(artifactId),
+      instancePublicId: entry.router ? publicIdFor(artifactId) : null,
       artifactId: hit.instance.artifactId,
       runtime: hit.runtime,
       instance: hit.instance,
@@ -434,6 +420,7 @@ class PublicModelRoutes {
     final entries = <Map<String, Object?>>[];
     for (final entry in _registrations) {
       final artifactId = entry.id;
+      if (entry.router && !isEnabled(artifactId)) continue;
       final artifact = _library.state.artifacts
           .where(
             (artifact) =>
@@ -608,6 +595,7 @@ class PublicGatewayServer {
   final Duration heartbeatInterval;
   final _changes = StreamController<PublicGatewayState>.broadcast();
   final _inflight = <_InflightRequest>{};
+  final _routedResponses = RoutedResponseHistory();
   HttpServer? _listener;
   Future<void>? _starting;
   Future<void>? _stopping;
@@ -792,6 +780,7 @@ class PublicGatewayServer {
         for (final request in _inflight) request.drained.future,
       ]);
     }
+    _routedResponses.clear();
     await _closeManagedPrefill();
     _stopping = null;
     _setState(PublicGatewayState.stopped);
@@ -912,9 +901,15 @@ class PublicGatewayServer {
       if (request.method == 'GET' && path == '/v1/models') {
         final nativeModels =
             jevModels?.callableModels ?? <JevModelAvailability>[];
-        final nativeNames = nativeModels
-            .map((entry) => entry.definition.name)
-            .toSet();
+        final textModels = {
+          for (final entry in _routes.listModels()) entry.publicId: entry,
+        };
+        Map<String, Object?> modalities(PublicModelEntry? entry) => {
+          if (entry?.inputModalities case final List<String> modalities) ...{
+            'vision': modalities.contains('image'),
+            'input_modalities': modalities,
+          },
+        };
         _sendJson(request.response, 200, {
           'object': 'list',
           'data': [
@@ -923,19 +918,19 @@ class PublicGatewayServer {
                 ...entry.toJson(),
                 'object': 'model',
                 'owned_by': 'ghostmodeldeck',
-              },
-            for (final entry in _routes.listModels())
-              if (!nativeNames.contains(entry.publicId))
-                {
-                  'id': entry.publicId,
-                  'object': 'model',
-                  'owned_by': 'ghostmodeldeck',
-                  if (entry.inputModalities
-                      case final List<String> modalities) ...{
-                    'vision': modalities.contains('image'),
-                    'input_modalities': modalities,
-                  },
+                if (textModels.remove(entry.definition.name)
+                    case final PublicModelEntry text) ...{
+                  'text_generation': true,
+                  ...modalities(text),
                 },
+              },
+            for (final entry in textModels.values)
+              {
+                'id': entry.publicId,
+                'object': 'model',
+                'owned_by': 'ghostmodeldeck',
+                ...modalities(entry),
+              },
             for (final entry in _routes.listModels(
               requiredCapability: RuntimeCapability.embeddings,
             ))
@@ -1310,9 +1305,12 @@ class PublicGatewayServer {
     NativeTextEndpoint endpoint,
     DecisionCancellation cancellation, {
     Map<String, Object?>? parsedInput,
+    bool requiresVision = false,
   }) async {
     late PublicRouteTarget target;
     late NativeTextCall call;
+    var rememberResponse = false;
+    String? previousResponseId;
     try {
       final input =
           parsedInput ?? await _readModelBody(request, endpoint: endpoint);
@@ -1327,10 +1325,7 @@ class PublicGatewayServer {
       if (input.containsKey('id_slot')) {
         throw const FormatException('公开 API 不接受原生槽位编号');
       }
-      target = _routes.resolve(
-        model,
-        allowModelRouter: endpoint == NativeTextEndpoint.chat,
-      );
+      target = _routes.resolve(model);
       if (target.runtime is! NativeTextRuntime) {
         throw const PublicRequestException(
           501,
@@ -1339,7 +1334,7 @@ class PublicGatewayServer {
         );
       }
       final splash = target.runtime is SplashEngine;
-      if (endpoint == NativeTextEndpoint.chat &&
+      if (requiresVision &&
           (!splash ||
               target.instance.inputModalities?.contains('image') != true)) {
         throw const FormatException('当前实例未挂载视觉，无法接收图片');
@@ -1350,6 +1345,37 @@ class PublicGatewayServer {
         target.generationDefaults,
         splash: splash,
       );
+      if (endpoint == NativeTextEndpoint.responses &&
+          target.instancePublicId != null) {
+        rememberResponse = input['store'] != false;
+        final previous = body['previous_response_id'];
+        if (previous != null) {
+          if (previous is! String || previous.isEmpty) {
+            throw const FormatException('previous_response_id 需要是非空字符串');
+          }
+          final history = _routedResponses.find(model, previous);
+          if (history == null) {
+            throw const PublicRequestException(
+              404,
+              'previous_response_not_found',
+              '找不到此路由的上一次响应，请重发对话历史',
+            );
+          }
+          previousResponseId = previous;
+          body.remove('previous_response_id');
+          body['input'] = [
+            ...history,
+            ...RoutedResponseHistory.inputItems(body['input']),
+          ];
+          if (utf8.encode(encodeGenerationRequest(body)).length > _bodyLimit) {
+            throw const PublicRequestException(
+              413,
+              'invalid_request_error',
+              '续接请求超过 1MiB 上限',
+            );
+          }
+        }
+      }
       final seconds = splash ? body['timeout'] : null;
       if (seconds != null &&
           (seconds is! num ||
@@ -1417,9 +1443,18 @@ class PublicGatewayServer {
                 target.publicId,
                 redact,
                 endpoint: endpoint,
+                previousResponseId: previousResponseId,
               )) {
                 if (permit.isCancelled) {
                   throw const NativeTextFailure(DecisionFailureKind.cancelled);
+                }
+                final response = event.response;
+                if (rememberResponse && response != null) {
+                  _routedResponses.remember(
+                    target.publicId,
+                    call.body['input'],
+                    response,
+                  );
                 }
                 if (!started) {
                   started = true;
@@ -1451,6 +1486,7 @@ class PublicGatewayServer {
                   target.publicId,
                   redact,
                   error: status >= 400,
+                  previousResponseId: previousResponseId,
                 );
               } on FormatException {
                 if (status < 400) rethrow;
@@ -1476,6 +1512,13 @@ class PublicGatewayServer {
               }
               reply = (status, value);
               completed = status == 200 && value['status'] != 'failed';
+              if (completed && rememberResponse) {
+                _routedResponses.remember(
+                  target.publicId,
+                  call.body['input'],
+                  value,
+                );
+              }
             }
           },
         );
@@ -1513,7 +1556,8 @@ class PublicGatewayServer {
     final input = await _readModelBody(request);
     if (input == null) return;
     final messages = input['messages'];
-    if (messages is List &&
+    final media =
+        messages is List &&
         messages.any((message) {
           final content = message is Map ? message['content'] : null;
           return content is List &&
@@ -1522,12 +1566,31 @@ class PublicGatewayServer {
                     part is Map &&
                     (part['type'] == 'image_url' || part['type'] == 'file'),
               );
-        })) {
+        });
+    final tools =
+        const {
+          'tools',
+          'tool_choice',
+          'parallel_tool_calls',
+          'functions',
+          'function_call',
+        }.any(input.containsKey) ||
+        messages is List &&
+            messages.any(
+              (message) =>
+                  message is Map &&
+                  (message.containsKey('tool_calls') ||
+                      message.containsKey('function_call') ||
+                      message['role'] == 'tool' ||
+                      message['role'] == 'function'),
+            );
+    if (media || tools) {
       await _nativeText(
         request,
         NativeTextEndpoint.chat,
         cancellation,
         parsedInput: input,
+        requiresVision: media,
       );
       return;
     }

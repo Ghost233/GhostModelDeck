@@ -186,6 +186,11 @@ class _ManagerShellState extends State<_ManagerShell>
       settings: _startupSet,
       prepare: _prepareInstanceResources,
     );
+    _modelRouters = ModelRouters(
+      file: File('${_settings.file.parent.path}/model-routers.json'),
+      instances: _instances,
+      loadNames: () => _council.models.load(),
+    );
     _council = CouncilController(
       catalog: _engines,
       modelRegistryFile: File('${_settings.file.parent.path}/jev_models.json'),
@@ -194,13 +199,9 @@ class _ManagerShellState extends State<_ManagerShell>
       ),
       publicNames: _publicNames,
       launchInstances: _instances,
+      modelRouters: _modelRouters,
     );
     _mcp = CouncilMcpServer(controller: _council);
-    _modelRouters = ModelRouters(
-      file: File('${_settings.file.parent.path}/model-routers.json'),
-      instances: _instances,
-      loadNames: _council.models.load,
-    );
     _publicRoutes = PublicModelRoutes(
       library: _library,
       instances: _instances,

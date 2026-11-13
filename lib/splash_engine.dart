@@ -383,6 +383,7 @@ class _SplashRun {
   final bool supportsSystemone;
   final String? binarySha256;
   RuntimeCapacity? capacity;
+  bool textGeneration = true;
   int? inferenceConcurrency;
   List<String>? inputModalities;
   final SplashModelBinding binding;
@@ -420,7 +421,7 @@ class _SplashRun {
         : null,
     capabilities: status == RuntimeInstanceStatus.ready
         ? {
-            RuntimeCapability.textGeneration,
+            if (textGeneration) RuntimeCapability.textGeneration,
             if (supportsSystemone) ...{
               RuntimeCapability.choiceProbability,
               RuntimeCapability.scoreProbability,
@@ -1748,6 +1749,10 @@ class SplashEngine
       throw const _SplashLoading();
     }
     final modalities = status['input_modalities'];
+    final decisionModel = status['decision_model'];
+    run.textGeneration =
+        status['generation'] != false &&
+        !(decisionModel is Map && decisionModel['generation'] == false);
     final nativeVision =
         status['vision'] == true &&
         modalities is List &&

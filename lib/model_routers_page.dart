@@ -94,7 +94,13 @@ class _ModelRoutersPageState extends State<ModelRoutersPage> {
   Widget _row(ModelRouter router) {
     final instances = widget.routers.instances;
     final current = instances.find(router.currentInstanceId);
-    final ready = widget.gateway.readyTextModel(router.name) != null;
+    final ready =
+        widget.gateway.readyTextModel(router.name) != null ||
+        widget.gateway.readyEmbeddingModel(router.name) != null ||
+        widget.gateway.jevModels?.callableModels.any(
+              (entry) => entry.definition.name == router.name,
+            ) ==
+            true;
     final status = current == null
         ? '当前实例缺失'
         : ready
@@ -121,10 +127,7 @@ class _ModelRoutersPageState extends State<ModelRoutersPage> {
                 for (final id in router.candidateIds)
                   DropdownMenuItem(
                     value: id,
-                    enabled: switch (instances.find(id)) {
-                      final instance? => widget.routers.isCandidate(instance),
-                      null => false,
-                    },
+                    enabled: instances.find(id) != null,
                     child: Text(
                       instances.find(id)?.name ?? '实例缺失',
                       overflow: TextOverflow.ellipsis,
@@ -252,11 +255,11 @@ class _RouterEditorState extends State<_RouterEditor> {
   Widget build(BuildContext context) {
     final options = {
       for (final instance in widget.routers.instances.definitions)
-        if (widget.routers.isCandidate(instance)) instance.id: instance.name,
+        instance.id: instance.name,
     };
     final selectable = options.keys.toSet();
     for (final id in _candidates) {
-      options.putIfAbsent(id, () => '实例缺失或不可用于聊天');
+      options.putIfAbsent(id, () => '实例缺失');
     }
     return PopScope(
       canPop: !_saving,
@@ -279,7 +282,7 @@ class _RouterEditorState extends State<_RouterEditor> {
               ),
               const SizedBox(height: 16),
               const Text('候选实例'),
-              if (options.isEmpty) const Text('请先在「实例」页保存聊天实例。'),
+              if (options.isEmpty) const Text('请先在「实例」页保存实例。'),
               for (final option in options.entries)
                 CheckboxListTile(
                   title: Text(option.value),

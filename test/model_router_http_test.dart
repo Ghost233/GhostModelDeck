@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_model_deck/engine_catalog.dart';
 import 'package:ghost_model_deck/engine_launch_configuration.dart';
@@ -11,21 +12,35 @@ import 'package:ghost_model_deck/llama_engine.dart';
 import 'package:ghost_model_deck/llm_playground.dart';
 import 'package:ghost_model_deck/model_routers.dart';
 import 'package:ghost_model_deck/model_use_registry.dart';
+import 'package:ghost_model_deck/prefill_operation_id.dart';
 import 'package:ghost_model_deck/prefill_operation_ledger.dart';
 import 'package:ghost_model_deck/public_gateway.dart';
 import 'package:ghost_model_deck/public_prefill_route.dart';
 import 'package:ghost_model_deck/public_prefill_service.dart';
 import 'package:ghost_model_deck/splash_operation_client.dart';
 
+import 'fixtures/native_text_api.dart';
 import 'splash_engine_test.dart' show SplashRuntimeFixture;
 
 void main() {
   test(
-    'chat alias switches only new requests and follows the selected instance',
+    'model routing uses the current instance for each new text request',
+    // All protocols use the same running instances and saved router.
     () async {
       final fixture = await SplashRuntimeFixture.create();
       addTearDown(fixture.close);
-      fixture.io.runtimeEndpointMissing = true;
+      fixture.io.prefillCapabilities = {
+        'schema': 'splash-prefill/1',
+        'operation_tracking': true,
+        'chat_zero_budget': true,
+        'systemone_state': false,
+      };
+      fixture.io.monitorStatus = {
+        'maximum_context_tokens': 1024,
+        'http': {
+          'requests': {'capacity': 2},
+        },
+      };
       final cpp = LlamaEngine(
         library: fixture.library,
         installationDirectory: Directory('${fixture.root.path}/cpp'),
@@ -161,16 +176,117 @@ void main() {
       expect(fixture.io.starts, 1);
 
       final secondRun = await instances.start(second.id);
-      await expectLater(
-        prefill.resolve(SplashOperationPath.chat, alias),
-        throwsA(
-          isA<PublicRequestException>().having(
-            (error) => error.statusCode,
-            'statusCode',
-            404,
-          ),
-        ),
+      final prefillTarget = await prefill.resolve(
+        SplashOperationPath.chat,
+        alias,
       );
+      expect(prefillTarget.nativeModel, secondRun.id);
+      final models = await read(
+        await (await client.getUrl(base.resolve('/api/v1/models'))).close(),
+      );
+      final aliasCapacity = (models['models'] as List).cast<Map>().singleWhere(
+        (model) => model['key'] == alias,
+      );
+      expect(aliasCapacity['loaded_instances'], [
+        {
+          'id': alias,
+          'config': {'context_length': 1024, 'max_concurrent_requests': 2},
+        },
+      ]);
+      expect(
+        aliasCapacity['capabilities']['prefill'],
+        containsPair('supported', true),
+      );
+      const operationToken =
+          'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+      String operationId(String token) =>
+          'gmd1.${sha256.convert(utf8.encode(prefillTarget.generation))}.'
+          '${ledger.timeBasisMs}.${PrefillOperationId.nonceForToken(token)}';
+      final oldOperation = operationId(operationToken);
+      const prefillBody = {
+        'model': alias,
+        'cache_salt': 'tracked-salt',
+        'messages': [
+          {'role': 'user', 'content': 'prefill input'},
+        ],
+        'max_tokens': 0,
+      };
+      final trackedModels = <String>[];
+      fixture.io.trackedOperation = (request, nativeAlias, model, pid) async {
+        if (request.method == 'POST') {
+          expect(request.headers.value('x-splash-operation-id'), oldOperation);
+          final body =
+              jsonDecode(await utf8.decoder.bind(request).join()) as Map;
+          trackedModels.add(body['model'] as String);
+          expect(body['model'], nativeAlias);
+          expect(body['max_tokens'], 0);
+          request.response.write(
+            jsonEncode({
+              'object': 'chat.completion',
+              'model': model,
+              'choices': [
+                {
+                  'index': 0,
+                  'finish_reason': 'length',
+                  'message': {'role': 'assistant', 'content': null},
+                },
+              ],
+              'usage': {
+                'prompt_tokens': 4,
+                'completion_tokens': 0,
+                'total_tokens': 4,
+              },
+            }),
+          );
+        } else {
+          expect(request.uri.path, '/v1/splash/operations/$oldOperation');
+          request.response.write(
+            jsonEncode({
+              'operation_id': oldOperation,
+              'service_instance': 'service-$pid',
+              'state': 'completed',
+              'terminal': true,
+              'lease_released': true,
+              'children': [
+                {
+                  'state': 'length',
+                  'lease_released': true,
+                  'native_request_id': 1,
+                  'runtime_generation': 1,
+                  'prompt_tokens': 4,
+                  'completion_tokens': 0,
+                },
+              ],
+            }),
+          );
+        }
+        await request.response.close();
+      };
+      Future<HttpClientResponse> tracked(String id, String token) async {
+        final request = await client.postUrl(
+          base.resolve('/v1/chat/completions'),
+        );
+        request.headers.contentType = ContentType.json;
+        request.headers.set('idempotency-key', id);
+        request.headers.set('x-gmd-operation-token', token);
+        request.headers.set(
+          'x-gmd-runtime-generation',
+          prefillTarget.generation,
+        );
+        request.write(jsonEncode(prefillBody));
+        return request.close();
+      }
+
+      final submitted = await tracked(oldOperation, operationToken);
+      expect(submitted.statusCode, 200);
+      final prefilled = await read(submitted);
+      expect(prefilled['model'], alias);
+      expect(
+        prefilled['prefill'],
+        containsPair('runtime_generation', prefillTarget.generation),
+      );
+      expect(trackedModels, [secondRun.id]);
+
       expect(
         await playground.discover(),
         unorderedEquals([first.publicName, second.publicName, alias]),
@@ -186,6 +302,21 @@ void main() {
       final body = utf8.decoder.bind(streaming).join();
       try {
         await routers.select(alias, first.id);
+        final now = await prefill.resolve(SplashOperationPath.chat, alias);
+        expect(now.nativeModel, firstRun.id);
+        expect(now.generation, isNot(prefillTarget.generation));
+        final replayed = await tracked(oldOperation, operationToken);
+        expect(replayed.statusCode, 200);
+        expect(await read(replayed), prefilled);
+        const staleToken =
+            'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+        final stale = await tracked(operationId(staleToken), staleToken);
+        expect(stale.statusCode, 409);
+        expect(
+          (await read(stale))['error'],
+          containsPair('code', 'idempotency_conflict'),
+        );
+        expect(trackedModels, [secondRun.id]);
         final next = await post(temperature: 0.4);
         expect(next.statusCode, 200);
         expect((await read(next))['model'], alias);
@@ -209,6 +340,207 @@ void main() {
             .map((event) => (jsonDecode(event.substring(6)) as Map)['model']),
         everyElement(alias),
       );
+
+      final forwardedModels = <String>[];
+      final responseBodies = <Map>[];
+      fixture.io.nativeText = (request, nativeModel) async {
+        final input =
+            jsonDecode(await utf8.decoder.bind(request).join()) as Map;
+        expect(input['model'], nativeModel);
+        forwardedModels.add(nativeModel);
+        final path = request.uri.path;
+        if (path == '/v1/responses') responseBodies.add(input);
+        if (path == '/v1/chat/completions') {
+          expect(input['tool_choice'], 'required');
+          expect(input['tools'], isNotEmpty);
+        }
+        if (input['stream'] == true) {
+          request.response.headers.contentType = ContentType(
+            'text',
+            'event-stream',
+          );
+          if (path == '/v1/chat/completions') {
+            request.response.write(
+              'data: {"model":"$nativeModel","choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1"}]},"finish_reason":null}]}\n\n'
+              'data: {"model":"$nativeModel","choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n'
+              'data: [DONE]\n\n',
+            );
+          } else {
+            request.response.write(
+              'event: response.completed\n'
+              'data: {"type":"response.completed","response":{"model":"$nativeModel","id":"resp-second","status":"completed","previous_response_id":null,"output":[{"type":"message","role":"assistant","content":"Second reply"}]}}\n\n',
+            );
+          }
+        } else {
+          request.response.write(
+            jsonEncode(switch (path) {
+              '/v1/responses' => {
+                'object': 'response',
+                'model': nativeModel,
+                'temperature': input['temperature'],
+                'id': input['store'] == false ? 'resp-private' : 'resp-first',
+                'previous_response_id': null,
+                'output': [
+                  {
+                    'type': 'message',
+                    'role': 'assistant',
+                    'content': 'First reply',
+                  },
+                ],
+              },
+              '/v1/messages' => {'type': 'message', 'model': nativeModel},
+              '/v1/messages/count_tokens' => {'input_tokens': 4},
+              '/v1/chat/completions' => {
+                'object': 'chat.completion',
+                'model': nativeModel,
+                'choices': [
+                  {
+                    'message': {
+                      'role': 'assistant',
+                      'content': null,
+                      'tool_calls': [
+                        {
+                          'id': 'call_1',
+                          'type': 'function',
+                          'function': {'name': 'probe', 'arguments': '{}'},
+                        },
+                      ],
+                    },
+                    'finish_reason': 'tool_calls',
+                  },
+                ],
+              },
+              _ => throw StateError('Unexpected protocol path: $path'),
+            }),
+          );
+        }
+        await request.response.close();
+      };
+      try {
+        final responses = await postNativeText(base, '/v1/responses', {
+          'model': alias,
+          'input': 'hello',
+        });
+        expect(responses.status, 200);
+        expect(
+          jsonDecode(responses.body),
+          allOf(
+            containsPair('model', alias),
+            containsPair('temperature', 0.2),
+            containsPair('id', 'resp-first'),
+          ),
+        );
+        await routers.select(alias, second.id);
+        final sse = await postNativeText(base, '/v1/responses', {
+          'model': alias,
+          'input': 'continue',
+          'previous_response_id': 'resp-first',
+          'stream': true,
+        });
+        expect(sse.status, 200);
+        expect(sse.mime, 'text/event-stream');
+        expect(sse.body, contains('event: response.completed'));
+        expect(sse.body, contains('"model":"$alias"'));
+        expect(sse.body, contains('"previous_response_id":"resp-first"'));
+        expect(sse.body, isNot(contains(secondRun.id)));
+        expect(responseBodies.last['previous_response_id'], isNull);
+        expect(responseBodies.last['input'], [
+          {'type': 'message', 'role': 'user', 'content': 'hello'},
+          {'type': 'message', 'role': 'assistant', 'content': 'First reply'},
+          {'type': 'message', 'role': 'user', 'content': 'continue'},
+        ]);
+
+        const message = {
+          'model': alias,
+          'messages': [
+            {'role': 'user', 'content': 'hello'},
+          ],
+        };
+        final messages = await postNativeText(base, '/v1/messages', message);
+        expect(messages.status, 200);
+        expect(jsonDecode(messages.body), {'type': 'message', 'model': alias});
+        final count = await postNativeText(
+          base,
+          '/v1/messages/count_tokens',
+          message,
+        );
+        expect(count.status, 200);
+        expect(jsonDecode(count.body), {'input_tokens': 4});
+        final toolRequest = {
+          ...message,
+          'tools': [
+            {
+              'type': 'function',
+              'function': {'name': 'probe'},
+            },
+          ],
+          'tool_choice': 'required',
+        };
+        final tools = await postNativeText(
+          base,
+          '/v1/chat/completions',
+          toolRequest,
+        );
+        expect(tools.status, 200);
+        expect(jsonDecode(tools.body)['model'], alias);
+        expect(
+          jsonDecode(tools.body)['choices'][0]['finish_reason'],
+          'tool_calls',
+        );
+        final toolStream = await postNativeText(base, '/v1/chat/completions', {
+          ...toolRequest,
+          'stream': true,
+        });
+        expect(toolStream.status, 200);
+        expect(
+          toolStream.body,
+          contains('"tool_calls":[{"index":0,"id":"call_1"}]'),
+        );
+        expect(toolStream.body, contains('"model":"$alias"'));
+        expect(toolStream.body, endsWith('data: [DONE]\n\n'));
+        await routers.select(alias, first.id);
+        final resumed = await postNativeText(base, '/v1/responses', {
+          'model': alias,
+          'input': 'continue again',
+          'previous_response_id': 'resp-second',
+        });
+        expect(resumed.status, 200);
+        expect(responseBodies.last['input'], [
+          {'type': 'message', 'role': 'user', 'content': 'hello'},
+          {'type': 'message', 'role': 'assistant', 'content': 'First reply'},
+          {'type': 'message', 'role': 'user', 'content': 'continue'},
+          {'type': 'message', 'role': 'assistant', 'content': 'Second reply'},
+          {'type': 'message', 'role': 'user', 'content': 'continue again'},
+        ]);
+        final private = await postNativeText(base, '/v1/responses', {
+          'model': alias,
+          'input': 'do not store',
+          'store': false,
+        });
+        expect(private.status, 200);
+        final unavailableHistory = await postNativeText(base, '/v1/responses', {
+          'model': alias,
+          'input': 'continue',
+          'previous_response_id': 'resp-private',
+        });
+        expect(unavailableHistory.status, 404);
+        expect(
+          unavailableHistory.body,
+          contains('previous_response_not_found'),
+        );
+        expect(forwardedModels, [
+          firstRun.id,
+          secondRun.id,
+          secondRun.id,
+          secondRun.id,
+          secondRun.id,
+          secondRun.id,
+          firstRun.id,
+          firstRun.id,
+        ]);
+      } finally {
+        fixture.io.nativeText = null;
+      }
 
       await instances.stop(first.id);
       await instances.delete(first.id);

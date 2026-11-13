@@ -125,20 +125,6 @@ Map<String, Object?> nativeTextBody(
   required bool splash,
 }) {
   final body = {...input};
-  if (endpoint == NativeTextEndpoint.chat) {
-    final parameters = GenerationConfiguration({
-      for (final entry in input.entries)
-        if (GenerationConfiguration.acceptedKeys.contains(entry.key))
-          entry.key: entry.value,
-    });
-    return {
-      for (final entry in input.entries)
-        if (!GenerationConfiguration.acceptedKeys.contains(entry.key))
-          entry.key: entry.value,
-      ...defaults.withOverrides(parameters).nativeValues(splash: splash),
-    };
-  }
-  final responses = endpoint == NativeTextEndpoint.responses;
   final extra = <String, Object?>{};
   final suppliedExtra = body['extra_params'];
   if (suppliedExtra != null) {
@@ -153,6 +139,20 @@ Map<String, Object?> nativeTextBody(
     }
     extra.addAll(Map<String, Object?>.from(suppliedExtra));
   }
+  if (endpoint == NativeTextEndpoint.chat) {
+    final parameters = GenerationConfiguration({
+      for (final entry in input.entries)
+        if (GenerationConfiguration.acceptedKeys.contains(entry.key))
+          entry.key: entry.value,
+    });
+    return {
+      for (final entry in input.entries)
+        if (!GenerationConfiguration.acceptedKeys.contains(entry.key))
+          entry.key: entry.value,
+      ...defaults.withOverrides(parameters).nativeValues(splash: splash),
+    };
+  }
+  final responses = endpoint == NativeTextEndpoint.responses;
   if (endpoint == NativeTextEndpoint.messagesCountTokens) return body;
   final nativeDefaults = defaults.nativeValues(
     splash: splash,
@@ -319,16 +319,23 @@ Map<String, Object?> nativeTextReply(
   String model,
   String Function(String) redact, {
   bool error = false,
+  String? previousResponseId,
 }) {
   final decoded = jsonDecode(raw);
   if (decoded is! Map<String, Object?>) {
     throw const FormatException('上游协议响应需要是 JSON 对象');
   }
   if (decoded['model'] is String) decoded['model'] = model;
+  if (previousResponseId != null && decoded['object'] == 'response') {
+    decoded['previous_response_id'] = previousResponseId;
+  }
   for (final key in ['response', 'message']) {
     final item = decoded[key];
     if (item is Map<String, Object?> && item['model'] is String) {
       item['model'] = model;
+      if (key == 'response' && previousResponseId != null) {
+        item['previous_response_id'] = previousResponseId;
+      }
     }
   }
   Object? safe(Object? value) => switch (value) {
@@ -351,11 +358,13 @@ Map<String, Object?> nativeTextReply(
   return decoded;
 }
 
-Stream<({String wire, bool terminal})> nativeTextEvents(
+Stream<({String wire, bool terminal, Map<String, Object?>? response})>
+nativeTextEvents(
   Stream<String> chunks,
   String model,
   String Function(String) redact, {
   required NativeTextEndpoint endpoint,
+  String? previousResponseId,
 }) async* {
   final fields = <String>[];
   final data = <String>[];
@@ -363,15 +372,25 @@ Stream<({String wire, bool terminal})> nativeTextEvents(
     if (line.isEmpty) {
       final raw = data.join('\n');
       var terminal = false;
+      Map<String, Object?>? response;
       if (raw == '[DONE]') {
         fields.add('data: [DONE]');
       } else if (raw.isNotEmpty) {
-        final value = nativeTextReply(raw, model, redact);
+        final value = nativeTextReply(
+          raw,
+          model,
+          redact,
+          previousResponseId: previousResponseId,
+        );
         terminal = const {
           'response.completed',
           'response.incomplete',
           'message_stop',
         }.contains(value['type']);
+        if (terminal && endpoint == NativeTextEndpoint.responses) {
+          final item = value['response'];
+          if (item is Map<String, Object?>) response = item;
+        }
         final choices = value['choices'];
         if (endpoint == NativeTextEndpoint.chat && choices is List) {
           terminal = choices.any(
@@ -381,7 +400,11 @@ Stream<({String wire, bool terminal})> nativeTextEvents(
         fields.add('data: ${jsonEncode(value)}');
       }
       if (fields.isNotEmpty) {
-        yield (wire: '${fields.join('\n')}\n\n', terminal: terminal);
+        yield (
+          wire: '${fields.join('\n')}\n\n',
+          terminal: terminal,
+          response: response,
+        );
       }
       fields.clear();
       data.clear();

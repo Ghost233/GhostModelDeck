@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'launch_instances.dart';
-import 'model_library.dart';
 
 class ModelRouter {
   ModelRouter({
@@ -63,13 +62,6 @@ class ModelRouters {
   Stream<void> get changes => _changes.stream;
   Object? get loadError => _loadError;
   ModelRouter? find(String name) => _entries[name];
-
-  bool isCandidate(LaunchInstance instance) =>
-      !instances.catalog.library.state.artifacts.any(
-        (asset) =>
-            asset.id == instance.artifactId &&
-            asset.kind == AssetKind.embedding,
-      );
 
   Future<void> load() {
     if (_closing != null) return Future.error(StateError('模型路由已关闭'));
@@ -157,9 +149,8 @@ class ModelRouters {
   }
 
   void _validateCandidate(String id) {
-    final instance = instances.find(id);
-    if (instance == null || !isCandidate(instance)) {
-      throw ArgumentError('请选择已保存的聊天实例');
+    if (instances.find(id) == null) {
+      throw ArgumentError('请选择已保存的实例');
     }
   }
 

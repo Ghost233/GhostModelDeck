@@ -203,7 +203,7 @@ void main() {
     final playground = LlmPlayground(baseUrl: () => fixture.gateway.baseUrl);
     final unsupported = {
       ...llmDocument(fixture.publicId),
-      'tools': <Object?>[],
+      'unknown_parameter': true,
     };
     final refused = await playground.run(jsonEncode(unsupported));
     expect(refused.statusCode, 400);
@@ -211,7 +211,7 @@ void main() {
     expect(refused.request, unsupported);
     expect(
       jsonDecode(refused.rawResponse)['error']['message'],
-      contains('tools'),
+      contains('unknown_parameter'),
     );
     expect(fixture.io.bodies, isEmpty);
     fixture.io.status = 503;

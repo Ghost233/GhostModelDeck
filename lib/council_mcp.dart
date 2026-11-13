@@ -497,10 +497,11 @@ confidence 描述分布形状，不代表正确率。
       );
     }
     await controller.models.load();
+    await controller.modelRouters?.load().catchError((Object _) {});
     final payload = {
       'object': 'list',
       'data': [
-        for (final m in controller.models.discoverableScenarios) m.toJson(),
+        for (final m in controller.models.discoverableModels) m.toJson(),
       ],
     };
     return CallToolResult(

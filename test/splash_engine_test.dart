@@ -2337,6 +2337,8 @@ class SplashTestProcessIO implements SplashProcessIO {
   final calls = <List<String>>[];
   final httpPaths = <String>[];
   Future<void> Function(HttpRequest request, String alias)? nativeText;
+  Future<void> Function(HttpRequest request, String alias, String model, int pid)?
+      trackedOperation;
   final chatModels = <String>[];
   final chatBodies = <Map>[];
   final rawChatBodies = <String>[];
@@ -2592,6 +2594,12 @@ class SplashTestProcessIO implements SplashProcessIO {
           '/v1/chat/completions', '/v1/responses', '/v1/messages', '/v1/messages/count_tokens',
         }.contains(request.uri.path)) {
           await nativeText!(request, alias);
+          return;
+        }
+        if (trackedOperation != null &&
+            (request.headers.value('x-splash-operation-id') != null ||
+                request.uri.path.startsWith('/v1/splash/operations/'))) {
+          await trackedOperation!(request, alias, model, child.pid);
           return;
         }
         switch (request.uri.path) {

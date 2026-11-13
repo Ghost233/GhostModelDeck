@@ -14,6 +14,7 @@ import 'package:ghost_model_deck/jev_playground.dart';
 import 'package:ghost_model_deck/launch_instances.dart';
 import 'package:ghost_model_deck/llama_engine.dart';
 import 'package:ghost_model_deck/model_use_registry.dart';
+import 'package:ghost_model_deck/model_routers.dart';
 import 'package:ghost_model_deck/public_gateway.dart';
 import 'package:ghost_model_deck/splash_engine.dart';
 
@@ -21,6 +22,59 @@ import 'splash_engine_test.dart' show SplashRuntimeFixture;
 import 'runtime_monitor_test.dart' show splashStatus;
 
 void main() {
+  test(
+    'System One and MCP use the decision router name and selected instance',
+    () async {
+      final fixture = await DecisionRouteFixture.create();
+      addTearDown(fixture.close);
+      fixture.native.io.monitorStatus = {
+        ...?fixture.native.io.monitorStatus,
+        'generation': false,
+      };
+      final first = await fixture.save('decision-first');
+      final second = await fixture.save('decision-second');
+      final firstRun = await fixture.instances.start(first.id);
+      final secondRun = await fixture.instances.start(second.id);
+      const alias = 'decision_router';
+      final routers = fixture.council.modelRouters!;
+      await routers.create(
+        ModelRouter(
+          name: alias,
+          candidateIds: [first.id, second.id],
+          currentInstanceId: first.id,
+        ),
+      );
+      expect(fixture.gateway.readyTextModel(alias), isNull);
+      final playground = JevPlayground(
+        gateway: fixture.gateway,
+        mcp: fixture.mcp,
+      );
+      final discovery = await playground.discover(JevPlaygroundMode.mcp);
+      expect(
+        playground.modelsFromDiscovery(discovery).map((m) => m.id),
+        contains(alias),
+      );
+      final http = await playground.run(
+        JevPlaygroundMode.http,
+        jsonEncode(document(alias)),
+      );
+      expect(
+        http.status,
+        JevPlaygroundStatus.success,
+        reason: http.rawResponse,
+      );
+      expect(http.output!['model'], alias);
+      expect(fixture.native.io.decisionBodies.last['model'], firstRun.id);
+      await routers.select(alias, second.id);
+      final mcp = await playground.run(
+        JevPlaygroundMode.mcp,
+        jsonEncode(document(alias)),
+      );
+      expect(mcp.status, JevPlaygroundStatus.success, reason: mcp.rawResponse);
+      expect(mcp.output!['model'], alias);
+      expect(fixture.native.io.decisionBodies.last['model'], secondRun.id);
+    },
+  );
   for (final probe in ['ready', 'status']) {
     for (final phase in ['before', 'after']) {
       test(
@@ -491,9 +545,14 @@ class DecisionRouteFixture {
       catalog: catalog,
       file: File('${native.root.path}/instances.json'),
     );
+    final routers = ModelRouters(
+      file: File('${native.root.path}/model-routers.json'),
+      instances: instances,
+    );
     final council = CouncilController(
       catalog: catalog,
       launchInstances: instances,
+      modelRouters: routers,
       modelRegistryFile: File('${native.root.path}/councils.json'),
     );
     final routes = PublicModelRoutes(
@@ -501,6 +560,7 @@ class DecisionRouteFixture {
       runtimes: [cpp],
       runtimeSources: () => catalog.runtimes.toList(),
       instances: instances,
+      modelRouters: routers,
     );
     final gateway = PublicGatewayServer(
       routes: routes,
@@ -533,6 +593,7 @@ class DecisionRouteFixture {
   Future<void> close() async {
     await mcp.close();
     await gateway.stop();
+    await council.modelRouters?.close();
     gateway.close();
     routes.close();
     await council.close();

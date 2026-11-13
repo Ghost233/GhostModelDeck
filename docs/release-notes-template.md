@@ -6,8 +6,9 @@
 
 <!-- 每次发布前人工更新本节；workflow 不自动推导变更内容。 -->
 
-- 当关联的 Splash 在帮助中列出 `--activations q4h` 时，激活精度可选择实验性的 4 位注意力 Q。切回旧构建时，GMD 保留原设置，并在启动时跳过该值。
-- 实例参数的“空闲释放时长”说明了默认值 `10m` 和权重重载行为。可指定 `90s`、`5m` 等正时长，也可用 `off` 关闭自动释放。释放后的下一条请求会自动加载模型权重，首 token 可能多等一次加载。
+- 模型路由的调用名可用于 OpenAI Chat Completions、Responses、Anthropic Messages、System One、JEV MCP 和 Embeddings。可用能力、上下文和并发容量取自当前实例。
+- Responses 可通过 `previous_response_id` 在切换实例后续接对话。历史保存在 GMD 内存中，遵守 `store: false`。
+- 可追踪预填充支持路由名。切换实例后，已登记的操作仍绑定原实例。Chat Completions 支持普通和流式工具调用。
 
 ## 资产
 

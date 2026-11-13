@@ -116,8 +116,9 @@ class LlmPlayground {
         if (entry is! Map || entry['id'] is! String) {
           throw const FormatException('公开模型发现条目无效');
         }
-        // Current public JEV entries carry source; chat entries do not.
-        if (!entry.containsKey('source')) ids.add(entry['id'] as String);
+        if (!entry.containsKey('source') || entry['text_generation'] == true) {
+          ids.add(entry['id'] as String);
+        }
       }
       return List.unmodifiable(ids);
     }

@@ -8,6 +8,7 @@ import 'engine_catalog.dart';
 import 'engine_runtime.dart';
 import 'jev_models.dart';
 import 'model_scenarios.dart';
+import 'model_routers.dart';
 import 'public_model_names.dart';
 import 'launch_instances.dart';
 import 'jev_debug.dart';
@@ -255,6 +256,7 @@ class CouncilController {
     this.modelRegistryIO,
     this.publicNames,
     this.launchInstances,
+    this.modelRouters,
   }) {
     _subscription = catalog.changes.listen((_) => _publish());
   }
@@ -264,6 +266,7 @@ class CouncilController {
   final JevRegistryIO? modelRegistryIO;
   final PublicModelNames? publicNames;
   final LaunchInstances? launchInstances;
+  final ModelRouters? modelRouters;
   late final ModelScenarios scenarios = ModelScenarios(
     file: scenarioRegistryFile,
     names: publicNames ?? launchInstances?.names ?? PublicModelNames(),
@@ -279,6 +282,7 @@ class CouncilController {
     registryIO: modelRegistryIO,
     publicNames: publicNames ?? launchInstances?.names,
     instances: launchInstances,
+    modelRouters: modelRouters,
   );
   final _changes = StreamController<CouncilState>.broadcast();
   late final StreamSubscription<EngineCatalogState> _subscription;
