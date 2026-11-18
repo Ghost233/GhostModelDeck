@@ -108,6 +108,12 @@ class EngineParameterDefinitions {
     'managed': '软件管理字段',
   };
 
+  static const splashModernOptions = {
+    '--cached-states',
+    '--reasoning-effort',
+    '--chat-template-file',
+  };
+
   static const splash = <EngineParameterDefinition>[
     EngineParameterDefinition(
       '--max-context',
@@ -172,7 +178,7 @@ class EngineParameterDefinitions {
       'resources',
       ParameterKind.choice,
       choices: ['int8', 'bf16', 'q4h', 'q4_0', 'q4_0_unrotated'],
-      help: '留空时由当前启动入口决定。Splash 通用入口默认 int8；q4h 使用更少的 KV 内存。',
+      help: '留空时由当前启动入口决定。Splash 通用入口默认 int8；Q4H 将注意力缓存的 K/V 量化为 4 位。',
     ),
     EngineParameterDefinition(
       '--activations',
@@ -190,6 +196,7 @@ class EngineParameterDefinitions {
       ParameterKind.choice,
       choices: ['fp32', 'bf16'],
       initial: 'fp32',
+      help: '设置 GDN 循环状态的存储格式。继承引擎默认时使用 FP32。',
     ),
     EngineParameterDefinition(
       '--idle-release',
@@ -198,6 +205,15 @@ class EngineParameterDefinitions {
       ParameterKind.duration,
       initial: '10m',
       help: '默认 10m。空闲达到设定时长后，Splash 会释放模型权重。下一条请求会自动重新加载权重，首 token 可能更慢。支持正时长（如 90s、5m、1h）和 off（关闭自动释放）。',
+    ),
+    EngineParameterDefinition(
+      '--cached-states',
+      '缓存循环状态精度',
+      'cache',
+      ParameterKind.choice,
+      choices: ['int8', 'exact'],
+      initial: 'int8',
+      help: 'Splash 1.7 起默认用 INT8 压缩缓存中的 GDN 循环状态。exact 保留 --state-format 的原始精度。仅适用于有循环状态的模型。',
     ),
     EngineParameterDefinition(
       '--max-cache-disk',
@@ -379,7 +395,7 @@ class EngineParameterDefinitions {
       ParameterKind.choice,
       choices: ['auto', 'all'],
       initial: 'auto',
-      help: 'auto 为 MoE 自适应选择验证行，速度更快，但 greedy 或固定 seed 输出仍可能变化。all 验证全部行，并固定 MoE 预填充分区；在单请求和相同前缀缓存条件下支持重复输出。',
+      help: 'Splash 1.7 起，auto 根据启动时实测的成本选择每轮验证行数。all 验证所有候选；相同条件下需复现 greedy 或固定 seed 输出时使用。',
     ),
     EngineParameterDefinition(
       '--compact-draft-head',
@@ -442,6 +458,13 @@ class EngineParameterDefinitions {
       help: '在内存中覆盖聊天模板；分词器仍来自锁定的模型目录，下次启动生效。',
     ),
     EngineParameterDefinition(
+      '--chat-template-file',
+      '聊天模板文件',
+      'thinking',
+      ParameterKind.file,
+      help: '选择本地 Jinja 模板替换模型自带模板。引擎会在启动时验证模板。',
+    ),
+    EngineParameterDefinition(
       '--serve-record',
       '服务诊断记录文件',
       'extra',
@@ -456,6 +479,14 @@ class EngineParameterDefinitions {
       ParameterKind.choice,
       choices: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
       help: '下次启动生效；留空使用当前引擎默认来源，实例请求可单独覆盖。',
+    ),
+    EngineParameterDefinition(
+      '--reasoning-effort',
+      '强制思考强度',
+      'thinking',
+      ParameterKind.choice,
+      choices: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+      help: '覆盖 Chat、Responses 和 Messages 请求的思考强度。none 关闭思考，与 --default-reasoning-effort 互斥。',
     ),
     EngineParameterDefinition(
       '--thinking-token-budget',
@@ -955,7 +986,9 @@ class EngineParameterDefinitions {
   }) {
     final result = {
       for (final field in known(family))
-        if (recognition?.isRetiredSplashMemoryOption(field.name) != true &&
+        if (!(field.name == '--chat-template' &&
+                recognition?.usesSplashChatTemplateFile == true) &&
+            recognition?.isRetiredSplashMemoryOption(field.name) != true &&
             !(field.name == '--ple-memory' &&
                 splashModel?.hasSplashPleTable == false))
           field.name: field,
@@ -993,6 +1026,18 @@ class EngineParameterDefinitions {
         choices: [...activations.choices, 'q4h'],
         initial: activations.initial,
         help: '${activations.help} Q4H 仅量化注意力查询向量（Q）。',
+      );
+    }
+    final state = result['--state-format'];
+    if (state != null && recognition?.supportsSplashQ4hState == true) {
+      result[state.name] = EngineParameterDefinition(
+        state.name,
+        state.label,
+        state.group,
+        state.kind,
+        choices: [...state.choices, 'q4h'],
+        initial: state.initial,
+        help: state.help,
       );
     }
     if (recognition != null) {

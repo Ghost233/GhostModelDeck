@@ -396,6 +396,57 @@ class _InstanceMonitor extends StatelessWidget {
               ),
             ),
           ),
+          if (data != null) _SplashStatusDetails(data: data),
+        ],
+      ),
+    );
+  }
+}
+
+class _SplashStatusDetails extends StatelessWidget {
+  const _SplashStatusDetails({required this.data});
+
+  final RuntimeTelemetry data;
+
+  static String _bytes(int bytes) {
+    const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+    var unit = 0;
+    var amount = bytes.toDouble();
+    while (amount >= 1024 && unit < units.length - 1) {
+      amount /= 1024;
+      unit++;
+    }
+    return '${amount.toStringAsFixed(unit == 0 ? 0 : 1)} ${units[unit]}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final details = [
+      if (data.diskWrittenHourBytes case final bytes?)
+        '磁盘缓存写入 1 小时 ${_bytes(bytes)}',
+      if (data.diskWrittenDayBytes case final bytes?)
+        '磁盘缓存写入 24 小时 ${_bytes(bytes)}',
+      if (data.idleCachedCells case final cells?) '空闲状态缓存单元 $cells',
+      if (data.ttftUnitWaitP50Ms case final wait?)
+        '首 token 预填充单元等待 P50 ${wait.toStringAsFixed(1)} ms',
+      if (data.reasoningEffort case final effort?) '强制思考强度 $effort',
+    ];
+    if (details.isEmpty) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Wrap(
+        key: const Key('monitor-splash-status-details'),
+        spacing: 12,
+        runSpacing: 4,
+        children: [
+          for (final detail in details)
+            Text(
+              detail,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
         ],
       ),
     );

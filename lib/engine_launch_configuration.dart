@@ -222,6 +222,14 @@ class EngineLaunchConfiguration {
   }) {
     final rules =
         recognition ?? EngineParameterRecognition.builtIn(family: family);
+    final formValues = {...this.formValues};
+    if (rules.usesSplashChatTemplateFile) {
+      final legacy = formValues.remove('--chat-template');
+      if (legacy != null &&
+          (formValues['--chat-template-file'] ?? '').isEmpty) {
+        formValues['--chat-template-file'] = legacy;
+      }
+    }
     final definitions = {
       for (final field in EngineParameterDefinitions.forEngine(
         family,
@@ -332,8 +340,18 @@ class EngineLaunchConfiguration {
         validateSupport &&
         family == EngineFamily.splash &&
         !rules.recognizes('--experimental-quantized-ffn');
-    String? activationOmission(String? value) {
+    String? formatOmission(String name, String? value) {
       if (!validateSupport || family != EngineFamily.splash) return null;
+      if (EngineParameterDefinitions.splashModernOptions.contains(name) &&
+          !rules.supportsSplashOption(name)) {
+        return '当前 Splash 引擎帮助未确认支持 $name。已保留原设置，本次启动省略该参数。';
+      }
+      if (name == '--state-format') {
+        return value == 'q4h' && !rules.supportsSplashQ4hState
+            ? '当前 Splash 引擎帮助未确认支持 --state-format q4h。已保留原设置，本次启动省略该值。'
+            : null;
+      }
+      if (name != '--activations') return null;
       if (value == 'q4h' && !rules.supportsSplashQ4hActivations) {
         return '当前 Splash 引擎帮助未确认支持 --activations q4h。已保留原设置，本次启动省略该值。';
       }
@@ -356,10 +374,16 @@ class EngineLaunchConfiguration {
       notices.add('草稿模型已开启，本次不激活 ngram；文本中的设置仍保留。');
     }
     for (var index = 0; index < tokens.length; index++) {
-      final argument = tokens[index].value;
-      final name = argument.split('=').first;
+      var argument = tokens[index].value;
+      var name = argument.split('=').first;
+      if (name == '--chat-template' && rules.usesSplashChatTemplateFile) {
+        argument = '--chat-template-file${argument.substring(name.length)}';
+        name = '--chat-template-file';
+      }
       var controlled = controlledName(name);
-      if (controlled == '--activations') {
+      if (controlled == '--activations' ||
+          controlled == '--state-format' ||
+          EngineParameterDefinitions.splashModernOptions.contains(controlled)) {
         final separator = argument.indexOf('=');
         final separateValue =
             separator < 0 &&
@@ -370,7 +394,7 @@ class EngineLaunchConfiguration {
             : separateValue
             ? tokens[index + 1].value
             : null;
-        final notice = activationOmission(value);
+        final notice = formatOmission(controlled, value);
         if (notice != null) {
           overridden.add(controlled);
           notices.add(notice);
@@ -525,13 +549,15 @@ class EngineLaunchConfiguration {
         continue;
       }
       if (overridden.contains(entry.key) || entry.value.isEmpty) continue;
-      if (family == EngineFamily.splash && entry.key == '--activations') {
-        if (entry.value == 'auto') continue;
-        final notice = activationOmission(entry.value);
-        if (notice != null) {
-          notices.add(notice);
-          continue;
-        }
+      if (family == EngineFamily.splash &&
+          entry.key == '--activations' &&
+          entry.value == 'auto') {
+        continue;
+      }
+      final notice = formatOmission(entry.key, entry.value);
+      if (notice != null) {
+        notices.add(notice);
+        continue;
       }
       if (unsupportedQuantizedFfn &&
           entry.key == '--experimental-quantized-ffn') {
@@ -541,8 +567,8 @@ class EngineLaunchConfiguration {
       if (rules.hasObservedHelp && !rules.recognizes(entry.key)) {
         notices.add('${entry.key} 的支持情况尚未由当前版本帮助确认；启动时由引擎校验。');
       }
-      final notice = _valueNotice(entry.key, entry.value, family);
-      if (notice != null) notices.add(notice);
+      final valueNotice = _valueNotice(entry.key, entry.value, family);
+      if (valueNotice != null) notices.add(valueNotice);
     }
     return EngineLaunchCommand(
       executable: executable,
@@ -598,8 +624,8 @@ class EngineLaunchConfiguration {
                   name == '--experimental-quantized-ffn') &&
               !(family == EngineFamily.splash &&
                   name == '--activations' &&
-                  (formValues[name] == 'auto' ||
-                      activationOmission(formValues[name]) != null)) &&
+                  formValues[name] == 'auto') &&
+              formatOmission(name, formValues[name]) == null &&
               !managedForm(name) &&
               (formValues[name]?.isNotEmpty ?? false) &&
               !(definitions[name]?.group == 'draft' &&

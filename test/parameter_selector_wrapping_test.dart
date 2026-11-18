@@ -55,6 +55,13 @@ void main() {
         );
       }
 
+      final title = find.text('模板文件');
+      final flag = find.text('--chat-template');
+      expect(flag, findsOneWidget);
+      expect(
+        tester.getTopLeft(flag).dy,
+        greaterThan(tester.getTopLeft(title).dy),
+      );
       final dropdown = find.byKey(const Key('parameter-choice:template'));
       expectWrapped(find.text(path));
       expect(tester.getSize(dropdown).height, greaterThan(48));

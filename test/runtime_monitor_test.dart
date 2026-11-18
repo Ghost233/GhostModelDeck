@@ -16,6 +16,30 @@ import 'package:ghost_model_deck/model_scenarios.dart';
 import 'fixtures/council_runtime.dart';
 
 void main() {
+  test('Splash 1.7 reports disk writes, idle states and sampled TTFT wait', () {
+    final status = splashStatus();
+    final old = RuntimeTelemetry.splash(status);
+    expect(old.diskWrittenHourBytes, isNull);
+    expect(old.idleCachedCells, isNull);
+    expect(old.ttftUnitWaitP50Ms, isNull);
+    final data = RuntimeTelemetry.splash({
+      ...status,
+      'disk': {'written_last_hour_bytes': 0, 'written_last_day_bytes': 4096},
+      'state': {'idle_cached_cells': 3},
+      'metrics': {
+        'ttft_parts_ms': {
+          'unit_wait': {'p50': 2.5, 'samples': 7},
+        },
+      },
+      'reasoning_effort': 'none',
+    });
+    expect(data.diskWrittenHourBytes, 0);
+    expect(data.diskWrittenDayBytes, 4096);
+    expect(data.idleCachedCells, 3);
+    expect(data.ttftUnitWaitP50Ms, 2.5);
+    expect(data.reasoningEffort, 'none');
+  });
+
   test('encoder scoring batch width is separate from inference slots and HTTP admission', () {
     for (final width in [1, 2, 4]) {
       final data = RuntimeTelemetry.splash({

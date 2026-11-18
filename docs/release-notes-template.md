@@ -6,9 +6,9 @@
 
 <!-- 每次发布前人工更新本节；workflow 不自动推导变更内容。 -->
 
-- 模型路由的调用名可用于 OpenAI Chat Completions、Responses、Anthropic Messages、System One、JEV MCP 和 Embeddings。可用能力、上下文和并发容量取自当前实例。
-- Responses 可通过 `previous_response_id` 在切换实例后续接对话。历史保存在 GMD 内存中，遵守 `store: false`。
-- 可追踪预填充支持路由名。切换实例后，已登记的操作仍绑定原实例。Chat Completions 支持普通和流式工具调用。
+- 兼容 Splash 1.7，支持配置缓存循环状态精度（`--cached-states`）、聊天模板文件（`--chat-template-file`）和强制思考强度（`--reasoning-effort`）。新版启动沿用原有的自定义模板路径。
+- 启动参数标题下显示可复制的原始命令行参数名。运行监控显示 Splash 的 SSD 缓存写入量、空闲状态缓存单元、首 token 预填充单元等待 P50 和强制思考强度。
+- 当前 Splash 引擎帮助明确支持时，可选 Q4H 循环状态格式（`--state-format q4h`）。
 
 ## 资产
 

@@ -9,6 +9,23 @@ import 'generation_seed.dart';
 
 enum ParameterValueMode { inherit, off, unlimited, nativeDefault, custom }
 
+class ParameterCommandLabel extends StatelessWidget {
+  const ParameterCommandLabel({super.key, required this.command});
+
+  final String command;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SelectableText(
+      command,
+      style: theme.textTheme.bodySmall?.copyWith(
+        color: theme.colorScheme.onSurfaceVariant,
+      ),
+    );
+  }
+}
+
 /// A typed value editor. File selection is UI; inspection stays in runtimes.
 class ParameterValueField extends StatefulWidget {
   const ParameterValueField({
@@ -27,7 +44,11 @@ class ParameterValueField extends StatefulWidget {
     this.valueMode,
     this.onModeChanged,
     this.valueModeChoices,
+    this.parameterName,
+    this.showParameterName = true,
   });
+  final String? parameterName;
+  final bool showParameterName;
   final String id;
   final String inheritLabel;
   final Object? inheritedValue;
@@ -174,7 +195,10 @@ class _ParameterValueFieldState extends State<ParameterValueField> {
               DropdownMenuItem(
                 value: row.$1,
                 enabled:
-                    d.name != '--activations' ||
+                    !const {
+                      '--activations',
+                      '--state-format',
+                    }.contains(d.name) ||
                     row.$1 != 'q4h' ||
                     d.choices.contains('q4h'),
                 child: Text(
@@ -494,6 +518,7 @@ class _ParameterValueFieldState extends State<ParameterValueField> {
                   'auto' => '自动',
                   'none' => '关闭 / 无',
                   'q4h' when d.name == '--activations' => 'Q4H（4 位注意力 Q，实验性）',
+                  'q4h' when d.name == '--state-format' => 'Q4H（4 位循环状态）',
                   _ => choice,
                 },
               ),
@@ -629,6 +654,17 @@ class _ParameterValueFieldState extends State<ParameterValueField> {
                       style: Theme.of(context).textTheme.bodyMedium
                           ?.copyWith(fontWeight: FontWeight.w500),
                     ),
+                    if (widget.showParameterName &&
+                        (widget.parameterName != null ||
+                            d.name.startsWith('--')))
+                      ParameterCommandLabel(
+                        command:
+                            widget.parameterName ??
+                            [
+                              d.name,
+                              if (d.negativeFlag != null) d.negativeFlag!,
+                            ].join(' / '),
+                      ),
                     if (d.help.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 3),

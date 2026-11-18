@@ -23,6 +23,62 @@ import 'fixtures/engine_archive.dart';
 import 'fixtures/test_environment.dart';
 
 void main() {
+  test('Splash 1.7 launches with new options and a saved template path', () {
+    final legacyRules = EngineParameterRecognition.fromHelp(
+      '  --model MODEL  model\n  --binary FILE  binary\n'
+      '  --chat-template FILE  template\n',
+      version: '1.6.1',
+      family: EngineFamily.splash,
+    );
+    final modernRules = EngineParameterRecognition.fromHelp(
+      '  --model MODEL  model\n  --binary FILE  binary\n'
+      '  --chat-template FILE  legacy template\n'
+      '  --chat-template-file FILE  template\n'
+      '  --cached-states {int8,exact}  cache state precision\n'
+      '  --reasoning-effort EFFORT  forced effort\n',
+      version: '1.7.0',
+      family: EngineFamily.splash,
+    );
+    final configuration = EngineLaunchConfiguration(
+      family: EngineFamily.splash,
+      formValues: {
+        '--cached-states': 'exact',
+        '--chat-template': '/model path/old template.jinja',
+      },
+      argumentText: '--reasoning-effort=none',
+    );
+    EngineLaunchCommand command(EngineParameterRecognition rules) =>
+        configuration.command(
+          executable: 'splash',
+          modelPath: '/model',
+          recognition: rules,
+        );
+
+    final modern = command(modernRules);
+    expect(modernRules.usesSplashModelRootTokenizer, isTrue);
+    expect(
+      modern.arguments,
+      containsAllInOrder([
+        '--cached-states',
+        'exact',
+        '--chat-template-file',
+        '/model path/old template.jinja',
+        '--reasoning-effort=none',
+      ]),
+    );
+    expect(modern.arguments, isNot(contains('--tokenizer')));
+    expect(modern.arguments, isNot(contains('--chat-template')));
+
+    final legacy = command(legacyRules);
+    expect(
+      legacy.arguments,
+      containsAllInOrder(['--chat-template', '/model path/old template.jinja']),
+    );
+    expect(legacy.arguments, isNot(contains('--cached-states')));
+    expect(legacy.arguments, isNot(contains('--reasoning-effort=none')));
+    expect(configuration.formValues['--cached-states'], 'exact');
+  });
+
   test('llama native underscore options keep credentials private and model sources controlled', () async {
     final rules = EngineParameterRecognition.fromHelp(
       '$_currentHelp\n--api-key KEY  engine authentication key\n',

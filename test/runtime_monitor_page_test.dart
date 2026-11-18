@@ -306,6 +306,12 @@ void main() {
           );
           source.response = RuntimeTelemetry.splash({
             ...splashStatus(),
+            'disk': {
+              'written_last_hour_bytes': 1024,
+              'written_last_day_bytes': 1048576,
+            },
+            'state': {'idle_cached_cells': 2},
+            'reasoning_effort': 'low',
             'http': {
               'requests': {'capacity': 2},
             },
@@ -330,6 +336,20 @@ void main() {
             );
           }
           expect(find.byKey(const Key('monitor-slot:0:2')), findsNothing);
+          for (final label in [
+            '磁盘缓存写入 1 小时 1.0 KiB',
+            '磁盘缓存写入 24 小时 1.0 MiB',
+            '空闲状态缓存单元 2',
+            '强制思考强度 low',
+          ]) {
+            expect(
+              find.descendant(
+                of: find.byKey(const Key('monitor-instance:0')),
+                matching: find.text(label),
+              ),
+              findsOneWidget,
+            );
+          }
           source.response = RuntimeTelemetry.splash(
             encoderStatus(
               inputTokens: 285,

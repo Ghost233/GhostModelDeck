@@ -62,14 +62,27 @@ class EngineParameterRecognition {
       supportsSplashActivations &&
       parameters['--activations']!.explicitChoices.contains('q4h');
 
+  bool get supportsSplashQ4hState =>
+      family == EngineFamily.splash &&
+      _observedNames.contains('--state-format') &&
+      parameters['--state-format']!.explicitChoices.contains('q4h');
+
   /// A positive CLI anchor distinguishes the held-model interface from partial
   /// older help; built-in tokenizer rules remain for managed-input stripping.
   bool get usesSplashModelRootTokenizer =>
       family == EngineFamily.splash &&
       _splashModelRootTokenizer(_observedNames);
 
+  bool supportsSplashOption(String name) =>
+      family == EngineFamily.splash && _observedNames.contains(name);
+
+  bool get usesSplashChatTemplateFile =>
+      supportsSplashOption('--chat-template-file');
+
   static bool _splashModelRootTokenizer(Set<String> names) =>
-      names.containsAll({'--chat-template', '--model', '--binary'}) &&
+      names.containsAll({'--model', '--binary'}) &&
+      (names.contains('--chat-template') ||
+          names.contains('--chat-template-file')) &&
       !names.contains('--tokenizer');
 
   /// The unified memory planner replaces these controls. Older custom engines
@@ -147,6 +160,7 @@ class EngineParameterRecognition {
     '--max-context': '最大上下文；auto 或正整数，可用 K（1024）或 M（1000000）',
     '--max-memory': '最大内存；auto 或容量，带 K/M/G 单位时支持小数',
     '--kv-format': 'KV 缓存格式：int8、bf16、q4h、q4_0 或 q4_0_unrotated',
+    '--state-format': '循环状态格式，支持的取值以引擎帮助为准',
     '--activations': '激活精度，支持的取值以引擎帮助为准',
     '--queue-size': '同时接纳请求数，包含运行和等待的请求',
     '--help': '显示当前引擎帮助',
@@ -345,7 +359,7 @@ class EngineParameterRecognition {
             .where(
               (name) =>
                   !observedNames.contains(name) &&
-                  name != '--activations' &&
+                  !const {'--activations', '--state-format'}.contains(name) &&
                   !(family == EngineFamily.splash &&
                       name == '--tokenizer' &&
                       _splashModelRootTokenizer(observedNames)),
@@ -402,13 +416,11 @@ class EngineParameterRecognition {
     );
     if (matches.length == 1) return matches.single;
     // Recognize saved abbreviations before rereading the installed CLI help.
-    if (matches.isEmpty &&
-        '--activations'.startsWith(name) &&
-        parameters.keys
-                .where((option) => option.startsWith(name))
-                .singleOrNull ==
-            '--activations') {
-      return '--activations';
+    if (matches.isEmpty) {
+      final known = parameters.keys
+          .where((option) => option.startsWith(name))
+          .singleOrNull;
+      if (known == '--activations' || known == '--state-format') return known!;
     }
     return name;
   }

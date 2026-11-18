@@ -17,6 +17,53 @@ const _q4hHelp =
     '$splash16Help\n  --activations {auto,bf16,q4h}  Activation precision\n';
 
 void main() {
+  test(
+    'a restored Splash launch reads help before applying saved 1.7 options',
+    () async {
+      final fixture = await SplashRuntimeFixture.create(helpOutput: _help);
+      addTearDown(fixture.close);
+      final unread = await SplashEngine.inspectInstallation(
+        fixture.source,
+        io: fixture.io,
+      );
+      expect(unread.recognition.hasObservedHelp, isFalse);
+      final engine = fixture.engine(installation: unread);
+      addTearDown(engine.close);
+      addTearDown(engine.shutdown);
+      fixture.io.helpOutput =
+          '$_help\n'
+          '  --chat-template-file FILE  Jinja template\n'
+          '  --cached-states {int8,exact}  cache precision\n'
+          '  --reasoning-effort EFFORT  force effort\n';
+      final configuration = EngineLaunchConfiguration(
+        family: EngineFamily.splash,
+        formValues: {
+          '--cached-states': 'exact',
+          '--chat-template': '/templates/custom.jinja',
+        },
+        argumentText: '--reasoning-effort=none',
+        drafter: const DrafterConfiguration(enabled: false),
+      );
+      final run = await engine.startWithConfiguration(
+        fixture.asset.id,
+        configuration,
+      );
+      final argv = fixture.io.launchArguments.last;
+      expect(
+        argv,
+        containsAllInOrder([
+          '--cached-states',
+          'exact',
+          '--chat-template-file',
+          '/templates/custom.jinja',
+          '--reasoning-effort=none',
+        ]),
+      );
+      expect(argv, isNot(contains('--chat-template')));
+      await engine.stop(run.id);
+    },
+  );
+
   final current = EngineParameterRecognition.fromHelp(
     _help,
     family: EngineFamily.splash,
@@ -195,6 +242,63 @@ void main() {
       await engine.stop(run.id);
     }
   });
+
+  test(
+    'Q4H recurrent state follows current help and preserves text overrides',
+    () async {
+      final stateHelp = _help.replaceAll('{fp32,bf16}', '{fp32,bf16,q4h}');
+      final fixture = await SplashRuntimeFixture.create(helpOutput: stateHelp);
+      addTearDown(fixture.close);
+      final engine = fixture.engine();
+      addTearDown(engine.close);
+      addTearDown(engine.shutdown);
+
+      for (final (help, formValue, text, expected) in [
+        (stateHelp, 'q4h', '', 'q4h'),
+        (stateHelp, 'bf16', '--state-format=q4h', 'q4h'),
+        (_help, 'q4h', '', null),
+        (_help, 'bf16', '--state-format q4h', null),
+        (_help, 'q4h', '--state-format fp32', 'fp32'),
+        (stateHelp, null, '', null),
+      ]) {
+        fixture.io.helpOutput = help;
+        final config = EngineLaunchConfiguration(
+          family: EngineFamily.splash,
+          formValues: {
+            '--kv-format': 'q4h',
+            '--activations': 'auto',
+            '--state-format': ?formValue,
+          },
+          argumentText: text,
+          drafter: const DrafterConfiguration(enabled: false),
+        );
+        final run = await engine.startWithConfiguration(
+          fixture.asset.id,
+          config,
+        );
+        final argv = fixture.io.launchArguments.last;
+        final stateArguments = [
+          for (var i = 0; i < argv.length; i++)
+            if (argv[i] == '--state-format')
+              argv[i + 1]
+            else if (argv[i].startsWith('--state-format='))
+              argv[i].split('=').last,
+        ];
+        expect(stateArguments, [?expected]);
+        expect(argv, containsAllInOrder(['--kv-format', 'q4h']));
+        expect(argv, isNot(contains('--activations')));
+        expect(config.formValues['--state-format'], formValue);
+        expect(config.argumentText, text);
+        if (expected == null && formValue != null) {
+          expect(
+            engine.actualCommandFor(run.id)!.notices,
+            contains(contains('--state-format q4h')),
+          );
+        }
+        await engine.stop(run.id);
+      }
+    },
+  );
 
   test(
     'start sends explicit BF16 only when current help supports it',

@@ -47,6 +47,11 @@ class RuntimeTelemetry {
     this.decodePerSecond,
     this.prefillSeconds,
     this.decodeSeconds,
+    this.diskWrittenHourBytes,
+    this.diskWrittenDayBytes,
+    this.idleCachedCells,
+    this.ttftUnitWaitP50Ms,
+    this.reasoningEffort,
     List<RequestProgress> requests = const [],
     this.notice,
   }) : requests = List.unmodifiable(requests);
@@ -68,6 +73,11 @@ class RuntimeTelemetry {
   final double? decodePerSecond;
   final double? prefillSeconds;
   final double? decodeSeconds;
+  final int? diskWrittenHourBytes;
+  final int? diskWrittenDayBytes;
+  final int? idleCachedCells;
+  final double? ttftUnitWaitP50Ms;
+  final String? reasoningEffort;
   final List<RequestProgress> requests;
   final String? notice;
 
@@ -91,6 +101,10 @@ class RuntimeTelemetry {
     final scheduler = _map(row['scheduler']);
     final metrics = _map(row['metrics']);
     final totals = _map(row['requests']);
+    final disk = _map(row['disk']);
+    final state = _map(row['state']);
+    final unitWait = _map(_map(metrics['ttft_parts_ms'])['unit_wait']);
+    final reasoningEffort = row['reasoning_effort'];
     final encoder = _map(row['telemetry']);
     final isEncoder =
         row['generation'] == false ||
@@ -174,6 +188,15 @@ class RuntimeTelemetry {
           ? _number(encoder['total_prefill_wall_seconds'])
           : _seconds(metrics['prefill_wall_ms']),
       decodeSeconds: isEncoder ? null : _seconds(metrics['decode_wall_ms']),
+      diskWrittenHourBytes: _int(disk['written_last_hour_bytes']),
+      diskWrittenDayBytes: _int(disk['written_last_day_bytes']),
+      idleCachedCells: _int(state['idle_cached_cells']),
+      ttftUnitWaitP50Ms: (_int(unitWait['samples']) ?? 0) > 0
+          ? _number(unitWait['p50'])
+          : null,
+      reasoningEffort: reasoningEffort is String && reasoningEffort.isNotEmpty
+          ? reasoningEffort
+          : null,
       requests: progress,
       notice: isEncoder && nativeRequests is! List
           ? '当前引擎未提供评分任务阶段和队列；更新 Splash 后可读取。'

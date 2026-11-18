@@ -296,6 +296,9 @@ class GenerationSettingsFields extends StatelessWidget {
       key: ValueKey('$parameterPrefix:${f.name}'),
       id: '$parameterPrefix:${f.name}',
       definition: f,
+      parameterName: templateControl
+          ? 'chat_template_kwargs.${f.name}'
+          : f.name,
       value: mode == ParameterValueMode.off ? neutral : value,
       valueMode: mode,
       valueModeChoices: budget
@@ -590,6 +593,10 @@ class _ParameterEditorState extends State<ParameterEditor> {
   };
   void _setForm(String key, Object? value) {
     final next = Map<String, String>.from(widget.formValues);
+    if (key == '--chat-template-file' &&
+        widget.recognition?.usesSplashChatTemplateFile == true) {
+      next.remove('--chat-template');
+    }
     if (value == null) {
       next.remove(key);
     } else if (value is List) {
@@ -640,6 +647,11 @@ class _ParameterEditorState extends State<ParameterEditor> {
 
   String? _loadingNotice(EngineParameterDefinition field) {
     if (widget.family != EngineFamily.splash) return null;
+    if (field.name == '--reasoning-effort' &&
+        (_loadingValue('--reasoning-effort')?.isNotEmpty ?? false) &&
+        (_loadingValue('--default-reasoning-effort')?.isNotEmpty ?? false)) {
+      return '强制思考强度与服务默认思考强度不能同时设置，请清空其中一项。';
+    }
     if (field.name == '--prompt-lookup-min-match') {
       return _loadingValue('--prompt-lookup') == 'off'
           ? '提示查找关闭，本项当前不适用；已填值会保留。'
@@ -731,10 +743,12 @@ class _ParameterEditorState extends State<ParameterEditor> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(f.label),
+          ParameterCommandLabel(command: f.name),
           for (final (index, hint) in f.valueHints.indexed)
             ParameterValueField(
               key: ValueKey('loading:${f.name}:$index'),
               id: '${f.name}:$index',
+              showParameterName: false,
               definition: EngineParameterDefinition(
                 f.name,
                 hint,
@@ -767,6 +781,10 @@ class _ParameterEditorState extends State<ParameterEditor> {
       );
     }
     Object? value = widget.formValues[f.name];
+    if (f.name == '--chat-template-file' &&
+        widget.recognition?.usesSplashChatTemplateFile == true) {
+      value ??= widget.formValues['--chat-template'];
+    }
     if (_invertedFlags.contains(f.name) && ['true', 'false'].contains(value)) {
       value = value != 'true';
     }
@@ -777,8 +795,13 @@ class _ParameterEditorState extends State<ParameterEditor> {
         value = [value];
       }
     }
+    final unsupportedModernOption =
+        widget.family == EngineFamily.splash &&
+        EngineParameterDefinitions.splashModernOptions.contains(f.name) &&
+        widget.recognition?.supportsSplashOption(f.name) != true;
     final disabled =
         !widget.enabled ||
+        unsupportedModernOption ||
         f.name == '--activations' &&
             widget.recognition?.supportsSplashActivations != true ||
         f.name == '--experimental-quantized-ffn' &&
@@ -810,6 +833,7 @@ class _ParameterEditorState extends State<ParameterEditor> {
           onChanged: (v) => _setForm(f.name, v),
         ),
         if (notice != null) _notice(notice),
+        if (unsupportedModernOption) _notice('当前引擎帮助尚未确认支持此参数。已保存的值会保留。'),
         if (f.name == '--activations' &&
             widget.recognition?.supportsSplashActivations != true)
           _notice('当前引擎帮助未确认支持激活精度设置。'),
@@ -817,6 +841,10 @@ class _ParameterEditorState extends State<ParameterEditor> {
             value == 'q4h' &&
             widget.recognition?.supportsSplashQ4hActivations != true)
           _notice('已保留 Q4H 激活设置。当前引擎帮助未确认支持，本次启动省略该值。'),
+        if (f.name == '--state-format' &&
+            value == 'q4h' &&
+            widget.recognition?.supportsSplashQ4hState != true)
+          _notice('已保留 Q4H 循环状态设置。当前引擎帮助未确认支持，本次启动省略该值。'),
         if (f.name == '--experimental-quantized-ffn') ...[
           if (widget.recognition?.recognizes(f.name) != true) ...[
             _notice('当前引擎不支持或尚未确认支持实验性量化 FFN，不传递此参数。'),
@@ -910,6 +938,7 @@ class _ParameterEditorState extends State<ParameterEditor> {
         ),
         ParameterValueField(
           id: 'drafter-path',
+          parameterName: splash ? null : '--spec-draft-model',
           definition: EngineParameterDefinition(
             'drafter-path',
             splash
@@ -936,7 +965,15 @@ class _ParameterEditorState extends State<ParameterEditor> {
             padding: const EdgeInsets.symmetric(vertical: 10),
             child: Row(
               children: [
-                const Expanded(child: Text('草稿模式')),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('草稿模式'),
+                      ParameterCommandLabel(command: '--spec-type'),
+                    ],
+                  ),
+                ),
                 SizedBox(
                   width: 230,
                   child: InputDecorator(
@@ -1156,7 +1193,18 @@ class _ParameterEditorState extends State<ParameterEditor> {
         children: [
           _notice('监听、模型身份、原生程序和运行目录由软件分配；实际命令在启动时记录。'),
           for (final f in _definitions.where((f) => f.managed && _matches(f)))
-            _statusRow(f.label, f.help.isEmpty ? '由 GMD 管理' : f.help),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(f.label, style: Theme.of(context).textTheme.bodyMedium),
+                  ParameterCommandLabel(command: f.name),
+                  if (f.help.isNotEmpty)
+                    Text(f.help, style: Theme.of(context).textTheme.bodySmall),
+                ],
+              ),
+            ),
         ],
       );
     }

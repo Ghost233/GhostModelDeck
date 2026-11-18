@@ -48,7 +48,8 @@ void main() {
       final (fixture, cpp, catalog) = (await tester.runAsync(() async {
         final fixture = await SplashRuntimeFixture.create(
           helpOutput:
-              '$splashCurrentHelp\n  --activations {auto,bf16,q4h}  Activation precision\n',
+              '${splashCurrentHelp.replaceAll('{fp32,bf16}', '{fp32,bf16,q4h}')}'
+              '\n  --activations {auto,bf16,q4h}  Activation precision\n',
         );
         final cpp = LlamaEngine(
           library: fixture.library,
@@ -122,6 +123,7 @@ void main() {
                 expect(configuration.family, EngineFamily.splash);
                 expect(configuration.drafter!.enabled, isTrue);
                 expect(configuration.formValues['--kv-format'], 'q4h');
+                expect(configuration.formValues['--state-format'], 'q4h');
                 expect(configuration.formValues['--activations'], 'q4h');
                 expect(configuration.formValues['--idle-release'], '90s');
                 expect(
@@ -325,6 +327,26 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('q4h').last);
       await tester.pumpAndSettle();
+      final stateFormat = find.byKey(
+        const Key('parameter-choice:--state-format'),
+      );
+      await Scrollable.ensureVisible(
+        tester.element(stateFormat),
+        alignment: .5,
+      );
+      await tester.pumpAndSettle();
+      final stateDropdown = tester.widget<DropdownButton<String>>(stateFormat);
+      expect(stateDropdown.value, '');
+      expect(stateDropdown.items!.map((item) => item.value), [
+        '',
+        'fp32',
+        'bf16',
+        'q4h',
+      ]);
+      await tester.tap(stateFormat);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Q4H（4 位循环状态）').last);
+      await tester.pumpAndSettle();
       final idleChoices = find.byKey(
         const Key('parameter-choice:--idle-release'),
       );
@@ -375,7 +397,8 @@ void main() {
       final savedBeforeCancel = jsonEncode(savedConfiguration!.toJson());
       var unexpectedSave = false;
       fixture.io.helpOutput =
-          '$splashCurrentHelp\n  --activations {auto,bf16}  Activation precision\n';
+          '${splashCurrentHelp.replaceAll('{fp32,bf16}', '{fp32,bf16,q4h}')}'
+          '\n  --activations {auto,bf16}  Activation precision\n';
       await tester.runAsync(() async {
         unawaited(
           showDialog<void>(
@@ -411,6 +434,13 @@ void main() {
           await Future<void>.delayed(const Duration(milliseconds: 5));
         }
       });
+      await selectParameterGroup(tester, '上下文与内存');
+      final reopenedState = tester.widget<DropdownButton<String>>(stateFormat);
+      expect(reopenedState.value, 'q4h');
+      expect(
+        reopenedState.items!.singleWhere((item) => item.value == 'q4h').enabled,
+        isTrue,
+      );
       await selectParameterGroup(tester, '计算与 ANE');
       final activationDropdown = tester.widget<DropdownButton<String>>(
         activation,
@@ -443,7 +473,9 @@ void main() {
           if (tester
               .widgetList<SelectableText>(find.byType(SelectableText))
               .any(
-                (text) => text.data?.contains('--compact-draft-h=on') ?? false,
+                (text) =>
+                    text.data?.contains('--compact-draft-h=on') == true &&
+                    text.data?.contains('--state-format q4h') == true,
               )) {
             return;
           }

@@ -5,6 +5,7 @@ import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 
+import 'engine_parameter_definitions.dart';
 import 'engine_parameter_recognition.dart';
 import 'engine_runtime.dart';
 import 'engine_logs.dart';
@@ -934,12 +935,23 @@ class SplashEngine
       if (_shuttingDown) throw const SplashEngineException('Splash正在退出');
       final activation = configuration.formValues['--activations'];
       final recognition = _installation.recognition;
+      const versionedOptions = {
+        ...EngineParameterDefinitions.splashModernOptions,
+        '--chat-template',
+      };
       if (activation != null && activation.isNotEmpty && activation != 'auto' ||
-          parseLaunchArgumentText(configuration.argumentText).any(
-            (token) =>
-                recognition.canonicalName(token.value.split('=').first) ==
-                '--activations',
-          )) {
+          configuration.formValues['--state-format'] == 'q4h' ||
+          versionedOptions.any(
+            (name) => configuration.formValues[name]?.isNotEmpty == true,
+          ) ||
+          parseLaunchArgumentText(configuration.argumentText).any((token) {
+            final name = recognition.canonicalName(
+              token.value.split('=').first,
+            );
+            return versionedOptions.contains(name) ||
+                name == '--activations' ||
+                name == '--state-format';
+          })) {
         // Saved instances can start before any editor has read current help.
         _installation = await inspectInstallation(
           _installation.root,
